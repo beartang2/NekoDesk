@@ -1,0 +1,14 @@
+{
+  "name": "nekodesk",
+  "version": "0.1.0",
+  "description": "ASCII cat pet + personal dashboard for the terminal",
+  "type": "module",
+  "bin": {
+    "nekodesk": "./bin/nekodesk.js"
+  },
+  "scripts": {
+    "start": "node ./bin/nekodesk.js",
+    "test": "node --test",
+    "smoke": "node ./bin/nekodesk.js --once \"도움말\""
+  }
+}
