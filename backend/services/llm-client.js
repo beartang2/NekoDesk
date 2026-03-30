@@ -10,28 +10,41 @@ export class LLMClient {
   async chat(messages, systemPrompt) {
     try {
       const response = await this.#callChatApi(
-        systemPrompt,
+        systemPrompt || this.config.chatSystemPrompt,
         messages.map((message) => ({
           role: message.role,
           content: message.content
-        }))
+        })),
+        {
+          temperature: this.config.chatTemperature,
+          maxTokens: this.config.maxTokens
+        }
       );
-      return response || "지금은 잠깐 생각이 꼬였어. 다시 한 번 말해줄래?";
+      return response || this.config.fallbackReply;
     } catch {
-      return "LLM 서버와 연결되지 않았어. 메모나 할 일 같은 로컬 기능은 계속 사용할 수 있어.";
+      return this.config.connectionErrorReply;
     }
   }
 
-  async parseIntent(input) {
+  async parseIntent(input, context = {}) {
     try {
+      const contextLines = [
+        `activeView: ${context.activeView || "chat"}`,
+        `currentLocalDateTime: ${context.currentDateTime || new Date().toISOString()}`,
+        `timezone: ${context.timezone || "UTC"}`
+      ].join("\n");
       const content = await this.#callChatApi(
+        this.config.intentSystemPrompt,
         [
-          "You classify terminal assistant intents.",
-          "Return strict JSON only.",
-          'Schema: {"type":"chat|github.overview|schedule.listUpcoming|schedule.listDay|memo.list|todo.list|help","confidence":0.0,"params":{}}'
-        ].join("\n"),
-        [{ role: "user", content: input }],
-        { temperature: 0.1 }
+          {
+            role: "user",
+            content: `${contextLines}\nuserInput: ${input}`
+          }
+        ],
+        {
+          temperature: this.config.intentTemperature,
+          maxTokens: this.config.maxTokens
+        }
       );
       const parsed = JSON.parse(stripCodeFence(content));
       if (!parsed || typeof parsed.type !== "string") {
@@ -52,19 +65,27 @@ export class LLMClient {
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
     try {
-      const response = await fetch(`${this.config.baseUrl}/v1/chat/completions`, {
+      const body = {
+        ...this.config.requestBody,
+        model: options.model || this.config.model,
+        temperature: options.temperature ?? this.config.chatTemperature,
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...messages
+        ]
+      };
+
+      if (options.maxTokens !== undefined) {
+        body.max_tokens = options.maxTokens;
+      }
+
+      const response = await fetch(resolveApiUrl(this.config.baseUrl, this.config.apiPath), {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          ...this.config.headers
         },
-        body: JSON.stringify({
-          model: this.config.model,
-          temperature: options.temperature ?? 0.3,
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...messages
-          ]
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal
       });
 
@@ -78,4 +99,8 @@ export class LLMClient {
       clearTimeout(timeout);
     }
   }
+}
+
+function resolveApiUrl(baseUrl, apiPath) {
+  return new URL(apiPath, `${baseUrl}/`).toString();
 }

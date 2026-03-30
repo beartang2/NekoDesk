@@ -43,8 +43,21 @@ npm test
 - `NEKODESK_HOME`: 기본 앱 데이터 디렉터리 변경
 - `NEKODESK_DB_PATH`: SQLite DB 파일 경로 직접 지정
 - `NEKODESK_LLM_URL`: LLM 서버 주소, 기본값 `http://127.0.0.1:8803`
+- `NEKODESK_LLM_API_PATH`: OpenAI-compatible chat endpoint 경로, 기본값 `/v1/chat/completions`
 - `NEKODESK_LLM_MODEL`: 모델 이름, 기본값 `Qwen3 8B Q4_K_M`
 - `NEKODESK_LLM_TIMEOUT_MS`: LLM 요청 타임아웃 밀리초
+- `NEKODESK_LLM_HISTORY_LIMIT`: 대화 컨텍스트에 포함할 최근 메시지 개수
+- `NEKODESK_LLM_CHAT_TEMPERATURE`: 일반 대화 temperature
+- `NEKODESK_LLM_INTENT_TEMPERATURE`: intent 분류 temperature
+- `NEKODESK_LLM_MAX_TOKENS`: 최대 출력 토큰 수
+- `NEKODESK_LLM_HEADERS_JSON`: 추가 HTTP 헤더 JSON
+- `NEKODESK_LLM_BODY_JSON`: 추가 request body JSON
+- `NEKODESK_LLM_CHAT_SYSTEM_PROMPT`: 기본 대화 system prompt 텍스트
+- `NEKODESK_LLM_INTENT_SYSTEM_PROMPT`: intent 분류 system prompt 텍스트
+- `NEKODESK_LLM_CHAT_SYSTEM_PROMPT_FILE`: 대화 prompt 파일 경로
+- `NEKODESK_LLM_INTENT_SYSTEM_PROMPT_FILE`: intent prompt 파일 경로
+- `NEKODESK_LLM_FALLBACK_REPLY`: 모델 응답이 비었을 때 사용할 문구
+- `NEKODESK_LLM_CONNECTION_ERROR_REPLY`: LLM 연결 실패 시 문구
 
 기본 저장 위치는 `./.nekodesk/nekodesk.sqlite` 입니다.
 

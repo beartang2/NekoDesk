@@ -35,12 +35,23 @@ export async function createAppController() {
   };
 
   return {
-    async getViewModel() {
+    async getViewModel(options = {}) {
       const dashboard = await buildDashboard(repositories, githubClient);
+      const activeView = options.activeView || "chat";
       return {
+        activeView,
         dashboard,
+        panels: {
+          memo: { title: "memo", lines: dashboard.memos.length ? dashboard.memos : ["(empty)"] },
+          todo: { title: "todo", lines: dashboard.todos.length ? dashboard.todos : ["(empty)"] },
+          schedule: { title: "schedule", lines: dashboard.events.length ? dashboard.events : ["(empty)"] },
+          github: { title: "github", lines: dashboard.github.length ? dashboard.github : ["(empty)"] }
+        },
         petMood: currentMood(state),
         lastReply: state.lastReply,
+        meta: {
+          llmEndpoint: config.llm.baseUrl
+        },
         hints: [
           "도움말: help",
           "종료: exit",
@@ -48,21 +59,21 @@ export async function createAppController() {
         ]
       };
     },
-    async handleInput(input) {
+    async handleInput(input, options = {}) {
       state.petMood = "working";
-      const intent = await routeIntent(input, llmClient);
+      const activeView = options.activeView || "chat";
+      const intent = await routeIntent(input, llmClient, {
+        activeView,
+        currentDateTime: new Date().toISOString()
+      });
 
       if (intent.confidence < 0.65) {
-        state.petMood = "error";
-        state.lastReply = "조금 애매했어. 더 구체적으로 말해줄래?";
-        return {
-          reply: state.lastReply,
-          petMood: state.petMood,
-          intent
-        };
+        intent.type = "chat";
+        intent.params = { message: input.trim() };
+        intent.confidence = 0.5;
       }
 
-      const result = await executeIntent(intent, repositories, githubClient, llmClient, state, input);
+      const result = await executeIntent(intent, repositories, githubClient, llmClient, config.llm, state, input);
       state.lastInteractionAt = Date.now();
       state.lastReply = result.reply;
       state.petMood = result.petMood;
@@ -74,7 +85,7 @@ export async function createAppController() {
   };
 }
 
-async function executeIntent(intent, repositories, githubClient, llmClient, state, rawInput) {
+async function executeIntent(intent, repositories, githubClient, llmClient, llmConfig, state, rawInput) {
   switch (intent.type) {
     case "system.exit":
       return { reply: "다음에 또 불러줘.", petMood: "happy", shouldExit: true };
@@ -149,14 +160,7 @@ async function executeIntent(intent, repositories, githubClient, llmClient, stat
     case "chat":
     default: {
       state.conversation.push({ role: "user", content: rawInput });
-      const content = await llmClient.chat(
-        state.conversation.slice(-8),
-        [
-          "You are NekoDesk, a cute but practical terminal cat assistant.",
-          "Keep replies concise.",
-          "You can chat, but never claim that you changed GitHub or calendar data unless the app explicitly did so."
-        ].join("\n")
-      );
+      const content = await llmClient.chat(state.conversation.slice(-llmConfig.historyLimit));
       state.conversation.push({ role: "assistant", content });
       return { reply: content, petMood: "idle" };
     }
