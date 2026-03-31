@@ -2,13 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   DEFAULT_CHAT_FALLBACK_REPLY,
+  DEFAULT_CHAT_TEMPERATURE,
   DEFAULT_CHAT_SYSTEM_PROMPT,
   DEFAULT_CONNECTION_ERROR_REPLY,
+  DEFAULT_GITHUB_QUERY_SYSTEM_PROMPT,
   DEFAULT_HISTORY_LIMIT,
+  DEFAULT_INTENT_MAX_TOKENS,
   DEFAULT_INTENT_SYSTEM_PROMPT,
   DEFAULT_INTENT_TEMPERATURE,
-  DEFAULT_CHAT_TEMPERATURE,
-  DEFAULT_LLM_API_PATH
+  DEFAULT_LLM_API_PATH,
+  DEFAULT_TOOL_PLAN_MAX_TOKENS,
+  DEFAULT_TOOL_PLAN_SYSTEM_PROMPT,
+  DEFAULT_TOOL_PLAN_TEMPERATURE,
 } from "./services/llm-defaults.js";
 
 const appHome = process.env.NEKODESK_HOME || path.join(process.cwd(), ".nekodesk");
@@ -38,6 +43,18 @@ export function loadConfig() {
         process.env.NEKODESK_LLM_INTENT_TEMPERATURE,
         DEFAULT_INTENT_TEMPERATURE
       ),
+      intentMaxTokens: parseNumber(
+        process.env.NEKODESK_LLM_INTENT_MAX_TOKENS,
+        DEFAULT_INTENT_MAX_TOKENS
+      ),
+      toolPlanTemperature: parseNumber(
+        process.env.NEKODESK_LLM_TOOL_PLAN_TEMPERATURE,
+        DEFAULT_TOOL_PLAN_TEMPERATURE
+      ),
+      toolPlanMaxTokens: parseNumber(
+        process.env.NEKODESK_LLM_TOOL_PLAN_MAX_TOKENS,
+        DEFAULT_TOOL_PLAN_MAX_TOKENS
+      ),
       maxTokens: parseOptionalNumber(process.env.NEKODESK_LLM_MAX_TOKENS),
       headers: safeParseJson(process.env.NEKODESK_LLM_HEADERS_JSON, {}),
       requestBody: safeParseJson(process.env.NEKODESK_LLM_BODY_JSON, {}),
@@ -46,10 +63,24 @@ export function loadConfig() {
         "NEKODESK_LLM_CHAT_SYSTEM_PROMPT_FILE",
         DEFAULT_CHAT_SYSTEM_PROMPT
       ),
+      githubQuerySystemPrompt: readTextOverride(
+        "NEKODESK_LLM_GITHUB_QUERY_SYSTEM_PROMPT",
+        "NEKODESK_LLM_GITHUB_QUERY_SYSTEM_PROMPT_FILE",
+        DEFAULT_GITHUB_QUERY_SYSTEM_PROMPT
+      ),
       intentSystemPrompt: readTextOverride(
         "NEKODESK_LLM_INTENT_SYSTEM_PROMPT",
         "NEKODESK_LLM_INTENT_SYSTEM_PROMPT_FILE",
         DEFAULT_INTENT_SYSTEM_PROMPT
+      ),
+      toolPlanSystemPrompt: readTextOverride(
+        "NEKODESK_LLM_TOOL_PLAN_SYSTEM_PROMPT",
+        "NEKODESK_LLM_TOOL_PLAN_SYSTEM_PROMPT_FILE",
+        DEFAULT_TOOL_PLAN_SYSTEM_PROMPT
+      ),
+      narrateActionReplies: parseBoolean(
+        process.env.NEKODESK_LLM_NARRATE_ACTION_REPLIES,
+        true
       ),
       fallbackReply:
         process.env.NEKODESK_LLM_FALLBACK_REPLY || DEFAULT_CHAT_FALLBACK_REPLY,
@@ -135,6 +166,22 @@ function parseOptionalNumber(value) {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseBoolean(value, fallback) {
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+
+  if (["1", "true", "yes", "on"].includes(String(value).toLowerCase())) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(String(value).toLowerCase())) {
+    return false;
+  }
+
+  return fallback;
 }
 
 function trimTrailingSlash(value) {

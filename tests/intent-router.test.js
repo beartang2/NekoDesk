@@ -18,13 +18,45 @@ test("passes active view context into llm parsing", async () => {
   assert.equal(captured.context.activeView, "memo");
 });
 
-test("keeps explicit help as system command", async () => {
-  const result = await routeIntent("help", { async parseIntent() { return null; } });
+test("handles explicit help locally without llm parsing", async () => {
+  let called = false;
+  const result = await routeIntent("/help", {
+    async parseIntent() {
+      called = true;
+      return { type: "chat", confidence: 0.5, params: {} };
+    }
+  });
+
+  assert.equal(called, false);
   assert.equal(result.type, "help");
+});
+
+test("handles explicit exit locally without llm parsing", async () => {
+  let called = false;
+  const result = await routeIntent("/exit", {
+    async parseIntent() {
+      called = true;
+      return { type: "chat", confidence: 0.5, params: {} };
+    }
+  });
+
+  assert.equal(called, false);
+  assert.equal(result.type, "system.exit");
 });
 
 test("falls back to chat when llm returns null", async () => {
   const result = await routeIntent("그냥 이야기하자", { async parseIntent() { return null; } });
   assert.equal(result.type, "chat");
   assert.equal(result.confidence, 0.5);
+});
+
+test("downgrades unsafe llm system.exit to chat", async () => {
+  const result = await routeIntent("메모 지워줘", {
+    async parseIntent() {
+      return { type: "system.exit", confidence: 0.92, params: {} };
+    }
+  });
+
+  assert.equal(result.type, "chat");
+  assert.equal(result.confidence, 0.4);
 });

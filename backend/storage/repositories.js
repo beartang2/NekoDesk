@@ -13,6 +13,27 @@ export function createRepositories(db) {
     ORDER BY updated_at DESC
     LIMIT ?
   `);
+  const findMemoByIdStmt = db.prepare(`
+    SELECT id, title, content, tags, created_at, updated_at
+    FROM memos
+    WHERE id = ?
+  `);
+  const findMemoByContentStmt = db.prepare(`
+    SELECT id, title, content, tags, created_at, updated_at
+    FROM memos
+    WHERE lower(content) LIKE lower(?)
+    ORDER BY updated_at DESC, id DESC
+    LIMIT 1
+  `);
+  const deleteMemoStmt = db.prepare(`
+    DELETE FROM memos WHERE id = ?
+  `);
+  const countMemosStmt = db.prepare(`
+    SELECT COUNT(*) AS count FROM memos
+  `);
+  const deleteAllMemosStmt = db.prepare(`
+    DELETE FROM memos
+  `);
 
   const addTodoStmt = db.prepare(`
     INSERT INTO todos (content, status, priority, due_at, created_at, completed_at)
@@ -40,6 +61,21 @@ export function createRepositories(db) {
   const completeTodoStmt = db.prepare(`
     UPDATE todos SET status = 'done', completed_at = ? WHERE id = ?
   `);
+  const deleteTodoStmt = db.prepare(`
+    DELETE FROM todos WHERE id = ?
+  `);
+  const countTodosStmt = db.prepare(`
+    SELECT COUNT(*) AS count FROM todos
+  `);
+  const deleteAllTodosStmt = db.prepare(`
+    DELETE FROM todos
+  `);
+  const countCompletedTodosStmt = db.prepare(`
+    SELECT COUNT(*) AS count FROM todos WHERE status = 'done'
+  `);
+  const deleteCompletedTodosStmt = db.prepare(`
+    DELETE FROM todos WHERE status = 'done'
+  `);
 
   const addEventStmt = db.prepare(`
     INSERT INTO events (title, start_at, end_at, notes, all_day, created_at)
@@ -57,6 +93,27 @@ export function createRepositories(db) {
     FROM events
     WHERE start_at >= ? AND start_at < ?
     ORDER BY start_at ASC
+  `);
+  const findEventByIdStmt = db.prepare(`
+    SELECT id, title, start_at, end_at, notes, all_day, created_at
+    FROM events
+    WHERE id = ?
+  `);
+  const findEventByTitleStmt = db.prepare(`
+    SELECT id, title, start_at, end_at, notes, all_day, created_at
+    FROM events
+    WHERE lower(title) LIKE lower(?)
+    ORDER BY start_at ASC, id ASC
+    LIMIT 1
+  `);
+  const deleteEventStmt = db.prepare(`
+    DELETE FROM events WHERE id = ?
+  `);
+  const countEventsStmt = db.prepare(`
+    SELECT COUNT(*) AS count FROM events
+  `);
+  const deleteAllEventsStmt = db.prepare(`
+    DELETE FROM events
   `);
 
   const setSettingStmt = db.prepare(`
@@ -98,6 +155,30 @@ export function createRepositories(db) {
           createdAt: row.created_at,
           updatedAt: row.updated_at
         }));
+      },
+      delete(target) {
+        const row = /^\d+$/.test(target)
+          ? findMemoByIdStmt.get(Number(target))
+          : findMemoByContentStmt.get(`%${target}%`);
+        if (!row) {
+          return null;
+        }
+
+        deleteMemoStmt.run(row.id);
+        return {
+          id: row.id,
+          title: row.title,
+          content: row.content,
+          tags: safeParseJson(row.tags),
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        };
+      },
+      deleteAll() {
+        const row = countMemosStmt.get();
+        const deletedCount = Number(row?.count || 0);
+        deleteAllMemosStmt.run();
+        return { deletedCount };
       }
     },
     todos: {
@@ -127,6 +208,29 @@ export function createRepositories(db) {
         const completedAt = nowIso();
         completeTodoStmt.run(completedAt, row.id);
         return { id: row.id, content: row.content, status: "done", completedAt };
+      },
+      delete(target) {
+        const row = /^\d+$/.test(target)
+          ? findTodoByIdStmt.get(Number(target))
+          : findTodoByContentStmt.get(`%${target}%`);
+        if (!row) {
+          return null;
+        }
+
+        deleteTodoStmt.run(row.id);
+        return { id: row.id, content: row.content, status: row.status };
+      },
+      deleteAll() {
+        const row = countTodosStmt.get();
+        const deletedCount = Number(row?.count || 0);
+        deleteAllTodosStmt.run();
+        return { deletedCount };
+      },
+      deleteCompleted() {
+        const row = countCompletedTodosStmt.get();
+        const deletedCount = Number(row?.count || 0);
+        deleteCompletedTodosStmt.run();
+        return { deletedCount };
       }
     },
     events: {
@@ -155,6 +259,23 @@ export function createRepositories(db) {
       },
       listForDay(dayStartIso, nextDayIso) {
         return listEventsForDayStmt.all(dayStartIso, nextDayIso).map(mapEvent);
+      },
+      delete(target) {
+        const row = /^\d+$/.test(target)
+          ? findEventByIdStmt.get(Number(target))
+          : findEventByTitleStmt.get(`%${target}%`);
+        if (!row) {
+          return null;
+        }
+
+        deleteEventStmt.run(row.id);
+        return mapEvent(row);
+      },
+      deleteAll() {
+        const row = countEventsStmt.get();
+        const deletedCount = Number(row?.count || 0);
+        deleteAllEventsStmt.run();
+        return { deletedCount };
       }
     },
     settings: {

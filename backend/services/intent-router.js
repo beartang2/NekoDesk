@@ -1,6 +1,6 @@
-const EXIT_PATTERN = /^(exit|quit|종료)$/i;
-const HELP_PATTERN = /^(help|도움말|명령어)$/i;
-const REFRESH_PATTERN = /^(refresh|새로고침|갱신)$/i;
+const EXIT_PATTERN = /^\/exit$/i;
+const HELP_PATTERN = /^\/help$/i;
+const REFRESH_PATTERN = /^\/refresh$/i;
 
 export async function routeIntent(input, llmClient, options = {}) {
   const trimmed = input.trim();
@@ -22,7 +22,7 @@ export async function routeIntent(input, llmClient, options = {}) {
   }
 
   if (REFRESH_PATTERN.test(trimmed)) {
-    return { type: "system.refresh", confidence: 0.95, params: {} };
+    return { type: "system.refresh", confidence: 1, params: {} };
   }
 
   const llmIntent = await llmClient.parseIntent(trimmed, {
@@ -32,6 +32,14 @@ export async function routeIntent(input, llmClient, options = {}) {
   });
 
   if (llmIntent) {
+    if (isUnsafeSystemIntent(llmIntent.type, trimmed)) {
+      return {
+        type: "chat",
+        confidence: 0.4,
+        params: { message: trimmed }
+      };
+    }
+
     return llmIntent;
   }
 
@@ -40,4 +48,20 @@ export async function routeIntent(input, llmClient, options = {}) {
     confidence: 0.5,
     params: { message: trimmed }
   };
+}
+
+function isUnsafeSystemIntent(type, input) {
+  if (type === "system.exit") {
+    return !EXIT_PATTERN.test(input);
+  }
+
+  if (type === "help") {
+    return !HELP_PATTERN.test(input);
+  }
+
+  if (type === "system.refresh") {
+    return !REFRESH_PATTERN.test(input);
+  }
+
+  return false;
 }
