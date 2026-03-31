@@ -9,7 +9,7 @@ async function main() {
 
   if (onceArgs[0] === "--once") {
     const input = onceArgs.slice(1).join(" ").trim();
-    const result = await controller.handleInput(input || "도움말");
+    const result = await controller.handleInput(input || "/help");
     process.stdout.write(`${result.reply}\n`);
     return;
   }
