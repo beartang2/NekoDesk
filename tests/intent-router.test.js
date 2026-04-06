@@ -50,6 +50,44 @@ test("falls back to chat when llm returns null", async () => {
   assert.equal(result.confidence, 0.5);
 });
 
+test("routes explicit DuckDuckGo-style search requests without llm parsing", async () => {
+  let called = false;
+  const result = await routeIntent("이 오류 메시지 웹에서 찾아봐", {
+    async parseIntent() {
+      called = true;
+      return { type: "chat", confidence: 0.5, params: {} };
+    }
+  });
+
+  assert.equal(called, false);
+  assert.equal(result.type, "web.search");
+  assert.equal(result.params.query, "이 오류 메시지 웹에서 찾아봐");
+});
+
+test("routes latest-news questions to web.search when they are outside local app data", async () => {
+  const result = await routeIntent("OpenAI 최신 뉴스 뭐야?", {
+    async parseIntent() {
+      return null;
+    }
+  });
+
+  assert.equal(result.type, "web.search");
+  assert.equal(result.params.query, "OpenAI 최신 뉴스 뭐야?");
+});
+
+test("does not hijack local schedule questions into web.search", async () => {
+  let called = false;
+  const result = await routeIntent("오늘 일정 보여줘", {
+    async parseIntent() {
+      called = true;
+      return { type: "schedule.listDay", confidence: 0.91, params: { day: "today" } };
+    }
+  });
+
+  assert.equal(called, true);
+  assert.equal(result.type, "schedule.listDay");
+});
+
 test("downgrades unsafe llm system.exit to chat", async () => {
   const result = await routeIntent("메모 지워줘", {
     async parseIntent() {

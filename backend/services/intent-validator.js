@@ -20,7 +20,8 @@ const ALLOWED_TYPES = new Set([
   "schedule.listUpcoming",
   "schedule.listDay",
   "github.overview",
-  "github.query"
+  "github.query",
+  "web.search"
 ]);
 
 export function validateIntent(intent, rawInput = "") {
@@ -72,6 +73,18 @@ export function validateIntent(intent, rawInput = "") {
             intent: {
               ...normalized,
               params: { question: normalized.params.question.trim() }
+            }
+          }
+        : invalidIntent();
+    case "web.search":
+      return hasText(normalized.params.query || normalized.params.question)
+        ? {
+            ok: true,
+            intent: {
+              ...normalized,
+              params: {
+                query: String(normalized.params.query || normalized.params.question).trim()
+              }
             }
           }
         : invalidIntent();

@@ -53,6 +53,7 @@ test("LLMClient chat() posts FastAPI /chat body", async () => {
     assert.equal(captured.init.method, "POST");
     assert.equal(captured.init.headers["Content-Type"], "application/json");
     assert.equal(body.system_prompt, "chat prompt");
+    assert.equal(body.model, "demo-model");
     assert.equal(body.active_view, "chat");
     assert.equal(body.temperature, 0.42);
     assert.equal(body.max_tokens, 256);
@@ -99,6 +100,7 @@ test("LLMClient planToolUse() sends tool planner request and parses structured t
 
     assert.equal(result.type, "memo.list");
     assert.equal(captured.system_prompt, "tool plan prompt");
+    assert.equal(captured.model, "demo-model");
     assert.equal(captured.temperature, 0.11);
     assert.equal(captured.max_tokens, 96);
     assert.match(captured.messages[0].content, /activeView: chat/);
@@ -135,6 +137,7 @@ test("LLMClient parseIntent() sends FastAPI body with intent prompt and view con
 
     assert.equal(result.type, "todo.list");
     assert.equal(captured.system_prompt, "intent prompt");
+    assert.equal(captured.model, "demo-model");
     assert.equal(captured.active_view, "todo");
     assert.equal(captured.temperature, 0.12);
     assert.equal(captured.max_tokens, 64);
@@ -239,6 +242,76 @@ test("LLMClient returns fallback reply when FastAPI response is empty", async ()
     const client = createClient();
     const reply = await client.chat([{ role: "user", content: "안녕" }]);
     assert.equal(reply, "fallback");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("LLMClient strips think-only replies and falls back when nothing remains", async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async () => ({
+    ok: true,
+    async json() {
+      return { content: "<think></think>" };
+    }
+  });
+
+  try {
+    const client = createClient();
+    const reply = await client.chat([{ role: "user", content: "오늘 한국 대전 날씨 어때?" }]);
+    assert.equal(reply, "fallback");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("LLMClient strips think blocks and keeps the visible answer", async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = async () => ({
+    ok: true,
+    async json() {
+      return { content: "<think>internal</think>대전은 오늘 흐리고 비 예보가 있어." };
+    }
+  });
+
+  try {
+    const client = createClient();
+    const reply = await client.chat([{ role: "user", content: "오늘 한국 대전 날씨 어때?" }]);
+    assert.equal(reply, "대전은 오늘 흐리고 비 예보가 있어.");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("LLMClient retries in Korean when a Korean conversation gets a Han-only reply", async () => {
+  const originalFetch = global.fetch;
+  const bodies = [];
+
+  global.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return {
+      ok: true,
+      async json() {
+        if (bodies.length === 1) {
+          return { content: "你好，我来帮你。" };
+        }
+
+        return { content: "안녕, 내가 도와줄게." };
+      }
+    };
+  };
+
+  try {
+    const client = createClient();
+    const reply = await client.chat([{ role: "user", content: "안녕" }]);
+
+    assert.equal(reply, "안녕, 내가 도와줄게.");
+    assert.equal(bodies.length, 2);
+    assert.match(bodies[1].system_prompt, /Do not answer in Chinese/i);
+    assert.equal(bodies[1].messages.at(-1).role, "user");
+    assert.match(bodies[1].messages.at(-1).content, /Rewrite your last reply in natural Korean only/i);
   } finally {
     global.fetch = originalFetch;
   }

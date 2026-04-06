@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Literal
 
 import httpx
@@ -11,9 +12,60 @@ from pydantic import BaseModel, Field
 router = APIRouter(tags=["chat"])
 
 
-LLAMA_CPP_BASE_URL = os.getenv("NEKODESK_LLAMA_BASE_URL", "http://127.0.0.1:8803").rstrip("/")
-LLAMA_CPP_API_PATH = os.getenv("NEKODESK_LLAMA_API_PATH", "/v1/chat/completions")
-DEFAULT_MODEL = os.getenv("NEKODESK_LLM_MODEL", "Qwen3 8B Q4_K_M")
+def load_env_files() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+
+    for env_path in (repo_root / ".env", repo_root / "backend" / ".env"):
+        if not env_path.exists():
+            continue
+
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            trimmed = line.strip()
+            if not trimmed or trimmed.startswith("#") or "=" not in trimmed:
+                continue
+
+            key, raw_value = trimmed.split("=", 1)
+            key = key.strip()
+            if not key or key in os.environ:
+                continue
+
+            os.environ[key] = strip_quotes(raw_value.strip())
+
+
+def strip_quotes(value: str) -> str:
+    if (value.startswith('"') and value.endswith('"')) or (
+        value.startswith("'") and value.endswith("'")
+    ):
+        return value[1:-1]
+
+    return value
+
+
+load_env_files()
+
+
+def normalize_model_name(value: str) -> str:
+    trimmed = value.strip()
+    if not trimmed:
+        return trimmed
+
+    basename = trimmed.replace("~/", "", 1).replace("\\", "/").rsplit("/", 1)[-1]
+    if basename.lower().endswith(".gguf"):
+        return basename[:-5]
+
+    return trimmed
+
+LLAMA_CPP_BASE_URL = (
+    os.getenv("NEKODESK_LLAMA_BASE_URL")
+    or os.getenv("NEKODESK_LLM_URL")
+    or "http://127.0.0.1:8803"
+).rstrip("/")
+LLAMA_CPP_API_PATH = (
+    os.getenv("NEKODESK_LLAMA_API_PATH")
+    or os.getenv("NEKODESK_LLM_API_PATH")
+    or "/v1/chat/completions"
+)
+DEFAULT_MODEL = normalize_model_name(os.getenv("NEKODESK_LLM_MODEL", "Qwen3 8B Q4_K_M"))
 DEFAULT_TIMEOUT_MS = int(os.getenv("NEKODESK_LLM_TIMEOUT_MS", "12000"))
 
 
@@ -42,6 +94,10 @@ class ChatResponse(BaseModel):
     provider: Literal["llama.cpp"] = "llama.cpp"
 
 
+class EmptyLlamaResponseError(RuntimeError):
+    pass
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     try:
@@ -62,6 +118,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
         return ChatResponse(content=content)
     except HTTPException:
         raise
+    except EmptyLlamaResponseError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
     except httpx.TimeoutException as error:
         raise HTTPException(status_code=504, detail=f"llama.cpp timed out after {request.timeout_ms}ms") from error
     except httpx.HTTPStatusError as error:
@@ -104,7 +162,18 @@ async def call_llama_cpp(
         )
         response.raise_for_status()
         payload = response.json()
-        return (payload.get("choices", [{}])[0].get("message", {}) or {}).get("content", "").strip()
+        message = (payload.get("choices", [{}])[0].get("message", {}) or {})
+        content = (message.get("content") or "").strip()
+        if content:
+            return content
+
+        reasoning_content = (message.get("reasoning_content") or "").strip()
+        if reasoning_content:
+            raise EmptyLlamaResponseError(
+                "llama.cpp returned reasoning_content without a final answer; restart llama-server with --reasoning off --reasoning-format none"
+            )
+
+        return ""
 
 
 def resolve_llama_cpp_url() -> str:

@@ -4,6 +4,7 @@ import { createRepositories } from "./storage/repositories.js";
 import { routeIntent } from "./services/intent-router.js";
 import { LLMClient } from "./services/llm-client.js";
 import { GitHubClient } from "./services/github-client.js";
+import { WebSearchClient } from "./services/web-search-client.js";
 import { buildDashboard } from "./services/dashboard-service.js";
 import {
   buildConfirmationMessage,
@@ -23,21 +24,38 @@ const HELP_TEXT = [
   "- /exit"
 ].join("\n");
 
+const PET_MOODS = new Set([
+  "idle",
+  "happy",
+  "playful",
+  "curious",
+  "sleepy",
+  "proud",
+  "shy",
+  "hungry",
+  "working",
+  "error"
+]);
+const PET_STATE_TAG_PATTERN = /\[\[PET_STATE:([a-z_]+)\]\]/gi;
+
 export async function createAppController(overrides = {}) {
   const config = overrides.config || loadConfig();
   const db = overrides.db || createDatabase(config.dbPath);
   const repositories = overrides.repositories || createRepositories(db);
   const llmClient = overrides.llmClient || new LLMClient(config.llm);
+  const conversationMemoryLimit = resolveConversationMemoryLimit(config);
   const githubClient = overrides.githubClient || new GitHubClient({
     githubToken: config.githubToken,
     githubApiBaseUrl: config.githubApiBaseUrl
   });
+  const webSearchClient = overrides.webSearchClient || new WebSearchClient(config.webSearch);
+  const initialConversation = loadConversationState(repositories, conversationMemoryLimit);
 
   const state = {
     petMood: "idle",
     lastInteractionAt: Date.now(),
-    lastReply: "냥. 준비됐어.",
-    conversation: [],
+    lastReply: findLastAssistantReply(initialConversation),
+    conversation: initialConversation,
     githubNotes: [],
     pendingConfirmation: null
   };
@@ -60,6 +78,10 @@ export async function createAppController(overrides = {}) {
         },
         petMood: currentMood(state),
         lastReply: state.lastReply,
+        conversation: state.conversation.map((message) => ({
+          role: message.role,
+          text: message.content
+        })),
         pendingConfirmation: state.pendingConfirmation
           ? {
               message: buildConfirmationMessage(state.pendingConfirmation.intent),
@@ -67,7 +89,8 @@ export async function createAppController(overrides = {}) {
             }
           : null,
         meta: {
-          llmEndpoint: config.llm.baseUrl
+          llmEndpoint: config.llm.baseUrl,
+          conversationMemoryLimit
         },
         hints: [
           "도움말: /help",
@@ -81,17 +104,35 @@ export async function createAppController(overrides = {}) {
       const activeView = options.activeView || "chat";
       const currentDateTime = new Date().toISOString();
       const timezone = options.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const trimmedInput = input.trim();
 
       if (state.pendingConfirmation) {
+        if (trimmedInput) {
+          appendConversationMessage(state, repositories, conversationMemoryLimit, {
+            role: "user",
+            content: trimmedInput
+          });
+        }
         state.lastInteractionAt = Date.now();
         state.lastReply = "먼저 확인을 선택해줘.";
         state.petMood = "idle";
+        appendConversationMessage(state, repositories, conversationMemoryLimit, {
+          role: "assistant",
+          content: "먼저 확인을 선택해줘."
+        });
         return {
           reply: "먼저 확인을 선택해줘.",
           petMood: "idle",
           nextView: state.pendingConfirmation?.activeView || activeView,
           intent: { type: "chat", confidence: 1, params: {} }
         };
+      }
+
+      if (trimmedInput) {
+        appendConversationMessage(state, repositories, conversationMemoryLimit, {
+          role: "user",
+          content: trimmedInput
+        });
       }
 
       const intent = await routeIntent(input, llmClient, {
@@ -130,6 +171,10 @@ export async function createAppController(overrides = {}) {
         state.lastInteractionAt = Date.now();
         state.lastReply = buildConfirmationMessage(intent);
         state.petMood = "idle";
+        appendConversationMessage(state, repositories, conversationMemoryLimit, {
+          role: "assistant",
+          content: buildConfirmationMessage(intent)
+        });
         return {
           reply: buildConfirmationMessage(intent),
           petMood: "idle",
@@ -142,6 +187,7 @@ export async function createAppController(overrides = {}) {
         intent,
         repositories,
         githubClient,
+        webSearchClient,
         llmClient,
         config.llm,
         state,
@@ -150,7 +196,7 @@ export async function createAppController(overrides = {}) {
         currentDateTime,
         timezone
       );
-      const narratedResult = await maybeNarrateIntentResult(
+      const finalizedResult = await finalizeIntentResult(
         intent,
         result,
         llmClient,
@@ -160,12 +206,17 @@ export async function createAppController(overrides = {}) {
         currentDateTime,
         timezone
       );
+      const normalizedResult = normalizePetReplyResult(finalizedResult);
       state.lastInteractionAt = Date.now();
-      state.lastReply = narratedResult.reply;
-      state.petMood = narratedResult.petMood;
+      state.lastReply = normalizedResult.reply;
+      state.petMood = normalizedResult.petMood;
+      appendConversationMessage(state, repositories, conversationMemoryLimit, {
+        role: "assistant",
+        content: normalizedResult.reply
+      });
       return {
-        ...narratedResult,
-        nextView: narratedResult.nextView || inferNextView(intent.type),
+        ...normalizedResult,
+        nextView: normalizedResult.nextView || inferNextView(intent.type),
         intent
       };
     },
@@ -189,23 +240,37 @@ export async function createAppController(overrides = {}) {
       }
 
       if (action === "cancel") {
+        const pendingView = state.pendingConfirmation?.activeView || null;
+        appendConversationMessage(state, repositories, conversationMemoryLimit, {
+          role: "system",
+          content: "[cancel]"
+        });
         state.pendingConfirmation = null;
         state.lastInteractionAt = Date.now();
         state.lastReply = "취소했어.";
         state.petMood = "idle";
+        appendConversationMessage(state, repositories, conversationMemoryLimit, {
+          role: "assistant",
+          content: "취소했어."
+        });
         return {
           reply: "취소했어.",
           petMood: "idle",
-          nextView: pendingViewForAction("cancel", state.pendingConfirmation?.activeView),
+          nextView: pendingViewForAction("cancel", pendingView),
           intent: { type: "chat", confidence: 1, params: {} }
         };
       }
 
       const confirmedIntent = state.pendingConfirmation.intent;
+      appendConversationMessage(state, repositories, conversationMemoryLimit, {
+        role: "system",
+        content: "[confirm]"
+      });
       const result = await executeIntent(
         confirmedIntent,
         repositories,
         githubClient,
+        webSearchClient,
         llmClient,
         config.llm,
         state,
@@ -214,7 +279,7 @@ export async function createAppController(overrides = {}) {
         currentDateTime(),
         Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
       );
-      const narratedResult = await maybeNarrateIntentResult(
+      const finalizedResult = await finalizeIntentResult(
         confirmedIntent,
         result,
         llmClient,
@@ -224,13 +289,18 @@ export async function createAppController(overrides = {}) {
         currentDateTime(),
         Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
       );
+      const normalizedResult = normalizePetReplyResult(finalizedResult);
       state.pendingConfirmation = null;
       state.lastInteractionAt = Date.now();
-      state.lastReply = narratedResult.reply;
-      state.petMood = narratedResult.petMood;
+      state.lastReply = normalizedResult.reply;
+      state.petMood = normalizedResult.petMood;
+      appendConversationMessage(state, repositories, conversationMemoryLimit, {
+        role: "assistant",
+        content: normalizedResult.reply
+      });
       return {
-        ...narratedResult,
-        nextView: narratedResult.nextView || inferNextView(confirmedIntent.type),
+        ...normalizedResult,
+        nextView: normalizedResult.nextView || inferNextView(confirmedIntent.type),
         intent: confirmedIntent
       };
     }
@@ -241,6 +311,7 @@ async function executeIntent(
   intent,
   repositories,
   githubClient,
+  webSearchClient,
   llmClient,
   llmConfig,
   state,
@@ -251,89 +322,255 @@ async function executeIntent(
 ) {
   switch (intent.type) {
     case "system.exit":
-      return { reply: "다음에 또 불러줘.", petMood: "happy", shouldExit: true };
+      return buildDirectReply("다음에 또 불러줘.", { petMood: "happy", shouldExit: true });
     case "system.refresh":
-      return { reply: "대시보드를 새로 확인했어.", petMood: "idle" };
+      return buildDirectReply("대시보드를 새로 확인했어.", { petMood: "idle" });
     case "help":
-      return { reply: HELP_TEXT, petMood: "idle" };
+      return buildDirectReply(HELP_TEXT, { petMood: "idle" });
     case "view.switch":
-      return {
-        reply: `${intent.params.view} 화면으로 바꿨어.`,
-        petMood: "idle",
-        nextView: intent.params.view
-      };
+      return buildToolResult(
+        intent.type,
+        "success",
+        {
+          view: intent.params.view
+        },
+        {
+          petMood: "idle",
+          nextView: intent.params.view
+        }
+      );
     case "memo.add": {
       const memo = repositories.memos.add({ content: intent.params.content });
-      return { reply: `메모 #${memo.id} 저장 완료: ${memo.content}`, petMood: "happy" };
+      return buildToolResult(
+        intent.type,
+        "success",
+        {
+          item: {
+            id: memo.id,
+            content: memo.content
+          }
+        },
+        {
+          petMood: "happy"
+        }
+      );
     }
     case "memo.delete": {
       if (!intent.params.target) {
-        return { reply: "어떤 메모를 지울지 번호나 내용 일부를 알려줘.", petMood: "error" };
+        return buildToolResult(
+          intent.type,
+          "missing_input",
+          {
+            required: "target",
+            targetType: "memo"
+          },
+          {
+            petMood: "error"
+          }
+        );
       }
       const deleted = repositories.memos.delete(intent.params.target);
       if (!deleted) {
-        return { reply: "지울 메모를 찾지 못했어.", petMood: "error" };
+        return buildToolResult(
+          intent.type,
+          "not_found",
+          {
+            target: intent.params.target,
+            targetType: "memo"
+          },
+          {
+            petMood: "error"
+          }
+        );
       }
-      return { reply: `메모 #${deleted.id} 삭제 완료: ${deleted.content}`, petMood: "happy" };
+      return buildToolResult(
+        intent.type,
+        "success",
+        {
+          item: {
+            id: deleted.id,
+            content: deleted.content
+          }
+        },
+        {
+          petMood: "happy"
+        }
+      );
     }
     case "memo.deleteAll": {
       const result = repositories.memos.deleteAll();
-      if (!result.deletedCount) {
-        return { reply: "지울 메모가 없어.", petMood: "idle" };
-      }
-      return { reply: `메모 ${result.deletedCount}개를 전부 지웠어.`, petMood: "happy" };
+      return buildToolResult(
+        intent.type,
+        result.deletedCount ? "success" : "empty",
+        {
+          deletedCount: result.deletedCount
+        },
+        {
+          petMood: result.deletedCount ? "happy" : "idle"
+        }
+      );
     }
     case "memo.list": {
       const memos = repositories.memos.listRecent(5);
-      const reply = memos.length
-        ? memos.map((memo) => `#${memo.id} ${memo.content}`).join("\n")
-        : "저장된 메모가 아직 없어.";
-      return { reply, petMood: "idle" };
+      return buildToolResult(
+        intent.type,
+        memos.length ? "success" : "empty",
+        {
+          items: memos.map((memo) => ({
+            id: memo.id,
+            content: memo.content
+          }))
+        },
+        {
+          petMood: "idle"
+        }
+      );
     }
     case "todo.add": {
       const todo = repositories.todos.add({ content: intent.params.content });
-      return { reply: `할 일 #${todo.id} 추가: ${todo.content}`, petMood: "happy" };
+      return buildToolResult(
+        intent.type,
+        "success",
+        {
+          item: {
+            id: todo.id,
+            content: todo.content,
+            status: todo.status
+          }
+        },
+        {
+          petMood: "happy"
+        }
+      );
     }
     case "todo.list": {
       const todos = repositories.todos.list(8);
-      const reply = todos.length
-        ? todos.map((todo) => `${todo.status === "done" ? "[x]" : "[ ]"} ${todo.id}. ${todo.content}`).join("\n")
-        : "할 일이 비어 있어.";
-      return { reply, petMood: "idle" };
+      return buildToolResult(
+        intent.type,
+        todos.length ? "success" : "empty",
+        {
+          items: todos.map((todo) => ({
+            id: todo.id,
+            content: todo.content,
+            status: todo.status
+          }))
+        },
+        {
+          petMood: "idle"
+        }
+      );
     }
     case "todo.delete": {
       if (!intent.params.target) {
-        return { reply: "어떤 할 일을 지울지 번호나 내용 일부를 알려줘.", petMood: "error" };
+        return buildToolResult(
+          intent.type,
+          "missing_input",
+          {
+            required: "target",
+            targetType: "todo"
+          },
+          {
+            petMood: "error"
+          }
+        );
       }
       const deleted = repositories.todos.delete(intent.params.target);
       if (!deleted) {
-        return { reply: "지울 할 일을 찾지 못했어.", petMood: "error" };
+        return buildToolResult(
+          intent.type,
+          "not_found",
+          {
+            target: intent.params.target,
+            targetType: "todo"
+          },
+          {
+            petMood: "error"
+          }
+        );
       }
-      return { reply: `할 일 #${deleted.id} 삭제 완료: ${deleted.content}`, petMood: "happy" };
+      return buildToolResult(
+        intent.type,
+        "success",
+        {
+          item: {
+            id: deleted.id,
+            content: deleted.content,
+            status: deleted.status
+          }
+        },
+        {
+          petMood: "happy"
+        }
+      );
     }
     case "todo.deleteAll": {
       const result = repositories.todos.deleteAll();
-      if (!result.deletedCount) {
-        return { reply: "지울 할 일이 없어.", petMood: "idle" };
-      }
-      return { reply: `할 일 ${result.deletedCount}개를 전부 지웠어.`, petMood: "happy" };
+      return buildToolResult(
+        intent.type,
+        result.deletedCount ? "success" : "empty",
+        {
+          deletedCount: result.deletedCount
+        },
+        {
+          petMood: result.deletedCount ? "happy" : "idle"
+        }
+      );
     }
     case "todo.deleteCompleted": {
       const result = repositories.todos.deleteCompleted();
-      if (!result.deletedCount) {
-        return { reply: "지울 완료된 할 일이 없어.", petMood: "idle" };
-      }
-      return { reply: `완료된 할 일 ${result.deletedCount}개를 지웠어.`, petMood: "happy" };
+      return buildToolResult(
+        intent.type,
+        result.deletedCount ? "success" : "empty",
+        {
+          deletedCount: result.deletedCount
+        },
+        {
+          petMood: result.deletedCount ? "happy" : "idle"
+        }
+      );
     }
     case "todo.complete": {
       if (!intent.params.target) {
-        return { reply: "어떤 할 일을 완료할지 번호나 키워드를 알려줘.", petMood: "error" };
+        return buildToolResult(
+          intent.type,
+          "missing_input",
+          {
+            required: "target",
+            targetType: "todo"
+          },
+          {
+            petMood: "error"
+          }
+        );
       }
       const completed = repositories.todos.complete(intent.params.target);
       if (!completed) {
-        return { reply: "완료할 할 일을 찾지 못했어.", petMood: "error" };
+        return buildToolResult(
+          intent.type,
+          "not_found",
+          {
+            target: intent.params.target,
+            targetType: "todo"
+          },
+          {
+            petMood: "error"
+          }
+        );
       }
-      return { reply: `할 일 #${completed.id} 완료: ${completed.content}`, petMood: "happy" };
+      return buildToolResult(
+        intent.type,
+        "success",
+        {
+          item: {
+            id: completed.id,
+            content: completed.content,
+            status: completed.status
+          }
+        },
+        {
+          petMood: "happy"
+        }
+      );
     }
     case "schedule.add": {
       const event = repositories.events.add({
@@ -342,59 +579,154 @@ async function executeIntent(
         endAt: intent.params.endAt,
         allDay: intent.params.allDay
       });
-      return {
-        reply: `일정 #${event.id} 등록: ${event.title} (${formatDateSummary(event.startAt, event.allDay)})`,
-        petMood: "happy"
-      };
+      return buildToolResult(
+        intent.type,
+        "success",
+        {
+          item: {
+            id: event.id,
+            title: event.title,
+            startAt: event.startAt,
+            endAt: event.endAt,
+            allDay: event.allDay
+          }
+        },
+        {
+          petMood: "happy"
+        }
+      );
     }
     case "schedule.delete": {
       if (!intent.params.target) {
-        return { reply: "어떤 일정을 지울지 번호나 제목 일부를 알려줘.", petMood: "error" };
+        return buildToolResult(
+          intent.type,
+          "missing_input",
+          {
+            required: "target",
+            targetType: "schedule"
+          },
+          {
+            petMood: "error"
+          }
+        );
       }
       const deleted = deleteEventByTarget(repositories, intent.params.target);
       if (!deleted) {
-        return { reply: "지울 일정을 찾지 못했어.", petMood: "error" };
+        return buildToolResult(
+          intent.type,
+          "not_found",
+          {
+            target: intent.params.target,
+            targetType: "schedule"
+          },
+          {
+            petMood: "error"
+          }
+        );
       }
-      return {
-        reply: `일정 #${deleted.id} 삭제 완료: ${deleted.title}`,
-        petMood: "happy"
-      };
+      return buildToolResult(
+        intent.type,
+        "success",
+        {
+          item: {
+            id: deleted.id,
+            title: deleted.title,
+            startAt: deleted.startAt,
+            endAt: deleted.endAt,
+            allDay: deleted.allDay
+          }
+        },
+        {
+          petMood: "happy"
+        }
+      );
     }
     case "schedule.deleteAll": {
       const result = repositories.events.deleteAll();
-      if (!result.deletedCount) {
-        return { reply: "지울 일정이 없어.", petMood: "idle" };
-      }
-      return { reply: `일정 ${result.deletedCount}개를 전부 지웠어.`, petMood: "happy" };
+      return buildToolResult(
+        intent.type,
+        result.deletedCount ? "success" : "empty",
+        {
+          deletedCount: result.deletedCount
+        },
+        {
+          petMood: result.deletedCount ? "happy" : "idle"
+        }
+      );
     }
     case "schedule.listDay": {
       const day = intent.params.day === "tomorrow" ? offsetDay(1) : offsetDay(0);
       const nextDay = offsetDay(intent.params.day === "tomorrow" ? 2 : 1);
       const events = repositories.events.listForDay(day.toISOString(), nextDay.toISOString());
-      const reply = events.length
-        ? events.map((event) => `${formatDateSummary(event.startAt, event.allDay)} ${event.title}`).join("\n")
-        : "그 날의 일정이 비어 있어.";
-      return { reply, petMood: "idle" };
+      return buildToolResult(
+        intent.type,
+        events.length ? "success" : "empty",
+        {
+          day: intent.params.day,
+          items: events.map((event) => ({
+            id: event.id,
+            title: event.title,
+            startAt: event.startAt,
+            endAt: event.endAt,
+            allDay: event.allDay
+          }))
+        },
+        {
+          petMood: "idle"
+        }
+      );
     }
     case "schedule.listUpcoming": {
       const events = repositories.events.listUpcoming(5);
-      const reply = events.length
-        ? events.map((event) => `${formatDateSummary(event.startAt, event.allDay)} ${event.title}`).join("\n")
-        : "다가오는 일정이 없어.";
-      return { reply, petMood: "idle" };
+      return buildToolResult(
+        intent.type,
+        events.length ? "success" : "empty",
+        {
+          items: events.map((event) => ({
+            id: event.id,
+            title: event.title,
+            startAt: event.startAt,
+            endAt: event.endAt,
+            allDay: event.allDay
+          }))
+        },
+        {
+          petMood: "idle"
+        }
+      );
     }
     case "github.overview": {
       const overview = await githubClient.getOverview();
-      return { reply: overview.summaryLines.join("\n"), petMood: overview.status === "ok" ? "idle" : "error" };
+      return buildToolResult(
+        intent.type,
+        overview.status,
+        {
+          summaryLines: overview.summaryLines,
+          contextLines: overview.contextLines
+        },
+        {
+          petMood: overview.status === "ok" ? "idle" : "error"
+        }
+      );
     }
     case "github.query": {
       const question = intent.params.question?.trim();
       if (!question) {
-        return { reply: "GitHub에서 무엇을 확인할지 말해줘.", petMood: "error" };
+        return buildToolResult(
+          intent.type,
+          "missing_input",
+          {
+            required: "question",
+            targetType: "github"
+          },
+          {
+            petMood: "error"
+          }
+        );
       }
 
       const githubContext = await githubClient.getContext();
-      const answer = await llmClient.chat(
+      const rawAnswer = await llmClient.chat(
         [
           {
             role: "user",
@@ -404,17 +736,47 @@ async function executeIntent(
         llmConfig.githubQuerySystemPrompt,
         { activeView }
       );
+      const answer = normalizePetTaggedReply(rawAnswer, githubContext.status === "error" ? "error" : "curious");
 
-      state.githubNotes = appendGitHubNote(state.githubNotes, question, answer);
-      return {
-        reply: answer,
-        petMood: githubContext.status === "error" ? "error" : "idle"
-      };
+      state.githubNotes = appendGitHubNote(state.githubNotes, question, answer.reply);
+      return buildDirectReply(answer.reply, {
+        petMood: answer.petMood
+      });
+    }
+    case "web.search": {
+      const query = intent.params.query?.trim();
+      if (!query) {
+        return buildToolResult(
+          intent.type,
+          "missing_input",
+          {
+            required: "query",
+            targetType: "web"
+          },
+          {
+            petMood: "error"
+          }
+        );
+      }
+
+      const search = await webSearchClient.search(query);
+      return buildToolResult(
+        intent.type,
+        search.status,
+        {
+          query: search.query,
+          results: search.results,
+          error: search.error || null
+        },
+        {
+          petMood: search.status === "error" ? "error" : "idle"
+        }
+      );
     }
     case "chat":
     default: {
-      state.conversation.push({ role: "user", content: rawInput });
-      const toolIntent = await planToolIntent(llmClient, state.conversation, {
+      const llmMessages = buildConversationContext(state.conversation, llmConfig.historyLimit);
+      const toolIntent = await planToolIntent(llmClient, llmMessages, {
         activeView,
         currentDateTime,
         timezone
@@ -432,13 +794,14 @@ async function executeIntent(
             activeView
           };
           const confirmationMessage = buildConfirmationMessage(toolIntent);
-          return { reply: confirmationMessage, petMood: "idle", intent: toolIntent };
+          return buildDirectReply(confirmationMessage, { petMood: "idle", intent: toolIntent });
         }
 
         const toolResult = await executeIntent(
           toolIntent,
           repositories,
           githubClient,
+          webSearchClient,
           llmClient,
           llmConfig,
           state,
@@ -447,30 +810,244 @@ async function executeIntent(
           currentDateTime,
           timezone
         );
-
-        if (shouldNaturalizeToolResult(toolIntent.type)) {
-          const content = await llmClient.chat(
-            buildToolAwareMessages(state.conversation.slice(-llmConfig.historyLimit), toolResult.reply),
-            buildToolAwareSystemPrompt(llmConfig.chatSystemPrompt),
-            { activeView, currentDateTime, timezone }
-          );
-          state.conversation.push({ role: "assistant", content });
-          return { reply: content, petMood: toolResult.petMood || "idle" };
-        }
-
-        state.conversation.push({ role: "assistant", content: toolResult.reply });
-        return toolResult;
+        const finalizedToolResult = await finalizeIntentResult(
+          toolIntent,
+          toolResult,
+          llmClient,
+          llmConfig,
+          rawInput,
+          activeView,
+          currentDateTime,
+          timezone
+        );
+        return finalizedToolResult;
       }
 
       const content = await llmClient.chat(
-        state.conversation.slice(-llmConfig.historyLimit),
+        llmMessages,
         undefined,
         { activeView, currentDateTime, timezone }
       );
-      state.conversation.push({ role: "assistant", content });
-      return { reply: content, petMood: "idle" };
+      return buildDirectReply(content, { petMood: "idle" });
     }
   }
+}
+
+function buildDirectReply(reply, extras = {}) {
+  return {
+    ...extras,
+    reply
+  };
+}
+
+function buildToolResult(intentType, status, data, extras = {}) {
+  return {
+    ...extras,
+    toolResult: {
+      intentType,
+      status,
+      data
+    }
+  };
+}
+
+function loadConversationState(repositories, limit) {
+  if (!repositories?.conversation?.listRecent) {
+    return [];
+  }
+
+  return repositories.conversation.listRecent(limit).map((message) => ({
+    role: message.role,
+    content: message.content
+  }));
+}
+
+function appendConversationMessage(state, repositories, limit, message) {
+  if (!message?.content || typeof message.content !== "string") {
+    return;
+  }
+
+  const normalized = {
+    role: normalizeConversationRole(message.role),
+    content: message.content
+  };
+
+  if (repositories?.conversation?.add) {
+    repositories.conversation.add(normalized);
+  }
+
+  state.conversation.push(normalized);
+  trimConversationInMemory(state, limit);
+}
+
+function trimConversationInMemory(state, limit) {
+  if (!Array.isArray(state.conversation) || state.conversation.length <= limit) {
+    return;
+  }
+
+  state.conversation = state.conversation.slice(-limit);
+}
+
+function buildConversationContext(conversation, limit) {
+  return conversation
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .slice(-limit);
+}
+
+function findLastAssistantReply(conversation) {
+  const lastAssistant = [...conversation].reverse().find((message) => message.role === "assistant");
+  return lastAssistant?.content || "";
+}
+
+function normalizeConversationRole(role) {
+  return role === "assistant" || role === "system" ? role : "user";
+}
+
+function resolveConversationMemoryLimit(config) {
+  const explicit = Number(config?.conversationMemoryLimit);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return explicit;
+  }
+
+  const historyLimit = Number(config?.llm?.historyLimit);
+  if (Number.isFinite(historyLimit) && historyLimit > 0) {
+    return Math.max(historyLimit * 4, 40);
+  }
+
+  return 40;
+}
+
+async function finalizeIntentResult(
+  _intent,
+  result,
+  llmClient,
+  llmConfig,
+  rawInput,
+  activeView,
+  currentDateTime,
+  timezone
+) {
+  if (!result?.toolResult) {
+    return result;
+  }
+
+  const reply = await llmClient.chat(
+    buildToolNarrationMessages(rawInput, result.toolResult),
+    buildToolNarrationSystemPrompt(llmConfig.chatSystemPrompt),
+    { activeView, currentDateTime, timezone }
+  );
+  const normalizedReply = isUnusableNarratedReply(reply, llmConfig)
+    ? buildDeterministicToolReply(result.toolResult)
+    : reply;
+  const finalizedReply = appendSearchSourcesToReply(normalizedReply, result.toolResult);
+
+  return {
+    ...result,
+    reply: finalizedReply
+  };
+}
+
+function buildToolNarrationSystemPrompt(chatSystemPrompt) {
+  return [
+    chatSystemPrompt,
+    "You may receive one internal assistant message that starts with 'NekoDesk tool result JSON:'.",
+    "Treat that JSON as the authoritative outcome of an executed internal tool or routed feature.",
+    "Answer the user naturally and concisely based on that JSON.",
+    "If the tool result says data is empty, missing, not found, unauthenticated, partial, or error, explain that accurately.",
+    "If the tool result includes lists, summarize the useful items instead of dumping raw JSON.",
+    "If the tool result intentType is web.search, only claim things that are directly supported by the provided search results.",
+    "For web.search, avoid pretending you opened full articles unless the tool result explicitly contains article content.",
+    "For web.search, prefer cautious wording when titles alone are ambiguous.",
+    "For web.search, include brief source attribution based on the provided domains and URLs.",
+    "Do not mention internal tools, JSON, hidden state, or system mechanics unless the user explicitly asks."
+  ].join("\n");
+}
+
+function appendSearchSourcesToReply(reply, toolResult) {
+  if (toolResult?.intentType !== "web.search") {
+    return reply;
+  }
+
+  const results = Array.isArray(toolResult?.data?.results) ? toolResult.data.results.slice(0, 3) : [];
+  if (!results.length) {
+    return reply;
+  }
+
+  const sourceSummary = results
+    .map((result) => `${result.title || "result"} (${result.host || "source"})`)
+    .join(" | ");
+  return [reply.trim(), `출처: ${sourceSummary}`].join("\n");
+}
+
+function isUnusableNarratedReply(reply, llmConfig) {
+  if (!reply || typeof reply !== "string") {
+    return true;
+  }
+
+  if (llmConfig?.fallbackReply && reply === llmConfig.fallbackReply) {
+    return true;
+  }
+
+  if (llmConfig?.connectionErrorReply && reply.startsWith(llmConfig.connectionErrorReply)) {
+    return true;
+  }
+
+  return false;
+}
+
+function buildDeterministicToolReply(toolResult) {
+  if (toolResult?.intentType === "view.switch") {
+    return buildDeterministicViewSwitchReply(toolResult);
+  }
+
+  if (toolResult?.intentType === "web.search") {
+    return buildDeterministicWebSearchReply(toolResult);
+  }
+
+  return "결과는 확인했어.";
+}
+
+function buildDeterministicViewSwitchReply(toolResult) {
+  const view = toolResult?.data?.view;
+  if (typeof view === "string" && view.trim()) {
+    return `${view} 화면으로 바꿨어.`;
+  }
+
+  return "화면을 바꿨어.";
+}
+
+function buildDeterministicWebSearchReply(toolResult) {
+  const query = toolResult?.data?.query?.trim() || "검색어";
+  const results = Array.isArray(toolResult?.data?.results) ? toolResult.data.results.slice(0, 3) : [];
+
+  if (toolResult?.status === "missing_input") {
+    return "무엇을 검색할지 먼저 알려줘.";
+  }
+
+  if (toolResult?.status === "disabled") {
+    return "지금은 DuckDuckGo 검색 기능이 꺼져 있어.";
+  }
+
+  if (toolResult?.status === "error") {
+    return `DuckDuckGo에서 "${query}" 관련 결과를 찾으려 했는데 검색 중 문제가 있었어.`;
+  }
+
+  if (!results.length) {
+    return `DuckDuckGo에서 "${query}" 관련 결과를 뚜렷하게 찾지 못했어.`;
+  }
+
+  const headlines = results.map((result) => result.title).join(" / ");
+  return `DuckDuckGo로 "${query}"를 검색했어. 눈에 띈 결과는 ${headlines} 이야.`;
+}
+
+function buildToolNarrationMessages(rawInput, toolResult) {
+  return [
+    { role: "user", content: rawInput },
+    {
+      role: "assistant",
+      content: `NekoDesk tool result JSON:\n${JSON.stringify(toolResult, null, 2)}`
+    }
+  ];
 }
 
 async function planToolIntent(llmClient, conversation, context) {
@@ -495,42 +1072,55 @@ async function planToolIntent(llmClient, conversation, context) {
   return validation.intent;
 }
 
-async function maybeNarrateIntentResult(
-  intent,
-  result,
-  llmClient,
-  llmConfig,
-  rawInput,
-  activeView,
-  currentDateTime,
-  timezone
-) {
-  if (!shouldNarrateIntentReply(intent?.type, llmConfig)) {
+function currentMood(state) {
+  const idleMs = Date.now() - state.lastInteractionAt;
+  if (state.petMood === "working" || state.petMood === "error") {
+    return state.petMood;
+  }
+
+  if (idleMs > 1000 * 60 * 10) {
+    return "hungry";
+  }
+
+  return PET_MOODS.has(state.petMood) ? state.petMood : "idle";
+}
+
+function normalizePetReplyResult(result) {
+  if (!result || typeof result.reply !== "string") {
     return result;
   }
 
-  const narrated = await llmClient.chat(
-    buildOutcomeAwareMessages(rawInput, result.reply),
-    buildOutcomeAwareSystemPrompt(llmConfig.chatSystemPrompt),
-    { activeView, currentDateTime, timezone }
-  );
-
-  if (!isUsableNarratedReply(narrated, llmConfig)) {
-    return result;
-  }
-
+  const normalized = normalizePetTaggedReply(result.reply, result.petMood);
   return {
     ...result,
-    reply: narrated
+    reply: normalized.reply,
+    petMood: normalized.petMood
   };
 }
 
-function currentMood(state) {
-  const idleMs = Date.now() - state.lastInteractionAt;
-  if (state.petMood === "working" || state.petMood === "error" || state.petMood === "happy") {
-    return state.petMood;
+function normalizePetTaggedReply(reply, fallbackMood = "idle") {
+  if (typeof reply !== "string") {
+    return {
+      reply,
+      petMood: PET_MOODS.has(fallbackMood) ? fallbackMood : "idle"
+    };
   }
-  return idleMs > 1000 * 60 * 10 ? "hungry" : "idle";
+
+  let detectedMood = null;
+  const strippedReply = reply
+    .replace(PET_STATE_TAG_PATTERN, (_match, mood) => {
+      const normalizedMood = String(mood || "").trim().toLowerCase();
+      if (PET_MOODS.has(normalizedMood)) {
+        detectedMood = normalizedMood;
+      }
+      return "";
+    })
+    .trim();
+
+  return {
+    reply: strippedReply || reply.trim(),
+    petMood: detectedMood || (PET_MOODS.has(fallbackMood) ? fallbackMood : "idle")
+  };
 }
 
 function offsetDay(days) {
@@ -538,19 +1128,6 @@ function offsetDay(days) {
   date.setHours(0, 0, 0, 0);
   date.setDate(date.getDate() + days);
   return date;
-}
-
-function formatDateSummary(isoString, allDay) {
-  const date = new Date(isoString);
-  if (allDay) {
-    return date.toLocaleDateString([], { month: "short", day: "numeric" });
-  }
-  return date.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
 }
 
 function buildGitHubPanelLines(summaryLines, notes) {
@@ -594,25 +1171,6 @@ function buildGitHubQuestionPrompt(question, contextLines) {
   ].join("\n");
 }
 
-function buildOutcomeAwareSystemPrompt(chatSystemPrompt) {
-  return [
-    chatSystemPrompt,
-    "You may receive one internal assistant message that starts with 'NekoDesk internal outcome:'.",
-    "Use it to answer the user naturally and briefly.",
-    "Do not mention internal tools, hidden state, or system mechanics unless the user explicitly asks."
-  ].join("\n");
-}
-
-function buildOutcomeAwareMessages(rawInput, resultReply) {
-  return [
-    { role: "user", content: rawInput },
-    {
-      role: "assistant",
-      content: `NekoDesk internal outcome:\n${resultReply}`
-    }
-  ];
-}
-
 function inferNextView(intentType) {
   if (intentType === "view.switch") {
     return null;
@@ -639,74 +1197,6 @@ function inferNextView(intentType) {
 
 function pendingViewForAction(_action, activeView) {
   return activeView || null;
-}
-
-function buildToolAwareSystemPrompt(chatSystemPrompt) {
-  return [
-    chatSystemPrompt,
-    "You may receive one internal assistant message that starts with 'NekoDesk internal context:'.",
-    "Use that context naturally to answer the user.",
-    "Do not mention internal tools, hidden context, or system mechanics unless the user explicitly asks."
-  ].join("\n");
-}
-
-function buildToolAwareMessages(messages, toolReply) {
-  return [
-    ...messages,
-    {
-      role: "assistant",
-      content: `NekoDesk internal context:\n${toolReply}`
-    }
-  ];
-}
-
-function shouldNarrateIntentReply(type, llmConfig) {
-  if (llmConfig?.narrateActionReplies !== true) {
-    return false;
-  }
-
-  return (
-    type === "system.exit" ||
-    type === "system.refresh" ||
-    type === "view.switch" ||
-    type === "memo.add" ||
-    type === "memo.delete" ||
-    type === "memo.deleteAll" ||
-    type === "todo.add" ||
-    type === "todo.delete" ||
-    type === "todo.deleteAll" ||
-    type === "todo.deleteCompleted" ||
-    type === "todo.complete" ||
-    type === "schedule.add" ||
-    type === "schedule.delete" ||
-    type === "schedule.deleteAll"
-  );
-}
-
-function isUsableNarratedReply(reply, llmConfig) {
-  if (!reply || typeof reply !== "string") {
-    return false;
-  }
-
-  if (llmConfig?.fallbackReply && reply === llmConfig.fallbackReply) {
-    return false;
-  }
-
-  if (llmConfig?.connectionErrorReply && reply.startsWith(llmConfig.connectionErrorReply)) {
-    return false;
-  }
-
-  return true;
-}
-
-function shouldNaturalizeToolResult(type) {
-  return (
-    type === "memo.list" ||
-    type === "todo.list" ||
-    type === "schedule.listDay" ||
-    type === "schedule.listUpcoming" ||
-    type === "github.overview"
-  );
 }
 
 function isExecutableToolIntent(type) {

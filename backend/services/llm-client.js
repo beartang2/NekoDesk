@@ -4,6 +4,14 @@ function stripCodeFence(value) {
   return value.replace(/```json|```/gi, "").trim();
 }
 
+function stripInternalReasoning(value) {
+  return value
+    .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, " ")
+    .replace(/<thinking\b[^>]*>[\s\S]*?<\/thinking>/gi, " ")
+    .replace(/<reasoning\b[^>]*>[\s\S]*?<\/reasoning>/gi, " ")
+    .trim();
+}
+
 export class LLMClient {
   constructor(config) {
     this.config = config;
@@ -12,9 +20,11 @@ export class LLMClient {
   async chat(messages, systemPrompt, context = {}) {
     try {
       const requestContext = buildRequestContext(context);
+      const normalizedMessages = normalizeMessages(messages);
+      const resolvedSystemPrompt = systemPrompt || this.config.chatSystemPrompt;
       const response = await this.#callChatApi({
-        systemPrompt: systemPrompt || this.config.chatSystemPrompt,
-        messages: normalizeMessages(messages),
+        systemPrompt: resolvedSystemPrompt,
+        messages: normalizedMessages,
         activeView: requestContext.activeView,
         temperature: this.config.chatTemperature,
         maxTokens: this.config.maxTokens,
@@ -24,6 +34,16 @@ export class LLMClient {
         headers: this.config.headers,
         requestBody: this.config.requestBody
       });
+      if (shouldRetryReplyInKorean(normalizedMessages, response)) {
+        const retried = await this.#retryReplyInKorean(
+          response,
+          normalizedMessages,
+          resolvedSystemPrompt,
+          requestContext
+        );
+        return retried || response || this.config.fallbackReply;
+      }
+
       return response || this.config.fallbackReply;
     } catch (error) {
       logLlmError("chat", error, this.config.timeoutMs);
@@ -140,6 +160,7 @@ export class LLMClient {
       const body = {
         system_prompt: systemPrompt,
         messages,
+        model: this.config.model,
         active_view: activeView,
         temperature,
         max_tokens: maxTokens,
@@ -172,6 +193,34 @@ export class LLMClient {
       clearTimeout(timeout);
     }
   }
+
+  async #retryReplyInKorean(originalReply, messages, systemPrompt, requestContext) {
+    try {
+      return await this.#callChatApi({
+        systemPrompt: buildKoreanRetrySystemPrompt(systemPrompt),
+        messages: [
+          ...messages,
+          { role: "assistant", content: originalReply },
+          {
+            role: "user",
+            content:
+              "Rewrite your last reply in natural Korean only. Keep the meaning. Do not use Chinese. Return only the rewritten reply."
+          }
+        ],
+        activeView: requestContext.activeView,
+        temperature: this.config.chatTemperature,
+        maxTokens: this.config.maxTokens,
+        timeoutMs: this.config.timeoutMs,
+        currentDateTime: requestContext.currentDateTime,
+        timezone: requestContext.timezone,
+        headers: this.config.headers,
+        requestBody: this.config.requestBody
+      });
+    } catch (error) {
+      logLlmError("chat_korean_retry", error, this.config.timeoutMs);
+      return null;
+    }
+  }
 }
 
 function normalizeMessages(messages) {
@@ -191,15 +240,55 @@ function buildRequestContext(context = {}) {
 
 function extractContent(payload) {
   if (typeof payload?.content === "string" && payload.content.trim()) {
-    return payload.content.trim();
+    const normalized = stripInternalReasoning(payload.content.trim());
+    return normalized || null;
   }
 
   const legacyContent = payload?.choices?.[0]?.message?.content;
   if (typeof legacyContent === "string" && legacyContent.trim()) {
-    return legacyContent.trim();
+    const normalized = stripInternalReasoning(legacyContent.trim());
+    return normalized || null;
   }
 
   return null;
+}
+
+function buildKoreanRetrySystemPrompt(systemPrompt) {
+  return [
+    systemPrompt,
+    "Critical language rule: if the user is speaking Korean, the final user-facing answer must be written in Korean.",
+    "Do not answer in Chinese unless the user explicitly requested Chinese.",
+    "Return only the Korean rewrite."
+  ].join("\n");
+}
+
+function shouldRetryReplyInKorean(messages, reply) {
+  if (!reply || typeof reply !== "string") {
+    return false;
+  }
+
+  if (!looksLikeKoreanConversation(messages)) {
+    return false;
+  }
+
+  if (containsHangul(reply)) {
+    return false;
+  }
+
+  return countHanCharacters(reply) >= 2;
+}
+
+function looksLikeKoreanConversation(messages) {
+  return messages.some((message) => containsHangul(message?.content || ""));
+}
+
+function containsHangul(value) {
+  return /[\p{Script=Hangul}]/u.test(value);
+}
+
+function countHanCharacters(value) {
+  const matches = value.match(/[\p{Script=Han}]/gu);
+  return matches ? matches.length : 0;
 }
 
 function buildConnectionErrorReply(error, config) {

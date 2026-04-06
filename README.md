@@ -10,6 +10,7 @@
 - 자연어 기반 할 일 추가 / 완료 / 조회
 - 로컬 일정 추가 / 조회
 - `GITHUB_TOKEN` 기반 GitHub 읽기 전용 요약 및 follow-up 질의
+- DuckDuckGo 기반 읽기 전용 웹 검색
 - `FastAPI` 백엔드(`localhost:8000`)를 통한 대화 / intent 처리
 - `llama.cpp` 서버(`localhost:8803`)를 FastAPI 뒤에서 사용
 - SQLite 기반 로컬 저장
@@ -108,6 +109,10 @@ python3 -m py_compile backend/main.py backend/routers/chat.py backend/routers/gi
 - `NEKODESK_LLM_GITHUB_QUERY_SYSTEM_PROMPT_FILE`: GitHub follow-up 답변 prompt 파일 경로
 - `NEKODESK_HOME`: 기본 앱 데이터 디렉터리 변경
 - `NEKODESK_DB_PATH`: SQLite DB 파일 경로 직접 지정
+- `NEKODESK_CONVERSATION_MEMORY_LIMIT`: 메모리에 유지할 최근 대화 메시지 개수
+- `NEKODESK_WEB_SEARCH_ENABLED`: 웹 검색 tool 활성화 여부, 기본값 `true`
+- `NEKODESK_WEB_SEARCH_TIMEOUT_MS`: 웹 검색 타임아웃 밀리초, 기본값 `8000`
+- `NEKODESK_WEB_SEARCH_RESULT_LIMIT`: 웹 검색 결과 최대 개수, 기본값 `5`
 - `NEKODESK_LLM_URL`: 내부 llama.cpp 주소용 설정값, 기본값 `http://127.0.0.1:8803`
 - `NEKODESK_LLM_API_PATH`: 내부 llama.cpp endpoint 경로, 기본값 `/v1/chat/completions`
 - `NEKODESK_LLM_MODEL`: 모델 이름, 기본값 `Qwen3 8B Q4_K_M`
@@ -142,6 +147,8 @@ python3 -m py_compile backend/main.py backend/routers/chat.py backend/routers/gi
 - `내일 3시 회의 등록`
 - `오늘 일정 보여줘`
 - `내 GitHub 상태 요약해줘`
+- `OpenAI 최신 뉴스 검색해줘`
+- `이 오류 메시지 웹에서 찾아봐`
 - `/github` 뷰에서 `지금 뭘 먼저 봐야 해?`
 - `/github` 뷰에서 `리뷰 요청 있는 PR이 뭐야?`
 - `/help`

@@ -124,6 +124,22 @@ export function createRepositories(db) {
   const getSettingStmt = db.prepare(`
     SELECT value FROM settings WHERE key = ?
   `);
+  const addConversationMessageStmt = db.prepare(`
+    INSERT INTO conversation_messages (role, content, created_at)
+    VALUES (?, ?, ?)
+  `);
+  const listConversationMessagesStmt = db.prepare(`
+    SELECT id, role, content, created_at
+    FROM conversation_messages
+    ORDER BY id DESC
+    LIMIT ?
+  `);
+  const countConversationMessagesStmt = db.prepare(`
+    SELECT COUNT(*) AS count FROM conversation_messages
+  `);
+  const deleteAllConversationMessagesStmt = db.prepare(`
+    DELETE FROM conversation_messages
+  `);
 
   return {
     memos: {
@@ -288,6 +304,35 @@ export function createRepositories(db) {
           return defaultValue;
         }
         return safeParseJson(row.value, defaultValue);
+      }
+    },
+    conversation: {
+      add({ role, content }) {
+        const createdAt = nowIso();
+        const result = addConversationMessageStmt.run(role, content, createdAt);
+        return {
+          id: Number(result.lastInsertRowid),
+          role,
+          content,
+          createdAt
+        };
+      },
+      listRecent(limit = 50) {
+        return listConversationMessagesStmt
+          .all(limit)
+          .reverse()
+          .map((row) => ({
+            id: row.id,
+            role: row.role,
+            content: row.content,
+            createdAt: row.created_at
+          }));
+      },
+      deleteAll() {
+        const row = countConversationMessagesStmt.get();
+        const deletedCount = Number(row?.count || 0);
+        deleteAllConversationMessagesStmt.run();
+        return { deletedCount };
       }
     }
   };

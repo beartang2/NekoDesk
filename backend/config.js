@@ -27,12 +27,18 @@ export function loadConfig() {
   return {
     appHome,
     dbPath: process.env.NEKODESK_DB_PATH || path.join(appHome, "nekodesk.sqlite"),
+    conversationMemoryLimit: parseNumber(process.env.NEKODESK_CONVERSATION_MEMORY_LIMIT, 40),
     githubToken: process.env.GITHUB_TOKEN || "",
     githubApiBaseUrl: process.env.GITHUB_API_URL || "https://api.github.com",
+    webSearch: {
+      enabled: parseBoolean(process.env.NEKODESK_WEB_SEARCH_ENABLED, true),
+      timeoutMs: parseNumber(process.env.NEKODESK_WEB_SEARCH_TIMEOUT_MS, 8000),
+      resultLimit: parseNumber(process.env.NEKODESK_WEB_SEARCH_RESULT_LIMIT, 5)
+    },
     llm: {
       baseUrl: trimTrailingSlash(process.env.NEKODESK_LLM_URL || "http://127.0.0.1:8803"),
       apiPath: process.env.NEKODESK_LLM_API_PATH || DEFAULT_LLM_API_PATH,
-      model: process.env.NEKODESK_LLM_MODEL || "Qwen3 8B Q4_K_M",
+      model: normalizeModelName(process.env.NEKODESK_LLM_MODEL || "Qwen3 8B Q4_K_M"),
       timeoutMs: Number(process.env.NEKODESK_LLM_TIMEOUT_MS || 12000),
       historyLimit: parseNumber(process.env.NEKODESK_LLM_HISTORY_LIMIT, DEFAULT_HISTORY_LIMIT),
       chatTemperature: parseNumber(
@@ -77,10 +83,6 @@ export function loadConfig() {
         "NEKODESK_LLM_TOOL_PLAN_SYSTEM_PROMPT",
         "NEKODESK_LLM_TOOL_PLAN_SYSTEM_PROMPT_FILE",
         DEFAULT_TOOL_PLAN_SYSTEM_PROMPT
-      ),
-      narrateActionReplies: parseBoolean(
-        process.env.NEKODESK_LLM_NARRATE_ACTION_REPLIES,
-        true
       ),
       fallbackReply:
         process.env.NEKODESK_LLM_FALLBACK_REPLY || DEFAULT_CHAT_FALLBACK_REPLY,
@@ -186,4 +188,24 @@ function parseBoolean(value, fallback) {
 
 function trimTrailingSlash(value) {
   return value.replace(/\/+$/, "");
+}
+
+function normalizeModelName(value) {
+  if (!value) {
+    return value;
+  }
+
+  const trimmed = String(value).trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const normalizedPath = trimmed.replace(/^~\//, "");
+  const basename = normalizedPath.split(/[\\/]/).at(-1) || normalizedPath;
+
+  if (/\.gguf$/i.test(basename)) {
+    return basename.replace(/\.gguf$/i, "");
+  }
+
+  return trimmed;
 }

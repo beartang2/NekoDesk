@@ -6,10 +6,6 @@ function formatEvent(event) {
   return `${hour} ${event.title}`;
 }
 
-function truncate(text, length = 36) {
-  return text.length > length ? `${text.slice(0, length - 1)}…` : text;
-}
-
 export async function buildDashboard(repositories, githubClient) {
   const memos = repositories.memos.listRecent(4);
   const todos = repositories.todos.list(6);
@@ -17,10 +13,10 @@ export async function buildDashboard(repositories, githubClient) {
   const github = await githubClient.getOverview();
 
   return {
-    memos: memos.map((memo) => `#${memo.id} ${truncate(memo.content)}`),
+    memos: memos.map((memo) => `#${memo.id} ${memo.content}`),
     todos: todos.map((todo) => {
       const marker = todo.status === "done" ? "[x]" : "[ ]";
-      return `${marker} ${todo.id}. ${truncate(todo.content)}`;
+      return `${marker} ${todo.id}. ${todo.content}`;
     }),
     events: events.map(formatEvent),
     github: github.summaryLines

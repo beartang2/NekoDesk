@@ -154,3 +154,21 @@ test("event deleteAll removes every event", () => {
   assert.equal(result.deletedCount, 2);
   assert.equal(events.length, 0);
 });
+
+test("conversation messages persist in chronological order", () => {
+  const repos = makeRepos();
+  repos.conversation.add({ role: "user", content: "안녕" });
+  repos.conversation.add({ role: "assistant", content: "안녕, 반가워." });
+  repos.conversation.add({ role: "system", content: "[confirm]" });
+
+  const messages = repos.conversation.listRecent(10);
+
+  assert.deepEqual(
+    messages.map((message) => [message.role, message.content]),
+    [
+      ["user", "안녕"],
+      ["assistant", "안녕, 반가워."],
+      ["system", "[confirm]"]
+    ]
+  );
+});

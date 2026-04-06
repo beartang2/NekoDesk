@@ -11,3 +11,13 @@ test("renders hungry pet with sad face", () => {
   const frame = renderPet("hungry", 0);
   assert.match(frame, /•́︿•̀/);
 });
+
+test("renders playful pet with yarn", () => {
+  const frame = renderPet("playful", 0);
+  assert.match(frame, /🧶/);
+});
+
+test("renders curious pet with investigation prop", () => {
+  const frame = renderPet("curious", 0);
+  assert.match(frame, /🔎|📌/);
+});
