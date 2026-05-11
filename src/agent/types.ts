@@ -19,14 +19,12 @@ export interface LlmStreamChunk {
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
 export type ToolName =
-  | "memo.find"
-  | "memo.add"
   | "todo.list"
   | "todo.add"
   | "todo.complete"
   | "schedule.list"
   | "schedule.add"
-  | "github.overview"
+  | "code.exec"
   | "web.search"
   | "file.upload";
 
@@ -47,14 +45,6 @@ export interface ToolDef<TParams, TResult> {
 }
 
 // ── DB records ────────────────────────────────────────────────────────────────
-
-export interface Memo {
-  id: number;
-  content: string;
-  tags: string[];
-  created_at: string;
-  updated_at: string;
-}
 
 export interface Todo {
   id: number;
@@ -80,6 +70,13 @@ export interface SearchResult {
   title: string;
   url: string;
   snippet: string;
+}
+
+export interface CodeExecResult {
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  truncated: boolean;
 }
 
 // ── Agent step ────────────────────────────────────────────────────────────────

@@ -65,7 +65,7 @@ export class AgentContext {
     const successfulTools = this.steps.filter((s) => s.tool !== "none" && s.status === "done");
     if (successfulTools.length === 0) return "idle";
     // If a write operation succeeded, show proud/happy
-    const writeTools = ["memo.add", "todo.add", "todo.complete", "schedule.add"];
+    const writeTools = ["todo.add", "todo.complete", "schedule.add", "code.exec"];
     if (successfulTools.some((s) => writeTools.includes(s.tool))) return "happy";
     return "curious";
   }

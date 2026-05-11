@@ -2,18 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { getFile, getStoredFileNames } from "./file-store";
 import type {
   ToolName,
-  Memo,
   Todo,
   ScheduleEvent,
   SearchResult,
+  CodeExecResult,
 } from "./types";
 
 // ── Result summarizers ────────────────────────────────────────────────────────
-
-function summarizeMemos(memos: Memo[]): string {
-  if (memos.length === 0) return "검색 결과 없음";
-  return memos.map((m) => `- ${m.content.slice(0, 80)}${m.content.length > 80 ? "…" : ""}`).join("\n");
-}
 
 function summarizeTodos(todos: Todo[]): string {
   if (todos.length === 0) return "할 일 없음";
@@ -43,26 +38,6 @@ export interface ToolEntry {
 }
 
 const REGISTRY: Record<ToolName, ToolEntry> = {
-  "memo.find": {
-    name: "memo.find",
-    description: "메모를 검색한다",
-    execute: async (p) => invoke<Memo[]>("memo_search", { query: p["query"] as string }),
-    resultLimit: 3,
-    summarize: (r) => summarizeMemos((r as Memo[]).slice(0, 3)),
-  },
-
-  "memo.add": {
-    name: "memo.add",
-    description: "메모를 추가한다",
-    execute: async (p) =>
-      invoke<Memo>("memo_add", {
-        content: p["content"] as string,
-        tags: (p["tags"] as string[] | undefined) ?? [],
-      }),
-    resultLimit: 1,
-    summarize: (r) => `메모 추가됨: ${(r as Memo).id}`,
-  },
-
   "todo.list": {
     name: "todo.list",
     description: "열린 할 일 목록을 가져온다",
@@ -115,15 +90,27 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     summarize: (r) => `일정 추가됨: ${(r as ScheduleEvent).title}`,
   },
 
-  "github.overview": {
-    name: "github.overview",
-    description: "GitHub 현황을 가져온다",
-    execute: async () => invoke<Record<string, unknown>>("github_overview"),
+  "code.exec": {
+    name: "code.exec",
+    description: "Python 또는 Shell 스크립트를 로컬에서 실행하고 결과를 반환한다",
+    execute: async (p) => {
+      const result = await invoke<CodeExecResult>("code_exec", {
+        code: p["code"] as string,
+        language: (p["language"] as string | undefined) ?? "python",
+        workDir: (p["work_dir"] as string | null | undefined) ?? null,
+      });
+      window.dispatchEvent(new CustomEvent("nekodesk:coderun", { detail: result }));
+      return result;
+    },
     resultLimit: 1,
     summarize: (r) => {
-      const d = r as Record<string, unknown>;
-      if (d["error"]) return `GitHub 오류: ${d["error"]}`;
-      return JSON.stringify(r).slice(0, 400);
+      const res = r as CodeExecResult;
+      const lines: string[] = [];
+      if (res.stdout) lines.push(`stdout:\n${res.stdout}`);
+      if (res.stderr) lines.push(`stderr:\n${res.stderr}`);
+      lines.push(`exit_code: ${res.exit_code}`);
+      if (res.truncated) lines.push("(출력 일부 잘림)");
+      return lines.join("\n");
     },
   },
 

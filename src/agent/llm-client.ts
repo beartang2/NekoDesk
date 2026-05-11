@@ -10,14 +10,12 @@ function getLlmUrl(): string {
 
 // ── Agent system prompt (built dynamically with MCP tools) ────────────────────
 
-const STATIC_TOOLS_DESC = `- memo.find: 메모를 검색한다 (params: { "query": string })
-- memo.add: 메모를 추가한다 (params: { "content": string, "tags": string[] })
-- todo.list: 열린 할 일 목록을 가져온다 (params: {})
+const STATIC_TOOLS_DESC = `- todo.list: 열린 할 일 목록을 가져온다 (params: {})
 - todo.add: 할 일을 추가한다 (params: { "content": string, "due_at": string | null })
 - todo.complete: 할 일을 완료 처리한다 (params: { "id": number })
 - schedule.list: 일정을 조회한다 (params: { "range": "today" | "week" | "all" })
 - schedule.add: 일정을 추가한다 (params: { "title": string, "start_at": string, "end_at": string | null })
-- github.overview: GitHub 현황을 가져온다 (params: {})
+- code.exec: Python 또는 Shell 스크립트를 로컬에서 실행하고 결과를 반환한다 (params: { "code": string, "language": "python" | "shell", "work_dir": string | null })
 - web.search: 웹에서 정보를 검색한다 (params: { "query": string })
 - file.upload: 첨부된 파일을 HTTP 엔드포인트에 multipart/form-data로 업로드한다 (params: { "url": string, "field_name": string, "filename": string })`;
 
@@ -59,7 +57,7 @@ export const DEFAULT_CHAT_SYSTEM_PROMPT = `너는 NekoDesk 어시스턴트야. �
 - 응답 마지막에 반드시 [[PET_STATE:감정]] 형식으로 고양이 감정을 표시해. (idle/happy/curious/proud/sleepy/error 중 하나)
 - 실제로 실행된 작업만 완료됐다고 해.`;
 
-const STATIC_TOOLS_BRIEF = `memo.find, memo.add, todo.list, todo.add, todo.complete, schedule.list, schedule.add, github.overview, web.search`;
+const STATIC_TOOLS_BRIEF = `todo.list, todo.add, todo.complete, schedule.list, schedule.add, code.exec, web.search`;
 
 /** Returns base system prompt + dynamic tool list injected at the end. */
 function buildChatSystemPrompt(): string {
@@ -237,8 +235,8 @@ function parseAgentResponse(raw: string): ParsedAgentStep {
 }
 
 const STATIC_TOOL_NAMES = new Set([
-  "memo.find", "memo.add", "todo.list", "todo.add", "todo.complete",
-  "schedule.list", "schedule.add", "github.overview", "web.search",
+  "todo.list", "todo.add", "todo.complete",
+  "schedule.list", "schedule.add", "code.exec", "web.search",
   "file.upload", "none",
 ]);
 

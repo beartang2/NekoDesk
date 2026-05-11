@@ -1,0 +1,274 @@
+/* ── Right Panel ─────────────────────────────────────────────────────────────── */
+
+.right-panel {
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.right-panel::-webkit-scrollbar {
+  width: 4px;
+}
+.right-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.right-panel::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* ── Panel Card ────────────────────────────────────────────────────────────── */
+
+.panel-card {
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.panel-card--calendar {
+  flex-shrink: 0;
+}
+
+.panel-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.panel-card__body {
+  padding: 8px 10px;
+}
+
+.panel-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  display: block;
+}
+
+/* ── TODO List ─────────────────────────────────────────────────────────────── */
+
+.todo-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.todo-item {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.todo-item__check {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  flex-shrink: 0;
+  line-height: 1;
+  transition: color 0.1s;
+}
+
+.todo-item__check:hover {
+  color: var(--success);
+}
+
+.todo-item__text {
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-item__due {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── Calendar ──────────────────────────────────────────────────────────────── */
+
+.cal-header {
+  gap: 6px;
+}
+
+.cal-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cal-nav__btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.1s;
+}
+
+.cal-nav__btn:hover {
+  color: var(--text-primary);
+}
+
+.cal-nav__label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  min-width: 52px;
+  text-align: center;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  margin-bottom: 6px;
+}
+
+.cal-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  aspect-ratio: 1;
+  font-size: 10px;
+  position: relative;
+  border-radius: 3px;
+  cursor: default;
+}
+
+.cal-cell--label {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  aspect-ratio: unset;
+  padding: 2px 0;
+  cursor: default;
+}
+
+.cal-cell--day {
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.cal-cell--day:hover {
+  background: var(--bg-raised);
+  color: var(--text-primary);
+}
+
+.cal-cell--today {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.cal-cell--selected {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.cal-dot {
+  display: block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--accent);
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.cal-events {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cal-event {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 11px;
+}
+
+.cal-event__time {
+  color: var(--text-muted);
+  font-size: 10px;
+  flex-shrink: 0;
+  min-width: 28px;
+}
+
+.cal-event__title {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Code Run ──────────────────────────────────────────────────────────────── */
+
+.code-result {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.code-result__badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  align-self: flex-start;
+}
+
+.code-result__badge--ok {
+  background: color-mix(in srgb, var(--success) 20%, transparent);
+  color: var(--success);
+}
+
+.code-result__badge--err {
+  background: color-mix(in srgb, var(--error) 20%, transparent);
+  color: var(--error);
+}
+
+.code-result__output {
+  font-size: 10px;
+  color: var(--text-primary);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px 7px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.code-result__output--err {
+  color: var(--error);
+}

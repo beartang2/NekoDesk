@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { X, Zap, Pencil, Trash2, Settings } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
 import { loadMcpServers as syncMcpRegistry } from "../agent/mcp-registry";
 import { DEFAULT_CHAT_SYSTEM_PROMPT } from "../agent/llm-client";
 import "./SettingsModal.css";
@@ -203,22 +202,6 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
-  // GitHub Token
-  const [githubToken, setGithubToken] = useState("");
-  const [githubTokenSaved, setGithubTokenSaved] = useState(false);
-
-  useEffect(() => {
-    invoke<string | null>("settings_get", { key: "github_token" })
-      .then((v) => { if (v) setGithubToken(v); })
-      .catch(() => {});
-  }, []);
-
-  async function saveGithubToken() {
-    await invoke("settings_set", { key: "github_token", value: githubToken.trim() });
-    setGithubTokenSaved(true);
-    setTimeout(() => setGithubTokenSaved(false), 1500);
-  }
-
   // LLM
   const [llmUrl, setLlmUrl] = useState(
     () => localStorage.getItem(LLM_URL_KEY) ?? DEFAULT_LLM_URL
@@ -308,27 +291,6 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         </div>
 
         <div className="settings-modal__body">
-
-          {/* ── GitHub Token ─────────────────────────────────────── */}
-          <section className="settings-section">
-            <h3 className="settings-section__title">GitHub Token</h3>
-            <p className="settings-section__desc">
-              GitHub 현황 조회에 사용됩니다. Settings → Developer settings → Personal access tokens에서 발급하세요.
-            </p>
-            <div className="settings-row">
-              <input
-                className="settings-input"
-                type="password"
-                value={githubToken}
-                onChange={(e) => setGithubToken(e.target.value)}
-                placeholder="ghp_xxxxxxxxxxxx"
-                onBlur={saveGithubToken}
-              />
-              <button className="settings-btn" onClick={saveGithubToken}>
-                {githubTokenSaved ? "저장됨" : "저장"}
-              </button>
-            </div>
-          </section>
 
           {/* ── LLM 서버 ─────────────────────────────────────────── */}
           <section className="settings-section">

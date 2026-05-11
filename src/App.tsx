@@ -7,6 +7,7 @@ import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { CatCanvas } from "./cat/CatCanvas";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { SettingsModal } from "./components/SettingsModal";
+import { RightPanel } from "./components/RightPanel";
 import { useAgentPool, makeInitialMessages } from "./hooks/useAgentLoop";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { initMcpFromStorage } from "./agent/mcp-registry";
@@ -573,6 +574,8 @@ export default function App() {
           isRunning={isRunning}
         />
       </main>
+
+      <RightPanel />
     </div>
   );
 }

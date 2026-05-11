@@ -2,6 +2,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::io::Read;
 
 // ── Database state ────────────────────────────────────────────────────────────
 
@@ -27,13 +28,6 @@ fn open_db() -> rusqlite::Result<Connection> {
 fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "
-        CREATE TABLE IF NOT EXISTS memos (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            content    TEXT NOT NULL,
-            tags       TEXT NOT NULL DEFAULT '[]',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
         CREATE TABLE IF NOT EXISTS todos (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             content      TEXT NOT NULL,
@@ -71,15 +65,6 @@ fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
 // ── Shared types ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Memo {
-    pub id: i64,
-    pub content: String,
-    pub tags: Vec<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Todo {
     pub id: i64,
     pub content: String,
@@ -109,6 +94,14 @@ pub struct SearchResult {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CodeExecResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConversationMessage {
     pub id: i64,
     pub session_id: String,
@@ -123,68 +116,11 @@ pub struct ConversationMessage {
 
 mod commands {
     use super::*;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    use std::thread;
+    use std::sync::mpsc;
     use tauri::State;
-
-    #[tauri::command]
-    pub fn memo_search(db: State<DbState>, query: String) -> Result<Vec<Memo>, String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let pattern = format!("%{}%", query);
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, content, tags, created_at, updated_at FROM memos
-                 WHERE content LIKE ?1 ORDER BY updated_at DESC LIMIT 10",
-            )
-            .map_err(|e| e.to_string())?;
-
-        let rows = stmt
-            .query_map(params![pattern], |row| {
-                let tags_json: String = row.get(2)?;
-                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-                Ok(Memo {
-                    id: row.get(0)?,
-                    content: row.get(1)?,
-                    tags,
-                    created_at: row.get(3)?,
-                    updated_at: row.get(4)?,
-                })
-            })
-            .map_err(|e| e.to_string())?;
-
-        rows.map(|r| r.map_err(|e| e.to_string())).collect()
-    }
-
-    #[tauri::command]
-    pub fn memo_add(
-        db: State<DbState>,
-        content: String,
-        tags: Vec<String>,
-    ) -> Result<Memo, String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".into());
-        conn.execute(
-            "INSERT INTO memos (content, tags) VALUES (?1, ?2)",
-            params![content, tags_json],
-        )
-        .map_err(|e| e.to_string())?;
-
-        let id = conn.last_insert_rowid();
-        conn.query_row(
-            "SELECT id, content, tags, created_at, updated_at FROM memos WHERE id = ?1",
-            params![id],
-            |row| {
-                let tags_json: String = row.get(2)?;
-                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-                Ok(Memo {
-                    id: row.get(0)?,
-                    content: row.get(1)?,
-                    tags,
-                    created_at: row.get(3)?,
-                    updated_at: row.get(4)?,
-                })
-            },
-        )
-        .map_err(|e| e.to_string())
-    }
 
     #[tauri::command]
     pub fn todo_list(db: State<DbState>) -> Result<Vec<Todo>, String> {
@@ -332,52 +268,83 @@ mod commands {
     }
 
     #[tauri::command]
-    pub fn github_overview(db: State<DbState>, token_override: Option<String>) -> Result<serde_json::Value, String> {
-        let token = token_override
-            .filter(|t| !t.is_empty())
-            .or_else(|| {
-                let conn = db.0.lock().ok()?;
-                conn.query_row(
-                    "SELECT value FROM settings WHERE key = 'github_token'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                ).ok()
-            })
-            .unwrap_or_default();
+    pub fn code_exec(code: String, language: Option<String>, work_dir: Option<String>) -> Result<CodeExecResult, String> {
+        let lang = language.as_deref().unwrap_or("python");
 
-        if token.is_empty() {
-            return Ok(serde_json::json!({
-                "error": "GitHub 토큰이 설정되지 않았어. 설정에서 GitHub Token을 입력해줘."
-            }));
-        }
+        let (interpreter, flag) = match lang {
+            "python" | "python3" => ("python3", "-c"),
+            "shell" | "sh" | "bash" => ("sh", "-c"),
+            other => return Err(format!("지원하지 않는 언어: {}. python 또는 shell을 사용해줘.", other)),
+        };
 
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("NekoDesk/0.1")
-            .build()
-            .map_err(|e: reqwest::Error| e.to_string())?;
+        let dir = work_dir
+            .filter(|d| !d.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
 
-        let user: serde_json::Value = client
-            .get("https://api.github.com/user")
-            .bearer_auth(&token)
-            .header("Accept", "application/vnd.github.v3+json")
-            .send()
-            .map_err(|e| e.to_string())?
-            .json()
-            .map_err(|e: reqwest::Error| e.to_string())?;
+        let mut child = Command::new(interpreter)
+            .arg(flag)
+            .arg(&code)
+            .current_dir(&dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("실행 실패: {}. {} 가 설치되어 있는지 확인해줘.", e, interpreter))?;
 
-        let issues: serde_json::Value = client
-            .get("https://api.github.com/issues?filter=assigned&state=open&per_page=5")
-            .bearer_auth(&token)
-            .header("Accept", "application/vnd.github.v3+json")
-            .send()
-            .map_err(|e| e.to_string())?
-            .json()
-            .map_err(|e: reqwest::Error| e.to_string())?;
+        // Collect stdout/stderr in background threads
+        let stdout_pipe = child.stdout.take().unwrap();
+        let stderr_pipe = child.stderr.take().unwrap();
 
-        Ok(serde_json::json!({
-            "user": user.get("login"),
-            "assigned_issues": issues,
-        }))
+        let (tx_out, rx_out) = mpsc::channel::<String>();
+        let (tx_err, rx_err) = mpsc::channel::<String>();
+
+        thread::spawn(move || {
+            let mut buf = String::new();
+            let mut reader = std::io::BufReader::new(stdout_pipe);
+            reader.read_to_string(&mut buf).ok();
+            tx_out.send(buf).ok();
+        });
+
+        thread::spawn(move || {
+            let mut buf = String::new();
+            let mut reader = std::io::BufReader::new(stderr_pipe);
+            reader.read_to_string(&mut buf).ok();
+            tx_err.send(buf).ok();
+        });
+
+        // Poll for completion with 30s timeout
+        let timeout = Duration::from_secs(30);
+        let start = Instant::now();
+        let exit_code = loop {
+            match child.try_wait().map_err(|e| e.to_string())? {
+                Some(status) => break status.code().unwrap_or(-1),
+                None => {
+                    if start.elapsed() > timeout {
+                        child.kill().ok();
+                        return Err("실행 시간 초과 (30초)".to_string());
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        };
+
+        let stdout_raw = rx_out.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
+        let stderr_raw = rx_err.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
+
+        const MAX_OUTPUT: usize = 4000;
+        let truncated = stdout_raw.len() > MAX_OUTPUT || stderr_raw.len() > MAX_OUTPUT;
+        let stdout = if stdout_raw.len() > MAX_OUTPUT {
+            format!("{}…(잘림)", &stdout_raw[..MAX_OUTPUT])
+        } else {
+            stdout_raw
+        };
+        let stderr = if stderr_raw.len() > MAX_OUTPUT {
+            format!("{}…(잘림)", &stderr_raw[..MAX_OUTPUT])
+        } else {
+            stderr_raw
+        };
+
+        Ok(CodeExecResult { stdout, stderr, exit_code, truncated })
     }
 
     #[tauri::command]
@@ -554,14 +521,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::memo_search,
-            commands::memo_add,
             commands::todo_list,
             commands::todo_add,
             commands::todo_complete,
             commands::schedule_list,
             commands::schedule_add,
-            commands::github_overview,
+            commands::code_exec,
             commands::web_search,
             commands::settings_set,
             commands::settings_get,

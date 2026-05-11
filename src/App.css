@@ -17,6 +17,7 @@
   --success:       #7aab87;
   --error:         #b55a5a;
   --sidebar-w:     220px;
+  --right-panel-w: 210px;
   --titlebar-h:    40px;
   --cat-panel-h:   150px;
 }
@@ -49,7 +50,7 @@ html, body, #root {
 .app {
   display: grid;
   grid-template-rows: var(--titlebar-h) 1fr;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-columns: var(--sidebar-w) 1fr var(--right-panel-w);
   height: 100%;
 }
 

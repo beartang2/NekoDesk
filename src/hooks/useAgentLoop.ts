@@ -60,7 +60,7 @@ function buildHistory(messages: ChatMessage[]): LlmMessage[] {
 
 function deriveFinalEmotion(steps: AgentStep[]): CatEmotion {
   if (steps.some((s) => s.status === "error")) return "error";
-  const writes = ["memo.add", "todo.add", "todo.complete", "schedule.add"];
+  const writes = ["todo.add", "todo.complete", "schedule.add", "code.exec"];
   if (steps.some((s) => writes.includes(s.tool) && s.status === "done")) return "happy";
   if (steps.length > 0) return "proud";
   return "idle";
@@ -203,6 +203,7 @@ export function useAgentPool(
               role: "assistant",
               content: clean,
             }).catch(() => {});
+            window.dispatchEvent(new CustomEvent("nekodesk:agent_done"));
             break;
           }
 
