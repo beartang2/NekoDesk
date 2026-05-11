@@ -1,0 +1,175 @@
+/* ── Accordion container ── */
+.step-accordion {
+  margin: 0 0 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 11px;
+}
+
+.step-accordion__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.step-accordion__title {
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.step-accordion__toggle-all {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.step-accordion__toggle-all:hover {
+  color: var(--text-primary);
+}
+
+.step-accordion__list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Step item ── */
+.step-item {
+  border-bottom: 1px solid var(--border);
+}
+
+.step-item:last-child {
+  border-bottom: none;
+}
+
+/* ── Step header (button) ── */
+.step-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-raised);
+  border: none;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.step-header:hover {
+  background: var(--bg-surface);
+}
+
+.step-item--running .step-header {
+  background: var(--accent-dim);
+}
+
+.step-item--error .step-header {
+  background: color-mix(in srgb, var(--error) 12%, var(--bg-raised));
+}
+
+.step-icon {
+  font-size: 11px;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.step-icon--done {
+  color: #7aab87;
+}
+
+.step-icon--error {
+  color: #b55a5a;
+}
+
+.step-icon--running {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.step-header__label {
+  flex: 1;
+}
+
+.step-header__label strong {
+  color: var(--text-primary);
+}
+
+.step-header__error {
+  font-size: 10px;
+  color: #b55a5a;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.step-header__chevron {
+  color: var(--text-muted);
+  font-size: 9px;
+  flex-shrink: 0;
+}
+
+/* ── Step body ── */
+.step-body {
+  padding: 8px 12px;
+  background: var(--bg-base);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.step-section__label {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.step-thought {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ── Code block ── */
+.step-code {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 6px 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.step-code code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: pre;
+}

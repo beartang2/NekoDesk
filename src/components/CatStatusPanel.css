@@ -1,0 +1,104 @@
+.cat-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 6px;
+  width: 100%;
+}
+
+/* ── Day counter ── */
+.cat-status__day {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ── Gauges ── */
+.cat-status__gauges {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.cat-gauge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cat-gauge__icon {
+  font-size: 11px;
+  width: 16px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.cat-gauge__track {
+  flex: 1;
+  height: 4px;
+  background: var(--bg-raised);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.cat-gauge__fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+.cat-gauge__fill--hunger {
+  background: var(--success);
+}
+
+.cat-gauge__fill--hunger.cat-gauge__fill--low {
+  background: #d08030;
+}
+
+.cat-gauge__fill--hunger.cat-gauge__fill--critical {
+  background: var(--error);
+}
+
+.cat-gauge__fill--play {
+  background: var(--accent);
+}
+
+.cat-gauge__fill--play.cat-gauge__fill--low {
+  opacity: 0.4;
+}
+
+/* ── Buttons ── */
+.cat-status__btns {
+  display: flex;
+  gap: 5px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.cat-status__btn {
+  flex: 1;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  padding: 4px 0;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  -webkit-app-region: no-drag;
+}
+
+.cat-status__btn:hover:not(:disabled) {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.cat-status__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
