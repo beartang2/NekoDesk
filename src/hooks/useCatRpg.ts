@@ -18,7 +18,8 @@ const TICK_MS = 60_000;          // 1분마다 틱
 const HUNGER_PER_MIN = 0.5;      // -5 / 10분
 const PLAY_PER_MIN = 0.3;        // -3 / 10분
 const MAX_OFFLINE_MIN = 120;     // 오프라인 최대 반영 2시간
-const MAX_FEED_PER_DAY = 3;
+// compact는 컨텍스트가 자연스러운 제한 — 하루 제한 없음
+const MAX_FEED_PER_DAY = 999;
 const SETTINGS_KEY = "cat_rpg_state";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -105,16 +106,15 @@ export function useCatRpg() {
     1,
     Math.floor((Date.now() - new Date(state.birthday).getTime()) / 86_400_000) + 1
   );
-  const canFeed = state.feedCountToday < MAX_FEED_PER_DAY;
+  const canFeed = true; // compact는 언제든 가능 — 컨텍스트가 자연스러운 제한
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
   const feed = useCallback(() => {
     const s = stateRef.current;
-    if (s.feedCountToday >= MAX_FEED_PER_DAY) return;
     setState({
       ...s,
-      hunger: clamp(s.hunger + 40),
+      hunger: clamp(s.hunger + 60),   // compact = 풀 식사 (기존 +40 → +60)
       feedCountToday: s.feedCountToday + 1,
       feedDate: today(),
       lastTick: new Date().toISOString(),

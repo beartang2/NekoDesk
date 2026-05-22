@@ -14,6 +14,7 @@
   --text-muted:    #444458;
   --accent:        #a78bfa;
   --accent-dim:    #3b2f6e;
+  --accent-hover:  #4a3580;
   --success:       #7aab87;
   --error:         #b55a5a;
   --sidebar-w:     220px;
@@ -32,6 +33,7 @@
   --text-muted:    #9a9890;
   --accent:        #7c5cbf;
   --accent-dim:    #e0d8f4;
+  --accent-hover:  #c8b8ec;
   --success:       #4a8a5a;
   --error:         #a03030;
 }
@@ -135,7 +137,7 @@ html, body, #root {
 }
 
 .sidebar__new-btn:hover {
-  background: #4a3580;
+  background: var(--accent-hover);
 }
 
 .sidebar__section-label {
@@ -232,6 +234,93 @@ html, body, #root {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-base);
+}
+
+/* ── Chat area wrapper (relative, for compact tab positioning) ── */
+.chat-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Compact summary tab (우상단 아코디언 탭) ── */
+.compact-tab {
+  position: absolute;
+  top: 0;
+  right: 14px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.compact-tab__btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  padding: 3px 10px 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+  opacity: 0.7;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.compact-tab__btn:hover {
+  opacity: 1;
+  color: var(--text-secondary);
+}
+
+.compact-tab--open .compact-tab__btn {
+  opacity: 1;
+  border-radius: 0 0 0 0;
+  border-bottom-color: var(--bg-raised);
+}
+
+.compact-tab__icon {
+  font-size: 11px;
+}
+
+.compact-tab__chevron {
+  font-size: 8px;
+  opacity: 0.7;
+}
+
+.compact-tab__panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  width: 300px;
+  max-height: 260px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+}
+
+.compact-tab__panel-inner {
+  padding: 10px 14px 12px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.compact-tab__panel-inner p,
+.compact-tab__panel-inner li {
+  margin: 2px 0;
+}
+
+.compact-tab__panel-inner strong {
+  color: var(--text-secondary);
 }
 
 /* ── Error banner ── */
@@ -532,7 +621,7 @@ html, body, #root {
 }
 
 .composer__send:hover {
-  background: #4a3580;
+  background: var(--accent-hover);
 }
 
 .composer__send:disabled {
@@ -541,7 +630,7 @@ html, body, #root {
 }
 
 .composer__stop {
-  background: #2a1212;
+  background: color-mix(in srgb, var(--error) 15%, var(--bg-surface));
   border: 1px solid var(--error);
   border-radius: 4px;
   color: var(--error);
@@ -556,5 +645,119 @@ html, body, #root {
 }
 
 .composer__stop:hover {
-  background: #3a1a1a;
+  background: color-mix(in srgb, var(--error) 25%, var(--bg-surface));
+}
+
+/* ── Confirm banner ── */
+.confirm-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.confirm-banner--danger {
+  border-top-color: var(--error);
+  background: color-mix(in srgb, var(--error) 8%, var(--bg-raised));
+}
+
+.confirm-banner__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+}
+
+.confirm-banner__tag {
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--accent);
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.confirm-banner--danger .confirm-banner__tag {
+  background: color-mix(in srgb, var(--error) 15%, transparent);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.confirm-banner__warn {
+  color: var(--error);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.confirm-banner__code {
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  max-height: 150px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-primary);
+}
+
+.confirm-banner__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.confirm-banner__deny {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.confirm-banner__deny:hover {
+  background: var(--bg-base);
+  border-color: var(--text-secondary);
+}
+
+.confirm-banner__allow {
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 14px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.1s;
+}
+
+.confirm-banner__allow:hover {
+  background: var(--accent-hover);
+}
+
+.confirm-banner__allow--danger {
+  background: color-mix(in srgb, var(--error) 15%, transparent);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.confirm-banner__allow--danger:hover {
+  background: color-mix(in srgb, var(--error) 25%, transparent);
 }

@@ -26,6 +26,80 @@ function summarizeMcpResult(text: string): string {
 }
 
 
+// ── Code safety check ─────────────────────────────────────────────────────────
+// 읽기 전용 코드: needsConfirm = false → 자동 실행
+// 쓰기/수정/삭제 코드: needsConfirm = true → 승인 필요
+// 위험한 코드: isDangerous = true → 빨간 경고 표시
+
+interface CodeSafetyResult {
+  needsConfirm: boolean;
+  isDangerous: boolean;
+  reason: string;
+}
+
+function checkCodeSafety(code: string, language: string): CodeSafetyResult {
+  // 언제나 위험 (isDangerous = true, 빨간 경고)
+  const DANGER_PATTERNS: Array<[RegExp, string]> = [
+    [/\brm\s+-[rf]{1,2}\w*\s/, "파일/디렉토리 강제 삭제"],
+    [/\bsudo\b/, "관리자 권한 실행"],
+    [/\bdd\b.*\bif=/, "디스크 직접 쓰기"],
+    [/>\s*\/dev\/(?!null)/, "디바이스 직접 접근"],
+    [/\bkillall?\b|\bpkill\b/, "프로세스 강제 종료"],
+    [/\bshutdown\b|\breboot\b/, "시스템 종료/재시작"],
+  ];
+
+  for (const [pattern, reason] of DANGER_PATTERNS) {
+    if (pattern.test(code)) return { needsConfirm: true, isDangerous: true, reason };
+  }
+
+  // 언어별 쓰기/수정/삭제 패턴 (승인 필요, 일반 경고)
+  const SHELL_WRITE: Array<[RegExp, string]> = [
+    [/\brm\b/, "파일 삭제"],
+    [/\bmv\b/, "파일 이동"],
+    [/\bcp\s/, "파일 복사"],
+    [/\bmkdir\b/, "디렉토리 생성"],
+    [/\btouch\s/, "파일 생성"],
+    [/\bchmod\b|\bchown\b/, "권한 변경"],
+    [/\bln\s/, "링크 생성"],
+    [/>>\s*\S/, "파일 추가 쓰기"],
+    [/(?<![>])\s>\s*(?!\/dev\/null)\S/, "파일 쓰기"],
+    [/\bpip\s+install\b|\bconda\s+install\b|\bnpm\s+(install|i)\b|\byarn\s+add\b|\bbrew\s+install\b/, "패키지 설치"],
+    [/\bcurl\b.*(?:-X\s+(?:POST|PUT|PATCH|DELETE)|--data\b|-d\s)/, "HTTP 쓰기 요청"],
+    [/\bwget\b.*-O\s*\S/, "파일 다운로드"],
+    [/\bscp\b|\brsync\b/, "원격 파일 전송"],
+  ];
+
+  const PYTHON_WRITE: Array<[RegExp, string]> = [
+    [/open\s*\([^)]*['"]\s*[waxWAX]/, "파일 쓰기"],
+    [/\bos\s*\.\s*(?:remove|unlink|rmdir|makedirs|mkdir|rename|replace|symlink)\s*\(/, "파일 시스템 변경"],
+    [/\bshutil\s*\.\s*(?:copy|move|rmtree|copytree|copyfile)\s*\(/, "파일 복사/삭제"],
+    [/\bsubprocess\s*\.\s*(?:run|call|Popen|check_output|check_call)\s*\(/, "외부 프로세스 실행"],
+    [/\bos\s*\.\s*system\s*\(/, "시스템 명령 실행"],
+    [/\.write(?:_text|_bytes)?\s*\(/, "파일 쓰기"],
+    [/requests\s*\.\s*(?:post|put|patch|delete)\s*\(/i, "HTTP 쓰기 요청"],
+  ];
+
+  const APPLESCRIPT_WRITE: Array<[RegExp, string]> = [
+    [/\bset\s+\w.*\bto\b/, "값 설정"],
+    [/\bmake\s+new\b/, "항목 생성"],
+    [/\bdelete\b/, "항목 삭제"],
+    [/\bmove\b/, "항목 이동"],
+    [/\bduplicate\b/, "항목 복제"],
+  ];
+
+  const writePatterns =
+    language === "python"      ? PYTHON_WRITE :
+    language === "applescript" ? APPLESCRIPT_WRITE :
+                                 SHELL_WRITE;
+
+  for (const [pattern, reason] of writePatterns) {
+    if (pattern.test(code)) return { needsConfirm: true, isDangerous: false, reason };
+  }
+
+  // 읽기 전용 → 자동 실행
+  return { needsConfirm: false, isDangerous: false, reason: "" };
+}
+
 export async function* runAgentLoop(
   userInput: string,
   chatHistory: LlmMessage[]
@@ -77,6 +151,30 @@ export async function* runAgentLoop(
       summary: "",
       status: "running",
     };
+
+    // ── Confirm code execution (쓰기/수정/삭제만 승인, 읽기는 자동 실행) ────────
+    if (toolName === "code.exec") {
+      const code = (parsed.params["code"] as string) ?? "";
+      const language = (parsed.params["language"] as string) ?? "python";
+
+      const { needsConfirm, isDangerous, reason } = checkCodeSafety(code, language);
+
+      if (needsConfirm) {
+        let resolveConfirm!: (ok: boolean) => void;
+        const approvalPromise = new Promise<boolean>((res) => { resolveConfirm = res; });
+        yield { type: "confirm_needed", language, code, isDangerous, dangerReason: reason, resolve: resolveConfirm };
+        const approved = await approvalPromise;
+
+        if (!approved) {
+          step.status = "error";
+          step.errorMessage = "사용자가 실행을 취소했습니다";
+          step.summary = "실행 취소됨";
+          context.addStep(step);
+          yield { type: "step_error", step };
+          continue;
+        }
+      }
+    }
 
     try {
       if (isMcpTool(toolName)) {

@@ -418,5 +418,104 @@
 }
 
 .mcp-form__btn--save:hover {
-  background: #4a3580;
+  background: var(--accent-hover);
+}
+
+/* ── macOS permission buttons ── */
+.perm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.perm-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.perm-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.perm-btn__label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.perm-btn__desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.perm-btn__arrow {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.perm-btn:hover .perm-btn__arrow {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* ── Color customization ── */
+.color-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.color-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.color-row__label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.color-row__swatch {
+  width: 36px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: border-color 0.1s;
+}
+
+.color-row__swatch:hover {
+  border-color: var(--accent);
+}
+
+.color-row__input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  padding: 0;
+  border: none;
 }

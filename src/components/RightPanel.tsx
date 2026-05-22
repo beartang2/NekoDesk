@@ -31,7 +31,7 @@ function TodoCard() {
 
   return (
     <div className="panel-card">
-      <div className="panel-card__header">✓ Today's TODO</div>
+      <div className="panel-card__header">✓ TODO List</div>
       <div className="panel-card__body">
         {todos.length === 0 ? (
           <span className="panel-empty">할 일 없음</span>

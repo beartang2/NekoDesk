@@ -5,6 +5,7 @@ import type {
   Todo,
   ScheduleEvent,
   SearchResult,
+  ScrapResult,
   CodeExecResult,
 } from "./types";
 
@@ -120,6 +121,33 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     execute: async (p) => invoke<SearchResult[]>("web_search", { query: p["query"] as string }),
     resultLimit: 3,
     summarize: (r) => summarizeSearch((r as SearchResult[]).slice(0, 3)),
+  },
+
+  "web.scrape": {
+    name: "web.scrape",
+    description: "특정 URL의 페이지 내용을 가져온다",
+    execute: async (p) => invoke<ScrapResult>("web_scrape", { url: p["url"] as string }),
+    resultLimit: 1,
+    summarize: (r) => {
+      const res = r as ScrapResult;
+      return `[${res.title}]\n${res.content.slice(0, 500)}`;
+    },
+  },
+
+  "weather.get": {
+    name: "weather.get",
+    description: "현재 날씨와 단기 예보를 가져온다",
+    execute: async (p) => invoke<string>("weather_get", { location: p["location"] as string }),
+    resultLimit: 1,
+    summarize: (r) => r as string,
+  },
+
+  "news.search": {
+    name: "news.search",
+    description: "뉴스를 검색한다",
+    execute: async (p) => invoke<string>("news_search", { query: p["query"] as string }),
+    resultLimit: 1,
+    summarize: (r) => r as string,
   },
 
   "file.upload": {

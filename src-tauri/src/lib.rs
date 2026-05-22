@@ -94,6 +94,13 @@ pub struct SearchResult {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ScrapResult {
+    pub url: String,
+    pub title: String,
+    pub content: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CodeExecResult {
     pub stdout: String,
     pub stderr: String,
@@ -274,7 +281,8 @@ mod commands {
         let (interpreter, flag) = match lang {
             "python" | "python3" => ("python3", "-c"),
             "shell" | "sh" | "bash" => ("sh", "-c"),
-            other => return Err(format!("지원하지 않는 언어: {}. python 또는 shell을 사용해줘.", other)),
+            "applescript" | "osascript" => ("osascript", "-e"),
+            other => return Err(format!("지원하지 않는 언어: {}. python, shell 또는 applescript를 사용해줘.", other)),
         };
 
         let dir = work_dir
@@ -350,58 +358,97 @@ mod commands {
     #[tauri::command]
     pub fn web_search(query: String) -> Result<Vec<SearchResult>, String> {
         let encoded = urlencoding(&query);
-        let url = format!("https://html.duckduckgo.com/html/?q={}", encoded);
+        let url = format!("https://lite.duckduckgo.com/lite/?q={}", encoded);
 
         let client = reqwest::blocking::Client::builder()
-            .user_agent(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            )
+            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .timeout(std::time::Duration::from_secs(10))
             .build()
             .map_err(|e: reqwest::Error| e.to_string())?;
 
         let html = client
             .get(&url)
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.9,ko;q=0.8")
+            .header("Referer", "https://lite.duckduckgo.com/")
             .send()
             .map_err(|e| e.to_string())?
             .text()
             .map_err(|e| e.to_string())?;
 
         let document = scraper::Html::parse_document(&html);
-        let result_sel = scraper::Selector::parse(".result").unwrap();
-        let title_sel = scraper::Selector::parse(".result__title a").unwrap();
-        let snippet_sel = scraper::Selector::parse(".result__snippet").unwrap();
+
+        // DuckDuckGo Lite structure: tr.result-title > td > a.result-link
+        let row_sel    = scraper::Selector::parse("tr.result-title").unwrap();
+        let link_sel   = scraper::Selector::parse("a.result-link").unwrap();
+        let snippet_sel = scraper::Selector::parse("td.result-snippet").unwrap();
+
+        let rows: Vec<_> = document.select(&row_sel).collect();
+        let snippets: Vec<_> = document.select(&snippet_sel).collect();
 
         let mut results = Vec::new();
-        for result in document.select(&result_sel).take(5) {
-            let title = result
-                .select(&title_sel)
-                .next()
+        for (i, row) in rows.iter().enumerate().take(5) {
+            let link = row.select(&link_sel).next();
+            let title = link
                 .map(|n| n.text().collect::<String>().trim().to_string())
                 .unwrap_or_default();
-
-            let href = result
-                .select(&title_sel)
-                .next()
+            let href = link
                 .and_then(|n| n.value().attr("href"))
                 .map(|s| s.to_string())
                 .unwrap_or_default();
-
-            let snippet = result
-                .select(&snippet_sel)
-                .next()
+            let snippet = snippets.get(i)
                 .map(|n| n.text().collect::<String>().trim().to_string())
                 .unwrap_or_default();
 
             if !title.is_empty() {
-                results.push(SearchResult {
-                    title,
-                    url: href,
-                    snippet,
-                });
+                results.push(SearchResult { title, url: href, snippet });
             }
         }
 
         Ok(results)
+    }
+
+    #[tauri::command]
+    pub fn web_scrape(url: String) -> Result<ScrapResult, String> {
+        let client = reqwest::blocking::Client::builder()
+            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .timeout(std::time::Duration::from_secs(15))
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let html = client
+            .get(&url)
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.9,ko;q=0.8")
+            .send()
+            .map_err(|e| format!("요청 실패: {}", e))?
+            .text()
+            .map_err(|e| format!("응답 읽기 실패: {}", e))?;
+
+        let document = scraper::Html::parse_document(&html);
+
+        let title_sel = scraper::Selector::parse("title").unwrap();
+        let title = document.select(&title_sel)
+            .next()
+            .map(|n| n.text().collect::<String>().trim().to_string())
+            .unwrap_or_default();
+
+        // Extract readable text from content tags, skip nav/footer/script/style
+        let content_sel = scraper::Selector::parse(
+            "article, main, p, h1, h2, h3, h4, li, td, th, blockquote"
+        ).unwrap();
+
+        let content: String = document.select(&content_sel)
+            .map(|n| n.text().collect::<String>().trim().to_string())
+            .filter(|s| s.len() > 15)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .chars()
+            .take(6000)
+            .collect();
+
+        Ok(ScrapResult { url, title, content })
     }
 
     #[tauri::command]
@@ -485,6 +532,165 @@ mod commands {
 
         rows.map(|r| r.map_err(|e| e.to_string())).collect()
     }
+
+    #[tauri::command]
+    pub fn conversation_delete(
+        db: State<DbState>,
+        session_id: String,
+    ) -> Result<(), String> {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM conversation_messages WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub fn weather_get(_db: State<DbState>, location: String) -> Result<String, String> {
+        // Step 1: Geocoding
+        let geo_url = format!(
+            "https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&language=ko&format=json",
+            urlencoding(&location)
+        );
+        let geo_resp: serde_json::Value = reqwest::blocking::get(&geo_url)
+            .map_err(|e| e.to_string())?
+            .json()
+            .map_err(|e| e.to_string())?;
+
+        let results = geo_resp["results"].as_array()
+            .ok_or_else(|| format!("'{}' 위치를 찾을 수 없습니다.", location))?;
+        if results.is_empty() {
+            return Err(format!("'{}' 위치를 찾을 수 없습니다.", location));
+        }
+        let lat = results[0]["latitude"].as_f64().unwrap_or(0.0);
+        let lon = results[0]["longitude"].as_f64().unwrap_or(0.0);
+        let place_name = results[0]["name"].as_str().unwrap_or(&location).to_string();
+
+        // Step 2: Weather fetch
+        let weather_url = format!(
+            "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,apparent_temperature&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FSeoul&forecast_days=3",
+            lat, lon
+        );
+        let weather: serde_json::Value = reqwest::blocking::get(&weather_url)
+            .map_err(|e| e.to_string())?
+            .json()
+            .map_err(|e| e.to_string())?;
+
+        let cur = &weather["current"];
+        let temp = cur["temperature_2m"].as_f64().unwrap_or(0.0);
+        let feels = cur["apparent_temperature"].as_f64().unwrap_or(temp);
+        let humidity = cur["relative_humidity_2m"].as_i64().unwrap_or(0);
+        let wind = cur["wind_speed_10m"].as_f64().unwrap_or(0.0);
+        let code = cur["weather_code"].as_i64().unwrap_or(0);
+
+        let condition = super::weather_code_to_str(code);
+
+        let daily = &weather["daily"];
+        let max_temps = daily["temperature_2m_max"].as_array();
+        let min_temps = daily["temperature_2m_min"].as_array();
+        let precip = daily["precipitation_probability_max"].as_array();
+
+        let mut result = format!(
+            "{} 현재 날씨\n{} | {:.1}°C (체감 {:.1}°C)\n습도 {}% | 바람 {:.1}km/h",
+            place_name, condition, temp, feels, humidity, wind
+        );
+
+        let day_labels = ["오늘", "내일", "모레"];
+        for i in 0..3 {
+            let tmax = max_temps.and_then(|a| a.get(i)).and_then(|v| v.as_f64());
+            let tmin = min_temps.and_then(|a| a.get(i)).and_then(|v| v.as_f64());
+            let rain = precip.and_then(|a| a.get(i)).and_then(|v| v.as_i64());
+            if let (Some(mx), Some(mn)) = (tmax, tmin) {
+                let rain_str = rain.map(|r| format!(" 강수 {}%", r)).unwrap_or_default();
+                result.push_str(&format!("\n{}: 최고 {:.0}°C / 최저 {:.0}°C{}", day_labels[i], mx, mn, rain_str));
+            }
+        }
+        Ok(result)
+    }
+
+    #[tauri::command]
+    pub fn news_search(db: State<DbState>, query: String) -> Result<String, String> {
+        // Read API key from settings table
+        let api_key = {
+            let conn = db.0.lock().map_err(|e| e.to_string())?;
+            let result: rusqlite::Result<String> = conn.query_row(
+                "SELECT value FROM settings WHERE key = 'newsapi_key'",
+                [],
+                |row| row.get(0),
+            );
+            match result {
+                Ok(k) if !k.trim().is_empty() => k,
+                _ => return Err("NewsAPI 키가 설정되지 않았습니다. 설정에서 NewsAPI 키를 입력해주세요.".to_string()),
+            }
+        };
+
+        let url = format!(
+            "https://newsapi.org/v2/everything?q={}&sortBy=publishedAt&pageSize=5&language=en&apiKey={}",
+            urlencoding(&query), api_key
+        );
+
+        let resp: serde_json::Value = reqwest::blocking::Client::new()
+            .get(&url)
+            .send()
+            .map_err(|e| e.to_string())?
+            .json()
+            .map_err(|e| e.to_string())?;
+
+        if resp["status"] != "ok" {
+            let msg = resp["message"].as_str().unwrap_or("API 오류");
+            return Err(format!("NewsAPI 오류: {}", msg));
+        }
+
+        let articles = resp["articles"].as_array()
+            .ok_or("기사 없음")?;
+
+        if articles.is_empty() {
+            return Ok(format!("'{}' 검색 결과 없음", query));
+        }
+
+        let mut result = format!("'{}' 뉴스 검색 결과\n", query);
+        for (i, article) in articles.iter().enumerate().take(5) {
+            let title = article["title"].as_str().unwrap_or("제목 없음");
+            let source = article["source"]["name"].as_str().unwrap_or("");
+            let desc = article["description"].as_str().unwrap_or("");
+            let art_url = article["url"].as_str().unwrap_or("");
+            let published = article["publishedAt"].as_str().unwrap_or("").get(..10).unwrap_or("");
+            result.push_str(&format!("\n{}. [{}] {} ({})\n   {}\n   {}\n", i+1, source, title, published, desc, art_url));
+        }
+        Ok(result)
+    }
+
+    /// macOS URL 스킴 또는 앱을 엽니다 (권한 설정 페이지 열기 등에 사용)
+    #[tauri::command]
+    pub fn open_url(url: String) -> Result<(), String> {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
+fn weather_code_to_str(code: i64) -> &'static str {
+    match code {
+        0 => "맑음 ☀",
+        1 => "대체로 맑음 🌤",
+        2 => "부분 흐림 ⛅",
+        3 => "흐림 ☁",
+        45 | 48 => "안개 🌫",
+        51 | 53 | 55 => "이슬비 🌦",
+        61 | 63 => "비 🌧",
+        65 => "강한 비 🌧",
+        71 | 73 | 75 => "눈 🌨",
+        77 => "눈보라 ❄",
+        80 | 81 | 82 => "소나기 🌦",
+        85 | 86 => "눈 소나기 🌨",
+        95 => "천둥번개 ⛈",
+        96 | 99 => "우박 동반 뇌우 ⛈",
+        _ => "알 수 없음",
+    }
 }
 
 fn urlencoding(s: &str) -> String {
@@ -528,10 +734,15 @@ pub fn run() {
             commands::schedule_add,
             commands::code_exec,
             commands::web_search,
+            commands::web_scrape,
             commands::settings_set,
             commands::settings_get,
             commands::conversation_save,
             commands::conversation_load,
+            commands::conversation_delete,
+            commands::weather_get,
+            commands::news_search,
+            commands::open_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

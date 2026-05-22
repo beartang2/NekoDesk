@@ -3,6 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { runAgentLoop } from "../agent/agent-loop";
 import type { AgentStep, CatEmotion, LlmMessage, LoopEvent } from "../agent/types";
 
+export interface PendingConfirm {
+  sessionId: string;
+  language: string;
+  code: string;
+  isDangerous: boolean;
+  dangerReason: string;
+  resolve: (ok: boolean) => void;
+}
+
 export interface AttachedFile {
   name: string;
   content: string; // text content; empty for binary files
@@ -80,6 +89,7 @@ export function useAgentPool(
   const [catEmotions, setCatEmotions] = useState<Record<string, CatEmotion>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const abortRefs = useRef<Record<string, boolean>>({});
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
 
   function setRunning(id: string, on: boolean) {
     if (on) runningSetRef.current.add(id);
@@ -186,11 +196,23 @@ export function useAgentPool(
             );
             break;
 
+          case "confirm_needed":
+            setPendingConfirm({
+              sessionId,
+              language: event.language,
+              code: event.code,
+              isDangerous: event.isDangerous,
+              dangerReason: event.dangerReason,
+              resolve: event.resolve,
+            });
+            break;
+
           case "done": {
             finalSteps = event.steps;
             const { clean, emotion } = stripPetToken(event.answer);
             setCatEmotion(sessionId, emotion ?? deriveFinalEmotion(finalSteps));
             setRunning(sessionId, false);
+            setPendingConfirm(null);
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
                 m.id === assistantId
@@ -210,6 +232,7 @@ export function useAgentPool(
           case "error":
             setCatEmotion(sessionId, "error");
             setRunning(sessionId, false);
+            setPendingConfirm(null);
             setErrors((prev) => ({ ...prev, [sessionId]: event.message }));
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
@@ -257,6 +280,11 @@ export function useAgentPool(
     error: (sessionId: string): string | null => errors[sessionId] ?? null,
     sendMessage,
     stop,
+    pendingConfirm,
+    confirmResolve: (ok: boolean) => {
+      pendingConfirm?.resolve(ok);
+      setPendingConfirm(null);
+    },
   };
 }
 

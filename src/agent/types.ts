@@ -26,7 +26,10 @@ export type ToolName =
   | "schedule.add"
   | "code.exec"
   | "web.search"
-  | "file.upload";
+  | "web.scrape"
+  | "file.upload"
+  | "weather.get"
+  | "news.search";
 
 export interface ToolParamSchema {
   type: "string" | "number" | "boolean" | "array";
@@ -72,6 +75,12 @@ export interface SearchResult {
   snippet: string;
 }
 
+export interface ScrapResult {
+  url: string;
+  title: string;
+  content: string;
+}
+
 export interface CodeExecResult {
   stdout: string;
   stderr: string;
@@ -103,7 +112,8 @@ export type LoopEvent =
   | { type: "step_error"; step: AgentStep }
   | { type: "streaming_token"; token: string }
   | { type: "done"; answer: string; steps: AgentStep[] }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "confirm_needed"; language: string; code: string; isDangerous: boolean; dangerReason: string; resolve: (ok: boolean) => void };
 
 // ── Cat state ─────────────────────────────────────────────────────────────────
 

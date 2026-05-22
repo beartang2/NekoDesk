@@ -7,6 +7,7 @@ interface Props {
   play: number;
   canFeed: boolean;
   feedCountToday: number;
+  isCompacting?: boolean;
   onFeed: () => void;
   onPlay: () => void;
 }
@@ -17,6 +18,7 @@ export function CatStatusPanel({
   play,
   canFeed,
   feedCountToday,
+  isCompacting = false,
   onFeed,
   onPlay,
 }: Props) {
@@ -28,7 +30,7 @@ export function CatStatusPanel({
       <div className="cat-status__day">Day {dayCount}</div>
 
       <div className="cat-status__gauges">
-        <div className="cat-gauge" title={`배고픔 ${Math.round(hunger)}/100`}>
+        <div className="cat-gauge" title={`배고픔 ${Math.round(hunger)}/100 — 대화가 길수록 배고파요`}>
           <span className="cat-gauge__icon">🍚</span>
           <div className="cat-gauge__track">
             <div
@@ -53,10 +55,10 @@ export function CatStatusPanel({
         <button
           className="cat-status__btn"
           onClick={onFeed}
-          disabled={!canFeed}
-          title={canFeed ? "밥 주기" : `오늘 ${feedCountToday}/3회 완료`}
+          disabled={!canFeed || isCompacting}
+          title={isCompacting ? "대화 요약 중..." : "밥 주기 — 대화를 요약해서 컨텍스트를 정리해요"}
         >
-          밥 주기 {!canFeed && `(${feedCountToday}/3)`}
+          {isCompacting ? "밥 먹는 중..." : "밥 주기"}
         </button>
         <button className="cat-status__btn" onClick={onPlay} title="놀아주기">
           놀아주기

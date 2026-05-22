@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Sun, Moon, Settings, Paperclip } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { CatCanvas } from "./cat/CatCanvas";
 import { CatStatusPanel } from "./components/CatStatusPanel";
@@ -12,13 +13,25 @@ import { useAgentPool, makeInitialMessages } from "./hooks/useAgentLoop";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { storeFile, removeFile } from "./agent/file-store";
-import type { ChatMessage, AttachedFile } from "./hooks/useAgentLoop";
-import type { CatEmotion } from "./agent/types";
+import { applyThemeColors } from "./theme-colors";
+import type { ChatMessage, AttachedFile, PendingConfirm } from "./hooks/useAgentLoop";
+import type { CatEmotion, LlmMessage } from "./agent/types";
+import { compactMessages } from "./agent/llm-client";
 import "./App.css";
+
+interface ConversationMessage {
+  id: number;
+  session_id: string;
+  role: string;
+  content: string;
+  created_at: string;
+}
 
 // ── Session types ─────────────────────────────────────────────────────────────
 
 const SLEEPY_AFTER_MS = 5 * 60 * 1000;
+const SESSIONS_KEY = "nekodesk_sessions";
+const ACTIVE_SESSION_KEY = "nekodesk_active_session";
 
 interface Session {
   id: string;
@@ -34,6 +47,25 @@ function makeSession(): Session {
   };
 }
 
+function restoreState(): { sessions: Session[]; activeId: string } {
+  let sessions: Session[];
+  try {
+    const saved = localStorage.getItem(SESSIONS_KEY);
+    const parsed = saved ? (JSON.parse(saved) as Session[]) : null;
+    sessions = parsed && parsed.length > 0 ? parsed : [makeSession()];
+  } catch {
+    sessions = [makeSession()];
+  }
+  const savedActiveId = localStorage.getItem(ACTIVE_SESSION_KEY);
+  const activeId =
+    savedActiveId && sessions.some((s) => s.id === savedActiveId)
+      ? savedActiveId
+      : sessions[0].id;
+  return { sessions, activeId };
+}
+
+const INITIAL_STATE = restoreState();
+
 // ── Title bar ─────────────────────────────────────────────────────────────────
 
 const THEME_KEY = "nekodesk_theme";
@@ -48,6 +80,7 @@ function useTheme() {
     document.documentElement.classList.toggle("light", !isDark);
     localStorage.setItem(THEME_KEY, isDark ? "dark" : "light");
     getCurrentWindow().setTheme(isDark ? "dark" : "light").catch(() => {});
+    applyThemeColors(isDark);
   }, [isDark]);
 
   return { isDark, toggle: () => setIsDark((v) => !v) };
@@ -102,6 +135,7 @@ function Sidebar({
     play: number;
     canFeed: boolean;
     feedCountToday: number;
+    isCompacting: boolean;
     onFeed: () => void;
     onPlay: () => void;
     onPet: () => void;
@@ -145,6 +179,7 @@ function Sidebar({
           play={rpg.play}
           canFeed={rpg.canFeed}
           feedCountToday={rpg.feedCountToday}
+          isCompacting={rpg.isCompacting}
           onFeed={rpg.onFeed}
           onPlay={rpg.onPlay}
         />
@@ -357,6 +392,26 @@ function Composer({
   );
 }
 
+// ── Confirm banner ────────────────────────────────────────────────────────────
+
+function ConfirmBanner({ confirm, onResolve }: { confirm: PendingConfirm; onResolve: (ok: boolean) => void }) {
+  return (
+    <div className={`confirm-banner ${confirm.isDangerous ? "confirm-banner--danger" : ""}`}>
+      <div className="confirm-banner__header">
+        <span className="confirm-banner__tag">{confirm.language}</span>
+        {confirm.isDangerous && (
+          <span className="confirm-banner__warn">⚠ {confirm.dangerReason}</span>
+        )}
+      </div>
+      <pre className="confirm-banner__code">{confirm.code}</pre>
+      <div className="confirm-banner__actions">
+        <button className="confirm-banner__deny" onClick={() => onResolve(false)}>Deny</button>
+        <button className={`confirm-banner__allow ${confirm.isDangerous ? "confirm-banner__allow--danger" : ""}`} onClick={() => onResolve(true)}>Allow</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Error banner ──────────────────────────────────────────────────────────────
 
 function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
@@ -370,19 +425,82 @@ function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () =>
   );
 }
 
-// ── App ───────────────────────────────────────────────────────────────────────
+// ── Compact summary bar ───────────────────────────────────────────────────────
 
-const INITIAL_SESSION = makeSession();
+function CompactSummaryBar({
+  summary,
+  expanded,
+  onToggle,
+}: {
+  summary: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className={`compact-tab ${expanded ? "compact-tab--open" : ""}`}>
+      <button className="compact-tab__btn" onClick={onToggle} title="이전 대화 요약">
+        <span className="compact-tab__icon">📦</span>
+        <span className="compact-tab__chevron">{expanded ? "▲" : "▼"}</span>
+      </button>
+      {expanded && (
+        <div className="compact-tab__panel">
+          <div className="compact-tab__panel-inner">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
   // ── Session list ──────────────────────────────────────────────────────────
-  const [sessions, setSessions] = useState<Session[]>([INITIAL_SESSION]);
-  const [activeId, setActiveId] = useState<string>(INITIAL_SESSION.id);
+  const [sessions, setSessions] = useState<Session[]>(INITIAL_STATE.sessions);
+  const [activeId, setActiveId] = useState<string>(INITIAL_STATE.activeId);
 
   // ── Per-session messages: Record<sessionId, ChatMessage[]> ────────────────
-  const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>({
-    [INITIAL_SESSION.id]: makeInitialMessages(),
+  const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>(
+    () => Object.fromEntries(INITIAL_STATE.sessions.map((s) => [s.id, makeInitialMessages()]))
+  );
+
+  // ── Per-session compact summaries (상단 접이식 요약 바) ──────────────────────
+  const [compactSummaries, setCompactSummaries] = useState<Record<string, string>>(() => {
+    const result: Record<string, string> = {};
+    INITIAL_STATE.sessions.forEach((s) => {
+      const saved = localStorage.getItem(`nekodesk_compact_${s.id}`);
+      if (saved) result[s.id] = saved;
+    });
+    return result;
   });
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
+
+  // Track which sessions have had messages loaded from DB
+  const loadedSessionsRef = useRef<Set<string>>(new Set());
+
+  async function loadSessionMessages(sessionId: string) {
+    if (loadedSessionsRef.current.has(sessionId)) return;
+    loadedSessionsRef.current.add(sessionId);
+    try {
+      const msgs = await invoke<ConversationMessage[]>("conversation_load", { sessionId });
+      if (msgs.length === 0) return;
+      const chatMessages: ChatMessage[] = msgs.map((m) => ({
+        id: crypto.randomUUID(),
+        role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+        content: m.content,
+        time: new Date(m.created_at).toLocaleTimeString("ko-KR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        steps: [],
+        isStreaming: false,
+      }));
+      setAllMessages((prev) => ({ ...prev, [sessionId]: chatMessages }));
+    } catch {
+      // ignore — DB may be empty for this session
+    }
+  }
 
   // Active session's messages
   const activeMessages = allMessages[activeId] ?? [];
@@ -460,7 +578,17 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, [isBoxMode]);
 
-  const isGaugeSleepy = rpgState.hunger < 30 || rpgState.play < 20;
+  // ── 컨텍스트 크기 → 배고픔 압력 ─────────────────────────────────────────────
+  // 대화가 길어질수록 hunger 표시값이 낮아진다 (최대 -40pt 압력)
+  const MAX_CONTEXT_CHARS = 20_000;
+  const contextChars = (allMessages[activeId] ?? []).reduce(
+    (sum, m) => sum + m.content.length,
+    0
+  );
+  const contextPressure = Math.min(1, contextChars / MAX_CONTEXT_CHARS);
+  const displayHunger = Math.max(0, rpgState.hunger - Math.round(contextPressure * 40));
+
+  const isGaugeSleepy = displayHunger < 30 || rpgState.play < 20;
   const displayEmotion: CatEmotion =
     !isRunning && actionEmotion
       ? actionEmotion
@@ -470,11 +598,74 @@ export default function App() {
       ? "cozy"
       : catEmotion;
 
+  // ── 밥 주기 = 컨텍스트 compact ───────────────────────────────────────────────
+  const [isCompacting, setIsCompacting] = useState(false);
+
+  const handleFeed = useCallback(async () => {
+    if (isCompacting) return;
+
+    const msgs = (allMessages[activeId] ?? []).filter(
+      (m) => m.role === "user" || m.role === "assistant"
+    );
+
+    if (msgs.length < 2) {
+      // 요약할 대화 없음 → 그냥 hunger 회복
+      feed();
+      triggerActionEmotion("proud");
+      return;
+    }
+
+    setIsCompacting(true);
+    try {
+      const llmMessages: LlmMessage[] = msgs.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+
+      const summary = await compactMessages(llmMessages);
+
+      // 요약은 챗버블이 아닌 상단 요약 바에 표시
+      setCompactSummaries((prev) => ({ ...prev, [activeId]: summary }));
+      localStorage.setItem(`nekodesk_compact_${activeId}`, summary);
+      setSummaryExpanded(false);
+
+      // 대화 메시지는 초기화 (새 시작)
+      setAllMessages((prev) => ({ ...prev, [activeId]: makeInitialMessages() }));
+      loadedSessionsRef.current.delete(activeId); // 재로드 방지
+
+      // DB 초기화
+      await invoke("conversation_delete", { sessionId: activeId });
+
+      feed();
+      triggerActionEmotion("proud");
+    } catch {
+      // compact 실패해도 무음 처리
+    } finally {
+      setIsCompacting(false);
+    }
+  }, [isCompacting, allMessages, activeId, feed, triggerActionEmotion, setAllMessages, setCompactSummaries, setSummaryExpanded]);
+
   const handleSend = useCallback((text: string, files: AttachedFile[]) => {
     markUserActivity();
     consume();
     void pool.sendMessage(activeId, text, files);
   }, [markUserActivity, consume, pool, activeId]);
+
+  // ── Persist sessions & activeId to localStorage ───────────────────────────
+  useEffect(() => {
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+  }, [sessions]);
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_SESSION_KEY, activeId);
+  }, [activeId]);
+
+  // ── Load messages for active session on mount & on session switch ─────────
+  useEffect(() => {
+    void loadSessionMessages(activeId);
+    setSummaryExpanded(false); // 세션 전환 시 요약 접힘
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
 
   // ── Auto-title: use first user message as session title ───────────────────
   useEffect(() => {
@@ -499,6 +690,12 @@ export default function App() {
 
   // ── Delete session ────────────────────────────────────────────────────────
   function handleDelete(id: string) {
+    // Remove from DB, loaded cache, and compact summary
+    invoke("conversation_delete", { sessionId: id }).catch(() => {});
+    loadedSessionsRef.current.delete(id);
+    localStorage.removeItem(`nekodesk_compact_${id}`);
+    setCompactSummaries((prev) => { const { [id]: _, ...rest } = prev; return rest; });
+
     const remaining = sessions.filter((s) => s.id !== id);
 
     if (remaining.length === 0) {
@@ -539,7 +736,7 @@ export default function App() {
         isDark={isDark}
         onThemeToggle={toggleTheme}
       />
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} isDark={isDark} />}
 
       <Sidebar
         sessions={sessions}
@@ -550,11 +747,12 @@ export default function App() {
         emotion={displayEmotion}
         rpg={{
           dayCount,
-          hunger: rpgState.hunger,
+          hunger: displayHunger,
           play: rpgState.play,
           canFeed,
           feedCountToday: rpgState.feedCountToday,
-          onFeed: () => { feed(); triggerActionEmotion("proud"); },
+          isCompacting,
+          onFeed: () => { void handleFeed(); },
           onPlay: () => { playAction(); triggerActionEmotion("happy"); },
           onPet: () => { pet(); setIsBoxMode(false); },
         }}
@@ -565,7 +763,21 @@ export default function App() {
           <ErrorBanner message={error} onDismiss={() => {}} />
         )}
 
-        <ChatMessages messages={activeMessages} isRunning={isRunning} />
+        <div className="chat-area">
+          {compactSummaries[activeId] && (
+            <CompactSummaryBar
+              summary={compactSummaries[activeId]}
+              expanded={summaryExpanded}
+              onToggle={() => setSummaryExpanded((v) => !v)}
+            />
+          )}
+
+          <ChatMessages messages={activeMessages} isRunning={isRunning} />
+        </div>
+
+        {pool.pendingConfirm && pool.pendingConfirm.sessionId === activeId && (
+          <ConfirmBanner confirm={pool.pendingConfirm} onResolve={pool.confirmResolve} />
+        )}
 
         <Composer
           onSend={handleSend}

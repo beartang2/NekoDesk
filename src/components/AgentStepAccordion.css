@@ -87,11 +87,11 @@
 }
 
 .step-icon--done {
-  color: #7aab87;
+  color: var(--success);
 }
 
 .step-icon--error {
-  color: #b55a5a;
+  color: var(--error);
 }
 
 .step-icon--running {
@@ -113,7 +113,7 @@
 
 .step-header__error {
   font-size: 10px;
-  color: #b55a5a;
+  color: var(--error);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;

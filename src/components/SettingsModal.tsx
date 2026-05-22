@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { X, Zap, Pencil, Trash2, Settings } from "lucide-react";
 import { loadMcpServers as syncMcpRegistry } from "../agent/mcp-registry";
 import { DEFAULT_CHAT_SYSTEM_PROMPT } from "../agent/llm-client";
+import { getStoredAccent, saveAccentHex, deriveAccent } from "../theme-colors";
 import "./SettingsModal.css";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -195,13 +197,95 @@ function McpRow({ server, onToggle, onEdit, onDelete }: McpRowProps) {
   );
 }
 
+// ── User profile section ──────────────────────────────────────────────────────
+
+const USER_PROFILE_KEY = "nekodesk_user_profile";
+
+const DEFAULT_USER_PROFILE = `이름:
+직업:
+GitHub: https://github.com/
+관심사:
+사용 언어/기술:
+기타: `;
+
+function UserProfileSection() {
+  const [profile, setProfile] = useState(
+    () => localStorage.getItem(USER_PROFILE_KEY) ?? DEFAULT_USER_PROFILE
+  );
+  const [saved, setSaved] = useState(false);
+
+  function save() {
+    const val = profile.trim();
+    if (val && val !== DEFAULT_USER_PROFILE.trim()) {
+      localStorage.setItem(USER_PROFILE_KEY, val);
+    } else {
+      localStorage.removeItem(USER_PROFILE_KEY);
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  function reset() {
+    localStorage.removeItem(USER_PROFILE_KEY);
+    setProfile(DEFAULT_USER_PROFILE);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">사용자 프로필</h3>
+      <p className="settings-section__desc">
+        나에 대한 정보를 적어두세요. 고양이가 대화할 때 참고해요.
+      </p>
+      <textarea
+        className="settings-textarea"
+        value={profile}
+        onChange={(e) => setProfile(e.target.value)}
+        rows={6}
+        spellCheck={false}
+      />
+      <div className="settings-row settings-row--right">
+        <button className="settings-btn settings-btn--ghost" onClick={reset}>초기화</button>
+        <button className="settings-btn" onClick={save}>
+          {saved ? "저장됨" : "저장"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 // ── Settings modal ────────────────────────────────────────────────────────────
 
 interface SettingsModalProps {
   onClose: () => void;
+  isDark: boolean;
 }
 
-export function SettingsModal({ onClose }: SettingsModalProps) {
+export function SettingsModal({ onClose, isDark }: SettingsModalProps) {
+  // Accent color (full hex — hue + saturation + lightness 모두 반영)
+  const [accentHex, setAccentHex] = useState(() => getStoredAccent());
+  const accentInputRef = useRef<HTMLInputElement | null>(null);
+
+  function handleAccentChange(hex: string) {
+    setAccentHex(hex);
+    saveAccentHex(hex);
+    const { accent, accentDim, accentHover } = deriveAccent(hex, isDark);
+    document.documentElement.style.setProperty("--accent", accent);
+    document.documentElement.style.setProperty("--accent-dim", accentDim);
+    document.documentElement.style.setProperty("--accent-hover", accentHover);
+  }
+
+  function resetAccent() {
+    const defaultHex = "#a78bfa";
+    saveAccentHex(defaultHex);
+    const { accent, accentDim, accentHover } = deriveAccent(defaultHex, isDark);
+    document.documentElement.style.setProperty("--accent", accent);
+    document.documentElement.style.setProperty("--accent-dim", accentDim);
+    document.documentElement.style.setProperty("--accent-hover", accentHover);
+    setAccentHex(defaultHex);
+  }
+
   // LLM
   const [llmUrl, setLlmUrl] = useState(
     () => localStorage.getItem(LLM_URL_KEY) ?? DEFAULT_LLM_URL
@@ -231,6 +315,25 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     setSystemPrompt(DEFAULT_CHAT_SYSTEM_PROMPT);
     setPromptSaved(true);
     setTimeout(() => setPromptSaved(false), 1500);
+  }
+
+  // NewsAPI key
+  const [newsApiKey, setNewsApiKey] = useState(
+    () => localStorage.getItem("nekodesk_newsapi_key") ?? ""
+  );
+  const [newsApiSaved, setNewsApiSaved] = useState(false);
+
+  function saveNewsApiKey() {
+    const key = newsApiKey.trim();
+    if (key) {
+      localStorage.setItem("nekodesk_newsapi_key", key);
+      invoke("settings_set", { key: "newsapi_key", value: key }).catch(console.warn);
+    } else {
+      localStorage.removeItem("nekodesk_newsapi_key");
+      invoke("settings_set", { key: "newsapi_key", value: "" }).catch(console.warn);
+    }
+    setNewsApiSaved(true);
+    setTimeout(() => setNewsApiSaved(false), 1500);
   }
 
   // MCP
@@ -292,6 +395,30 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
         <div className="settings-modal__body">
 
+          {/* ── 포인트 색상 ──────────────────────────────────────── */}
+          <section className="settings-section">
+            <div className="settings-section__header">
+              <h3 className="settings-section__title">포인트 색상</h3>
+              <button className="settings-btn settings-btn--ghost" onClick={resetAccent}>초기화</button>
+            </div>
+            <div className="color-row">
+              <span className="color-row__label">강조 색상</span>
+              <div
+                className="color-row__swatch"
+                style={{ background: accentHex }}
+                onClick={() => accentInputRef.current?.click()}
+              >
+                <input
+                  ref={accentInputRef}
+                  type="color"
+                  value={accentHex}
+                  onChange={(e) => handleAccentChange(e.target.value)}
+                  className="color-row__input"
+                />
+              </div>
+            </div>
+          </section>
+
           {/* ── LLM 서버 ─────────────────────────────────────────── */}
           <section className="settings-section">
             <h3 className="settings-section__title">LLM 서버</h3>
@@ -317,6 +444,30 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             )}
           </section>
 
+          {/* ── NewsAPI ──────────────────────────────────────────── */}
+          <section className="settings-section">
+            <h3 className="settings-section__title">NewsAPI</h3>
+            <p className="settings-section__desc">
+              뉴스 검색용 API 키 (newsapi.org에서 무료 발급)
+            </p>
+            <div className="settings-row">
+              <input
+                className="settings-input"
+                type="password"
+                value={newsApiKey}
+                onChange={(e) => setNewsApiKey(e.target.value)}
+                placeholder="API 키 입력"
+                onBlur={saveNewsApiKey}
+              />
+              <button className="settings-btn" onClick={saveNewsApiKey}>
+                {newsApiSaved ? "저장됨" : "저장"}
+              </button>
+            </div>
+          </section>
+
+          {/* ── 사용자 프로필 ────────────────────────────────────── */}
+          <UserProfileSection />
+
           {/* ── 시스템 프롬프트 ──────────────────────────────────── */}
           <section className="settings-section">
             <h3 className="settings-section__title">시스템 프롬프트</h3>
@@ -341,6 +492,47 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           </section>
 
           {/* ── MCP 서버 ─────────────────────────────────────────── */}
+          <section className="settings-section">
+            <h3 className="settings-section__title">macOS 권한 설정</h3>
+            <p className="settings-section__desc">
+              AppleScript나 파일 접근이 잘 안 될 때 아래에서 권한을 열어주세요.
+            </p>
+            <div className="perm-grid">
+              {[
+                {
+                  label: "손쉬운 사용",
+                  desc: "AppleScript로 다른 앱 제어",
+                  url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+                },
+                {
+                  label: "자동화",
+                  desc: "AppleScript로 앱에 명령 전달",
+                  url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
+                },
+                {
+                  label: "전체 디스크 접근",
+                  desc: "보호된 파일/폴더 읽기·쓰기",
+                  url: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                },
+                {
+                  label: "화면 녹화",
+                  desc: "스크린샷·화면 캡처 접근",
+                  url: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+                },
+              ].map(({ label, desc, url }) => (
+                <button
+                  key={label}
+                  className="perm-btn"
+                  onClick={() => invoke("open_url", { url })}
+                >
+                  <span className="perm-btn__label">{label}</span>
+                  <span className="perm-btn__desc">{desc}</span>
+                  <span className="perm-btn__arrow">↗</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
           <section className="settings-section">
             <div className="settings-section__header">
               <h3 className="settings-section__title">MCP 서버</h3>
