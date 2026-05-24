@@ -8,6 +8,7 @@
   gap: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  position: relative;
 }
 
 .right-panel::-webkit-scrollbar {
@@ -30,6 +31,10 @@
 
 .panel-card--calendar {
   flex-shrink: 0;
+}
+
+.panel-card--bottom {
+  margin-top: auto;
 }
 
 .panel-card__header {
@@ -104,6 +109,7 @@
   flex-shrink: 0;
 }
 
+
 /* ── Calendar ──────────────────────────────────────────────────────────────── */
 
 .cal-header {
@@ -150,7 +156,7 @@
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  aspect-ratio: 1;
+  height: 24px;
   font-size: 10px;
   position: relative;
   border-radius: 3px;
@@ -161,7 +167,7 @@
   color: var(--text-muted);
   font-size: 9px;
   font-weight: 600;
-  aspect-ratio: unset;
+  height: 18px;
   padding: 2px 0;
   cursor: default;
 }

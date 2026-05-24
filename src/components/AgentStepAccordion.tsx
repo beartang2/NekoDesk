@@ -29,21 +29,20 @@ function CodeBlock({ value }: { value: unknown }) {
 
 interface StepProps {
   step: AgentStep;
-  defaultOpen?: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
 }
 
-function AgentStepItem({ step, defaultOpen = false }: StepProps) {
-  const [open, setOpen] = useState(defaultOpen);
-
+function AgentStepItem({ step, isOpen, onToggle }: StepProps) {
   const toolLabel =
     step.tool === "none" ? "최종 답변" : step.tool;
 
   return (
-    <div className={`step-item step-item--${step.status}`}>
+    <div className={`step-item step-item--${step.status} ${isOpen ? "step-item--open" : ""}`}>
       <button
         className="step-header"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
+        onClick={onToggle}
+        aria-expanded={isOpen}
       >
         <StatusIcon status={step.status} />
         <span className="step-header__label">
@@ -52,11 +51,11 @@ function AgentStepItem({ step, defaultOpen = false }: StepProps) {
         {step.errorMessage && (
           <span className="step-header__error">{step.errorMessage}</span>
         )}
-        <span className="step-header__chevron">{open ? "▲" : "▼"}</span>
+        <span className="step-header__chevron">{isOpen ? "▲" : "▼"}</span>
       </button>
 
-      {open && (
-        <div className="step-body">
+      <div className={`step-body ${isOpen ? "step-body--open" : ""}`}>
+        <div className="step-body__inner">
           {step.thought && (
             <section className="step-section">
               <span className="step-section__label">💭 생각</span>
@@ -81,7 +80,7 @@ function AgentStepItem({ step, defaultOpen = false }: StepProps) {
             </section>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -94,9 +93,27 @@ interface AgentStepAccordionProps {
 }
 
 export function AgentStepAccordion({ steps, isRunning }: AgentStepAccordionProps) {
-  const [allOpen, setAllOpen] = useState(false);
+  const [openIds, setOpenIds] = useState<Set<number>>(new Set());
 
   if (steps.length === 0) return null;
+
+  const anyOpen = openIds.size > 0;
+
+  function handleToggle(id: number) {
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (anyOpen) {
+      setOpenIds(new Set());
+    } else {
+      setOpenIds(new Set(steps.map((s) => s.id)));
+    }
+  }
 
   return (
     <div className="step-accordion">
@@ -106,18 +123,19 @@ export function AgentStepAccordion({ steps, isRunning }: AgentStepAccordionProps
         </span>
         <button
           className="step-accordion__toggle-all"
-          onClick={() => setAllOpen((v) => !v)}
+          onClick={toggleAll}
         >
-          {allOpen ? "모두 접기" : "모두 펼치기"}
+          {anyOpen ? "모두 접기" : "모두 펼치기"}
         </button>
       </div>
 
       <div className="step-accordion__list">
-        {steps.map((step, i) => (
+        {steps.map((step) => (
           <AgentStepItem
             key={step.id}
             step={step}
-            defaultOpen={allOpen}
+            isOpen={openIds.has(step.id)}
+            onToggle={() => handleToggle(step.id)}
           />
         ))}
       </div>

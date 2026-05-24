@@ -1,10 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
-import { Palette } from "lucide-react";
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
-  CAT_VARIANTS,
-  DEFAULT_VARIANT_ID,
   DISPLAY_HEIGHT,
   DISPLAY_WIDTH,
   getAnimation,
@@ -14,7 +11,10 @@ import type { CatEmotion } from "../agent/types";
 import "./CatCanvas.css";
 
 const HEARTS = ["♡", "♡", "♡", "✦", "˚"];
+const HAPPY_HEARTS = ["♡", "♡", "✦", "★", "✿", "˚", "♡"];
 const PET_DURATION_MS = 2000;
+const PET_HAPPY_THRESHOLD = 5; // 이 횟수 이상 쓰다듬으면 happy 애니메이션
+const PET_RESET_MS = 3000;     // 마지막 쓰다듬기로부터 이 시간이 지나면 카운트 리셋
 
 interface Heart {
   id: number;
@@ -25,7 +25,6 @@ interface Heart {
 let heartIdCounter = 0;
 
 const imageCache = new Map<string, HTMLImageElement>();
-const VARIANT_STORAGE_KEY = "nekodesk_cat_variant";
 
 function getSpriteImage(src: string): HTMLImageElement {
   const existing = imageCache.get(src);
@@ -100,29 +99,42 @@ function recolorCoat(ctx: CanvasRenderingContext2D, variantId: string) {
 interface CatCanvasProps {
   emotion: CatEmotion;
   onPet?: () => void;
+  variantId: string;
+  petSignal?: number; // 증가할 때마다 handlePet 호출
 }
 
-export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
+export function CatCanvas({ emotion, onPet, variantId, petSignal }: CatCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [frameIdx, setFrameIdx] = useState(0);
-  const [variantId, setVariantId] = useState<string>(
-    () => getCatVariant(localStorage.getItem(VARIANT_STORAGE_KEY) ?? DEFAULT_VARIANT_ID).id
-  );
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [petEmotion, setPetEmotion] = useState<CatEmotion | null>(null);
   const [hearts, setHearts] = useState<Heart[]>([]);
   const petTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const petCountRef = useRef(0);
+  const petResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const displayEmotion = petEmotion ?? emotion;
   const anim = getAnimation(displayEmotion, variantId);
 
   const handlePet = useCallback(() => {
-    if (settingsOpen) return;
-    // Add hearts
-    const newHearts: Heart[] = Array.from({ length: 4 }, () => ({
+
+    // 쓰다듬기 횟수 증가
+    petCountRef.current += 1;
+    const isHappy = petCountRef.current >= PET_HAPPY_THRESHOLD;
+
+    // 일정 시간 후 카운트 리셋
+    if (petResetTimerRef.current) clearTimeout(petResetTimerRef.current);
+    petResetTimerRef.current = setTimeout(() => {
+      petCountRef.current = 0;
+      petResetTimerRef.current = null;
+    }, PET_RESET_MS);
+
+    // 횟수에 따라 하트 개수/종류 변경
+    const heartPool = isHappy ? HAPPY_HEARTS : HEARTS;
+    const heartCount = isHappy ? 7 : 4;
+    const newHearts: Heart[] = Array.from({ length: heartCount }, () => ({
       id: heartIdCounter++,
-      char: HEARTS[Math.floor(Math.random() * HEARTS.length)],
-      x: 20 + Math.random() * 60,
+      char: heartPool[Math.floor(Math.random() * heartPool.length)],
+      x: 10 + Math.random() * 80,
     }));
     setHearts((prev) => [...prev, ...newHearts]);
     setTimeout(() => {
@@ -132,14 +144,24 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
     // 외부 콜백
     onPet?.();
 
-    // Override emotion
-    setPetEmotion("proud");
+    // 횟수에 따라 애니메이션 전환: 5회 이상이면 happy, 미만이면 proud
+    const nextEmotion = isHappy ? "happy" : "proud";
+    setPetEmotion(nextEmotion);
     if (petTimerRef.current) clearTimeout(petTimerRef.current);
     petTimerRef.current = setTimeout(() => {
       setPetEmotion(null);
       petTimerRef.current = null;
     }, PET_DURATION_MS);
-  }, [settingsOpen]);
+  }, [onPet]);
+
+  // 외부 pet 트리거 (가속도계 등)
+  const prevPetSignalRef = useRef(0);
+  useEffect(() => {
+    if (petSignal && petSignal !== prevPetSignalRef.current) {
+      prevPetSignalRef.current = petSignal;
+      handlePet();
+    }
+  }, [petSignal, handlePet]);
 
   // Advance frame
   useEffect(() => {
@@ -168,8 +190,8 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
 
       const drawWidth = Math.round(frame.w * anim.scale);
       const drawHeight = Math.round(frame.h * anim.scale);
-      const drawX = Math.floor((CANVAS_WIDTH - drawWidth) / 2) + anim.offsetX;
-      const drawY = Math.floor(CANVAS_HEIGHT - drawHeight - 4) + anim.offsetY;
+      const drawX = Math.floor((CANVAS_WIDTH - drawWidth) / 2) + anim.offsetX + 6;
+      const drawY = Math.floor(CANVAS_HEIGHT - drawHeight - 4) + anim.offsetY - 6;
 
       ctx.drawImage(
         image,
@@ -197,12 +219,6 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
     return () => image.removeEventListener("load", draw);
   }, [frameIdx, anim, variantId]);
 
-  const handleVariantChange = useCallback((id: string) => {
-    setVariantId(id);
-    localStorage.setItem(VARIANT_STORAGE_KEY, id);
-    setSettingsOpen(false);
-  }, []);
-
   return (
     <div className="cat-canvas-wrap">
       <div className={`cat-canvas-stage cat-canvas-stage--${displayEmotion}`}>
@@ -228,33 +244,6 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
             </span>
           ))}
         </div>
-
-        <button
-          className="cat-skin-toggle"
-          onClick={(e) => { e.stopPropagation(); setSettingsOpen((open) => !open); }}
-          title="고양이 색상 선택"
-        >
-          <Palette size={11} />
-        </button>
-
-        {settingsOpen && (
-          <div className="cat-skin-picker">
-            <span className="cat-skin-picker__label">고양이 색상</span>
-            {CAT_VARIANTS.map((variant) => (
-              <button
-                key={variant.id}
-                className={`cat-skin-option ${variant.id === variantId ? "cat-skin-option--active" : ""}`}
-                onClick={() => handleVariantChange(variant.id)}
-              >
-                <span
-                  className="cat-skin-swatch"
-                  style={{ background: variant.swatchCss }}
-                />
-                <span>{variant.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

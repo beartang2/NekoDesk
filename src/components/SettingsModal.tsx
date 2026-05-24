@@ -2,8 +2,14 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { X, Zap, Pencil, Trash2, Settings } from "lucide-react";
 import { loadMcpServers as syncMcpRegistry } from "../agent/mcp-registry";
-import { DEFAULT_CHAT_SYSTEM_PROMPT } from "../agent/llm-client";
+import {
+  DEFAULT_CHAT_SYSTEM_PROMPT,
+  loadGenParams,
+  saveGenParams,
+  type GenParams,
+} from "../agent/llm-client";
 import { getStoredAccent, saveAccentHex, deriveAccent } from "../theme-colors";
+import { CAT_VARIANTS } from "../cat/spriteData";
 import "./SettingsModal.css";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -197,6 +203,335 @@ function McpRow({ server, onToggle, onEdit, onDelete }: McpRowProps) {
   );
 }
 
+// ── llama-server section ──────────────────────────────────────────────────────
+
+const LLAMA_CONFIG_KEY = "nekodesk_llama_config";
+
+interface LlamaConfig {
+  model: string;
+  mmproj: string;
+  ngl: number;
+  flash_attn: boolean;
+  jinja: boolean;
+  ctk: string;
+  ctv: string;
+  context: number;
+  temp: number;
+  top_k: number;
+  top_p: number;
+  min_p: number;
+  port: number;
+  host: string;
+  reasoning: string;
+  reasoning_format: string;
+}
+
+const DEFAULT_LLAMA_CONFIG: LlamaConfig = {
+  model: "",
+  mmproj: "",
+  ngl: 99,
+  flash_attn: true,
+  jinja: true,
+  ctk: "q4_0",
+  ctv: "q4_0",
+  context: 8192,
+  temp: 1.0,
+  top_k: 64,
+  top_p: 0.95,
+  min_p: 0.0,
+  port: 8803,
+  host: "0.0.0.0",
+  reasoning: "off",
+  reasoning_format: "none",
+};
+
+function loadLlamaConfig(): LlamaConfig {
+  try {
+    const raw = localStorage.getItem(LLAMA_CONFIG_KEY);
+    return raw ? { ...DEFAULT_LLAMA_CONFIG, ...JSON.parse(raw) } : { ...DEFAULT_LLAMA_CONFIG };
+  } catch {
+    return { ...DEFAULT_LLAMA_CONFIG };
+  }
+}
+
+function LlamaServerSection() {
+  const [config, setConfig] = useState<LlamaConfig>(loadLlamaConfig);
+  const [models, setModels] = useState<string[]>([]);
+  const mainModels = models.filter((m) => !m.toLowerCase().includes("mmproj"));
+  const mmprojModels = models.filter((m) => m.toLowerCase().includes("mmproj"));
+  const [running, setRunning] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function updateConfig(patch: Partial<LlamaConfig>) {
+    setConfig((c) => ({ ...c, ...patch }));
+  }
+
+  async function scanModels() {
+    try {
+      const files = await invoke<string[]>("llama_scan_models");
+      setModels(files);
+    } catch (e) {
+      console.warn("llama_scan_models failed:", e);
+    }
+  }
+
+  async function checkRunning() {
+    try {
+      const r = await invoke<boolean>("llama_is_running");
+      setRunning(r);
+    } catch {
+      setRunning(false);
+    }
+  }
+
+  useEffect(() => {
+    scanModels();
+    checkRunning();
+    pollingRef.current = setInterval(checkRunning, 3000);
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
+
+  function saveConfig() {
+    localStorage.setItem(LLAMA_CONFIG_KEY, JSON.stringify(config));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  async function startServer() {
+    localStorage.setItem(LLAMA_CONFIG_KEY, JSON.stringify(config));
+    setLoading(true);
+    try {
+      await invoke("llama_start", { config });
+      setRunning(true);
+    } catch (e) {
+      alert(`서버 시작 실패: ${e}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function stopServer() {
+    setLoading(true);
+    try {
+      await invoke("llama_stop");
+      setRunning(false);
+    } catch (e) {
+      console.warn("llama_stop failed:", e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">서버 실행</h3>
+
+      {/* 상태 표시 */}
+      <div className={`server-status ${running ? "server-status--running" : "server-status--stopped"}`}>
+        {running ? "실행 중" : "중지됨"}
+      </div>
+
+      {/* 모델 선택 */}
+      <div className="settings-row" style={{ alignItems: "center" }}>
+        <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>모델</span>
+        <select
+          className="server-select"
+          value={config.model}
+          onChange={(e) => updateConfig({ model: e.target.value })}
+        >
+          <option value="">-- 선택 --</option>
+          {mainModels.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <button className="settings-btn settings-btn--ghost" style={{ flexShrink: 0 }} onClick={scanModels}>
+          새로고침
+        </button>
+      </div>
+
+      {/* mmproj 선택 */}
+      <div className="settings-row" style={{ alignItems: "center" }}>
+        <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>mmproj</span>
+        <select
+          className="server-select"
+          value={config.mmproj}
+          onChange={(e) => updateConfig({ mmproj: e.target.value })}
+        >
+          <option value="">없음</option>
+          {mmprojModels.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </div>
+
+      {/* 2열 그리드 파라미터 */}
+      <div className="gen-params-grid" style={{ marginTop: 4 }}>
+        <label className="gen-param">
+          <span className="gen-param__label">GPU 레이어</span>
+          <input className="gen-param__input" type="number" step="1" min="0"
+            value={config.ngl}
+            onChange={(e) => updateConfig({ ngl: parseInt(e.target.value, 10) || 0 })} />
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">컨텍스트</span>
+          <input className="gen-param__input" type="number" step="512" min="512"
+            value={config.context}
+            onChange={(e) => updateConfig({ context: parseInt(e.target.value, 10) || 2048 })} />
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">포트</span>
+          <input className="gen-param__input" type="number" step="1" min="1024"
+            value={config.port}
+            onChange={(e) => updateConfig({ port: parseInt(e.target.value, 10) || 8803 })} />
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">호스트</span>
+          <input className="gen-param__input" type="text"
+            value={config.host}
+            onChange={(e) => updateConfig({ host: e.target.value })} />
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">Temperature</span>
+          <input className="gen-param__input" type="number" step="0.05" min="0" max="2"
+            value={config.temp}
+            onChange={(e) => updateConfig({ temp: parseFloat(e.target.value) || 1.0 })} />
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">Top-K</span>
+          <input className="gen-param__input" type="number" step="1" min="0"
+            value={config.top_k}
+            onChange={(e) => updateConfig({ top_k: parseInt(e.target.value, 10) || 0 })} />
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">Top-P</span>
+          <input className="gen-param__input" type="number" step="0.05" min="0" max="1"
+            value={config.top_p}
+            onChange={(e) => updateConfig({ top_p: parseFloat(e.target.value) || 0 })} />
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">Min-P</span>
+          <input className="gen-param__input" type="number" step="0.01" min="0" max="1"
+            value={config.min_p}
+            onChange={(e) => updateConfig({ min_p: parseFloat(e.target.value) || 0 })} />
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">KV Cache K</span>
+          <select className="gen-param__input server-select"
+            value={config.ctk}
+            onChange={(e) => updateConfig({ ctk: e.target.value })}>
+            <option value="q4_0">q4_0</option>
+            <option value="q8_0">q8_0</option>
+            <option value="f16">f16</option>
+          </select>
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">KV Cache V</span>
+          <select className="gen-param__input server-select"
+            value={config.ctv}
+            onChange={(e) => updateConfig({ ctv: e.target.value })}>
+            <option value="q4_0">q4_0</option>
+            <option value="q8_0">q8_0</option>
+            <option value="f16">f16</option>
+          </select>
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">Reasoning</span>
+          <select className="gen-param__input server-select"
+            value={config.reasoning}
+            onChange={(e) => updateConfig({ reasoning: e.target.value })}>
+            <option value="off">off</option>
+            <option value="on">on</option>
+          </select>
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">Reasoning Format</span>
+          <select className="gen-param__input server-select"
+            value={config.reasoning_format}
+            onChange={(e) => updateConfig({ reasoning_format: e.target.value })}>
+            <option value="none">none</option>
+            <option value="deepseek-r1">deepseek-r1</option>
+          </select>
+        </label>
+      </div>
+
+      {/* Flash Attn / Jinja 토글 */}
+      <div className="server-checkbox-row">
+        <label className="server-checkbox-row__item">
+          <input type="checkbox" checked={config.flash_attn}
+            onChange={(e) => updateConfig({ flash_attn: e.target.checked })} />
+          <span>Flash Attn</span>
+        </label>
+        <label className="server-checkbox-row__item">
+          <input type="checkbox" checked={config.jinja}
+            onChange={(e) => updateConfig({ jinja: e.target.checked })} />
+          <span>Jinja</span>
+        </label>
+      </div>
+
+      {/* 액션 버튼 */}
+      <div className="settings-row settings-row--right">
+        <button className="settings-btn settings-btn--ghost" onClick={saveConfig}>
+          {saved ? "저장됨" : "설정 저장"}
+        </button>
+        {running ? (
+          <button className="settings-btn settings-btn--stop" onClick={stopServer} disabled={loading}>
+            {loading ? "..." : "서버 중지"}
+          </button>
+        ) : (
+          <button className="settings-btn settings-btn--start" onClick={startServer} disabled={loading || !config.model}>
+            {loading ? "..." : "서버 시작"}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ── Gen params section ────────────────────────────────────────────────────────
+
+function GenParamsSection() {
+  const [params, setParams] = useState<GenParams>(loadGenParams);
+  const [saved, setSaved] = useState(false);
+
+  function save() {
+    saveGenParams(params);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">최대 응답 토큰</h3>
+      <div className="gen-params-grid">
+        <label className="gen-param">
+          <span className="gen-param__label">에이전트</span>
+          <input
+            className="gen-param__input"
+            type="number"
+            step="128"
+            min="64"
+            value={params.max_tokens_agent}
+            onChange={(e) => { saveGenParams({ ...params, max_tokens_agent: parseInt(e.target.value, 10) || 1024 }); setParams((p) => ({ ...p, max_tokens_agent: parseInt(e.target.value, 10) || 1024 })); }}
+            onBlur={save}
+          />
+        </label>
+        <label className="gen-param">
+          <span className="gen-param__label">채팅</span>
+          <input
+            className="gen-param__input"
+            type="number"
+            step="128"
+            min="64"
+            value={params.max_tokens_chat}
+            onChange={(e) => { saveGenParams({ ...params, max_tokens_chat: parseInt(e.target.value, 10) || 512 }); setParams((p) => ({ ...p, max_tokens_chat: parseInt(e.target.value, 10) || 512 })); }}
+            onBlur={save}
+          />
+        </label>
+      </div>
+    </section>
+  );
+}
+
 // ── User profile section ──────────────────────────────────────────────────────
 
 const USER_PROFILE_KEY = "nekodesk_user_profile";
@@ -260,9 +595,11 @@ function UserProfileSection() {
 interface SettingsModalProps {
   onClose: () => void;
   isDark: boolean;
+  catVariantId: string;
+  onCatVariantChange: (id: string) => void;
 }
 
-export function SettingsModal({ onClose, isDark }: SettingsModalProps) {
+export function SettingsModal({ onClose, isDark, catVariantId, onCatVariantChange }: SettingsModalProps) {
   // Accent color (full hex — hue + saturation + lightness 모두 반영)
   const [accentHex, setAccentHex] = useState(() => getStoredAccent());
   const accentInputRef = useRef<HTMLInputElement | null>(null);
@@ -317,23 +654,18 @@ export function SettingsModal({ onClose, isDark }: SettingsModalProps) {
     setTimeout(() => setPromptSaved(false), 1500);
   }
 
-  // NewsAPI key
-  const [newsApiKey, setNewsApiKey] = useState(
-    () => localStorage.getItem("nekodesk_newsapi_key") ?? ""
+  // Brave Search API key
+  const [braveSearchKey, setBraveSearchKey] = useState(
+    () => localStorage.getItem("nekodesk_brave_search_key") ?? ""
   );
-  const [newsApiSaved, setNewsApiSaved] = useState(false);
+  const [braveSearchSaved, setBraveSearchSaved] = useState(false);
 
-  function saveNewsApiKey() {
-    const key = newsApiKey.trim();
-    if (key) {
-      localStorage.setItem("nekodesk_newsapi_key", key);
-      invoke("settings_set", { key: "newsapi_key", value: key }).catch(console.warn);
-    } else {
-      localStorage.removeItem("nekodesk_newsapi_key");
-      invoke("settings_set", { key: "newsapi_key", value: "" }).catch(console.warn);
-    }
-    setNewsApiSaved(true);
-    setTimeout(() => setNewsApiSaved(false), 1500);
+  function saveBraveSearchKey() {
+    const key = braveSearchKey.trim();
+    localStorage.setItem("nekodesk_brave_search_key", key);
+    invoke("settings_set", { key: "brave_search_key", value: key }).catch(console.warn);
+    setBraveSearchSaved(true);
+    setTimeout(() => setBraveSearchSaved(false), 1500);
   }
 
   // MCP
@@ -399,23 +731,38 @@ export function SettingsModal({ onClose, isDark }: SettingsModalProps) {
           <section className="settings-section">
             <div className="settings-section__header">
               <h3 className="settings-section__title">포인트 색상</h3>
-              <button className="settings-btn settings-btn--ghost" onClick={resetAccent}>초기화</button>
-            </div>
-            <div className="color-row">
-              <span className="color-row__label">강조 색상</span>
-              <div
-                className="color-row__swatch"
-                style={{ background: accentHex }}
-                onClick={() => accentInputRef.current?.click()}
-              >
-                <input
-                  ref={accentInputRef}
-                  type="color"
-                  value={accentHex}
-                  onChange={(e) => handleAccentChange(e.target.value)}
-                  className="color-row__input"
-                />
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="color-row__swatch"
+                  style={{ background: accentHex }}
+                  onClick={() => accentInputRef.current?.click()}
+                >
+                  <input
+                    ref={accentInputRef}
+                    type="color"
+                    value={accentHex}
+                    onChange={(e) => handleAccentChange(e.target.value)}
+                    className="color-row__input"
+                  />
+                </div>
+                <button className="settings-btn settings-btn--ghost" onClick={resetAccent}>초기화</button>
               </div>
+            </div>
+          </section>
+
+          {/* ── 고양이 색상 ──────────────────────────────────────── */}
+          <section className="settings-section">
+            <h3 className="settings-section__title">고양이 색상</h3>
+            <div className="cat-variant-grid">
+              {CAT_VARIANTS.map((v) => (
+                <button
+                  key={v.id}
+                  className={`cat-skin-option ${v.id === catVariantId ? "cat-skin-option--active" : ""}`}
+                  onClick={() => onCatVariantChange(v.id)}
+                >
+                  <span className="cat-skin-swatch" style={{ background: v.swatchCss }} />
+                  <span>{v.name}</span>
+                </button>
+              ))}
             </div>
           </section>
 
@@ -444,23 +791,29 @@ export function SettingsModal({ onClose, isDark }: SettingsModalProps) {
             )}
           </section>
 
-          {/* ── NewsAPI ──────────────────────────────────────────── */}
+          {/* ── llama-server 실행 ────────────────────────────────── */}
+          <LlamaServerSection />
+
+          {/* ── 생성 파라미터 ─────────────────────────────────────── */}
+          <GenParamsSection />
+
+          {/* ── Brave Search API ─────────────────────────────────── */}
           <section className="settings-section">
-            <h3 className="settings-section__title">NewsAPI</h3>
+            <h3 className="settings-section__title">Brave Search API</h3>
             <p className="settings-section__desc">
-              뉴스 검색용 API 키 (newsapi.org에서 무료 발급)
+              DuckDuckGo 결과가 없을 때 폴백으로 사용. api.search.brave.com에서 무료 발급 (2,000회/월).
             </p>
             <div className="settings-row">
               <input
                 className="settings-input"
                 type="password"
-                value={newsApiKey}
-                onChange={(e) => setNewsApiKey(e.target.value)}
-                placeholder="API 키 입력"
-                onBlur={saveNewsApiKey}
+                value={braveSearchKey}
+                onChange={(e) => setBraveSearchKey(e.target.value)}
+                placeholder="BSA..."
+                onBlur={saveBraveSearchKey}
               />
-              <button className="settings-btn" onClick={saveNewsApiKey}>
-                {newsApiSaved ? "저장됨" : "저장"}
+              <button className="settings-btn" onClick={saveBraveSearchKey}>
+                {braveSearchSaved ? "저장됨" : "저장"}
               </button>
             </div>
           </section>
@@ -493,9 +846,9 @@ export function SettingsModal({ onClose, isDark }: SettingsModalProps) {
 
           {/* ── MCP 서버 ─────────────────────────────────────────── */}
           <section className="settings-section">
-            <h3 className="settings-section__title">macOS 권한 설정</h3>
+            <h3 className="settings-section__title">권한 설정</h3>
             <p className="settings-section__desc">
-              AppleScript나 파일 접근이 잘 안 될 때 아래에서 권한을 열어주세요.
+              아래에서 권한을 설정해주세요.
             </p>
             <div className="perm-grid">
               {[
@@ -503,11 +856,6 @@ export function SettingsModal({ onClose, isDark }: SettingsModalProps) {
                   label: "손쉬운 사용",
                   desc: "AppleScript로 다른 앱 제어",
                   url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-                },
-                {
-                  label: "자동화",
-                  desc: "AppleScript로 앱에 명령 전달",
-                  url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
                 },
                 {
                   label: "전체 디스크 접근",

@@ -494,7 +494,7 @@
 }
 
 .color-row__swatch {
-  width: 36px;
+  width: 64px;
   height: 20px;
   border-radius: 4px;
   border: 1px solid var(--border);
@@ -518,4 +518,225 @@
   cursor: pointer;
   padding: 0;
   border: none;
+}
+
+/* ── Cat variant grid ── */
+.cat-variant-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cat-variant-grid .cat-skin-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: none;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.cat-variant-grid .cat-skin-option:hover {
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.cat-variant-grid .cat-skin-option--active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.cat-variant-grid .cat-skin-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* ── Model info ── */
+.model-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.model-info__name {
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-info__badge {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.model-info__empty {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Warm-up button states */
+.settings-btn--warmup-ready { border-color: var(--accent); color: var(--accent); }
+.settings-btn--warmup-fail  { border-color: #ef4444; color: #ef4444; }
+
+/* ── Gen params grid ── */
+.gen-params-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.gen-param {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.gen-param__label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.gen-param__input {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  padding: 4px 7px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.gen-param__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Max Tokens labels span full width */
+.gen-param:nth-child(5),
+.gen-param:nth-child(6) {
+  grid-column: span 1;
+}
+
+/* ── Server status ── */
+.server-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.server-status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.server-status--running {
+  color: var(--success);
+}
+
+.server-status--running::before {
+  background: var(--success);
+  box-shadow: 0 0 4px var(--success);
+}
+
+.server-status--stopped {
+  color: var(--text-muted);
+}
+
+.server-status--stopped::before {
+  background: var(--text-muted);
+}
+
+/* ── Server model/mmproj select ── */
+.server-select {
+  flex: 1;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.server-select:focus {
+  border-color: var(--accent);
+}
+
+/* ── Server checkbox row (Flash Attn / Jinja) ── */
+.server-checkbox-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.server-checkbox-row__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.server-checkbox-row__item input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 13px;
+  height: 13px;
+  cursor: pointer;
+}
+
+/* ── Server action buttons ── */
+.settings-btn--start {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.settings-btn--start:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.settings-btn--start:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.settings-btn--stop {
+  background: rgba(181, 90, 90, 0.12);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.settings-btn--stop:hover:not(:disabled) {
+  background: rgba(181, 90, 90, 0.22);
 }

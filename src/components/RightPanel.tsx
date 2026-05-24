@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Todo, ScheduleEvent, CodeExecResult } from "../agent/types";
 import "./RightPanel.css";
@@ -38,7 +38,11 @@ function TodoCard() {
         ) : (
           <ul className="todo-list">
             {todos.map((t) => (
-              <li key={t.id} className="todo-item">
+              <li
+                key={t.id}
+                className="todo-item"
+                title={t.due_at ? `${t.content}\n기한: ${t.due_at.slice(0, 10)}` : t.content}
+              >
                 <button
                   className="todo-item__check"
                   onClick={() => complete(t.id)}
@@ -201,7 +205,7 @@ function CodeRunCard() {
   }, []);
 
   return (
-    <div className="panel-card">
+    <div className="panel-card panel-card--bottom">
       <div className="panel-card__header">⌨ 코드 실행</div>
       <div className="panel-card__body">
         {!result ? (
@@ -229,9 +233,21 @@ function CodeRunCard() {
 
 // ── Right Panel ───────────────────────────────────────────────────────────────
 
-export function RightPanel() {
+export function RightPanel({
+  onResizeStart,
+  isResizing,
+}: {
+  onResizeStart?: (e: React.MouseEvent) => void;
+  isResizing?: boolean;
+}) {
   return (
     <aside className="right-panel">
+      {onResizeStart && (
+        <div
+          className={`right-panel__resize-handle ${isResizing ? "right-panel__resize-handle--dragging" : ""}`}
+          onMouseDown={onResizeStart}
+        />
+      )}
       <TodoCard />
       <CalendarCard />
       <CodeRunCard />

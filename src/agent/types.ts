@@ -28,8 +28,7 @@ export type ToolName =
   | "web.search"
   | "web.scrape"
   | "file.upload"
-  | "weather.get"
-  | "news.search";
+  | "weather.get";
 
 export interface ToolParamSchema {
   type: "string" | "number" | "boolean" | "array";
@@ -113,7 +112,8 @@ export type LoopEvent =
   | { type: "streaming_token"; token: string }
   | { type: "done"; answer: string; steps: AgentStep[] }
   | { type: "error"; message: string }
-  | { type: "confirm_needed"; language: string; code: string; isDangerous: boolean; dangerReason: string; resolve: (ok: boolean) => void };
+  | { type: "confirm_needed"; language: string; code: string; isDangerous: boolean; dangerReason: string; resolve: (ok: boolean) => void }
+  | { type: "clarify_needed"; question: string; options: string[]; resolve: (answer: string) => void };
 
 // ── Cat state ─────────────────────────────────────────────────────────────────
 

@@ -12,6 +12,13 @@ export interface PendingConfirm {
   resolve: (ok: boolean) => void;
 }
 
+export interface PendingClarify {
+  sessionId: string;
+  question: string;
+  options: string[];
+  resolve: (answer: string) => void;
+}
+
 export interface AttachedFile {
   name: string;
   content: string; // text content; empty for binary files
@@ -90,6 +97,7 @@ export function useAgentPool(
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const abortRefs = useRef<Record<string, boolean>>({});
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  const [pendingClarify, setPendingClarify] = useState<PendingClarify | null>(null);
 
   function setRunning(id: string, on: boolean) {
     if (on) runningSetRef.current.add(id);
@@ -207,12 +215,22 @@ export function useAgentPool(
             });
             break;
 
+          case "clarify_needed":
+            setPendingClarify({
+              sessionId,
+              question: event.question,
+              options: event.options,
+              resolve: event.resolve,
+            });
+            break;
+
           case "done": {
             finalSteps = event.steps;
             const { clean, emotion } = stripPetToken(event.answer);
             setCatEmotion(sessionId, emotion ?? deriveFinalEmotion(finalSteps));
             setRunning(sessionId, false);
             setPendingConfirm(null);
+            setPendingClarify(null);
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
                 m.id === assistantId
@@ -233,6 +251,7 @@ export function useAgentPool(
             setCatEmotion(sessionId, "error");
             setRunning(sessionId, false);
             setPendingConfirm(null);
+            setPendingClarify(null);
             setErrors((prev) => ({ ...prev, [sessionId]: event.message }));
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
@@ -278,12 +297,19 @@ export function useAgentPool(
     catEmotion: (sessionId: string): CatEmotion =>
       catEmotions[sessionId] ?? "idle",
     error: (sessionId: string): string | null => errors[sessionId] ?? null,
+    clearError: (sessionId: string) =>
+      setErrors((prev) => ({ ...prev, [sessionId]: null })),
     sendMessage,
     stop,
     pendingConfirm,
     confirmResolve: (ok: boolean) => {
       pendingConfirm?.resolve(ok);
       setPendingConfirm(null);
+    },
+    pendingClarify,
+    clarifyResolve: (answer: string) => {
+      pendingClarify?.resolve(answer);
+      setPendingClarify(null);
     },
   };
 }

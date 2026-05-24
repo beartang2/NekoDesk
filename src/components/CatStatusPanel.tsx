@@ -58,7 +58,7 @@ export function CatStatusPanel({
           disabled={!canFeed || isCompacting}
           title={isCompacting ? "대화 요약 중..." : "밥 주기 — 대화를 요약해서 컨텍스트를 정리해요"}
         >
-          {isCompacting ? "밥 먹는 중..." : "밥 주기"}
+          {isCompacting ? "냠냠..." : "밥 주기"}
         </button>
         <button className="cat-status__btn" onClick={onPlay} title="놀아주기">
           놀아주기

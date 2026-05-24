@@ -142,14 +142,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     summarize: (r) => r as string,
   },
 
-  "news.search": {
-    name: "news.search",
-    description: "뉴스를 검색한다",
-    execute: async (p) => invoke<string>("news_search", { query: p["query"] as string }),
-    resultLimit: 1,
-    summarize: (r) => r as string,
-  },
-
   "file.upload": {
     name: "file.upload",
     description: "첨부된 파일을 HTTP 엔드포인트에 multipart/form-data로 업로드한다",

@@ -6,6 +6,31 @@ import type { LlmMessage, AgentStep, LoopEvent, ToolName } from "./types";
 
 const MAX_ITERATIONS = 10;
 
+const ERROR_SEARCH_HINT = `\n\n[자동 힌트] web.search로 이 오류의 해결책을 찾아 재시도하세요. 검색 쿼리에서 파일 경로·사용자명·API키 등 개인정보를 반드시 제거하고, 오류 메시지 핵심만 사용하세요.`;
+
+/**
+ * code.exec 결과에서 오류를 감지하고, 있으면 LLM에게 검색 힌트를 주입한다.
+ * 개인정보(경로, 사용자명)를 제거한 오류 요약을 힌트에 포함한다.
+ */
+function injectErrorSearchHint(summary: string, result: string): string {
+  try {
+    const r = JSON.parse(result) as { exit_code?: number; stderr?: string; stdout?: string };
+    if (!r.exit_code || r.exit_code === 0) return summary;
+
+    // 개인정보 제거: 파일 경로, 사용자명, 홈 디렉토리
+    const rawErr = (r.stderr ?? r.stdout ?? "").trim().slice(0, 400);
+    const sanitized = rawErr
+      .replace(/\/Users\/[^/\s]+/g, "/Users/<user>")
+      .replace(/\/home\/[^/\s]+/g, "/home/<user>")
+      .replace(/[A-Za-z]:\\Users\\[^\\]+/g, "C:\\Users\\<user>")
+      .replace(/(?:Bearer|token|key|secret|password)[=:\s]+\S+/gi, "<redacted>");
+
+    return `${summary}${ERROR_SEARCH_HINT}\n오류 요약: ${sanitized || `exit_code=${r.exit_code}`}`;
+  } catch {
+    return summary;
+  }
+}
+
 /**
  * Summarize MCP tool results for LLM context.
  * Surfaces status/error fields first so the LLM can detect failures
@@ -106,6 +131,7 @@ export async function* runAgentLoop(
 ): AsyncGenerator<LoopEvent> {
   const context = new AgentContext(userInput, chatHistory);
   let stepId = 0;
+  let lastFailKey = ""; // 동일 실패 반복 감지용
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     yield { type: "step_start", iteration: i + 1 };
@@ -113,7 +139,7 @@ export async function* runAgentLoop(
     // ── LLM: decide next action ─────────────────────────────────────────────
     let parsed;
     try {
-      parsed = await agentStep(context.toMessages());
+      parsed = await agentStep(context.toMessages(), userInput);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       yield { type: "error", message: `LLM 연결 실패: ${errMsg}` };
@@ -151,6 +177,24 @@ export async function* runAgentLoop(
       summary: "",
       status: "running",
     };
+
+    // ── user.ask: 선택지로 사용자에게 질문 ────────────────────────────────────
+    if (toolName === "user.ask") {
+      const question = (parsed.params["question"] as string) ?? "";
+      const options = (parsed.params["options"] as string[]) ?? [];
+
+      let resolveAnswer!: (answer: string) => void;
+      const answerPromise = new Promise<string>((res) => { resolveAnswer = res; });
+      yield { type: "clarify_needed", question, options, resolve: resolveAnswer };
+      const answer = await answerPromise;
+
+      step.result = answer;
+      step.summary = `사용자 답변: ${answer}`;
+      step.status = "done";
+      context.addStep(step);
+      yield { type: "step_done", step };
+      continue;
+    }
 
     // ── Confirm code execution (쓰기/수정/삭제만 승인, 읽기는 자동 실행) ────────
     if (toolName === "code.exec") {
@@ -190,16 +234,53 @@ export async function* runAgentLoop(
         step.result = result;
         step.summary = toolEntry.summarize(result);
         step.status = "done";
+
+        // code.exec: exit_code != 0이면 검색 힌트 주입 + 반복 감지
+        if (toolName === "code.exec") {
+          step.summary = injectErrorSearchHint(step.summary, result as string);
+
+          const r = result as { exit_code?: number };
+          if (r.exit_code && r.exit_code !== 0) {
+            const failKey = `${toolName}|${JSON.stringify(parsed.params)}|exit_code=${r.exit_code}`;
+            if (failKey === lastFailKey) {
+              step.status = "error";
+              const msg = `같은 오류가 반복되어 중단했어.\n\n${step.summary}`;
+              context.addStep(step);
+              yield { type: "step_error", step };
+              yield { type: "streaming_token", token: msg };
+              yield { type: "done", answer: msg, steps: context.steps };
+              return;
+            }
+            lastFailKey = failKey;
+            context.addStep(step);
+            yield { type: "step_done", step };
+            continue;
+          }
+        }
       }
       context.addStep(step);
       yield { type: "step_done", step };
+      lastFailKey = ""; // 성공 시 리셋
     } catch (err) {
-      step.errorMessage = err instanceof Error ? err.message : String(err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const sanitizedErr = errMsg
+        .replace(/\/Users\/[^/\s]+/g, "/Users/<user>")
+        .replace(/\/home\/[^/\s]+/g, "/home/<user>");
+      step.errorMessage = errMsg;
       step.status = "error";
-      step.summary = `오류: ${step.errorMessage}`;
+      step.summary = `오류: ${sanitizedErr}${ERROR_SEARCH_HINT}`;
       context.addStep(step);
       yield { type: "step_error", step };
-      // Continue the loop — let LLM decide what to do about the error
+
+      // 동일 툴 + 동일 코드 + 동일 오류가 반복되면 즉시 중단
+      const failKey = `${toolName}|${JSON.stringify(parsed.params)}|${step.errorMessage}`;
+      if (failKey === lastFailKey) {
+        const msg = `같은 오류가 반복되어 중단했어.\n\n${step.errorMessage}`;
+        yield { type: "streaming_token", token: msg };
+        yield { type: "done", answer: msg, steps: context.steps };
+        return;
+      }
+      lastFailKey = failKey;
     }
   }
 

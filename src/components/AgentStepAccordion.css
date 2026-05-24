@@ -5,6 +5,7 @@
   border-radius: 4px;
   overflow: hidden;
   font-size: 11px;
+  max-width: 100%;
 }
 
 .step-accordion__toolbar {
@@ -125,15 +126,39 @@
   color: var(--text-muted);
   font-size: 9px;
   flex-shrink: 0;
+  transition: transform 0.22s ease;
 }
 
-/* ── Step body ── */
+.step-item--open .step-header__chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Step body (animated height via grid trick) ── */
 .step-body {
-  padding: 8px 12px;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s ease;
   background: var(--bg-base);
+  overflow: hidden;
+}
+
+.step-body--open {
+  grid-template-rows: 1fr;
+}
+
+.step-body__inner {
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 0 12px;
+  max-height: 0;
+  transition: padding 0.22s ease, max-height 0.22s ease;
+}
+
+.step-body--open .step-body__inner {
+  padding: 8px 12px;
+  max-height: 2000px;
 }
 
 .step-section {
@@ -171,5 +196,6 @@
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 10px;
   color: var(--text-secondary);
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-all;
 }

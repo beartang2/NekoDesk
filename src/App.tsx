@@ -1,11 +1,13 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Sun, Moon, Settings, Paperclip } from "lucide-react";
+import { Sun, Moon, Settings, Paperclip, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { CatCanvas } from "./cat/CatCanvas";
+import { CAT_VARIANTS, DEFAULT_VARIANT_ID, getCatVariant } from "./cat/spriteData";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { SettingsModal } from "./components/SettingsModal";
 import { RightPanel } from "./components/RightPanel";
@@ -14,7 +16,7 @@ import { useCatRpg } from "./hooks/useCatRpg";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
-import type { ChatMessage, AttachedFile, PendingConfirm } from "./hooks/useAgentLoop";
+import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
 import type { CatEmotion, LlmMessage } from "./agent/types";
 import { compactMessages } from "./agent/llm-client";
 import "./App.css";
@@ -73,7 +75,7 @@ const THEME_KEY = "nekodesk_theme";
 function useTheme() {
   const [isDark, setIsDark] = useState<boolean>(() => {
     const saved = localStorage.getItem(THEME_KEY);
-    return saved ? saved === "dark" : true;
+    return saved ? saved === "dark" : false;
   });
 
   useEffect(() => {
@@ -86,16 +88,59 @@ function useTheme() {
   return { isDark, toggle: () => setIsDark((v) => !v) };
 }
 
+// ── Zoom ──────────────────────────────────────────────────────────────────────
+
+const ZOOM_KEY = "nekodesk_zoom";
+const ZOOM_STEP = 0.1;
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 2.0;
+
+function applyZoom(factor: number) {
+  document.documentElement.style.zoom = String(factor);
+  localStorage.setItem(ZOOM_KEY, String(factor));
+}
+
+function useZoom() {
+  const zoomRef = useRef<number>(1);
+
+  useEffect(() => {
+    const saved = parseFloat(localStorage.getItem(ZOOM_KEY) ?? "1");
+    const initial = isNaN(saved) ? 1 : saved;
+    zoomRef.current = initial;
+    applyZoom(initial);
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (!e.metaKey) return;
+      const cur = zoomRef.current;
+      let next: number | null = null;
+      if (e.key === "=" || e.key === "+") next = Math.min(ZOOM_MAX, Math.round((cur + ZOOM_STEP) * 10) / 10);
+      else if (e.key === "-")             next = Math.max(ZOOM_MIN, Math.round((cur - ZOOM_STEP) * 10) / 10);
+      else if (e.key === "0")             next = 1;
+      if (next === null) return;
+      e.preventDefault();
+      zoomRef.current = next;
+      applyZoom(next);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+}
+
 function TitleBar({
   sessionTitle,
   onSettings,
   isDark,
   onThemeToggle,
+  rightPanelVisible,
+  onToggleRightPanel,
 }: {
   sessionTitle: string;
   onSettings: () => void;
   isDark: boolean;
   onThemeToggle: () => void;
+  rightPanelVisible: boolean;
+  onToggleRightPanel: () => void;
 }) {
   return (
     <header className="titlebar">
@@ -107,6 +152,13 @@ function TitleBar({
       </button>
       <button className="titlebar__settings" onClick={onSettings} title="설정">
         <Settings size={14} />
+      </button>
+      <button
+        className={`titlebar__panel-toggle ${rightPanelVisible ? "titlebar__panel-toggle--active" : ""}`}
+        onClick={onToggleRightPanel}
+        title={rightPanelVisible ? "오른쪽 패널 접기" : "오른쪽 패널 펼치기"}
+      >
+        {rightPanelVisible ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
       </button>
     </header>
   );
@@ -122,6 +174,11 @@ function Sidebar({
   onDelete,
   emotion,
   rpg,
+  onResizeStart,
+  isResizing,
+  catVariantId,
+  contextTokens,
+  petSignal,
 }: {
   sessions: Session[];
   activeId: string;
@@ -140,6 +197,11 @@ function Sidebar({
     onPlay: () => void;
     onPet: () => void;
   };
+  onResizeStart?: (e: React.MouseEvent) => void;
+  isResizing?: boolean;
+  catVariantId: string;
+  contextTokens: number;
+  petSignal?: number;
 }) {
   return (
     <aside className="sidebar">
@@ -172,7 +234,8 @@ function Sidebar({
       </div>
 
       <div className="cat-panel">
-        <CatCanvas emotion={emotion} onPet={rpg.onPet} />
+        <div className="cat-panel__ctx">{contextTokens.toLocaleString()} / 8,192</div>
+        <CatCanvas emotion={emotion} onPet={rpg.onPet} variantId={catVariantId} petSignal={petSignal} />
         <CatStatusPanel
           dayCount={rpg.dayCount}
           hunger={rpg.hunger}
@@ -184,6 +247,12 @@ function Sidebar({
           onPlay={rpg.onPlay}
         />
       </div>
+      {onResizeStart && (
+        <div
+          className={`sidebar__resize-handle ${isResizing ? "sidebar__resize-handle--dragging" : ""}`}
+          onMouseDown={onResizeStart}
+        />
+      )}
     </aside>
   );
 }
@@ -193,18 +262,51 @@ function Sidebar({
 function ChatMessages({
   messages,
   isRunning,
+  onScrollChange,
 }: {
   messages: ChatMessage[];
   isRunning: boolean;
+  onScrollChange?: (show: boolean, scrollFn: () => void) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isUserScrolledUp = useRef(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
 
-  useEffect(() => {
+  const scrollToBottom = useCallback(() => {
+    isUserScrolledUp.current = false;
+    setShowScrollBtn(false);
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
+
+  // 유저가 위로 스크롤하면 트래킹 해제
+  const handleScroll = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom > 80) {
+      isUserScrolledUp.current = true;
+      setShowScrollBtn(true);
+    } else {
+      isUserScrolledUp.current = false;
+      setShowScrollBtn(false);
+    }
+  }, []);
+
+  // 스크롤 버튼 상태를 부모에 전달
+  useEffect(() => {
+    onScrollChange?.(showScrollBtn, scrollToBottom);
+  }, [showScrollBtn, scrollToBottom, onScrollChange]);
+
+  // 메시지 변경 시 트래킹 중이면 스크롤다운
+  useEffect(() => {
+    if (!isUserScrolledUp.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   return (
-    <div className="chat-messages">
+    <div className="chat-messages" ref={containerRef} onScroll={handleScroll}>
       {messages.map((m) => (
         <div key={m.id} className={`message message--${m.role}`}>
           {m.role === "assistant" && m.steps && m.steps.length > 0 && (
@@ -216,8 +318,20 @@ function ChatMessages({
 
           {(m.content || m.isStreaming || (m.attachments && m.attachments.length > 0)) && (
             <div className="message__bubble">
+              {m.role === "assistant" && m.content && !m.isStreaming && (
+                <CopyButton text={m.content.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
+              )}
               {m.content && (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    table: ({ children }) => (
+                      <div className="table-wrapper"><table>{children}</table></div>
+                    ),
+                  }}
+                >
+                  {m.content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()}
+                </ReactMarkdown>
               )}
               {m.attachments && m.attachments.length > 0 && (
                 <div className="message__attachments">
@@ -238,6 +352,23 @@ function ChatMessages({
       ))}
       <div ref={bottomRef} />
     </div>
+  );
+}
+
+// ── Copy button ───────────────────────────────────────────────────────────────
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+  return (
+    <button className="message__copy" onClick={copy}>
+      {copied ? "복사됨" : "복사"}
+    </button>
   );
 }
 
@@ -412,6 +543,23 @@ function ConfirmBanner({ confirm, onResolve }: { confirm: PendingConfirm; onReso
   );
 }
 
+// ── Clarify banner ────────────────────────────────────────────────────────────
+
+function ClarifyBanner({ clarify, onAnswer }: { clarify: PendingClarify; onAnswer: (answer: string) => void }) {
+  return (
+    <div className="clarify-banner">
+      <p className="clarify-banner__q">🐱 {clarify.question}</p>
+      <div className="clarify-banner__opts">
+        {clarify.options.map((opt) => (
+          <button key={opt} className="clarify-banner__opt" onClick={() => onAnswer(opt)}>
+            {opt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Error banner ──────────────────────────────────────────────────────────────
 
 function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
@@ -445,7 +593,9 @@ function CompactSummaryBar({
       {expanded && (
         <div className="compact-tab__panel">
           <div className="compact-tab__panel-inner">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {summary.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()}
+            </ReactMarkdown>
           </div>
         </div>
       )}
@@ -459,6 +609,16 @@ export default function App() {
   // ── Session list ──────────────────────────────────────────────────────────
   const [sessions, setSessions] = useState<Session[]>(INITIAL_STATE.sessions);
   const [activeId, setActiveId] = useState<string>(INITIAL_STATE.activeId);
+
+  // ── Cat variant ───────────────────────────────────────────────────────────
+  const VARIANT_STORAGE_KEY = "nekodesk_cat_variant";
+  const [catVariantId, setCatVariantId] = useState<string>(
+    () => getCatVariant(localStorage.getItem(VARIANT_STORAGE_KEY) ?? DEFAULT_VARIANT_ID).id
+  );
+  function handleVariantChange(id: string) {
+    setCatVariantId(id);
+    localStorage.setItem(VARIANT_STORAGE_KEY, id);
+  }
 
   // ── Per-session messages: Record<sessionId, ChatMessage[]> ────────────────
   const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>(
@@ -511,7 +671,7 @@ export default function App() {
 
   // ── Agent pool (parallel per-session processing) ──────────────────────
   const pool = useAgentPool(allMessagesRef, setAllMessages);
-  const { state: rpgState, dayCount, canFeed, feed, playAction, pet, reward, consume } = useCatRpg();
+  const { state: rpgState, dayCount, canFeed, feed, playAction, pet, reward, consume } = useCatRpg(activeId);
 
   const isRunning = pool.isRunning(activeId);
   const catEmotion = pool.catEmotion(activeId);
@@ -548,6 +708,9 @@ export default function App() {
   }, [isRunning]);
 
   const [isBoxMode, setIsBoxMode] = useState(false);
+  const [petSignal, setPetSignal] = useState(0);
+  const boxPetCountRef = useRef(0);
+  const BOX_EXIT_PET_COUNT = 3;
   const [actionEmotion, setActionEmotion] = useState<CatEmotion | null>(null);
   const actionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -560,6 +723,25 @@ export default function App() {
     }, durationMs);
   }, []);
 
+  // 가속도 센서 탭 → 쓰다듬기 (맥북 트랙패드 양 옆 톡톡)
+  const isBoxModeRef = useRef(isBoxMode);
+  isBoxModeRef.current = isBoxMode;
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen("nekodesk:pet", () => {
+      pet();
+      setPetSignal((n) => n + 1);
+      if (isBoxModeRef.current) {
+        boxPetCountRef.current += 1;
+        if (boxPetCountRef.current >= BOX_EXIT_PET_COUNT) {
+          boxPetCountRef.current = 0;
+          setIsBoxMode(false);
+        }
+      }
+    }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, [pet]);
+
   // play >= 80이면 랜덤으로 box 상태 진입 (30~120초 간격)
   useEffect(() => {
     if (isRunning || rpgState.play < 80) {
@@ -567,7 +749,7 @@ export default function App() {
       return;
     }
     const delay = 30_000 + Math.random() * 90_000;
-    const id = window.setTimeout(() => setIsBoxMode(true), delay);
+    const id = window.setTimeout(() => { boxPetCountRef.current = 0; setIsBoxMode(true); }, delay);
     return () => window.clearTimeout(id);
   }, [isRunning, rpgState.play]);
 
@@ -725,18 +907,75 @@ export default function App() {
   useEffect(() => { initMcpFromStorage(); }, []);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const scrollToBottomRef = useRef<() => void>(() => {});
+  const handleScrollChange = useCallback((show: boolean, scrollFn: () => void) => {
+    setShowScrollBtn(show);
+    scrollToBottomRef.current = scrollFn;
+  }, []);
   const { isDark, toggle: toggleTheme } = useTheme();
+  useZoom();
   const activeSession = sessions.find((s) => s.id === activeId);
 
+  // ── Panel visibility & resize ─────────────────────────────────────────────
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [rightPanelVisible, setRightPanelVisible] = useState(true);
+  const [sidebarW, setSidebarW] = useState(220);
+  const [rightPanelW, setRightPanelW] = useState(210);
+
+  const dragRef = useRef<{
+    type: "sidebar" | "right";
+    startX: number;
+    startW: number;
+  } | null>(null);
+  const [isDragging, setIsDragging] = useState<"sidebar" | "right" | null>(null);
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!dragRef.current) return;
+      const { type, startX, startW } = dragRef.current;
+      const delta = e.clientX - startX;
+      if (type === "sidebar") {
+        setSidebarW(Math.max(160, Math.min(400, startW + delta)));
+      } else {
+        setRightPanelW(Math.max(160, Math.min(400, startW - delta)));
+      }
+    }
+    function onMouseUp() {
+      dragRef.current = null;
+      setIsDragging(null);
+    }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  function startDrag(type: "sidebar" | "right", e: React.MouseEvent) {
+    e.preventDefault();
+    const startW = type === "sidebar" ? sidebarW : rightPanelW;
+    dragRef.current = { type, startX: e.clientX, startW };
+    setIsDragging(type);
+  }
+
+  const appStyle = {
+    "--sidebar-w": sidebarVisible ? `${sidebarW}px` : "0px",
+    "--right-panel-w": rightPanelVisible ? `${rightPanelW}px` : "0px",
+  } as React.CSSProperties;
+
   return (
-    <div className="app">
+    <div className={`app${isDragging ? " app--resizing" : ""}`} style={appStyle}>
       <TitleBar
         sessionTitle={activeSession?.title ?? ""}
         onSettings={() => setSettingsOpen(true)}
         isDark={isDark}
         onThemeToggle={toggleTheme}
+        rightPanelVisible={rightPanelVisible}
+        onToggleRightPanel={() => setRightPanelVisible((v) => !v)}
       />
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} isDark={isDark} />}
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} isDark={isDark} catVariantId={catVariantId} onCatVariantChange={handleVariantChange} />}
 
       <Sidebar
         sessions={sessions}
@@ -754,13 +993,29 @@ export default function App() {
           isCompacting,
           onFeed: () => { void handleFeed(); },
           onPlay: () => { playAction(); triggerActionEmotion("happy"); },
-          onPet: () => { pet(); setIsBoxMode(false); },
+          onPet: () => {
+            pet();
+            if (isBoxMode) {
+              boxPetCountRef.current += 1;
+              if (boxPetCountRef.current >= BOX_EXIT_PET_COUNT) {
+                boxPetCountRef.current = 0;
+                setIsBoxMode(false);
+              }
+            }
+          },
         }}
+        onResizeStart={sidebarVisible ? (e) => startDrag("sidebar", e) : undefined}
+        isResizing={isDragging === "sidebar"}
+        catVariantId={catVariantId}
+        contextTokens={Math.round(
+          activeMessages.reduce((sum, m) => sum + m.content.length, 0) / 3.5
+        )}
+        petSignal={petSignal}
       />
 
       <main className="main">
         {error && (
-          <ErrorBanner message={error} onDismiss={() => {}} />
+          <ErrorBanner message={error} onDismiss={() => pool.clearError(activeId)} />
         )}
 
         <div className="chat-area">
@@ -772,11 +1027,25 @@ export default function App() {
             />
           )}
 
-          <ChatMessages messages={activeMessages} isRunning={isRunning} />
+          <ChatMessages messages={activeMessages} isRunning={isRunning} onScrollChange={handleScrollChange} />
         </div>
 
         {pool.pendingConfirm && pool.pendingConfirm.sessionId === activeId && (
           <ConfirmBanner confirm={pool.pendingConfirm} onResolve={pool.confirmResolve} />
+        )}
+
+        {pool.pendingClarify && pool.pendingClarify.sessionId === activeId && (
+          <ClarifyBanner clarify={pool.pendingClarify} onAnswer={pool.clarifyResolve} />
+        )}
+
+        {showScrollBtn && (
+          <button
+            className="chat-scroll-btn"
+            onClick={() => scrollToBottomRef.current()}
+            title="맨 아래로"
+          >
+            ↓
+          </button>
         )}
 
         <Composer
@@ -787,7 +1056,10 @@ export default function App() {
         />
       </main>
 
-      <RightPanel />
+      <RightPanel
+        onResizeStart={rightPanelVisible ? (e) => startDrag("right", e) : undefined}
+        isResizing={isDragging === "right"}
+      />
     </div>
   );
 }

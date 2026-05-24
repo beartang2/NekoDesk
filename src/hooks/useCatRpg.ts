@@ -20,7 +20,7 @@ const PLAY_PER_MIN = 0.3;        // -3 / 10분
 const MAX_OFFLINE_MIN = 120;     // 오프라인 최대 반영 2시간
 // compact는 컨텍스트가 자연스러운 제한 — 하루 제한 없음
 const MAX_FEED_PER_DAY = 999;
-const SETTINGS_KEY = "cat_rpg_state";
+const SETTINGS_KEY_PREFIX = "cat_rpg_state";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -49,17 +49,21 @@ function makeDefault(): CatRpgState {
   const now = new Date().toISOString();
   return {
     birthday: today(),
-    hunger: 80,
-    play: 60,
+    hunger: 100,
+    play: 100,
     lastTick: now,
     feedCountToday: 0,
     feedDate: today(),
   };
 }
 
-async function loadState(): Promise<CatRpgState> {
+function settingsKey(sessionId: string): string {
+  return `${SETTINGS_KEY_PREFIX}_${sessionId}`;
+}
+
+async function loadState(sessionId: string): Promise<CatRpgState> {
   try {
-    const raw = await invoke<string | null>("settings_get", { key: SETTINGS_KEY });
+    const raw = await invoke<string | null>("settings_get", { key: settingsKey(sessionId) });
     if (!raw) return makeDefault();
     return JSON.parse(raw) as CatRpgState;
   } catch {
@@ -67,31 +71,32 @@ async function loadState(): Promise<CatRpgState> {
   }
 }
 
-async function persistState(state: CatRpgState): Promise<void> {
-  await invoke("settings_set", { key: SETTINGS_KEY, value: JSON.stringify(state) }).catch(() => {});
+async function persistState(sessionId: string, state: CatRpgState): Promise<void> {
+  await invoke("settings_set", { key: settingsKey(sessionId), value: JSON.stringify(state) }).catch(() => {});
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-export function useCatRpg() {
+export function useCatRpg(sessionId: string) {
   const [state, setStateRaw] = useState<CatRpgState>(makeDefault);
   const stateRef = useRef(state);
   stateRef.current = state;
 
   const setState = useCallback((next: CatRpgState) => {
     setStateRaw(next);
-    persistState(next);
-  }, []);
+    persistState(sessionId, next);
+  }, [sessionId]);
 
-  // 마운트: 저장된 상태 로드 + 오프라인 경과 반영
+  // 세션 전환 시 해당 세션 상태 로드
   useEffect(() => {
-    loadState().then((loaded) => {
+    setStateRaw(makeDefault()); // 전환 중 깜빡임 방지
+    loadState(sessionId).then((loaded) => {
       const s = loaded.feedDate !== today()
         ? { ...loaded, feedCountToday: 0, feedDate: today() }
         : loaded;
       setState(applyDecay(s, Date.now()));
     });
-  }, []);
+  }, [sessionId]);
 
   // 1분 틱
   useEffect(() => {
