@@ -39,7 +39,8 @@ const STATIC_TOOLS_DESC = `- todo.list: 열린 할 일 목록을 가져온다 (p
 - todo.add: 할 일을 추가한다 (params: { "content": string, "due_at": string | null })
 - todo.complete: 할 일을 완료 처리한다 (params: { "id": number })
 - schedule.list: 일정을 조회한다 (params: { "range": "today" | "week" | "all" })
-- schedule.add: 일정을 추가한다 (params: { "title": string, "start_at": string, "end_at": string | null })
+- schedule.add: 일정을 추가한다 (params: { "title": string, "start_at": string, "end_at": string | null }) ※ start_at/end_at은 반드시 ISO 8601 형식(예: "2026-05-22" 또는 "2026-05-22T14:00:00")으로 작성
+- schedule.delete: 일정을 삭제한다 (params: { "id": number }) ※ 삭제 전 반드시 schedule.list로 id를 조회해서 사용
 - code.exec: Python, Shell, AppleScript를 로컬에서 실행하고 결과를 반환한다 (params: { "code": string, "language": "python" | "shell" | "applescript", "work_dir": string | null }) ※ language가 "applescript"일 때 code는 순수 AppleScript 문법만 작성 (osascript -e 래퍼 절대 사용 금지. 예: tell application "Music" to get name of current track)
 - web.search: 웹에서 정보를 검색한다 (params: { "query": string })
 - web.scrape: 특정 URL의 페이지 내용을 가져온다 (params: { "url": string })
@@ -92,12 +93,15 @@ ${STATIC_TOOLS_DESC}${mcpDesc}
    b. 오류 핵심("command not found: ffmpeg", "permission denied" 등)만으로 web.search를 먼저 실행해 해결책을 찾는다.
    c. 검색 결과를 반영해 수정된 방법으로 재시도한다.
    d. 같은 오류가 두 번 반복되면 즉시 tool을 "none"으로 설정하고 finalAnswer로 오류를 보고한다.
+15. code.exec에서 사용자의 한국어 키워드(검색어·아티스트명·앱 이름·플레이리스트명 등)는 영어/로마자로 변환해서 먼저 실행해. 실패하면 원문 한국어로 재시도해. (예: "요루시카" → 먼저 "Yorushika"로 검색, 실패 시 "요루시카"로 재시도)
 8. 단순 인사, 잡담, 감사 인사 등 툴이 전혀 필요없는 대화는 즉시 tool을 "none"으로 설정하고 finalAnswer로 바로 답해.
 9. web.scrape는 반드시 web.search로 결과를 먼저 받은 뒤에만 사용해. 검색 없이 단독으로 호출하지 마.
 10. 웹 검색 시 영어 쿼리를 우선으로 사용해. 영어로 검색해도 충분한 결과가 없을 것 같은 경우에만 한국어로 검색해.
 11. 사용자가 명시적으로 요청하지 않아도 기억해둘 만한 것(나중에 할 일, 아이디어, 메모, 확인해야 할 것 등)이 대화에 등장하면 스스로 판단해서 todo.add를 호출해. 단, 이미 완료된 일이나 단순 사실 언급은 추가하지 마.
-12. 모든 툴은 명시적 지시 없이도 자유롭게 활용해. 정보 검색이 필요하다 싶으면 web.search, 계산이나 자동화가 필요하면 code.exec, 일정이 언급되면 schedule.add 등 상황에 맞는 툴을 스스로 선택해서 실행해.
+12. 모든 툴은 명시적 지시 없이도 자유롭게 활용해. 계산이나 자동화가 필요하면 code.exec, 일정이 언급되면 schedule.add 등 상황에 맞는 툴을 스스로 선택해서 실행해. 단, web.search는 사용자가 검색을 명시적으로 요청했거나, 실시간·최신 정보(뉴스, 날씨 제외, 가격, 공식 발표 등)가 꼭 필요할 때만 사용해. 일반 지식, 의견, 생각을 묻는 질문에는 검색하지 말고 바로 답해.
 13. user.ask는 요청이 모호해서 잘못된 방향으로 진행되면 되돌리기 어려운 경우에만 사용해. 파일 삭제·덮어쓰기·어느 대상에 적용할지 불명확한 경우 등. 단순 질문이나 명확한 요청엔 절대 쓰지 마. options는 2~4개로 제한해.
+16. Messages 앱·이메일·SNS 등 외부로 메시지를 전송하기 직전에는 반드시 user.ask로 수신자명과 메시지 내용을 확인받아. 예: question="알투 윤원님 (01025750827)께 이 메시지를 보낼까요?\n\n메롱", options=["보내기", "취소"]
+17. Messages 앱(iMessage/SMS)으로 전송할 때, code.exec의 AppleScript 코드 안에서 send 명령에 전달하는 메시지 문자열 끝에 "\n\nsent by Neko 🐱"를 붙여. finalAnswer나 네 답변에 붙이는 게 아니라, AppleScript 코드 내 문자열에만 적용해. 예: send "안녕하세요\n\nsent by Neko 🐱" to buddy ...
 14. weather.get은 사용자가 날씨를 명시적으로 물어볼 때만 사용해. 사용자가 시간과 목적(일정·약속·활동 등)을 언급하면 반드시 schedule.add를 먼저 실행해. 날씨는 사용자가 따로 요청하지 않는 한 자동으로 조회하지 마.
 
 출력 형식:
@@ -275,7 +279,7 @@ function parseAgentResponse(raw: string): ParsedAgentStep {
   try {
     const parsed = JSON.parse(json) as Partial<ParsedAgentStep>;
     return {
-      thought: typeof parsed.thought === "string" ? parsed.thought : "",
+      thought: typeof parsed.thought === "string" ? parsed.thought.slice(0, 300) : "",
       tool: isValidTool(parsed.tool) ? parsed.tool : "none",
       params: typeof parsed.params === "object" && parsed.params !== null
         ? parsed.params as Record<string, unknown>
@@ -283,23 +287,33 @@ function parseAgentResponse(raw: string): ParsedAgentStep {
       finalAnswer: typeof parsed.finalAnswer === "string" ? parsed.finalAnswer : undefined,
     };
   } catch {
-    // JSON parse failed — strip think tags and JSON wrapper, use as plain answer
-    const stripped = raw
-      .replace(/<think>[\s\S]*?<\/think>/g, "")
-      .replace(/^\s*\{[\s\S]*"finalAnswer"\s*:\s*"([\s\S]*)"\s*\}\s*$/, "$1")
-      .trim();
+    // JSON parse failed (often due to max_tokens truncation).
+    // 1) Try to pull finalAnswer out of the partial JSON via regex.
+    // 2) If it still looks like raw JSON, show a friendly error instead.
+    const faMatch = json.match(/"finalAnswer"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (faMatch) {
+      return {
+        thought: "응답 파싱 실패",
+        tool: "none",
+        params: {},
+        finalAnswer: faMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"'),
+      };
+    }
+
+    const stripped = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    const looksLikeJson = stripped.startsWith("{") || stripped.startsWith("[");
     return {
       thought: "응답 파싱 실패",
       tool: "none",
       params: {},
-      finalAnswer: stripped || "처리 중 문제가 발생했어.",
+      finalAnswer: looksLikeJson || !stripped ? "처리 중 문제가 발생했어. 다시 시도해줘." : stripped,
     };
   }
 }
 
 const STATIC_TOOL_NAMES = new Set([
   "todo.list", "todo.add", "todo.complete",
-  "schedule.list", "schedule.add", "code.exec", "web.search", "web.scrape",
+  "schedule.list", "schedule.add", "schedule.delete", "code.exec", "web.search", "web.scrape",
   "file.upload", "weather.get", "user.ask", "none",
 ]);
 
@@ -310,12 +324,44 @@ function isValidTool(val: unknown): val is string {
   return getMcpTools().some((e) => e.tool.name === val);
 }
 
+function stripImageParts(messages: LlmMessage[]): { messages: LlmMessage[]; hadImages: boolean } {
+  let hadImages = false;
+  const stripped = messages.map((m) => {
+    if (!Array.isArray(m.content)) return m;
+    const textOnly = m.content
+      .filter((p) => p.type !== "image_url")
+      .map((p) => (p.type === "text" ? p.text : ""))
+      .join("\n")
+      .trim();
+    hadImages = true;
+    return { ...m, content: textOnly || "(이미지 첨부됨)" };
+  });
+  return { messages: stripped, hadImages };
+}
+
 export async function agentStep(messages: LlmMessage[], userInput = ""): Promise<ParsedAgentStep> {
   const systemMessage: LlmMessage = { role: "system", content: buildAgentSystemPrompt(userInput) };
   const allMessages = [systemMessage, ...messages];
 
-  const raw = await fetchCompletion(allMessages, { temperature: 0.1, max_tokens: 1024 });
-  return parseAgentResponse(raw);
+  try {
+    const raw = await fetchCompletion(allMessages, { temperature: 0.1, max_tokens: 1024 });
+    return parseAgentResponse(raw);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // 이미지 처리 실패 시 이미지를 빼고 재시도
+    if (msg.includes("failed to process image") || msg.includes("500")) {
+      const { messages: fallback, hadImages } = stripImageParts(allMessages);
+      if (hadImages) {
+        const note = fallback[fallback.length - 1];
+        if (note && typeof note.content === "string") {
+          note.content = `${note.content}\n\n[이미지를 첨부했지만 현재 모델이 이미지를 지원하지 않아요.]`;
+        }
+        const raw2 = await fetchCompletion(fallback, { temperature: 0.1, max_tokens: 1024 });
+        return parseAgentResponse(raw2);
+      }
+    }
+    throw err;
+  }
 }
 
 // ── Chat response (streaming) ─────────────────────────────────────────────────
@@ -341,7 +387,7 @@ export function chatStream(
 // ── Context compaction ────────────────────────────────────────────────────────
 
 /** Claude Code 방식의 컨텍스트 compact: 대화를 요약해서 반환한다. */
-export async function compactMessages(messages: LlmMessage[]): Promise<string> {
+export async function compactMessages(messages: LlmMessage[], previousSummary?: string): Promise<string> {
   const conversationText = messages
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => {
@@ -353,11 +399,15 @@ export async function compactMessages(messages: LlmMessage[]): Promise<string> {
 
   const systemMsg: LlmMessage = {
     role: "system",
-    content: "다음 대화를 간결하게 요약해줘. 핵심 사실, 완료된 작업, 중요한 결정, 진행 중인 사항을 포함해. 한국어로 작성해.",
+    content: "대화 내용을 간결하게 요약해줘. 핵심 사실, 완료된 작업, 중요한 결정, 진행 중인 사항을 포함해. 한국어로 작성해.",
   };
+
+  const prevSection = previousSummary
+    ? `[이전 요약]\n${previousSummary}\n\n`
+    : "";
   const userMsg: LlmMessage = {
     role: "user",
-    content: `대화 내용:\n\n${conversationText}\n\n위 대화를 간결하게 요약해줘.`,
+    content: `${prevSection}[새 대화]\n${conversationText}\n\n위 내용을 하나의 요약으로 합쳐줘.`,
   };
 
   return fetchCompletion([systemMsg, userMsg], { temperature: 0.3, max_tokens: 1024 });

@@ -206,6 +206,7 @@ function McpRow({ server, onToggle, onEdit, onDelete }: McpRowProps) {
 // ── llama-server section ──────────────────────────────────────────────────────
 
 const LLAMA_CONFIG_KEY = "nekodesk_llama_config";
+const LLAMA_AUTOSTART_KEY = "nekodesk_llama_autostart";
 
 interface LlamaConfig {
   model: string;
@@ -256,12 +257,14 @@ function loadLlamaConfig(): LlamaConfig {
 
 function LlamaServerSection() {
   const [config, setConfig] = useState<LlamaConfig>(loadLlamaConfig);
+  const [autostart, setAutostart] = useState(() => localStorage.getItem(LLAMA_AUTOSTART_KEY) === "true");
   const [models, setModels] = useState<string[]>([]);
   const mainModels = models.filter((m) => !m.toLowerCase().includes("mmproj"));
   const mmprojModels = models.filter((m) => m.toLowerCase().includes("mmproj"));
-  const [running, setRunning] = useState(false);
+  const [running, setRunning] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function updateConfig(patch: Partial<LlamaConfig>) {
@@ -272,11 +275,18 @@ function LlamaServerSection() {
     try {
       const files = await invoke<string[]>("llama_scan_models");
       setModels(files);
+      // 스캔 결과에 없는 모델/mmproj는 자동 초기화
+      setConfig((c) => ({
+        ...c,
+        model: files.includes(c.model) ? c.model : "",
+        mmproj: files.includes(c.mmproj) ? c.mmproj : "",
+      }));
     } catch (e) {
       console.warn("llama_scan_models failed:", e);
     }
   }
 
+  // 폴링용: child handle만 확인 (중지 직후 오진 방지)
   async function checkRunning() {
     try {
       const r = await invoke<boolean>("llama_is_running");
@@ -286,9 +296,27 @@ function LlamaServerSection() {
     }
   }
 
+  // 마운트 시 1회: child handle 없어도 포트 헬스체크로 고아 프로세스 감지
+  async function checkRunningOnMount() {
+    try {
+      const r = await invoke<boolean>("llama_is_running");
+      if (r) { setRunning(true); return; }
+    } catch { /* fall through */ }
+    try {
+      const cfg = loadLlamaConfig();
+      const host = cfg.host === "0.0.0.0" ? "127.0.0.1" : cfg.host;
+      const res = await fetch(`http://${host}:${cfg.port}/health`, {
+        signal: AbortSignal.timeout(1500),
+      });
+      setRunning(res.ok);
+    } catch {
+      setRunning(false);
+    }
+  }
+
   useEffect(() => {
     scanModels();
-    checkRunning();
+    checkRunningOnMount();
     pollingRef.current = setInterval(checkRunning, 3000);
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
@@ -304,11 +332,12 @@ function LlamaServerSection() {
   async function startServer() {
     localStorage.setItem(LLAMA_CONFIG_KEY, JSON.stringify(config));
     setLoading(true);
+    setServerError(null);
     try {
       await invoke("llama_start", { config });
       setRunning(true);
     } catch (e) {
-      alert(`서버 시작 실패: ${e}`);
+      setServerError(String(e));
     } finally {
       setLoading(false);
     }
@@ -317,7 +346,7 @@ function LlamaServerSection() {
   async function stopServer() {
     setLoading(true);
     try {
-      await invoke("llama_stop");
+      await invoke("llama_stop", { port: config.port });
       setRunning(false);
     } catch (e) {
       console.warn("llama_stop failed:", e);
@@ -328,12 +357,21 @@ function LlamaServerSection() {
 
   return (
     <section className="settings-section">
-      <h3 className="settings-section__title">서버 실행</h3>
+      <h3 className="settings-section__title">로컬 LLM 모델 실행</h3>
 
       {/* 상태 표시 */}
-      <div className={`server-status ${running ? "server-status--running" : "server-status--stopped"}`}>
-        {running ? "실행 중" : "중지됨"}
-      </div>
+      {running !== null && (
+        <div className={`server-status ${running ? "server-status--running" : "server-status--stopped"}`}>
+          {running ? "실행 중" : "중지됨"}
+        </div>
+      )}
+
+      {/* 에러 표시 */}
+      {serverError && (
+        <div className="server-error" onClick={() => setServerError(null)}>
+          {serverError}
+        </div>
+      )}
 
       {/* 모델 선택 */}
       <div className="settings-row" style={{ alignItems: "center" }}>
@@ -454,7 +492,7 @@ function LlamaServerSection() {
         </label>
       </div>
 
-      {/* Flash Attn / Jinja 토글 */}
+      {/* Flash Attn / Jinja / Autostart 토글 */}
       <div className="server-checkbox-row">
         <label className="server-checkbox-row__item">
           <input type="checkbox" checked={config.flash_attn}
@@ -466,6 +504,14 @@ function LlamaServerSection() {
             onChange={(e) => updateConfig({ jinja: e.target.checked })} />
           <span>Jinja</span>
         </label>
+        <label className="server-checkbox-row__item">
+          <input type="checkbox" checked={autostart}
+            onChange={(e) => {
+              setAutostart(e.target.checked);
+              localStorage.setItem(LLAMA_AUTOSTART_KEY, String(e.target.checked));
+            }} />
+          <span>앱 시작 시 자동 실행</span>
+        </label>
       </div>
 
       {/* 액션 버튼 */}
@@ -473,15 +519,20 @@ function LlamaServerSection() {
         <button className="settings-btn settings-btn--ghost" onClick={saveConfig}>
           {saved ? "저장됨" : "설정 저장"}
         </button>
-        {running ? (
-          <button className="settings-btn settings-btn--stop" onClick={stopServer} disabled={loading}>
-            {loading ? "..." : "서버 중지"}
-          </button>
-        ) : (
-          <button className="settings-btn settings-btn--start" onClick={startServer} disabled={loading || !config.model}>
-            {loading ? "..." : "서버 시작"}
-          </button>
-        )}
+        <button
+          className="settings-btn settings-btn--stop"
+          onClick={stopServer}
+          disabled={loading || !running}
+        >
+          {loading && running ? "..." : "중지"}
+        </button>
+        <button
+          className="settings-btn settings-btn--start"
+          onClick={startServer}
+          disabled={loading || !!running || !config.model}
+        >
+          {loading && !running ? "..." : "실행"}
+        </button>
       </div>
     </section>
   );

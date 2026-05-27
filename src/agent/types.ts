@@ -1,8 +1,12 @@
 // ── LLM ──────────────────────────────────────────────────────────────────────
 
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export interface LlmMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string;
+  content: string | ContentPart[];
 }
 
 export interface LlmParams {
@@ -24,6 +28,7 @@ export type ToolName =
   | "todo.complete"
   | "schedule.list"
   | "schedule.add"
+  | "schedule.delete"
   | "code.exec"
   | "web.search"
   | "web.scrape"

@@ -207,18 +207,18 @@ mod commands {
     pub fn schedule_list(db: State<DbState>, range: String) -> Result<Vec<ScheduleEvent>, String> {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-        let where_clause = match range.as_str() {
-            "today" => "AND date(start_at) = date('now')",
-            "week" => "AND date(start_at) BETWEEN date('now') AND date('now', '+7 days')",
-            _ => "",
+        let sql = match range.as_str() {
+            "today" => "SELECT id, title, start_at, end_at, notes, all_day, created_at
+                        FROM events WHERE date(start_at) = date('now')
+                        ORDER BY start_at ASC LIMIT 20".to_string(),
+            "week"  => "SELECT id, title, start_at, end_at, notes, all_day, created_at
+                        FROM events WHERE start_at >= datetime('now')
+                          AND date(start_at) BETWEEN date('now') AND date('now', '+7 days')
+                        ORDER BY start_at ASC LIMIT 20".to_string(),
+            _       => "SELECT id, title, start_at, end_at, notes, all_day, created_at
+                        FROM events
+                        ORDER BY start_at ASC LIMIT 200".to_string(),
         };
-
-        let sql = format!(
-            "SELECT id, title, start_at, end_at, notes, all_day, created_at
-             FROM events WHERE start_at >= datetime('now') {}
-             ORDER BY start_at ASC LIMIT 20",
-            where_clause
-        );
 
         let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
 
@@ -273,6 +273,15 @@ mod commands {
             },
         )
         .map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub fn schedule_delete(db: State<DbState>, id: i64) -> Result<bool, String> {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let deleted = conn
+            .execute("DELETE FROM events WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        Ok(deleted > 0)
     }
 
     #[tauri::command]
@@ -817,17 +826,32 @@ mod commands {
         if let Some(mmproj) = &config.mmproj {
             if !mmproj.is_empty() {
                 let mmproj_path = models_dir.join(mmproj);
+                if !mmproj_path.exists() {
+                    return Err(format!("mmproj 파일을 찾을 수 없습니다: {}\n설정에서 mmproj를 '없음'으로 변경해주세요.", mmproj));
+                }
                 args.push("--mmproj".to_string());
                 args.push(mmproj_path.to_string_lossy().to_string());
             }
         }
 
-        let child = Command::new(&binary)
+        let log_path = std::env::temp_dir().join("nekodesk_llama.log");
+        let log_file = std::fs::File::create(&log_path)
+            .map_err(|e| format!("로그 파일 생성 실패: {}", e))?;
+
+        let mut child = Command::new(&binary)
             .args(&args)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(log_file)
             .spawn()
             .map_err(|e| format!("서버 시작 실패: {}", e))?;
+
+        // 800ms 후 즉시 종료 여부 확인
+        thread::sleep(Duration::from_millis(800));
+        if let Ok(Some(status)) = child.try_wait() {
+            let log = std::fs::read_to_string(&log_path).unwrap_or_default();
+            let excerpt: String = log.lines().rev().take(10).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+            return Err(format!("서버가 즉시 종료됨 (exit {})\n{}", status.code().unwrap_or(-1), excerpt));
+        }
 
         let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
         *guard = Some(child);
@@ -835,13 +859,20 @@ mod commands {
     }
 
     #[tauri::command]
-    pub fn llama_stop(server_state: State<LlamaServerState>) -> Result<(), String> {
-        let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
-        if let Some(ref mut child) = *guard {
-            child.kill().ok();
-            child.wait().ok();
+    pub fn llama_stop(port: i32, server_state: State<LlamaServerState>) -> Result<(), String> {
+        {
+            let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
+            if let Some(ref mut child) = *guard {
+                child.kill().ok();
+                child.wait().ok();
+            }
+            *guard = None;
         }
-        *guard = None;
+        // child handle이 없어도 해당 포트를 점유 중인 프로세스 강제 종료
+        let _ = Command::new("sh")
+            .arg("-c")
+            .arg(format!("lsof -ti tcp:{} | xargs kill 2>/dev/null; exit 0", port))
+            .output();
         Ok(())
     }
 
@@ -1032,6 +1063,7 @@ fn percent_decode(s: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             // 앱 데이터 디렉토리 기준으로 DB 경로 결정
             // dev: ~/Library/Application Support/nekodesk
@@ -1058,6 +1090,7 @@ pub fn run() {
             commands::todo_complete,
             commands::schedule_list,
             commands::schedule_add,
+            commands::schedule_delete,
             commands::code_exec,
             commands::web_search,
             commands::web_scrape,
@@ -1073,6 +1106,18 @@ pub fn run() {
             commands::llama_stop,
             commands::llama_is_running,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<LlamaServerState>() {
+                    let mut guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(ref mut child) = *guard {
+                        child.kill().ok();
+                        child.wait().ok();
+                    }
+                    *guard = None;
+                }
+            }
+        });
 }

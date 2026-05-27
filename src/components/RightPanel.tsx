@@ -66,7 +66,7 @@ function TodoCard() {
 // ── Calendar Card ─────────────────────────────────────────────────────────────
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const DAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"];
+const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 
 function CalendarCard() {
   const today = new Date();
@@ -101,17 +101,37 @@ function CalendarCard() {
     setSelectedDay(null);
   }
 
+  // "2026-05-22" 처럼 날짜만 있는 문자열은 UTC로 파싱되어 KST에서 하루 어긋나므로
+  // 로컬 타임존 기준으로 파싱한다
+  function parseEventDate(s: string): Date {
+    // ISO 날짜만 있는 경우 (YYYY-MM-DD)
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (dateOnly) {
+      return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+    }
+    // SQLite datetime 형식 ("YYYY-MM-DD HH:MM:SS") — T 없이 공백 구분자
+    const sqliteDt = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(s);
+    if (sqliteDt) {
+      return new Date(
+        Number(sqliteDt[1]), Number(sqliteDt[2]) - 1, Number(sqliteDt[3]),
+        Number(sqliteDt[4]), Number(sqliteDt[5]), Number(sqliteDt[6])
+      );
+    }
+    // ISO 8601 with T — Date 생성자에 위임
+    return new Date(s);
+  }
+
   // Events for the displayed month
   const monthEvents = events.filter((e) => {
-    const d = new Date(e.start_at);
-    return d.getFullYear() === year && d.getMonth() === month;
+    const d = parseEventDate(e.start_at);
+    return !isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() === month;
   });
 
-  const eventDays = new Set(monthEvents.map((e) => new Date(e.start_at).getDate()));
+  const eventDays = new Set(monthEvents.map((e) => parseEventDate(e.start_at).getDate()));
 
-  // Calendar grid (Mon-first)
+  // Calendar grid (Sun-first)
   const firstDayOfWeek = new Date(year, month, 1).getDay(); // 0=Sun
-  const startOffset = (firstDayOfWeek + 6) % 7; // 0=Mon
+  const startOffset = firstDayOfWeek; // 0=Sun
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   const cells: (number | null)[] = [
@@ -121,7 +141,7 @@ function CalendarCard() {
   while (cells.length % 7 !== 0) cells.push(null);
 
   const selectedEvents = selectedDay
-    ? monthEvents.filter((e) => new Date(e.start_at).getDate() === selectedDay)
+    ? monthEvents.filter((e) => parseEventDate(e.start_at).getDate() === selectedDay)
     : [];
 
   const isCurrentMonthView =
@@ -175,7 +195,7 @@ function CalendarCard() {
                   <span className="cal-event__time">
                     {e.all_day
                       ? "종일"
-                      : new Date(e.start_at).toLocaleTimeString("ko-KR", {
+                      : parseEventDate(e.start_at).toLocaleTimeString("ko-KR", {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}

@@ -4,7 +4,6 @@ import remarkGfm from "remark-gfm";
 import { Sun, Moon, Settings, Paperclip, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { CatCanvas } from "./cat/CatCanvas";
 import { CAT_VARIANTS, DEFAULT_VARIANT_ID, getCatVariant } from "./cat/spriteData";
@@ -18,7 +17,7 @@ import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
 import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
 import type { CatEmotion, LlmMessage } from "./agent/types";
-import { compactMessages } from "./agent/llm-client";
+import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
 import "./App.css";
 
 interface ConversationMessage {
@@ -79,10 +78,14 @@ function useTheme() {
   });
 
   useEffect(() => {
-    document.documentElement.classList.toggle("light", !isDark);
+    const root = document.documentElement;
+    root.classList.add("theme-transitioning");
+    root.classList.toggle("light", !isDark);
     localStorage.setItem(THEME_KEY, isDark ? "dark" : "light");
     getCurrentWindow().setTheme(isDark ? "dark" : "light").catch(() => {});
     applyThemeColors(isDark);
+    const t = setTimeout(() => root.classList.remove("theme-transitioning"), 250);
+    return () => clearTimeout(t);
   }, [isDark]);
 
   return { isDark, toggle: () => setIsDark((v) => !v) };
@@ -178,6 +181,7 @@ function Sidebar({
   isResizing,
   catVariantId,
   contextTokens,
+  modelContextLength,
   petSignal,
 }: {
   sessions: Session[];
@@ -201,6 +205,7 @@ function Sidebar({
   isResizing?: boolean;
   catVariantId: string;
   contextTokens: number;
+  modelContextLength: number;
   petSignal?: number;
 }) {
   return (
@@ -234,7 +239,7 @@ function Sidebar({
       </div>
 
       <div className="cat-panel">
-        <div className="cat-panel__ctx">{contextTokens.toLocaleString()} / 8,192</div>
+        <div className="cat-panel__ctx">{contextTokens.toLocaleString()} / {modelContextLength.toLocaleString()}</div>
         <CatCanvas emotion={emotion} onPet={rpg.onPet} variantId={catVariantId} petSignal={petSignal} />
         <CatStatusPanel
           dayCount={rpg.dayCount}
@@ -387,6 +392,15 @@ function readFileAsText(file: File): Promise<string> {
     reader.onload = (e) => resolve((e.target?.result as string) ?? "");
     reader.onerror = () => resolve("");
     reader.readAsText(file);
+  });
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve((e.target?.result as string) ?? "");
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(file);
   });
 }
 
@@ -620,6 +634,14 @@ export default function App() {
     localStorage.setItem(VARIANT_STORAGE_KEY, id);
   }
 
+  // ── Model context length (from llama.cpp /props) ─────────────────────────
+  const [modelContextLength, setModelContextLength] = useState<number>(8192);
+  useEffect(() => {
+    fetchLoadedModel().then((info) => {
+      if (info?.context_length) setModelContextLength(info.context_length);
+    }).catch(() => {});
+  }, []);
+
   // ── Per-session messages: Record<sessionId, ChatMessage[]> ────────────────
   const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>(
     () => Object.fromEntries(INITIAL_STATE.sessions.map((s) => [s.id, makeInitialMessages()]))
@@ -723,24 +745,8 @@ export default function App() {
     }, durationMs);
   }, []);
 
-  // 가속도 센서 탭 → 쓰다듬기 (맥북 트랙패드 양 옆 톡톡)
   const isBoxModeRef = useRef(isBoxMode);
   isBoxModeRef.current = isBoxMode;
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    listen("nekodesk:pet", () => {
-      pet();
-      setPetSignal((n) => n + 1);
-      if (isBoxModeRef.current) {
-        boxPetCountRef.current += 1;
-        if (boxPetCountRef.current >= BOX_EXIT_PET_COUNT) {
-          boxPetCountRef.current = 0;
-          setIsBoxMode(false);
-        }
-      }
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
-  }, [pet]);
 
   // play >= 80이면 랜덤으로 box 상태 진입 (30~120초 간격)
   useEffect(() => {
@@ -761,13 +767,13 @@ export default function App() {
   }, [isBoxMode]);
 
   // ── 컨텍스트 크기 → 배고픔 압력 ─────────────────────────────────────────────
-  // 대화가 길어질수록 hunger 표시값이 낮아진다 (최대 -40pt 압력)
-  const MAX_CONTEXT_CHARS = 20_000;
-  const contextChars = (allMessages[activeId] ?? []).reduce(
-    (sum, m) => sum + m.content.length,
-    0
+  // 실제 LLM에 전송되는 마지막 12개 메시지 기준으로 토큰 추정
+  // 한국어 혼용 특성상 char / 2 로 보수적으로 추정
+  const effectiveMessages = (allMessages[activeId] ?? []).slice(-12);
+  const contextTokens = Math.round(
+    effectiveMessages.reduce((sum, m) => sum + m.content.length, 0) / 2
   );
-  const contextPressure = Math.min(1, contextChars / MAX_CONTEXT_CHARS);
+  const contextPressure = Math.min(1, contextTokens / modelContextLength);
   const displayHunger = Math.max(0, rpgState.hunger - Math.round(contextPressure * 40));
 
   const isGaugeSleepy = displayHunger < 30 || rpgState.play < 20;
@@ -804,7 +810,8 @@ export default function App() {
         content: m.content,
       }));
 
-      const summary = await compactMessages(llmMessages);
+      const previousSummary = compactSummaries[activeId] || undefined;
+      const summary = await compactMessages(llmMessages, previousSummary);
 
       // 요약은 챗버블이 아닌 상단 요약 바에 표시
       setCompactSummaries((prev) => ({ ...prev, [activeId]: summary }));
@@ -905,6 +912,21 @@ export default function App() {
 
   // Init MCP servers on mount
   useEffect(() => { initMcpFromStorage(); }, []);
+
+  // Auto-start llama server on mount if configured
+  useEffect(() => {
+    const autostart = localStorage.getItem("nekodesk_llama_autostart") === "true";
+    if (!autostart) return;
+    const raw = localStorage.getItem("nekodesk_llama_config");
+    if (!raw) return;
+    try {
+      const config = JSON.parse(raw) as Record<string, unknown>;
+      if (!config.model) return;
+      invoke("llama_start", { config }).catch(() => {/* 실패 시 무시 — 설정 페이지에서 수동 실행 가능 */});
+    } catch {
+      // config 파싱 실패 시 무시
+    }
+  }, []);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -1007,9 +1029,8 @@ export default function App() {
         onResizeStart={sidebarVisible ? (e) => startDrag("sidebar", e) : undefined}
         isResizing={isDragging === "sidebar"}
         catVariantId={catVariantId}
-        contextTokens={Math.round(
-          activeMessages.reduce((sum, m) => sum + m.content.length, 0) / 3.5
-        )}
+        contextTokens={contextTokens}
+        modelContextLength={modelContextLength}
         petSignal={petSignal}
       />
 

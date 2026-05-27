@@ -2,17 +2,67 @@ import { agentStep, chatStream } from "./llm-client";
 import { getTool } from "./tool-registry";
 import { isMcpTool, executeMcpTool } from "./mcp-registry";
 import { AgentContext } from "./agent-context";
-import type { LlmMessage, AgentStep, LoopEvent, ToolName } from "./types";
+import type { ContentPart, LlmMessage, AgentStep, LoopEvent, ToolName } from "./types";
 
 const MAX_ITERATIONS = 10;
 
+// ── Korean → English macOS term fallback ──────────────────────────────────────
+// code.exec 실행 시 한국어 키워드를 영어로 치환해서 먼저 시도한다.
+const KO_TO_EN: Array<[RegExp, string]> = [
+  // macOS 앱
+  [/음악/g,           "Music"],
+  [/팟캐스트/g,       "Podcasts"],
+  [/사진/g,           "Photos"],
+  [/미리 알림/g,      "Reminders"],
+  [/캘린더/g,         "Calendar"],
+  [/연락처/g,         "Contacts"],
+  [/메시지/g,         "Messages"],
+  [/메일/g,           "Mail"],
+  [/파인더/g,         "Finder"],
+  [/미리보기/g,       "Preview"],
+  [/메모/g,           "Notes"],
+  [/터미널/g,         "Terminal"],
+  [/시스템 설정/g,    "System Settings"],
+  [/시스템 환경설정/g,"System Preferences"],
+  [/활성 상태 보기/g, "Activity Monitor"],
+  [/디스크 유틸리티/g,"Disk Utility"],
+  [/키체인 접근/g,    "Keychain Access"],
+  // 폴더
+  [/데스크탑/g,       "Desktop"],
+  [/문서/g,           "Documents"],
+  [/다운로드/g,       "Downloads"],
+  [/응용 프로그램/g,  "Applications"],
+  // 시스템 패널 키워드
+  [/블루투스/g,       "Bluetooth"],
+  [/디스플레이/g,     "Displays"],
+  [/사운드/g,         "Sound"],
+  [/네트워크/g,       "Network"],
+  [/배터리/g,         "Battery"],
+];
+
+function hasKorean(text: string): boolean {
+  return /[\uAC00-\uD7AF]/.test(text);
+}
+
+function translateToEnglish(code: string): string {
+  let out = code;
+  for (const [pattern, en] of KO_TO_EN) out = out.replace(pattern, en);
+  return out;
+}
+
 const ERROR_SEARCH_HINT = `\n\n[자동 힌트] web.search로 이 오류의 해결책을 찾아 재시도하세요. 검색 쿼리에서 파일 경로·사용자명·API키 등 개인정보를 반드시 제거하고, 오류 메시지 핵심만 사용하세요.`;
 
+const APPLESCRIPT_ERROR_HINT = `\n\n[AppleScript 오류 힌트]
+1. osascript -e '...' 래퍼를 사용했다면 즉시 제거하고 순수 AppleScript 코드만 작성해서 재시도해. (올바른 예: set volume output volume 30)
+2. 시스템 프롬프트의 "## 참고 지식" 섹션에 올바른 AppleScript 문법이 있으니 반드시 확인해.
+3. web.search는 참고 지식으로 해결이 안 될 때만 사용해.`;
+
 /**
- * code.exec 결과에서 오류를 감지하고, 있으면 LLM에게 검색 힌트를 주입한다.
+ * code.exec 결과에서 오류를 감지하고, 있으면 LLM에게 힌트를 주입한다.
+ * AppleScript 오류는 knowledge 재확인 힌트, 그 외는 web.search 힌트.
  * 개인정보(경로, 사용자명)를 제거한 오류 요약을 힌트에 포함한다.
  */
-function injectErrorSearchHint(summary: string, result: string): string {
+function injectErrorSearchHint(summary: string, result: string, language?: string): string {
   try {
     const r = JSON.parse(result) as { exit_code?: number; stderr?: string; stdout?: string };
     if (!r.exit_code || r.exit_code === 0) return summary;
@@ -25,7 +75,8 @@ function injectErrorSearchHint(summary: string, result: string): string {
       .replace(/[A-Za-z]:\\Users\\[^\\]+/g, "C:\\Users\\<user>")
       .replace(/(?:Bearer|token|key|secret|password)[=:\s]+\S+/gi, "<redacted>");
 
-    return `${summary}${ERROR_SEARCH_HINT}\n오류 요약: ${sanitized || `exit_code=${r.exit_code}`}`;
+    const hint = language === "applescript" ? APPLESCRIPT_ERROR_HINT : ERROR_SEARCH_HINT;
+    return `${summary}${hint}\n오류 요약: ${sanitized || `exit_code=${r.exit_code}`}`;
   } catch {
     return summary;
   }
@@ -127,9 +178,10 @@ function checkCodeSafety(code: string, language: string): CodeSafetyResult {
 
 export async function* runAgentLoop(
   userInput: string,
-  chatHistory: LlmMessage[]
+  chatHistory: LlmMessage[],
+  userContent?: string | ContentPart[]
 ): AsyncGenerator<LoopEvent> {
-  const context = new AgentContext(userInput, chatHistory);
+  const context = new AgentContext(userInput, chatHistory, userContent);
   let stepId = 0;
   let lastFailKey = ""; // 동일 실패 반복 감지용
 
@@ -148,7 +200,7 @@ export async function* runAgentLoop(
 
     // ── Terminal condition: tool === "none" ──────────────────────────────────
     if (parsed.tool === "none" || parsed.finalAnswer) {
-      const finalAnswer = parsed.finalAnswer ?? parsed.thought;
+      const finalAnswer = parsed.finalAnswer ?? (parsed.thought.length < 300 ? parsed.thought : "처리 중 문제가 생겼어. 다시 시도해줘.");
 
       // Stream the final answer character by character from the stored string
       // (agentStep already returned the full text; we yield it as tokens)
@@ -215,7 +267,10 @@ export async function* runAgentLoop(
           step.summary = "실행 취소됨";
           context.addStep(step);
           yield { type: "step_error", step };
-          continue;
+          const cancelMsg = "실행을 취소했어.";
+          yield { type: "streaming_token", token: cancelMsg };
+          yield { type: "done", answer: cancelMsg, steps: context.steps };
+          return;
         }
       }
     }
@@ -230,18 +285,46 @@ export async function* runAgentLoop(
       } else {
         // Static built-in tool
         const toolEntry = getTool(toolName as ToolName);
-        const result = await toolEntry.execute(parsed.params);
+
+        // code.exec: 한국어 키워드 → 영어로 먼저 시도, 실패 시 원본으로 재시도
+        let execParams = parsed.params;
+        if (toolName === "code.exec") {
+          const code = (parsed.params["code"] as string) ?? "";
+          if (hasKorean(code)) {
+            const enCode = translateToEnglish(code);
+            if (enCode !== code) {
+              const enResult = await toolEntry.execute({ ...parsed.params, code: enCode });
+              const enR = enResult as { exit_code?: number };
+              if (!enR.exit_code || enR.exit_code === 0) {
+                // 영어 버전 성공 → 그대로 사용
+                step.result = enResult;
+                step.summary = toolEntry.summarize(enResult);
+                step.status = "done";
+                context.addStep(step);
+                yield { type: "step_done", step };
+                lastFailKey = "";
+                continue;
+              }
+              // 영어 실패 → 원본(한국어)으로 폴백
+            }
+          }
+        }
+
+        const result = await toolEntry.execute(execParams);
         step.result = result;
         step.summary = toolEntry.summarize(result);
         step.status = "done";
 
         // code.exec: exit_code != 0이면 검색 힌트 주입 + 반복 감지
         if (toolName === "code.exec") {
-          step.summary = injectErrorSearchHint(step.summary, result as string);
+          const execLanguage = (parsed.params["language"] as string) ?? undefined;
+          step.summary = injectErrorSearchHint(step.summary, result as string, execLanguage);
 
           const r = result as { exit_code?: number };
           if (r.exit_code && r.exit_code !== 0) {
-            const failKey = `${toolName}|${JSON.stringify(parsed.params)}|exit_code=${r.exit_code}`;
+            // work_dir 같은 옵셔널 파라미터 제외 — LLM이 매번 다르게 출력해도 동일 실패로 인식
+            const codeKey = `${(parsed.params["code"] as string) ?? ""}||${(parsed.params["language"] as string) ?? "python"}`;
+            const failKey = `${toolName}|${codeKey}|exit_code=${r.exit_code}`;
             if (failKey === lastFailKey) {
               step.status = "error";
               const msg = `같은 오류가 반복되어 중단했어.\n\n${step.summary}`;

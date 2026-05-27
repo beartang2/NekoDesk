@@ -63,9 +63,11 @@ tell application "Music" to get name of current track
 `search library playlist "Library" for "쿼리"` 가 유일한 올바른 검색 문법.
 `get search results for query` 같은 문법은 존재하지 않는다.
 
+⚠️ 검색 쿼리는 영어(로마자)로 먼저 시도하고, 결과가 없으면 원문 키워드로 재시도할 것.
+
 ```applescript
 tell application "Music"
-    set results to search library playlist "Library" for "요루시카"
+    set results to search library playlist "Library" for "Yorushika"
     -- results는 track 객체의 리스트
     if (count of results) > 0 then
         play item 1 of results
@@ -97,7 +99,7 @@ end tell
 
 ```applescript
 tell application "Music"
-    play playlist "내 플레이리스트"
+    play playlist "Playlist Name"
 end tell
 ```
 
@@ -107,6 +109,36 @@ end tell
 tell application "Music"
     set plNames to name of every playlist
     return plNames  -- 리스트 반환
+end tell
+```
+
+---
+
+## 플레이리스트 찾아서 셔플 재생 (전체 패턴)
+
+사용자가 플레이리스트 이름을 대략적으로 말한 경우, 목록에서 정확한 이름을 찾아 재생.
+⚠️ `set current playlist to "이름"` 문법은 존재하지 않음. 반드시 `play playlist "이름"` 사용.
+
+```applescript
+tell application "Music"
+    -- 1. 전체 플레이리스트 목록으로 정확한 이름 찾기
+    set plNames to name of every playlist
+    set targetName to ""
+    repeat with plName in plNames
+        if plName contains "Mrs. Green Apple" then
+            set targetName to plName
+            exit repeat
+        end if
+    end repeat
+
+    if targetName is "" then
+        return "플레이리스트를 찾지 못했습니다."
+    end if
+
+    -- 2. 셔플 켜고 재생
+    set shuffle enabled to true
+    play playlist targetName
+    return "재생 중: " & targetName
 end tell
 ```
 

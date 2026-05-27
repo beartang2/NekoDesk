@@ -1,14 +1,16 @@
-import type { AgentStep, LlmMessage } from "./types";
+import type { AgentStep, ContentPart, LlmMessage } from "./types";
 
 const MAX_CONTEXT_CHARS = 3000;
 
 export class AgentContext {
   private readonly userInput: string;
+  private readonly userContent: string | ContentPart[];
   private readonly chatHistory: LlmMessage[];
   readonly steps: AgentStep[] = [];
 
-  constructor(userInput: string, chatHistory: LlmMessage[]) {
+  constructor(userInput: string, chatHistory: LlmMessage[], userContent?: string | ContentPart[]) {
     this.userInput = userInput;
+    this.userContent = userContent ?? userInput;
     // Keep recent history only to stay within context budget
     this.chatHistory = chatHistory.slice(-6);
   }
@@ -21,7 +23,7 @@ export class AgentContext {
   toMessages(): LlmMessage[] {
     const messages: LlmMessage[] = [
       ...this.chatHistory,
-      { role: "user", content: this.userInput },
+      { role: "user", content: this.userContent },
     ];
 
     // Append tool results from previous steps

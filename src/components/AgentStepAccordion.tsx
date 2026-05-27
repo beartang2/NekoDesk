@@ -97,7 +97,7 @@ export function AgentStepAccordion({ steps, isRunning }: AgentStepAccordionProps
 
   if (steps.length === 0) return null;
 
-  const anyOpen = openIds.size > 0;
+  const allOpen = steps.length > 0 && openIds.size === steps.length;
 
   function handleToggle(id: number) {
     setOpenIds((prev) => {
@@ -108,7 +108,7 @@ export function AgentStepAccordion({ steps, isRunning }: AgentStepAccordionProps
   }
 
   function toggleAll() {
-    if (anyOpen) {
+    if (allOpen) {
       setOpenIds(new Set());
     } else {
       setOpenIds(new Set(steps.map((s) => s.id)));
@@ -125,7 +125,7 @@ export function AgentStepAccordion({ steps, isRunning }: AgentStepAccordionProps
           className="step-accordion__toggle-all"
           onClick={toggleAll}
         >
-          {anyOpen ? "모두 접기" : "모두 펼치기"}
+          {allOpen ? "모두 접기" : "모두 펼치기"}
         </button>
       </div>
 

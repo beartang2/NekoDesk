@@ -3,11 +3,15 @@
   margin: 0;
   padding: 0;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 .chat-messages,
-.chat-messages * {
+.chat-messages *,
+input,
+textarea {
   user-select: text;
+  -webkit-user-select: text;
 }
 
 :root {
@@ -27,6 +31,18 @@
   --right-panel-w: 210px;
   --titlebar-h:    40px;
   --cat-panel-h:   150px;
+}
+
+/* 테마 전환 시 색상 부드럽게 */
+:root.theme-transitioning,
+:root.theme-transitioning *,
+:root.theme-transitioning *::before,
+:root.theme-transitioning *::after {
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease !important;
 }
 
 :root.light {
@@ -406,6 +422,10 @@ html, body, #root {
 .compact-tab__panel-inner li {
   margin: 2px 0;
 }
+.compact-tab__panel-inner ul,
+.compact-tab__panel-inner ol {
+  list-style-position: inside;
+}
 
 .compact-tab__panel-inner strong {
   color: var(--text-secondary);
@@ -532,9 +552,14 @@ html, body, #root {
 .message__bubble pre code { border: none; padding: 0; background: none; }
 .message__bubble ul, .message__bubble ol {
   margin: 4px 0;
-  padding-left: 1.4em;
+  list-style-position: inside;
 }
-.message__bubble li { margin: 2px 0; }
+.message__bubble li {
+  margin: 2px 0;
+}
+.message__bubble li::marker {
+  color: var(--text-muted);
+}
 
 /* ── Markdown table ── */
 .message__bubble table {

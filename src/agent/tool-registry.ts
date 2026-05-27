@@ -20,7 +20,7 @@ function summarizeTodos(todos: Todo[]): string {
 
 function summarizeEvents(events: ScheduleEvent[]): string {
   if (events.length === 0) return "일정 없음";
-  return events.map((e) => `- ${e.title} (${e.start_at})`).join("\n");
+  return events.map((e) => `- [id:${e.id}] ${e.title} (${e.start_at})`).join("\n");
 }
 
 function summarizeSearch(results: SearchResult[]): string {
@@ -89,6 +89,14 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       }),
     resultLimit: 1,
     summarize: (r) => `일정 추가됨: ${(r as ScheduleEvent).title}`,
+  },
+
+  "schedule.delete": {
+    name: "schedule.delete",
+    description: "일정을 삭제한다",
+    execute: async (p) => invoke<boolean>("schedule_delete", { id: p["id"] as number }),
+    resultLimit: 1,
+    summarize: () => "일정 삭제됨",
   },
 
   "code.exec": {

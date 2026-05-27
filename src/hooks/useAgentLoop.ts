@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { runAgentLoop } from "../agent/agent-loop";
-import type { AgentStep, CatEmotion, LlmMessage, LoopEvent } from "../agent/types";
+import type { AgentStep, CatEmotion, ContentPart, LlmMessage, LoopEvent } from "../agent/types";
 
 export interface PendingConfirm {
   sessionId: string;
@@ -22,6 +22,7 @@ export interface PendingClarify {
 export interface AttachedFile {
   name: string;
   content: string; // text content; empty for binary files
+  dataUrl?: string; // base64 data URL for image files
   size: number;
   type: string;
 }
@@ -50,9 +51,13 @@ function stripPetToken(text: string): { clean: string; emotion: CatEmotion | nul
   return { clean, emotion };
 }
 
-function buildUserContent(text: string, files: AttachedFile[]): string {
+// Text-only representation (for DB storage and system prompt context)
+function buildTextContent(text: string, files: AttachedFile[]): string {
   if (files.length === 0) return text;
   const fileParts = files.map((f) => {
+    if (f.dataUrl) {
+      return `**${f.name}** (이미지)`;
+    }
     if (!f.content) {
       return `**${f.name}** (바이너리 파일 — file.upload 툴로 업로드 가능. filename 파라미터: "${f.name}")`;
     }
@@ -63,13 +68,35 @@ function buildUserContent(text: string, files: AttachedFile[]): string {
   return text ? `${text}\n\n---\n첨부 파일:\n\n${section}` : `첨부 파일:\n\n${section}`;
 }
 
+// Multimodal content for LLM API (includes actual image data)
+function buildLlmContent(text: string, files: AttachedFile[]): string | ContentPart[] {
+  if (files.length === 0) return text;
+  const hasImages = files.some((f) => f.dataUrl);
+  if (!hasImages) return buildTextContent(text, files);
+
+  const parts: ContentPart[] = [];
+  if (text) parts.push({ type: "text", text });
+  for (const f of files) {
+    if (f.dataUrl) {
+      parts.push({ type: "image_url", image_url: { url: f.dataUrl } });
+      parts.push({ type: "text", text: `(파일명: ${f.name})` });
+    } else if (f.content) {
+      const ext = f.name.split(".").pop() ?? "";
+      parts.push({ type: "text", text: `**${f.name}**\n\`\`\`${ext}\n${f.content}\n\`\`\`` });
+    } else {
+      parts.push({ type: "text", text: `**${f.name}** (바이너리 파일)` });
+    }
+  }
+  return parts;
+}
+
 function buildHistory(messages: ChatMessage[]): LlmMessage[] {
   return messages
     .filter((m) => !m.isStreaming)
     .map((m) => ({
       role: m.role === "user" ? "user" : ("assistant" as const),
       content: m.attachments?.length
-        ? buildUserContent(m.content, m.attachments)
+        ? buildLlmContent(m.content, m.attachments)
         : m.content,
     }));
 }
@@ -148,15 +175,16 @@ export function useAgentPool(
 
       patchSessionMessages(sessionId, (prev) => [...prev, userMsg, placeholder]);
 
-      const fullContent = buildUserContent(userText, files);
+      const textContent = buildTextContent(userText, files);
+      const llmContent = buildLlmContent(userText, files);
       invoke("conversation_save", {
         sessionId,
         role: "user",
-        content: fullContent,
+        content: textContent,
       }).catch(() => {});
 
       const history = buildHistory(allMessagesRef.current[sessionId] ?? []);
-      const generator = runAgentLoop(fullContent, history);
+      const generator = runAgentLoop(textContent, history, llmContent);
 
       let finalSteps: AgentStep[] = [];
       let streamBuffer = "";

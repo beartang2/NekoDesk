@@ -5,6 +5,7 @@ import browserKnowledge     from "./applescript/browser.md?raw";
 import uiKnowledge          from "./applescript/ui.md?raw";
 import appsKnowledge        from "./applescript/apps.md?raw";
 import mailCalendarKnowledge from "./applescript/mail-calendar.md?raw";
+import messagesKnowledge     from "./applescript/messages.md?raw";
 
 interface KnowledgeEntry {
   name: string;
@@ -96,10 +97,17 @@ const KNOWLEDGE_MAP: KnowledgeEntry[] = [
     keywords: [
       "메일", "mail", "email", "이메일",
       "캘린더", "calendar", "일정", "schedule",
-      "메시지", "message", "imessage", "sms",
-      "보내기", "send",
       "받은편지함", "inbox",
       "첨부", "attachment",
+    ],
+  },
+  {
+    name: "AppleScript/Messages",
+    content: messagesKnowledge,
+    keywords: [
+      "메시지", "message", "imessage", "sms",
+      "문자", "보내기", "send", "전송",
+      "카톡", "카카오", "연락",
     ],
   },
 ];
