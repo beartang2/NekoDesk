@@ -44,7 +44,7 @@ const STATIC_TOOLS_DESC = `- todo.list: 열린 할 일 목록을 가져온다 (p
 - code.exec: Python, Shell, AppleScript를 로컬에서 실행하고 결과를 반환한다 (params: { "code": string, "language": "python" | "shell" | "applescript", "work_dir": string | null }) ※ language가 "applescript"일 때 code는 순수 AppleScript 문법만 작성 (osascript -e 래퍼 절대 사용 금지. 예: tell application "Music" to get name of current track)
 - web.search: 웹에서 정보를 검색한다 (params: { "query": string })
 - web.scrape: 특정 URL의 페이지 내용을 가져온다 (params: { "url": string })
-- file.upload: 첨부된 파일을 HTTP 엔드포인트에 multipart/form-data로 업로드한다 (params: { "url": string, "field_name": string, "filename": string })
+- file.upload: 첨부된 파일을 HTTP 엔드포인트에 multipart/form-data로 업로드한다. url은 반드시 사용자가 직접 알려준 실제 URL만 사용해. 절대 URL을 추측하거나 만들어내지 마. (params: { "url": string, "field_name": string, "filename": string })
 - weather.get: 현재 날씨와 단기 예보를 가져온다 (params: { "location": string })
 - user.ask: 작업을 시작하기 전에 사용자에게 선택지로 질문한다. 잘못 진행하면 되돌리기 어렵거나 중요한 분기가 필요할 때만 사용해. 명확한 요청엔 절대 사용하지 마. (params: { "question": string, "options": string[] })`;
 
@@ -95,6 +95,7 @@ ${STATIC_TOOLS_DESC}${mcpDesc}
    d. 같은 오류가 두 번 반복되면 즉시 tool을 "none"으로 설정하고 finalAnswer로 오류를 보고한다.
 15. code.exec에서 사용자의 한국어 키워드(검색어·아티스트명·앱 이름·플레이리스트명 등)는 영어/로마자로 변환해서 먼저 실행해. 실패하면 원문 한국어로 재시도해. (예: "요루시카" → 먼저 "Yorushika"로 검색, 실패 시 "요루시카"로 재시도)
 8. 단순 인사, 잡담, 감사 인사 등 툴이 전혀 필요없는 대화는 즉시 tool을 "none"으로 설정하고 finalAnswer로 바로 답해.
+18. 사용자가 이미지를 첨부하면 너는 그 이미지를 직접 볼 수 있어. file.upload나 web.search 없이 즉시 tool을 "none"으로 설정하고 보이는 내용을 finalAnswer로 답해.
 9. web.scrape는 반드시 web.search로 결과를 먼저 받은 뒤에만 사용해. 검색 없이 단독으로 호출하지 마.
 10. 웹 검색 시 영어 쿼리를 우선으로 사용해. 영어로 검색해도 충분한 결과가 없을 것 같은 경우에만 한국어로 검색해.
 11. 사용자가 명시적으로 요청하지 않아도 기억해둘 만한 것(나중에 할 일, 아이디어, 메모, 확인해야 할 것 등)이 대화에 등장하면 스스로 판단해서 todo.add를 호출해. 단, 이미 완료된 일이나 단순 사실 언급은 추가하지 마.
@@ -160,8 +161,9 @@ export async function fetchCompletion(
   }
 
   const data = await res.json() as {
-    choices: Array<{ message: { content: string } }>;
+    choices: Array<{ message: { content: string }; finish_reason?: string }>;
   };
+  console.log("[fetchCompletion] full response:", JSON.stringify(data));
   return data.choices[0]?.message?.content ?? "";
 }
 
@@ -290,6 +292,7 @@ function parseAgentResponse(raw: string): ParsedAgentStep {
     // JSON parse failed (often due to max_tokens truncation).
     // 1) Try to pull finalAnswer out of the partial JSON via regex.
     // 2) If it still looks like raw JSON, show a friendly error instead.
+    console.warn("[agentStep] JSON parse failed. raw:", raw, "| extracted:", json);
     const faMatch = json.match(/"finalAnswer"\s*:\s*"((?:[^"\\]|\\.)*)"/);
     if (faMatch) {
       return {

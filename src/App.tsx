@@ -8,15 +8,15 @@ import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { CatCanvas } from "./cat/CatCanvas";
 import { CAT_VARIANTS, DEFAULT_VARIANT_ID, getCatVariant } from "./cat/spriteData";
 import { CatStatusPanel } from "./components/CatStatusPanel";
-import { SettingsModal } from "./components/SettingsModal";
-import { RightPanel } from "./components/RightPanel";
+import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPanel";
+import { MenuModal } from "./components/MenuModal";
 import { useAgentPool, makeInitialMessages } from "./hooks/useAgentLoop";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
 import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
-import type { CatEmotion, LlmMessage } from "./agent/types";
+import type { CatEmotion, LlmMessage, ScheduleEvent, Todo } from "./agent/types";
 import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
 import "./App.css";
 
@@ -238,6 +238,8 @@ function Sidebar({
         ))}
       </div>
 
+      <DrawingPadCard />
+
       <div className="cat-panel">
         <div className="cat-panel__ctx">{contextTokens.toLocaleString()} / {modelContextLength.toLocaleString()}</div>
         <CatCanvas emotion={emotion} onPet={rpg.onPet} variantId={catVariantId} petSignal={petSignal} />
@@ -395,11 +397,28 @@ function readFileAsText(file: File): Promise<string> {
   });
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
+function resizeImageForLlm(file: File, maxPx = 768): Promise<string> {
   return new Promise((resolve) => {
     const reader = new FileReader();
-    reader.onload = (e) => resolve((e.target?.result as string) ?? "");
     reader.onerror = () => resolve("");
+    reader.onload = (e) => {
+      const src = e.target?.result as string;
+      const img = new Image();
+      img.onerror = () => resolve(src); // fallback: return original
+      img.onload = () => {
+        const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+        const mime = file.type === "image/png" ? "image/png" : "image/jpeg";
+        const quality = mime === "image/jpeg" ? 0.82 : undefined;
+        resolve(canvas.toDataURL(mime, quality));
+      };
+      img.src = src;
+    };
     reader.readAsDataURL(file);
   });
 }
@@ -458,6 +477,10 @@ function Composer({
     }
     const newFiles = await Promise.all(
       selected.map(async (file): Promise<AttachedFile> => {
+        if (file.type.startsWith("image/")) {
+          const dataUrl = await resizeImageForLlm(file);
+          return { name: file.name, content: "", dataUrl, size: file.size, type: file.type };
+        }
         const content = isTextFile(file) ? await readFileAsText(file) : "";
         return { name: file.name, content, size: file.size, type: file.type };
       })
@@ -683,6 +706,110 @@ export default function App() {
       // ignore — DB may be empty for this session
     }
   }
+
+  // ── 일정 알림 (60초마다 체크, 15분 이내 시작 일정) ──────────────────────────
+  useEffect(() => {
+    const NOTIF_KEY = () => `nekodesk_notified_${new Date().toLocaleDateString("ko-KR")}`;
+
+    function getNotified(): Set<number> {
+      try { return new Set(JSON.parse(localStorage.getItem(NOTIF_KEY()) ?? "[]")); }
+      catch { return new Set(); }
+    }
+    function saveNotified(set: Set<number>) {
+      localStorage.setItem(NOTIF_KEY(), JSON.stringify([...set]));
+    }
+
+    async function checkUpcoming() {
+      try {
+        const events = await invoke<ScheduleEvent[]>("schedule_list", { range: "today" });
+        const now = Date.now();
+        const notified = getNotified();
+        let changed = false;
+        for (const ev of events) {
+          if (notified.has(ev.id) || ev.all_day) continue;
+          const start = parseEventDate(ev.start_at).getTime();
+          const diff = start - now;
+          if (diff > 0 && diff <= 15 * 60 * 1000) {
+            const mins = Math.round(diff / 60000);
+            const msg = mins <= 1 ? `곧 시작돼요!` : `${mins}분 후 시작해요`;
+            await invoke("code_exec", {
+              code: `display notification "${msg}" with title "📅 ${ev.title}" sound name "Glass"`,
+              language: "applescript",
+            }).catch(() => {});
+            notified.add(ev.id);
+            changed = true;
+          }
+        }
+        if (changed) saveNotified(notified);
+      } catch {}
+    }
+
+    checkUpcoming();
+    const id = window.setInterval(checkUpcoming, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // ── 데일리 브리핑 (하루 첫 실행 시 오늘 날씨+일정+TODO 메시지 삽입) ────────
+  const briefingDoneRef = useRef(false);
+  useEffect(() => {
+    if (briefingDoneRef.current) return;
+    briefingDoneRef.current = true;
+
+    const today = new Date().toLocaleDateString("ko-KR");
+    if (localStorage.getItem("nekodesk_briefing_date") === today) return;
+
+    async function runBriefing() {
+      try {
+        const location = await invoke<string>("settings_get", { key: "weather_location" }).catch(() => "서울");
+        const [weatherRaw, todayEvents, openTodos] = await Promise.all([
+          invoke<string>("weather_get", { location: location || "서울" }).catch(() => null),
+          invoke<ScheduleEvent[]>("schedule_list", { range: "today" }).catch(() => [] as ScheduleEvent[]),
+          invoke<Todo[]>("todo_list").catch(() => [] as Todo[]),
+        ]);
+
+        const weatherLine = weatherRaw
+          ? weatherRaw.split("\n").slice(0, 2).join(" · ")
+          : null;
+
+        const eventLines = todayEvents.length === 0
+          ? "없음"
+          : todayEvents.map((e) => {
+              const time = e.all_day ? "종일" : parseEventDate(e.start_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+              return `${time} ${e.title}`;
+            }).join(", ");
+
+        const todoLines = openTodos.length === 0
+          ? "없음"
+          : openTodos.slice(0, 5).map((t) => t.content).join(", ");
+
+        const lines: string[] = ["☀️ **오늘의 브리핑**\n"];
+        if (weatherLine) lines.push(`🌤 **날씨** ${weatherLine}`);
+        lines.push(`📅 **오늘 일정** (${todayEvents.length}개) ${eventLines}`);
+        lines.push(`✓ **할 일** (${openTodos.length}개) ${todoLines}`);
+        lines.push("\n좋은 하루 되세요! 🐱");
+
+        const briefingMsg = {
+          id: crypto.randomUUID(),
+          role: "assistant" as const,
+          content: lines.join("\n"),
+          time: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }),
+          steps: [],
+          isStreaming: false,
+        };
+
+        setAllMessages((prev) => {
+          const cur = prev[activeId] ?? [];
+          return { ...prev, [activeId]: [briefingMsg, ...cur] };
+        });
+        localStorage.setItem("nekodesk_briefing_date", today);
+      } catch {}
+    }
+
+    // DB 세션 로드 후 삽입되도록 짧게 지연
+    const id = window.setTimeout(runBriefing, 800);
+    return () => window.clearTimeout(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Active session's messages
   const activeMessages = allMessages[activeId] ?? [];
@@ -928,7 +1055,7 @@ export default function App() {
     }
   }, []);
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const scrollToBottomRef = useRef<() => void>(() => {});
   const handleScrollChange = useCallback((show: boolean, scrollFn: () => void) => {
@@ -991,13 +1118,13 @@ export default function App() {
     <div className={`app${isDragging ? " app--resizing" : ""}`} style={appStyle}>
       <TitleBar
         sessionTitle={activeSession?.title ?? ""}
-        onSettings={() => setSettingsOpen(true)}
+        onSettings={() => setMenuOpen(true)}
         isDark={isDark}
         onThemeToggle={toggleTheme}
         rightPanelVisible={rightPanelVisible}
         onToggleRightPanel={() => setRightPanelVisible((v) => !v)}
       />
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} isDark={isDark} catVariantId={catVariantId} onCatVariantChange={handleVariantChange} />}
+      {menuOpen && <MenuModal onClose={() => setMenuOpen(false)} isDark={isDark} catVariantId={catVariantId} onCatVariantChange={handleVariantChange} />}
 
       <Sidebar
         sessions={sessions}

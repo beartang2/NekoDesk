@@ -59,6 +59,15 @@ fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             value      TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS exec_history (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            language    TEXT NOT NULL,
+            code        TEXT NOT NULL,
+            stdout      TEXT NOT NULL DEFAULT '',
+            stderr      TEXT NOT NULL DEFAULT '',
+            exit_code   INTEGER NOT NULL,
+            executed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
         ",
     )
 }
@@ -727,6 +736,84 @@ mod commands {
         Ok(())
     }
 
+    // ── 그림판 저장 ───────────────────────────────────────────────────────────
+
+    #[tauri::command]
+    pub fn save_canvas_image(data_url: String) -> Result<String, String> {
+        use base64::Engine;
+        let b64 = data_url.split(',').nth(1).ok_or("invalid data URL")?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| e.to_string())?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let path = dirs::desktop_dir()
+            .ok_or("데스크탑 경로를 찾을 수 없습니다")?
+            .join(format!("nekodesk_{}.png", now));
+        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        Ok(path.to_string_lossy().into_owned())
+    }
+
+    // ── 실행 이력 ─────────────────────────────────────────────────────────────
+
+    #[derive(Debug, Serialize, Deserialize, Clone)]
+    pub struct ExecHistoryItem {
+        pub id: i64,
+        pub language: String,
+        pub code: String,
+        pub stdout: String,
+        pub stderr: String,
+        pub exit_code: i64,
+        pub executed_at: String,
+    }
+
+    #[tauri::command]
+    pub fn exec_history_save(
+        db: State<DbState>,
+        language: String,
+        code: String,
+        stdout: String,
+        stderr: String,
+        exit_code: i64,
+    ) -> Result<(), String> {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO exec_history (language, code, stdout, stderr, exit_code) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![language, code, stdout, stderr, exit_code],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub fn exec_history_list(db: State<DbState>) -> Result<Vec<ExecHistoryItem>, String> {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(
+            "SELECT id, language, code, stdout, stderr, exit_code, executed_at
+             FROM exec_history ORDER BY id DESC LIMIT 20",
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ExecHistoryItem {
+                id: row.get(0)?,
+                language: row.get(1)?,
+                code: row.get(2)?,
+                stdout: row.get(3)?,
+                stderr: row.get(4)?,
+                exit_code: row.get(5)?,
+                executed_at: row.get(6)?,
+            })
+        }).map_err(|e| e.to_string())?;
+        rows.map(|r| r.map_err(|e| e.to_string())).collect()
+    }
+
+    #[tauri::command]
+    pub fn exec_history_clear(db: State<DbState>) -> Result<(), String> {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM exec_history", []).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     // ── llama-server 관련 ─────────────────────────────────────────────────────
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -1101,6 +1188,10 @@ pub fn run() {
             commands::conversation_delete,
             commands::weather_get,
             commands::open_url,
+            commands::save_canvas_image,
+            commands::exec_history_save,
+            commands::exec_history_list,
+            commands::exec_history_clear,
             commands::llama_scan_models,
             commands::llama_start,
             commands::llama_stop,

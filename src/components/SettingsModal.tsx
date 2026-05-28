@@ -648,9 +648,11 @@ interface SettingsModalProps {
   isDark: boolean;
   catVariantId: string;
   onCatVariantChange: (id: string) => void;
+  /** true일 때 backdrop/헤더 없이 body 내용만 렌더링 (MenuModal 탭 내 임베딩용) */
+  asTab?: boolean;
 }
 
-export function SettingsModal({ onClose, isDark, catVariantId, onCatVariantChange }: SettingsModalProps) {
+export function SettingsModal({ onClose, isDark, catVariantId, onCatVariantChange, asTab }: SettingsModalProps) {
   // Accent color (full hex — hue + saturation + lightness 모두 반영)
   const [accentHex, setAccentHex] = useState(() => getStoredAccent());
   const accentInputRef = useRef<HTMLInputElement | null>(null);
@@ -768,14 +770,7 @@ export function SettingsModal({ onClose, isDark, catVariantId, onCatVariantChang
     if (e.target === e.currentTarget) onClose();
   }
 
-  return (
-    <div className="settings-backdrop" onClick={handleBackdrop}>
-      <div className="settings-modal">
-        <div className="settings-modal__header">
-          <span className="settings-modal__title"><Settings size={13} strokeWidth={2} /> 설정</span>
-          <button className="settings-modal__close" onClick={onClose}><X size={13} /></button>
-        </div>
-
+  const body = (
         <div className="settings-modal__body">
 
           {/* ── 포인트 색상 ──────────────────────────────────────── */}
@@ -980,6 +975,18 @@ export function SettingsModal({ onClose, isDark, catVariantId, onCatVariantChang
             </div>
           </section>
         </div>
+  );
+
+  if (asTab) return body;
+
+  return (
+    <div className="settings-backdrop" onClick={handleBackdrop}>
+      <div className="settings-modal">
+        <div className="settings-modal__header">
+          <span className="settings-modal__title"><Settings size={13} strokeWidth={2} /> 설정</span>
+          <button className="settings-modal__close" onClick={onClose}><X size={13} /></button>
+        </div>
+        {body}
       </div>
     </div>
   );

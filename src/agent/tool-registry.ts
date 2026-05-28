@@ -109,6 +109,13 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
         workDir: (p["work_dir"] as string | null | undefined) ?? null,
       });
       window.dispatchEvent(new CustomEvent("nekodesk:coderun", { detail: result }));
+      invoke("exec_history_save", {
+        language: (p["language"] as string | undefined) ?? "python",
+        code: p["code"] as string,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exit_code,
+      }).catch(() => {});
       return result;
     },
     resultLimit: 1,

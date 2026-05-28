@@ -92,6 +92,16 @@ export interface CodeExecResult {
   truncated: boolean;
 }
 
+export interface ExecHistoryItem {
+  id: number;
+  language: string;
+  code: string;
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  executed_at: string;
+}
+
 // ── Agent step ────────────────────────────────────────────────────────────────
 
 export type StepStatus = "running" | "done" | "error";
