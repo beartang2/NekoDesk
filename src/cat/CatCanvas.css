@@ -21,6 +21,17 @@
   position: relative;
   cursor: pointer;
   display: inline-block;
+  border-radius: var(--r-md, 10px);
+  transition: box-shadow var(--dur-control, 200ms) var(--ease-out-quint, ease),
+              scale var(--dur-control, 200ms) var(--ease-spring, ease);
+}
+
+/* 쓰다듬기 모드: 커서를 숨기고 트랙패드 전체가 쓰다듬기 패드가 됨을 살짝 알린다 */
+.cat-canvas-pet-area--petting {
+  cursor: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
+              0 0 18px color-mix(in srgb, var(--accent) 35%, transparent);
+  scale: 1.03;
 }
 
 /* ── Canvas itself ── */
@@ -63,7 +74,7 @@
   align-items: center;
   justify-content: center;
   -webkit-app-region: no-drag;
-  transition: color 0.1s, background 0.1s;
+  transition: color 0.1s, background 0.1s, scale var(--dur-control) var(--ease-spring);
 }
 
 .cat-skin-toggle:hover {
@@ -112,7 +123,7 @@
   font-family: inherit;
   font-size: 11px;
   text-align: left;
-  transition: background 0.1s;
+  transition: background 0.1s, scale var(--dur-control) var(--ease-spring);
   -webkit-app-region: no-drag;
 }
 

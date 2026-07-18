@@ -21,7 +21,7 @@
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  animation: settings-slide-in 0.18s ease-out;
+  animation: settings-slide-in var(--dur-sheet) var(--ease-sheet);
 }
 
 @keyframes settings-slide-in {
@@ -138,7 +138,7 @@
   cursor: pointer;
   -webkit-app-region: no-drag;
   white-space: nowrap;
-  transition: background 0.1s;
+  transition: background 0.1s, scale var(--dur-control) var(--ease-spring);
 }
 
 .settings-btn:hover {
@@ -157,7 +157,7 @@
   padding: 3px 8px;
   cursor: pointer;
   -webkit-app-region: no-drag;
-  transition: background 0.1s;
+  transition: background 0.1s, scale var(--dur-control) var(--ease-spring);
 }
 
 .settings-add-btn:hover:not(:disabled) {
@@ -250,7 +250,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  transition: border-color 0.1s;
+  transition: border-color 0.1s, scale var(--dur-control) var(--ease-spring);
 }
 
 .mcp-row--disabled {
@@ -401,7 +401,7 @@
   padding: 5px 12px;
   cursor: pointer;
   -webkit-app-region: no-drag;
-  transition: background 0.1s;
+  transition: background 0.1s, scale var(--dur-control) var(--ease-spring);
 }
 
 .mcp-form__btn--cancel {
@@ -442,7 +442,7 @@
   cursor: pointer;
   text-align: left;
   position: relative;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, scale var(--dur-control) var(--ease-spring);
 }
 
 .perm-btn:hover {
@@ -503,7 +503,7 @@
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
-  transition: border-color 0.1s;
+  transition: border-color 0.1s, scale var(--dur-control) var(--ease-spring);
 }
 
 .color-row__swatch:hover {
@@ -539,7 +539,7 @@
   font-size: 0.78rem;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: background 0.12s, border-color 0.12s, scale var(--dur-control) var(--ease-spring);
 }
 
 .cat-variant-grid .cat-skin-option:hover {

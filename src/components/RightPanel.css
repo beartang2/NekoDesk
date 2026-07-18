@@ -67,7 +67,7 @@
 .acc-wrap {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.28s ease;
+  transition: grid-template-rows var(--dur-sheet) var(--ease-out-quint), scale var(--dur-control) var(--ease-spring);
   overflow: hidden;
 }
 
@@ -106,7 +106,7 @@
   gap: 5px;
   font-size: 11px;
   line-height: 1.4;
-  animation: todo-slide-in 0.22s ease;
+  animation: todo-slide-in var(--dur-control) var(--ease-spring);
 }
 
 .todo-item__check {
@@ -118,7 +118,7 @@
   padding: 0;
   flex-shrink: 0;
   line-height: 1;
-  transition: color 0.1s;
+  transition: color 0.1s, scale var(--dur-control) var(--ease-spring);
 }
 
 .todo-item__check:hover {
@@ -139,6 +139,38 @@
   flex-shrink: 0;
 }
 
+.todo-done-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transition: color 0.1s, border-color 0.1s, scale var(--dur-control) var(--ease-spring);
+}
+
+.todo-done-toggle:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.todo-item--done .todo-item__text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--border);
+}
+
+.todo-item__check--done {
+  color: var(--success);
+  font-size: 11px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
 
 /* ── Calendar ──────────────────────────────────────────────────────────────── */
 
@@ -153,11 +185,11 @@
 }
 
 .cal-slide--next {
-  animation: cal-from-right 0.22s ease;
+  animation: cal-from-right var(--dur-sheet) var(--ease-out-quint);
 }
 
 .cal-slide--prev {
-  animation: cal-from-left 0.22s ease;
+  animation: cal-from-left var(--dur-sheet) var(--ease-out-quint);
 }
 
 
@@ -179,7 +211,7 @@
   font-size: 14px;
   padding: 0 2px;
   line-height: 1;
-  transition: color 0.1s;
+  transition: color 0.1s, scale var(--dur-control) var(--ease-spring);
 }
 
 .cal-nav__btn:hover {
@@ -224,7 +256,7 @@
 .cal-cell--day {
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background 0.1s, color 0.1s;
+  transition: background 0.1s, color 0.1s, scale var(--dur-control) var(--ease-spring);
 }
 
 .cal-cell--day:hover {
@@ -315,7 +347,7 @@
   letter-spacing: 0.08em;
   color: var(--text-secondary);
   user-select: none;
-  transition: color 0.1s;
+  transition: color 0.1s, scale var(--dur-control) var(--ease-spring);
 }
 
 .pomo-header:hover {
@@ -373,7 +405,7 @@
   fill: none;
   stroke-width: 5;
   stroke-linecap: round;
-  transition: stroke-dashoffset 0.9s linear;
+  transition: stroke-dashoffset 0.9s linear, scale var(--dur-control) var(--ease-spring);
 }
 
 .pomo-ring__fill--focus    { stroke: var(--accent, #7df); }
@@ -414,7 +446,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.1s, color 0.1s;
+  transition: background 0.1s, color 0.1s, scale var(--dur-control) var(--ease-spring);
   padding: 0;
 }
 
@@ -447,7 +479,7 @@
   height: 6px;
   border-radius: 50%;
   background: var(--border);
-  transition: background 0.2s;
+  transition: background 0.2s, scale var(--dur-control) var(--ease-spring);
 }
 
 .pomo-dot--filled {
@@ -461,29 +493,53 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.draw-resize-handle {
+  height: 5px;
+  margin: -4px -8px 2px;
+  cursor: ns-resize;
+  border-radius: 2px;
+  transition: background 0.1s, scale var(--dur-control) var(--ease-spring);
+}
+
+.draw-resize-handle:hover {
+  background: var(--border);
+}
+
+.draw-canvas-wrapper {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 4px;
 }
 
 .draw-canvas {
-  width: 100%;
-  height: 160px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 500px;
+  height: 600px;
   cursor: crosshair;
   display: block;
   background: #fff;
+  image-rendering: pixelated;
 }
 
-.draw-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
+.draw-canvas--game {
+  position: static;
+  width: 100%;
+  height: auto;
 }
 
 .draw-colors {
   display: flex;
   gap: 3px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .draw-color-btn {
@@ -493,7 +549,7 @@
   cursor: pointer;
   padding: 0;
   outline: none;
-  transition: transform 0.12s, box-shadow 0.12s;
+  transition: transform 0.12s, box-shadow 0.12s, scale var(--dur-control) var(--ease-spring);
   flex-shrink: 0;
   box-shadow: 0 1px 2px rgba(0,0,0,0.18);
 }
@@ -525,7 +581,7 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  transition: background 0.1s, color 0.1s;
+  transition: background 0.1s, color 0.1s, scale var(--dur-control) var(--ease-spring);
 }
 
 .draw-tool-btn:hover {
@@ -540,13 +596,10 @@
 }
 
 .draw-tool-btn--save {
-  font-size: 12px;
   min-width: 22px;
-  width: auto;
-  padding: 0 4px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  font-size: 10px;
+  width: 22px;
+  padding: 0;
+  font-size: 11px;
 }
 
 
@@ -593,4 +646,188 @@
 
 .code-result__output--err {
   color: var(--error);
+}
+
+/* ── Drawing Game Mode ────────────────────────────────────────────────────── */
+
+@keyframes draw-game-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.draw-canvas--locked {
+  cursor: default;
+  pointer-events: none;
+}
+
+.draw-game-word {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.draw-game-timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text-secondary);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.draw-game-timer--urgent {
+  color: var(--error, #b55a5a);
+  animation: draw-game-pulse 0.8s ease-in-out infinite;
+}
+
+.draw-game-rounds {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+}
+
+.draw-game-result--ok {
+  color: var(--success, #7aab87);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.draw-game-result--ng {
+  color: var(--error, #b55a5a);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.draw-game-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 10px;
+}
+
+.draw-game-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.draw-game-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 38px;
+  flex-shrink: 0;
+}
+
+.draw-game-opt {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  transition: background 0.1s, color 0.1s, border-color 0.1s, scale var(--dur-control) var(--ease-spring);
+}
+
+.draw-game-opt:hover {
+  background: var(--bg-hover, var(--border));
+  color: var(--text-primary);
+}
+
+.draw-game-opt--on {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+.draw-game-opt-sub {
+  font-size: 9px;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.draw-game-opt--on .draw-game-opt-sub {
+  color: var(--accent);
+  opacity: 0.7;
+}
+
+.draw-game-btn {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 10px;
+  transition: background 0.1s, color 0.1s, scale var(--dur-control) var(--ease-spring);
+}
+
+.draw-game-btn:hover {
+  background: var(--bg-hover, var(--border));
+  color: var(--text-primary);
+}
+
+.draw-game-btn--primary {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  font-weight: 600;
+}
+
+.draw-game-btn--primary:hover {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--accent);
+}
+
+.draw-game-toolbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-start;
+}
+
+.draw-game-action {
+  margin-left: auto;
+}
+
+.draw-game-score {
+  font-size: 14px;
+  color: var(--text-primary);
+  text-align: center;
+  font-weight: 600;
+}
+
+.draw-game-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: color 0.1s, background 0.1s, scale var(--dur-control) var(--ease-spring);
+}
+
+.draw-game-close-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-raised);
 }

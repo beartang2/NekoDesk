@@ -1,9 +1,10 @@
 .cat-status {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px 6px;
+  padding: 8px 6px 6px;
   width: 100%;
 }
 
@@ -47,7 +48,7 @@
 .cat-gauge__fill {
   height: 100%;
   border-radius: 2px;
-  transition: width 0.6s ease;
+  transition: width 0.6s ease, scale var(--dur-control) var(--ease-spring);
 }
 
 .cat-gauge__fill--hunger {
@@ -88,7 +89,7 @@
   font-size: 10px;
   padding: 4px 0;
   cursor: pointer;
-  transition: background 0.1s, color 0.1s;
+  transition: background 0.1s, color 0.1s, scale var(--dur-control) var(--ease-spring);
   -webkit-app-region: no-drag;
 }
 
@@ -101,4 +102,13 @@
 .cat-status__btn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.cat-status__btn-icon {
+  display: none;
+}
+
+@container (max-width: 100px) {
+  .cat-status__btn-text { display: none; }
+  .cat-status__btn-icon { display: inline; font-size: 13px; }
 }
