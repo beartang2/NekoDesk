@@ -15,6 +15,7 @@ import { useAgentPool, makeInitialMessages } from "./hooks/useAgentLoop";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
+import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
@@ -26,41 +27,8 @@ import "./App.css";
 // ── Session types ─────────────────────────────────────────────────────────────
 
 const SLEEPY_AFTER_MS = 5 * 60 * 1000;
-const SESSIONS_KEY = "nekodesk_sessions";
-const ACTIVE_SESSION_KEY = "nekodesk_active_session";
 
-interface Session {
-  id: string;
-  title: string;
-  date: string;
-}
-
-function makeSession(): Session {
-  return {
-    id: crypto.randomUUID(),
-    title: "새 대화",
-    date: "방금",
-  };
-}
-
-function restoreState(): { sessions: Session[]; activeId: string } {
-  let sessions: Session[];
-  try {
-    const saved = localStorage.getItem(SESSIONS_KEY);
-    const parsed = saved ? (JSON.parse(saved) as Session[]) : null;
-    sessions = parsed && parsed.length > 0 ? parsed : [makeSession()];
-  } catch {
-    sessions = [makeSession()];
-  }
-  const savedActiveId = localStorage.getItem(ACTIVE_SESSION_KEY);
-  const activeId =
-    savedActiveId && sessions.some((s) => s.id === savedActiveId)
-      ? savedActiveId
-      : sessions[0].id;
-  return { sessions, activeId };
-}
-
-const INITIAL_STATE = restoreState();
+// 세션 상태는 sessionStore 가 소유한다(Session/makeSession 도 거기서 재노출).
 
 // ── Title bar ─────────────────────────────────────────────────────────────────
 
@@ -649,8 +617,11 @@ function CompactSummaryBar({
 
 export default function App() {
   // ── Session list ──────────────────────────────────────────────────────────
-  const [sessions, setSessions] = useState<Session[]>(INITIAL_STATE.sessions);
-  const [activeId, setActiveId] = useState<string>(INITIAL_STATE.activeId);
+  // 세션 상태는 sessionStore 소유. 이름은 그대로라 아래 44개 사용처는 무변경.
+  const sessions = useSessionStore((s) => s.sessions);
+  const activeId = useSessionStore((s) => s.activeId);
+  const setSessions = useSessionStore((s) => s.setSessions);
+  const setActiveId = useSessionStore((s) => s.setActiveId);
 
   // ── Cat variant ───────────────────────────────────────────────────────────
   // 고양이 외형은 catStore 가 소유한다(CatCanvas 가 구독, SettingsModal 이 변경).
@@ -672,13 +643,13 @@ export default function App() {
 
   // ── Per-session messages: Record<sessionId, ChatMessage[]> ────────────────
   const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>(
-    () => Object.fromEntries(INITIAL_STATE.sessions.map((s) => [s.id, makeInitialMessages()]))
+    () => Object.fromEntries(sessions.map((s) => [s.id, makeInitialMessages()]))
   );
 
   // ── Per-session compact summaries (상단 접이식 요약 바) ──────────────────────
   const [compactSummaries, setCompactSummaries] = useState<Record<string, string>>(() => {
     const result: Record<string, string> = {};
-    INITIAL_STATE.sessions.forEach((s) => {
+    sessions.forEach((s) => {
       const saved = localStorage.getItem(`nekodesk_compact_${s.id}`);
       if (saved) result[s.id] = saved;
     });
@@ -1020,14 +991,7 @@ export default function App() {
     void pool.sendMessage(activeId, text, files, undefined, compactSummaries[activeId] || undefined);
   }, [markUserActivity, pool, activeId, wordChain, injectMessage, compactSummaries]);
 
-  // ── Persist sessions & activeId to localStorage ───────────────────────────
-  useEffect(() => {
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
-  }, [sessions]);
-
-  useEffect(() => {
-    localStorage.setItem(ACTIVE_SESSION_KEY, activeId);
-  }, [activeId]);
+  // 세션/activeId 영속화는 sessionStore 액션 안에서 처리한다(예전 useEffect 대체).
 
   // ── Load messages for active session on mount & on session switch ─────────
   useEffect(() => {
