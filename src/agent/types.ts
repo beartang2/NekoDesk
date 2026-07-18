@@ -136,6 +136,7 @@ export type LoopEvent =
   | { type: "step_start"; iteration: number }
   | { type: "step_done"; step: AgentStep }
   | { type: "step_error"; step: AgentStep }
+  | { type: "thinking_token"; token: string }
   | { type: "streaming_token"; token: string }
   | { type: "done"; answer: string; steps: AgentStep[]; promptTokens?: number }
   | { type: "error"; message: string }

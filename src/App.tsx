@@ -293,6 +293,12 @@ function ChatMessages({
               {m.role === "assistant" && m.content && !m.isStreaming && (
                 <CopyButton text={m.content.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
               )}
+              {m.isStreaming && m.thinking && !m.content && (
+                <div className="message__thinking">
+                  <span className="message__thinking-icon">💭</span>
+                  {m.thinking}
+                </div>
+              )}
               {m.content && (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}

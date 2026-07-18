@@ -60,15 +60,19 @@ describe("agentStepStream", () => {
     }));
 
     const deltas: string[] = [];
+    const thinking: string[] = [];
     let parsed: unknown;
     for await (const ev of agentStepStream([{ role: "user", content: "안녕" }], "안녕")) {
-      if (ev.type === "delta") deltas.push(ev.text);
+      if (ev.type === "thinking") thinking.push(ev.text);
+      else if (ev.type === "delta") deltas.push(ev.text);
       else parsed = ev.parsed;
     }
 
     // 여러 번에 걸쳐 흘러나왔어야 한다 (한 방에 덤프된 게 아니라)
     expect(deltas.length).toBeGreaterThan(1);
     expect(deltas.join("")).toBe("안녕하세요 🐱");
+    // thought 도 finalAnswer 보다 먼저 스트리밍됐어야 한다
+    expect(thinking.join("")).toBe("인사한다");
     expect(parsed).toMatchObject({ tool: "none", finalAnswer: "안녕하세요 🐱" });
   });
 

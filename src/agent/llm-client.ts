@@ -458,6 +458,7 @@ function buildAgentMessages(messages: LlmMessage[], userInput: string): LlmMessa
 }
 
 export type AgentStepEvent =
+  | { type: "thinking"; text: string }
   | { type: "delta"; text: string }
   | { type: "parsed"; parsed: ParsedAgentStep };
 
@@ -477,7 +478,10 @@ export async function* agentStepStream(
 ): AsyncGenerator<AgentStepEvent> {
   const allMessages = buildAgentMessages(messages, userInput);
   const p = loadGenParams();
-  const streamer = createJsonStringFieldStreamer("finalAnswer");
+  // JSON 에서 thought 가 finalAnswer 보다 먼저 나온다. 둘 다 도착하는 대로 흘려
+  // thought 는 "생각 중" 표시로, finalAnswer 는 답변으로 스트리밍한다.
+  const thoughtStreamer = createJsonStringFieldStreamer("thought");
+  const answerStreamer = createJsonStringFieldStreamer("finalAnswer");
 
   let raw = "";
   let emitted = 0;
@@ -490,7 +494,9 @@ export async function* agentStepStream(
     )) {
       if (!chunk.content) continue;
       raw += chunk.content;
-      const delta = streamer.push(chunk.content);
+      const thinking = thoughtStreamer.push(chunk.content);
+      if (thinking) yield { type: "thinking", text: thinking };
+      const delta = answerStreamer.push(chunk.content);
       if (delta) {
         emitted += delta.length;
         yield { type: "delta", text: delta };

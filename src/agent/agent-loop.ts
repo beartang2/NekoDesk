@@ -106,7 +106,9 @@ export async function* runAgentLoop(
     let streamedAnswer = "";
     try {
       for await (const ev of agentStepStream(context.toMessages(), userInput, trackUsage, signal)) {
-        if (ev.type === "delta") {
+        if (ev.type === "thinking") {
+          yield { type: "thinking_token", token: ev.text };
+        } else if (ev.type === "delta") {
           streamedAnswer += ev.text;
           yield { type: "streaming_token", token: ev.text };
         } else {

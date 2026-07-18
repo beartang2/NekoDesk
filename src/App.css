@@ -698,6 +698,23 @@ html, body, #root {
   border-color: var(--accent);
 }
 
+/* 답변 전 실시간 '생각' 표시 (thought 스트리밍) */
+.message__thinking {
+  display: flex;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  font-style: italic;
+  opacity: 0.85;
+  animation: msg-in var(--dur-control) var(--ease-out-quint);
+}
+.message__thinking-icon {
+  font-style: normal;
+  flex-shrink: 0;
+  animation: caret-pulse 1.4s var(--ease-out-quint) infinite;
+}
+
 /* Blinking cursor for streaming */
 .message__cursor {
   display: inline-block;
