@@ -16,6 +16,7 @@ import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
+import { useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
@@ -1135,63 +1136,15 @@ export default function App() {
   const activeSession = sessions.find((s) => s.id === activeId);
 
   // ── Panel visibility & resize ─────────────────────────────────────────────
-  const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [rightPanelVisible, setRightPanelVisible] = useState(true);
-  const [sidebarW, setSidebarW] = useState(220);
-  const [rightPanelW, setRightPanelW] = useState(210);
-
-  const dragRef = useRef<{
-    type: "sidebar" | "right";
-    startX: number;
-    startW: number;
-  } | null>(null);
-  const [isDragging, setIsDragging] = useState<"sidebar" | "right" | null>(null);
-
-  useEffect(() => {
-    function onMouseMove(e: MouseEvent) {
-      if (!dragRef.current) return;
-      const { type, startX, startW } = dragRef.current;
-      const delta = e.clientX - startX;
-      if (type === "sidebar") {
-        setSidebarW(Math.max(160, Math.min(400, startW + delta)));
-      } else {
-        setRightPanelW(Math.max(160, Math.min(400, startW - delta)));
-      }
-    }
-    function onMouseUp() {
-      dragRef.current = null;
-      setIsDragging(null);
-    }
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, []);
-
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.metaKey && e.key === "0") {
-        setSidebarW(220);
-        setRightPanelW(210);
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  function startDrag(type: "sidebar" | "right", e: React.MouseEvent) {
-    e.preventDefault();
-    const startW = type === "sidebar" ? sidebarW : rightPanelW;
-    dragRef.current = { type, startX: e.clientX, startW };
-    setIsDragging(type);
-  }
-
-  const appStyle = {
-    "--sidebar-w": sidebarVisible ? `${sidebarW}px` : "0px",
-    "--right-panel-w": rightPanelVisible ? `${rightPanelW}px` : "0px",
-  } as React.CSSProperties;
+  const {
+    sidebarVisible,
+    rightPanelVisible,
+    setRightPanelVisible,
+    setSidebarW,
+    isDragging,
+    startDrag,
+    appStyle,
+  } = useLayout();
 
   return (
     <div className={`app${isDragging ? " app--resizing" : ""}`} style={appStyle}>
