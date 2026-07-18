@@ -24,6 +24,7 @@ export interface LlmStreamChunk {
 
 export type ToolName =
   | "todo.list"
+  | "todo.list_done"
   | "todo.add"
   | "todo.complete"
   | "schedule.list"
@@ -33,7 +34,8 @@ export type ToolName =
   | "web.search"
   | "web.scrape"
   | "file.upload"
-  | "weather.get";
+  | "weather.get"
+  | "game.start";
 
 export interface ToolParamSchema {
   type: "string" | "number" | "boolean" | "array";
@@ -90,6 +92,7 @@ export interface CodeExecResult {
   stderr: string;
   exit_code: number;
   truncated: boolean;
+  image_data_url?: string;
 }
 
 export interface ExecHistoryItem {
@@ -100,6 +103,14 @@ export interface ExecHistoryItem {
   stderr: string;
   exit_code: number;
   executed_at: string;
+}
+
+export interface ConversationMessage {
+  id: number;
+  session_id: string;
+  role: string;
+  content: string;
+  created_at: string;
 }
 
 // ── Agent step ────────────────────────────────────────────────────────────────
@@ -117,6 +128,7 @@ export interface AgentStep {
   summary: string;
   status: StepStatus;
   errorMessage?: string;
+  imageDataUrl?: string;
 }
 
 /** Emitted during the loop so React can show live progress */
@@ -125,7 +137,7 @@ export type LoopEvent =
   | { type: "step_done"; step: AgentStep }
   | { type: "step_error"; step: AgentStep }
   | { type: "streaming_token"; token: string }
-  | { type: "done"; answer: string; steps: AgentStep[] }
+  | { type: "done"; answer: string; steps: AgentStep[]; promptTokens?: number }
   | { type: "error"; message: string }
   | { type: "confirm_needed"; language: string; code: string; isDangerous: boolean; dangerReason: string; resolve: (ok: boolean) => void }
   | { type: "clarify_needed"; question: string; options: string[]; resolve: (answer: string) => void };
@@ -139,6 +151,7 @@ export type CatEmotion =
   | "happy"
   | "proud"
   | "sleepy"
+  | "sad"
   | "error"
   | "cozy";
 
@@ -149,4 +162,7 @@ export interface ParsedAgentStep {
   tool: string; // ToolName | MCP tool name | "none"
   params: Record<string, unknown>;
   finalAnswer?: string;
+  needsConfirm?: boolean;
+  isDangerous?: boolean;
+  dangerReason?: string;
 }
