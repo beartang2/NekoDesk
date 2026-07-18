@@ -133,9 +133,6 @@ function TitleBar({
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
 function Sidebar({
-  sessions,
-  activeId,
-  onSelect,
   onNew,
   onDelete,
   emotion,
@@ -147,9 +144,6 @@ function Sidebar({
   gameSpeech,
   gameMode,
 }: {
-  sessions: Session[];
-  activeId: string;
-  onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
   emotion: CatEmotion;
@@ -171,6 +165,10 @@ function Sidebar({
   gameSpeech?: string | null;
   gameMode?: import("./hooks/useDrawingGame").DrawingGameState & import("./hooks/useDrawingGame").DrawingGameActions | null;
 }) {
+  // 세션 목록·활성·선택은 sessionStore 를 직접 구독(prop-drilling 제거).
+  const sessions = useSessionStore((s) => s.sessions);
+  const activeId = useSessionStore((s) => s.activeId);
+  const onSelect = useSessionStore((s) => s.setActiveId);
   return (
     <aside className="sidebar">
       <button className="sidebar__new-btn" onClick={onNew}>
@@ -1211,9 +1209,6 @@ export default function App() {
       />}
 
       <Sidebar
-        sessions={sessions}
-        activeId={activeId}
-        onSelect={setActiveId}
         onNew={handleNew}
         onDelete={handleDelete}
         emotion={displayEmotion}
