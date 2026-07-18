@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { settingsApi } from "../api/tauri";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,7 +20,7 @@ const PLAY_PER_MIN = 0.3;        // -3 / 10분
 const MAX_OFFLINE_MIN = 120;     // 오프라인 최대 반영 2시간
 // compact는 컨텍스트가 자연스러운 제한 — 하루 제한 없음
 const MAX_FEED_PER_DAY = 999;
-const SETTINGS_KEY_PREFIX = "cat_rpg_state";
+const SETTINGS_KEY = "cat_rpg_state"; // 앱 전체 단일 키 — 세션과 무관
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -57,13 +57,9 @@ function makeDefault(): CatRpgState {
   };
 }
 
-function settingsKey(sessionId: string): string {
-  return `${SETTINGS_KEY_PREFIX}_${sessionId}`;
-}
-
-async function loadState(sessionId: string): Promise<CatRpgState> {
+async function loadState(): Promise<CatRpgState> {
   try {
-    const raw = await invoke<string | null>("settings_get", { key: settingsKey(sessionId) });
+    const raw = await settingsApi.get(SETTINGS_KEY);
     if (!raw) return makeDefault();
     return JSON.parse(raw) as CatRpgState;
   } catch {
@@ -71,32 +67,31 @@ async function loadState(sessionId: string): Promise<CatRpgState> {
   }
 }
 
-async function persistState(sessionId: string, state: CatRpgState): Promise<void> {
-  await invoke("settings_set", { key: settingsKey(sessionId), value: JSON.stringify(state) }).catch(() => {});
+async function persistState(state: CatRpgState): Promise<void> {
+  await settingsApi.set(SETTINGS_KEY, JSON.stringify(state)).catch(() => {});
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-export function useCatRpg(sessionId: string) {
+export function useCatRpg() {
   const [state, setStateRaw] = useState<CatRpgState>(makeDefault);
   const stateRef = useRef(state);
   stateRef.current = state;
 
   const setState = useCallback((next: CatRpgState) => {
     setStateRaw(next);
-    persistState(sessionId, next);
-  }, [sessionId]);
+    persistState(next);
+  }, []);
 
-  // 세션 전환 시 해당 세션 상태 로드
+  // 마운트 시 전역 상태 로드
   useEffect(() => {
-    setStateRaw(makeDefault()); // 전환 중 깜빡임 방지
-    loadState(sessionId).then((loaded) => {
+    loadState().then((loaded) => {
       const s = loaded.feedDate !== today()
         ? { ...loaded, feedCountToday: 0, feedDate: today() }
         : loaded;
       setState(applyDecay(s, Date.now()));
     });
-  }, [sessionId]);
+  }, []);
 
   // 1분 틱
   useEffect(() => {

@@ -4,30 +4,26 @@
 ⚠️ 볼륨 제어는 반드시 아래 형식을 사용할 것. `tell application "Music" to set volume ...` 형식은 문법 오류 발생.
 
 ```applescript
--- 출력 볼륨 설정 (0~100 정수)
-set volume output volume 0    -- 소리 끄기(0)
+-- 출력 볼륨 절댓값 설정 (0~100 정수)
 set volume output volume 30   -- 30으로 설정
-set volume output volume 100  -- 최대
 
--- 입력(마이크) 볼륨 설정
-set volume input volume 50
+-- ⚠️ "N 올려줘" / "N 줄여줘" → 반드시 현재 볼륨 먼저 읽고 계산
+-- "볼륨 10 올려줘" 예시:
+set curVol to output volume of (get volume settings)
+set volume output volume (curVol + 10)
+-- "볼륨 5 줄여줘" 예시:
+set curVol to output volume of (get volume settings)
+set volume output volume (curVol - 5)
 
--- 알림음 볼륨 설정
-set volume alert volume 75
-
--- 음소거 (두 가지 형식 모두 유효)
-set volume with output muted       -- boolean 단축 문법
-set volume output muted true       -- 명시적 boolean 형식
-
--- 음소거 해제 (두 가지 형식 모두 유효)
-set volume without output muted    -- boolean 단축 문법
-set volume output muted false      -- 명시적 boolean 형식
+-- 음소거
+set volume output muted true
+-- 음소거 해제
+set volume output muted false
 
 -- 현재 볼륨 조회
 set volSettings to get volume settings
--- 반환 예시: {output volume:43, input volume:35, alert volume:78, output muted:false}
-set v to output volume of volSettings       -- 정수(0~100) 반환
-set isMuted to output muted of volSettings  -- boolean 반환
+set curVol to output volume of volSettings   -- 정수(0~100)
+set isMuted to output muted of volSettings   -- boolean
 ```
 
 ## 화면 밝기

@@ -7,6 +7,7 @@ import sleepingCat2Url from "../assets/cat/sleepingcat2.png";
 import sleepingCat3Url from "../assets/cat/sleepingcat3.png";
 import sleepingCat4Url from "../assets/cat/sleepingcat4.png";
 import sleepingCat5Url from "../assets/cat/sleepingcat5.png";
+import freeSpriteUrl from "../assets/cat/FreeSprites.png";
 
 export interface SpriteFrame {
   x: number;
@@ -91,7 +92,7 @@ const BASE_ANIMATIONS: Record<CatEmotion, AnimDef> = {
     src: jumpCatUrl,
     frames: stripFrames(32, 32, 13),
     interval: 95,
-    scale: 2.05,
+    scale: 2.2,
     recolor: true,
     offsetX: 0,
     offsetY: 0,
@@ -99,8 +100,8 @@ const BASE_ANIMATIONS: Record<CatEmotion, AnimDef> = {
   happy: {
     src: jumpCatUrl,
     frames: stripFrames(32, 32, 13),
-    interval: 80,
-    scale: 2.05,
+    interval: 60,
+    scale: 2.2,
     recolor: true,
     offsetX: 0,
     offsetY: 0,
@@ -118,7 +119,16 @@ const BASE_ANIMATIONS: Record<CatEmotion, AnimDef> = {
     src: sleepingCatUrl,
     frames: stripFrames(64, 64, 6),
     interval: 260,
-    scale: 1.08,
+    scale: 1.28,
+    recolor: false,
+    offsetX: 0,
+    offsetY: 0,
+  },
+  sad: {
+    src: freeSpriteUrl,
+    frames: stripFrames(64, 64, 4),
+    interval: 320,
+    scale: 1.05,
     recolor: false,
     offsetX: 0,
     offsetY: 0,

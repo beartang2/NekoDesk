@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { settingsApi } from "../api/tauri";
 import { X, Zap, Pencil, Trash2, Settings } from "lucide-react";
 import { loadMcpServers as syncMcpRegistry } from "../agent/mcp-registry";
 import {
@@ -10,6 +11,7 @@ import {
 } from "../agent/llm-client";
 import { getStoredAccent, saveAccentHex, deriveAccent } from "../theme-colors";
 import { CAT_VARIANTS } from "../cat/spriteData";
+import { useCatStore } from "../stores/catStore";
 import "./SettingsModal.css";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -211,6 +213,7 @@ const LLAMA_AUTOSTART_KEY = "nekodesk_llama_autostart";
 interface LlamaConfig {
   model: string;
   mmproj: string;
+  model_draft: string;
   ngl: number;
   flash_attn: boolean;
   jinja: boolean;
@@ -225,11 +228,13 @@ interface LlamaConfig {
   host: string;
   reasoning: string;
   reasoning_format: string;
+  mtp_n_draft: number;
 }
 
 const DEFAULT_LLAMA_CONFIG: LlamaConfig = {
   model: "",
   mmproj: "",
+  model_draft: "",
   ngl: 99,
   flash_attn: true,
   jinja: true,
@@ -244,6 +249,7 @@ const DEFAULT_LLAMA_CONFIG: LlamaConfig = {
   host: "0.0.0.0",
   reasoning: "off",
   reasoning_format: "none",
+  mtp_n_draft: 0,
 };
 
 function loadLlamaConfig(): LlamaConfig {
@@ -266,6 +272,8 @@ function LlamaServerSection() {
   const [saved, setSaved] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 중지 직후 유예: 포트가 잠깐 살아있어 헬스체크가 "실행 중"으로 오진하는 것을 막는다.
+  const stoppedAtRef = useRef<number>(0);
 
   function updateConfig(patch: Partial<LlamaConfig>) {
     setConfig((c) => ({ ...c, ...patch }));
@@ -275,33 +283,34 @@ function LlamaServerSection() {
     try {
       const files = await invoke<string[]>("llama_scan_models");
       setModels(files);
-      // 스캔 결과에 없는 모델/mmproj는 자동 초기화
+      // 스캔 결과에 없는 모델/mmproj/model_draft는 자동 초기화
       setConfig((c) => ({
         ...c,
         model: files.includes(c.model) ? c.model : "",
         mmproj: files.includes(c.mmproj) ? c.mmproj : "",
+        model_draft: files.includes(c.model_draft) ? c.model_draft : "",
       }));
     } catch (e) {
       console.warn("llama_scan_models failed:", e);
     }
   }
 
-  // 폴링용: child handle만 확인 (중지 직후 오진 방지)
+  // child handle 이 있으면 그걸 신뢰하고, 없으면 포트 헬스체크로 판정한다.
+  // 앱이 직접 안 띄운 서버(외부 실행·이전 세션 잔존·autostart)도 "실행 중"으로 잡는다.
+  // 단, 중지 직후 STOP_GRACE_MS 동안은 헬스체크를 건너뛴다(죽어가는 포트 오진 방지).
+  const STOP_GRACE_MS = 3000;
   async function checkRunning() {
     try {
-      const r = await invoke<boolean>("llama_is_running");
-      setRunning(r);
-    } catch {
-      setRunning(false);
-    }
-  }
+      if (await invoke<boolean>("llama_is_running")) {
+        setRunning(true);
+        return;
+      }
+    } catch { /* handle 확인 실패 → 헬스체크로 폴백 */ }
 
-  // 마운트 시 1회: child handle 없어도 포트 헬스체크로 고아 프로세스 감지
-  async function checkRunningOnMount() {
-    try {
-      const r = await invoke<boolean>("llama_is_running");
-      if (r) { setRunning(true); return; }
-    } catch { /* fall through */ }
+    if (Date.now() - stoppedAtRef.current < STOP_GRACE_MS) {
+      setRunning(false);
+      return;
+    }
     try {
       const cfg = loadLlamaConfig();
       const host = cfg.host === "0.0.0.0" ? "127.0.0.1" : cfg.host;
@@ -316,7 +325,7 @@ function LlamaServerSection() {
 
   useEffect(() => {
     scanModels();
-    checkRunningOnMount();
+    checkRunning();
     pollingRef.current = setInterval(checkRunning, 3000);
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
@@ -333,6 +342,7 @@ function LlamaServerSection() {
     localStorage.setItem(LLAMA_CONFIG_KEY, JSON.stringify(config));
     setLoading(true);
     setServerError(null);
+    stoppedAtRef.current = 0; // 유예 해제
     try {
       await invoke("llama_start", { config });
       setRunning(true);
@@ -345,6 +355,7 @@ function LlamaServerSection() {
 
   async function stopServer() {
     setLoading(true);
+    stoppedAtRef.current = Date.now(); // 유예 시작: 죽어가는 포트를 "실행 중"으로 오진하지 않게
     try {
       await invoke("llama_stop", { port: config.port });
       setRunning(false);
@@ -382,7 +393,7 @@ function LlamaServerSection() {
           onChange={(e) => updateConfig({ model: e.target.value })}
         >
           <option value="">-- 선택 --</option>
-          {mainModels.map((m) => <option key={m} value={m}>{m}</option>)}
+          {mainModels.map((m) => <option key={m} value={m}>{m.split("/").pop()}</option>)}
         </select>
         <button className="settings-btn settings-btn--ghost" style={{ flexShrink: 0 }} onClick={scanModels}>
           새로고침
@@ -398,7 +409,20 @@ function LlamaServerSection() {
           onChange={(e) => updateConfig({ mmproj: e.target.value })}
         >
           <option value="">없음</option>
-          {mmprojModels.map((m) => <option key={m} value={m}>{m}</option>)}
+          {mmprojModels.map((m) => <option key={m} value={m}>{m.split("/").pop()}</option>)}
+        </select>
+      </div>
+
+      {/* MTP 드래프트 모델 선택 */}
+      <div className="settings-row" style={{ alignItems: "center" }}>
+        <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>MTP 모델</span>
+        <select
+          className="server-select"
+          value={config.model_draft}
+          onChange={(e) => updateConfig({ model_draft: e.target.value })}
+        >
+          <option value="">없음</option>
+          {mainModels.map((m) => <option key={m} value={m}>{m.split("/").pop()}</option>)}
         </select>
       </div>
 
@@ -490,6 +514,13 @@ function LlamaServerSection() {
             <option value="deepseek-r1">deepseek-r1</option>
           </select>
         </label>
+        <label className="gen-param">
+          <span className="gen-param__label">MTP Draft</span>
+          <input className="gen-param__input" type="number" step="1" min="0" max="8"
+            title="Multi-Token Prediction 드래프트 토큰 수 (0=비활성, 1~4 권장). Qwen3-MTP 등 MTP 모델에서 추론 속도 향상."
+            value={config.mtp_n_draft}
+            onChange={(e) => updateConfig({ mtp_n_draft: parseInt(e.target.value, 10) || 0 })} />
+        </label>
       </div>
 
       {/* Flash Attn / Jinja / Autostart 토글 */}
@@ -562,7 +593,7 @@ function GenParamsSection() {
             step="128"
             min="64"
             value={params.max_tokens_agent}
-            onChange={(e) => { saveGenParams({ ...params, max_tokens_agent: parseInt(e.target.value, 10) || 1024 }); setParams((p) => ({ ...p, max_tokens_agent: parseInt(e.target.value, 10) || 1024 })); }}
+            onChange={(e) => { saveGenParams({ ...params, max_tokens_agent: parseInt(e.target.value, 10) || 2048 }); setParams((p) => ({ ...p, max_tokens_agent: parseInt(e.target.value, 10) || 2048 })); }}
             onBlur={save}
           />
         </label>
@@ -646,13 +677,14 @@ function UserProfileSection() {
 interface SettingsModalProps {
   onClose: () => void;
   isDark: boolean;
-  catVariantId: string;
-  onCatVariantChange: (id: string) => void;
   /** true일 때 backdrop/헤더 없이 body 내용만 렌더링 (MenuModal 탭 내 임베딩용) */
   asTab?: boolean;
 }
 
-export function SettingsModal({ onClose, isDark, catVariantId, onCatVariantChange, asTab }: SettingsModalProps) {
+export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
+  // 고양이 외형은 catStore 소유. prop 대신 스토어를 직접 읽고 바꾼다.
+  const catVariantId = useCatStore((s) => s.variantId);
+  const onCatVariantChange = useCatStore((s) => s.setVariant);
   // Accent color (full hex — hue + saturation + lightness 모두 반영)
   const [accentHex, setAccentHex] = useState(() => getStoredAccent());
   const accentInputRef = useRef<HTMLInputElement | null>(null);
@@ -716,7 +748,7 @@ export function SettingsModal({ onClose, isDark, catVariantId, onCatVariantChang
   function saveBraveSearchKey() {
     const key = braveSearchKey.trim();
     localStorage.setItem("nekodesk_brave_search_key", key);
-    invoke("settings_set", { key: "brave_search_key", value: key }).catch(console.warn);
+    settingsApi.set("brave_search_key", key).catch(console.warn);
     setBraveSearchSaved(true);
     setTimeout(() => setBraveSearchSaved(false), 1500);
   }

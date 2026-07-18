@@ -6,12 +6,15 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { CatCanvas } from "./cat/CatCanvas";
-import { CAT_VARIANTS, DEFAULT_VARIANT_ID, getCatVariant } from "./cat/spriteData";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPanel";
 import { MenuModal } from "./components/MenuModal";
+import { useDrawingGame } from "./hooks/useDrawingGame";
+import { useWordChainGame } from "./hooks/useWordChainGame";
 import { useAgentPool, makeInitialMessages } from "./hooks/useAgentLoop";
 import { useCatRpg } from "./hooks/useCatRpg";
+import { todosApi, scheduleApi, settingsApi, conversationApi } from "./api/tauri";
+import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
@@ -19,14 +22,6 @@ import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "
 import type { CatEmotion, LlmMessage, ScheduleEvent, Todo } from "./agent/types";
 import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
 import "./App.css";
-
-interface ConversationMessage {
-  id: number;
-  session_id: string;
-  role: string;
-  content: string;
-  created_at: string;
-}
 
 // ── Session types ─────────────────────────────────────────────────────────────
 
@@ -179,10 +174,10 @@ function Sidebar({
   rpg,
   onResizeStart,
   isResizing,
-  catVariantId,
   contextTokens,
   modelContextLength,
-  petSignal,
+  gameSpeech,
+  gameMode,
 }: {
   sessions: Session[];
   activeId: string;
@@ -203,10 +198,10 @@ function Sidebar({
   };
   onResizeStart?: (e: React.MouseEvent) => void;
   isResizing?: boolean;
-  catVariantId: string;
   contextTokens: number;
-  modelContextLength: number;
-  petSignal?: number;
+  modelContextLength: number | null;
+  gameSpeech?: string | null;
+  gameMode?: import("./hooks/useDrawingGame").DrawingGameState & import("./hooks/useDrawingGame").DrawingGameActions | null;
 }) {
   return (
     <aside className="sidebar">
@@ -238,11 +233,14 @@ function Sidebar({
         ))}
       </div>
 
-      <DrawingPadCard />
+      <DrawingPadCard gameMode={gameMode} />
 
-      <div className="cat-panel">
-        <div className="cat-panel__ctx">{contextTokens.toLocaleString()} / {modelContextLength.toLocaleString()}</div>
-        <CatCanvas emotion={emotion} onPet={rpg.onPet} variantId={catVariantId} petSignal={petSignal} />
+      <div className="cat-panel" style={{ position: "relative" }}>
+        {gameSpeech && (
+          <div className="cat-game-bubble">{gameSpeech}</div>
+        )}
+        <div className="cat-panel__ctx">{contextTokens.toLocaleString()} / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}</div>
+        <CatCanvas emotion={emotion} onPet={rpg.onPet} />
         <CatStatusPanel
           dayCount={rpg.dayCount}
           hunger={rpg.hunger}
@@ -323,7 +321,7 @@ function ChatMessages({
             />
           )}
 
-          {(m.content || m.isStreaming || (m.attachments && m.attachments.length > 0)) && (
+          {(m.content || m.isStreaming || (m.attachments && m.attachments.length > 0) || (m.images && m.images.length > 0)) && (
             <div className="message__bubble">
               {m.role === "assistant" && m.content && !m.isStreaming && (
                 <CopyButton text={m.content.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
@@ -339,6 +337,13 @@ function ChatMessages({
                 >
                   {m.content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()}
                 </ReactMarkdown>
+              )}
+              {m.images && m.images.length > 0 && (
+                <div className="message__images">
+                  {m.images.map((url, i) => (
+                    <img key={i} src={url} alt="생성된 이미지" className="message__image" />
+                  ))}
+                </div>
               )}
               {m.attachments && m.attachments.length > 0 && (
                 <div className="message__attachments">
@@ -648,21 +653,21 @@ export default function App() {
   const [activeId, setActiveId] = useState<string>(INITIAL_STATE.activeId);
 
   // ── Cat variant ───────────────────────────────────────────────────────────
-  const VARIANT_STORAGE_KEY = "nekodesk_cat_variant";
-  const [catVariantId, setCatVariantId] = useState<string>(
-    () => getCatVariant(localStorage.getItem(VARIANT_STORAGE_KEY) ?? DEFAULT_VARIANT_ID).id
-  );
-  function handleVariantChange(id: string) {
-    setCatVariantId(id);
-    localStorage.setItem(VARIANT_STORAGE_KEY, id);
-  }
+  // 고양이 외형은 catStore 가 소유한다(CatCanvas 가 구독, SettingsModal 이 변경).
 
   // ── Model context length (from llama.cpp /props) ─────────────────────────
-  const [modelContextLength, setModelContextLength] = useState<number>(8192);
+  const [modelContextLength, setModelContextLength] = useState<number | null>(null);
   useEffect(() => {
     fetchLoadedModel().then((info) => {
       if (info?.context_length) setModelContextLength(info.context_length);
     }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    return appEvents.on("agentDone", () => {
+      fetchLoadedModel().then((info) => {
+        if (info?.context_length) setModelContextLength(info.context_length);
+      }).catch(() => {});
+    });
   }, []);
 
   // ── Per-session messages: Record<sessionId, ChatMessage[]> ────────────────
@@ -688,7 +693,7 @@ export default function App() {
     if (loadedSessionsRef.current.has(sessionId)) return;
     loadedSessionsRef.current.add(sessionId);
     try {
-      const msgs = await invoke<ConversationMessage[]>("conversation_load", { sessionId });
+      const msgs = await conversationApi.load(sessionId);
       if (msgs.length === 0) return;
       const chatMessages: ChatMessage[] = msgs.map((m) => ({
         id: crypto.randomUUID(),
@@ -721,7 +726,7 @@ export default function App() {
 
     async function checkUpcoming() {
       try {
-        const events = await invoke<ScheduleEvent[]>("schedule_list", { range: "today" });
+        const events = await scheduleApi.list("today");
         const now = Date.now();
         const notified = getNotified();
         let changed = false;
@@ -732,9 +737,10 @@ export default function App() {
           if (diff > 0 && diff <= 15 * 60 * 1000) {
             const mins = Math.round(diff / 60000);
             const msg = mins <= 1 ? `곧 시작돼요!` : `${mins}분 후 시작해요`;
-            await invoke("code_exec", {
-              code: `display notification "${msg}" with title "📅 ${ev.title}" sound name "Glass"`,
-              language: "applescript",
+            // ev.title 은 LLM(schedule_add)이 쓸 수 있는 값이므로 절대 스크립트 소스로 넘기지 않는다.
+            await invoke("notify_send", {
+              title: `📅 ${ev.title}`,
+              body: msg,
             }).catch(() => {});
             notified.add(ev.id);
             changed = true;
@@ -760,11 +766,11 @@ export default function App() {
 
     async function runBriefing() {
       try {
-        const location = await invoke<string>("settings_get", { key: "weather_location" }).catch(() => "서울");
+        const location = await settingsApi.get("weather_location").catch(() => "서울");
         const [weatherRaw, todayEvents, openTodos] = await Promise.all([
           invoke<string>("weather_get", { location: location || "서울" }).catch(() => null),
-          invoke<ScheduleEvent[]>("schedule_list", { range: "today" }).catch(() => [] as ScheduleEvent[]),
-          invoke<Todo[]>("todo_list").catch(() => [] as Todo[]),
+          scheduleApi.list("today").catch(() => [] as ScheduleEvent[]),
+          todosApi.list().catch(() => [] as Todo[]),
         ]);
 
         const weatherLine = weatherRaw
@@ -820,7 +826,7 @@ export default function App() {
 
   // ── Agent pool (parallel per-session processing) ──────────────────────
   const pool = useAgentPool(allMessagesRef, setAllMessages);
-  const { state: rpgState, dayCount, canFeed, feed, playAction, pet, reward, consume } = useCatRpg(activeId);
+  const { state: rpgState, dayCount, canFeed, feed, playAction, pet, reward } = useCatRpg();
 
   const isRunning = pool.isRunning(activeId);
   const catEmotion = pool.catEmotion(activeId);
@@ -857,7 +863,6 @@ export default function App() {
   }, [isRunning]);
 
   const [isBoxMode, setIsBoxMode] = useState(false);
-  const [petSignal, setPetSignal] = useState(0);
   const boxPetCountRef = useRef(0);
   const BOX_EXIT_PET_COUNT = 3;
   const [actionEmotion, setActionEmotion] = useState<CatEmotion | null>(null);
@@ -874,6 +879,9 @@ export default function App() {
 
   const isBoxModeRef = useRef(isBoxMode);
   isBoxModeRef.current = isBoxMode;
+
+  // 쓰다듬기는 이제 CatCanvas 안에서 트랙패드로 처리한다(useTrackpadPet).
+  // 가속도계는 M4에서 root 데몬이 필요해 폐기했다.
 
   // play >= 80이면 랜덤으로 box 상태 진입 (30~120초 간격)
   useEffect(() => {
@@ -893,15 +901,11 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, [isBoxMode]);
 
-  // ── 컨텍스트 크기 → 배고픔 압력 ─────────────────────────────────────────────
-  // 실제 LLM에 전송되는 마지막 12개 메시지 기준으로 토큰 추정
-  // 한국어 혼용 특성상 char / 2 로 보수적으로 추정
-  const effectiveMessages = (allMessages[activeId] ?? []).slice(-12);
-  const contextTokens = Math.round(
-    effectiveMessages.reduce((sum, m) => sum + m.content.length, 0) / 2
-  );
-  const contextPressure = Math.min(1, contextTokens / modelContextLength);
-  const displayHunger = Math.max(0, rpgState.hunger - Math.round(contextPressure * 40));
+  const promptTokens = pool.contextTokens(activeId);
+  const displayHunger =
+    promptTokens === 0 || modelContextLength == null
+      ? 100
+      : Math.max(0, Math.round(100 - (promptTokens / modelContextLength) * 100));
 
   const isGaugeSleepy = displayHunger < 30 || rpgState.play < 20;
   const displayEmotion: CatEmotion =
@@ -950,8 +954,9 @@ export default function App() {
       loadedSessionsRef.current.delete(activeId); // 재로드 방지
 
       // DB 초기화
-      await invoke("conversation_delete", { sessionId: activeId });
+      await conversationApi.delete(activeId);
 
+      pool.clearContextTokens(activeId);
       feed();
       triggerActionEmotion("proud");
     } catch {
@@ -959,13 +964,61 @@ export default function App() {
     } finally {
       setIsCompacting(false);
     }
-  }, [isCompacting, allMessages, activeId, feed, triggerActionEmotion, setAllMessages, setCompactSummaries, setSummaryExpanded]);
+  }, [isCompacting, allMessages, activeId, feed, triggerActionEmotion, setAllMessages, setCompactSummaries, setSummaryExpanded, pool]);
 
-  const handleSend = useCallback((text: string, files: AttachedFile[]) => {
+  const wordChain = useWordChainGame(triggerActionEmotion);
+
+  useEffect(() => {
+    return appEvents.on("wordchainGameover", () => {
+      reward(Math.min(20, Math.floor(wordChain.turnCount / 2)));
+      wordChain.endGame();
+    });
+  }, [wordChain.endGame, wordChain.turnCount, reward]);
+
+  const injectMessage = useCallback((role: "user" | "assistant", content: string) => {
+    const msg = {
+      id: crypto.randomUUID(),
+      role,
+      content,
+      time: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }),
+      steps: [] as [],
+      isStreaming: false,
+    };
+    setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] ?? []), msg] }));
+  }, [activeId, setAllMessages]);
+
+  const handleSend = useCallback(async (text: string, files: AttachedFile[]) => {
     markUserActivity();
-    consume();
-    void pool.sendMessage(activeId, text, files);
-  }, [markUserActivity, consume, pool, activeId]);
+
+    // 끝말잇기 게임 중: 한국어 단어 하나만 게임으로 처리, 그 외는 일반 채팅
+    if (wordChain.phase === "user_turn") {
+      const trimmed = text.trim();
+      const isSingleWord = /^[가-힣]{2,10}$/.test(trimmed);
+
+      if (isSingleWord) {
+        injectMessage("user", trimmed);
+        const result = await wordChain.submitWord(trimmed);
+        if (result.type === "invalid_start" || result.type === "duplicate") {
+          injectMessage("assistant", `앗! ${result.error} 😸`);
+        } else if (result.type === "user_invalid") {
+          injectMessage("assistant", `"${result.word}"는 사전에 없는 단어야! 속이려 했지? 😾 고양이 승리! (${wordChain.turnCount}턴)`);
+        } else if (result.type === "cat_failed") {
+          injectMessage("assistant", `"${result.neededChar}"로 시작하는 단어가 생각이 안 나... 항복! 유저 승리 🏆 (${wordChain.turnCount}턴)`);
+          reward(Math.min(20, Math.floor(wordChain.turnCount / 2)));
+        } else if (result.type === "cat_word") {
+          injectMessage("assistant", `${result.catWord} 😸`);
+        } else {
+          injectMessage("assistant", `앗, 뭔가 잘못됐어. 게임을 다시 시작해줘! 😿`);
+        }
+      } else {
+        injectMessage("user", trimmed);
+        injectMessage("assistant", `끝말잇기 중이야! 한글 단어만 입력해줘 😺\n"${wordChain.lastChar}"로 시작하는 단어를 입력해봐!`);
+      }
+      return;
+    }
+
+    void pool.sendMessage(activeId, text, files, undefined, compactSummaries[activeId] || undefined);
+  }, [markUserActivity, pool, activeId, wordChain, injectMessage, compactSummaries]);
 
   // ── Persist sessions & activeId to localStorage ───────────────────────────
   useEffect(() => {
@@ -1007,7 +1060,7 @@ export default function App() {
   // ── Delete session ────────────────────────────────────────────────────────
   function handleDelete(id: string) {
     // Remove from DB, loaded cache, and compact summary
-    invoke("conversation_delete", { sessionId: id }).catch(() => {});
+    conversationApi.delete(id).catch(() => {});
     loadedSessionsRef.current.delete(id);
     localStorage.removeItem(`nekodesk_compact_${id}`);
     setCompactSummaries((prev) => { const { [id]: _, ...rest } = prev; return rest; });
@@ -1056,6 +1109,59 @@ export default function App() {
   }, []);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [gameSpeech, setGameSpeech] = useState<string | null>(null);
+  const game = useDrawingGame(triggerActionEmotion, setGameSpeech, () => reward(10));
+
+  useEffect(() => {
+    if (game.phase !== "idle") {
+      setSidebarW(400);
+    } else {
+      setSidebarW(220);
+    }
+  }, [game.phase]);
+
+  // ── Mini-game registry — 새 게임 추가 시 여기에만 항목 추가 ─────────────────
+  const MINI_GAMES = [
+    {
+      id: "drawing",
+      launch: () => { game.startSetup(); },
+    },
+    {
+      id: "wordchain",
+      launch: (requestId?: number) => {
+        wordChain.startGame().then((firstWord) => {
+          // 에이전트 요청이면 첫 단어를 그쪽으로 돌려준다. 직접 시작이면 직접 메시지.
+          const delivered = resolveWordchainFirstWord(requestId, firstWord);
+          if (!delivered) {
+            if (firstWord) {
+              injectMessage("assistant", `끝말잇기 시작! 내가 먼저 할게. "${firstWord}" 😸\n"${firstWord[firstWord.length - 1]}"로 시작하는 단어를 입력해봐!`);
+            } else {
+              injectMessage("assistant", "앗, 단어를 못 떠올렸어. 다시 시작해줘!");
+            }
+          }
+        });
+      },
+    },
+  ] as const;
+
+  function launchRandomGame() {
+    if (game.phase !== "idle" || wordChain.phase !== "idle") return;
+    const pick = MINI_GAMES[Math.floor(Math.random() * MINI_GAMES.length)];
+    pick.launch();
+  }
+
+  // game.start 도구 이벤트 처리 (MINI_GAMES 정의 이후에 위치)
+  useEffect(() => {
+    return appEvents.on("startGame", (payload) => {
+      if (payload.type === "wordchain") {
+        MINI_GAMES[1].launch(payload.requestId);
+      } else {
+        MINI_GAMES[0].launch();
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const scrollToBottomRef = useRef<() => void>(() => {});
   const handleScrollChange = useCallback((show: boolean, scrollFn: () => void) => {
@@ -1102,6 +1208,17 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.metaKey && e.key === "0") {
+        setSidebarW(220);
+        setRightPanelW(210);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   function startDrag(type: "sidebar" | "right", e: React.MouseEvent) {
     e.preventDefault();
     const startW = type === "sidebar" ? sidebarW : rightPanelW;
@@ -1124,7 +1241,10 @@ export default function App() {
         rightPanelVisible={rightPanelVisible}
         onToggleRightPanel={() => setRightPanelVisible((v) => !v)}
       />
-      {menuOpen && <MenuModal onClose={() => setMenuOpen(false)} isDark={isDark} catVariantId={catVariantId} onCatVariantChange={handleVariantChange} />}
+      {menuOpen && <MenuModal
+        onClose={() => setMenuOpen(false)}
+        isDark={isDark}
+      />}
 
       <Sidebar
         sessions={sessions}
@@ -1133,6 +1253,7 @@ export default function App() {
         onNew={handleNew}
         onDelete={handleDelete}
         emotion={displayEmotion}
+        gameSpeech={gameSpeech}
         rpg={{
           dayCount,
           hunger: displayHunger,
@@ -1141,7 +1262,7 @@ export default function App() {
           feedCountToday: rpgState.feedCountToday,
           isCompacting,
           onFeed: () => { void handleFeed(); },
-          onPlay: () => { playAction(); triggerActionEmotion("happy"); },
+          onPlay: () => { triggerActionEmotion("happy"); launchRandomGame(); },
           onPet: () => {
             pet();
             if (isBoxMode) {
@@ -1155,15 +1276,38 @@ export default function App() {
         }}
         onResizeStart={sidebarVisible ? (e) => startDrag("sidebar", e) : undefined}
         isResizing={isDragging === "sidebar"}
-        catVariantId={catVariantId}
-        contextTokens={contextTokens}
+        contextTokens={promptTokens}
         modelContextLength={modelContextLength}
-        petSignal={petSignal}
+        gameMode={game.phase !== "idle" ? game : null}
       />
 
       <main className="main">
+
         {error && (
           <ErrorBanner message={error} onDismiss={() => pool.clearError(activeId)} />
+        )}
+
+        {wordChain.phase !== "idle" && (
+          <div className="wordchain-banner">
+            <span className="wordchain-banner__status">
+              {wordChain.phase === "user_turn"
+                ? `끝말잇기 — "${wordChain.lastChar}"로 시작하는 단어를 입력하세요`
+                : wordChain.phase === "cat_turn"
+                ? "고양이가 생각 중..."
+                : "게임 종료"}
+            </span>
+            <span className="wordchain-banner__turns">{wordChain.turnCount}턴</span>
+            {wordChain.phase === "user_turn" && (
+              <button
+                className="wordchain-banner__dispute"
+                onClick={() => {
+                  void pool.sendMessage(activeId, wordChain.disputeContext(), [], "이의 제기!");
+                }}
+                title="방금 나온 단어 검증 요청"
+              >이의 제기</button>
+            )}
+            <button className="wordchain-banner__close" onClick={() => { wordChain.reset(); }}>✕</button>
+          </div>
         )}
 
         <div className="chat-area">
@@ -1200,7 +1344,7 @@ export default function App() {
           onSend={handleSend}
           onStop={() => pool.stop(activeId)}
           onActivity={markUserActivity}
-          isRunning={isRunning}
+          isRunning={isRunning || wordChain.phase === "cat_turn"}
         />
       </main>
 

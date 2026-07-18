@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { execHistoryApi } from "../api/tauri";
+import { appEvents } from "../lib/events";
 import { X } from "lucide-react";
 import { SettingsModal } from "./SettingsModal";
 import type { ExecHistoryItem } from "../agent/types";
@@ -30,21 +31,19 @@ function ExecHistoryPanel() {
 
   async function load() {
     try {
-      const result = await invoke<ExecHistoryItem[]>("exec_history_list");
+      const result = await execHistoryApi.list();
       setItems(result);
     } catch {}
   }
 
   useEffect(() => {
     load();
-    const handler = () => load();
-    window.addEventListener("nekodesk:coderun", handler);
-    return () => window.removeEventListener("nekodesk:coderun", handler);
+    return appEvents.on("coderun", () => load());
   }, []);
 
   async function clearAll() {
     try {
-      await invoke("exec_history_clear");
+      await execHistoryApi.clear();
       setItems([]);
       setExpandedId(null);
     } catch {}
@@ -106,12 +105,10 @@ type MenuTab = "settings" | "history";
 interface MenuModalProps {
   onClose: () => void;
   isDark: boolean;
-  catVariantId: string;
-  onCatVariantChange: (id: string) => void;
   initialTab?: MenuTab;
 }
 
-export function MenuModal({ onClose, isDark, catVariantId, onCatVariantChange, initialTab = "settings" }: MenuModalProps) {
+export function MenuModal({ onClose, isDark, initialTab = "settings" }: MenuModalProps) {
   const [tab, setTab] = useState<MenuTab>(initialTab);
 
   function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
@@ -146,8 +143,6 @@ export function MenuModal({ onClose, isDark, catVariantId, onCatVariantChange, i
               asTab
               onClose={onClose}
               isDark={isDark}
-              catVariantId={catVariantId}
-              onCatVariantChange={onCatVariantChange}
             />
           )}
         </div>

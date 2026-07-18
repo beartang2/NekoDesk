@@ -120,7 +120,7 @@ end tell
 **exact match 실패 시 — 유사 이름 후보 추출**
 ```applescript
 tell application "Contacts"
-    set keyword to "윤원"  -- 입력 이름에서 핵심 키워드 사용
+    set keyword to "길동"  -- 입력 이름에서 핵심 키워드 사용
     set candidates to {}
     repeat with p in (every person)
         if (name of p) contains keyword then

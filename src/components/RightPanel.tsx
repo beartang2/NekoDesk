@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Pencil, Terminal } from "lucide-react";
+import { Pencil, Terminal, X } from "lucide-react";
+import { todosApi, scheduleApi } from "../api/tauri";
+import { appEvents } from "../lib/events";
 import type { Todo, ScheduleEvent, CodeExecResult } from "../agent/types";
+import type { DrawingGameState, DrawingGameActions } from "../hooks/useDrawingGame";
 import "./RightPanel.css";
 
 // ── 날짜 파싱 유틸 (캘린더·알림 공용) ──────────────────────────────────────
@@ -24,33 +27,74 @@ export function parseEventDate(s: string): Date {
 
 function TodoCard() {
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [doneTodos, setDoneTodos] = useState<Todo[]>([]);
+  const [showDone, setShowDone] = useState(false);
 
   async function load() {
     try {
-      const result = await invoke<Todo[]>("todo_list");
+      const result = await todosApi.list();
       setTodos(result.slice(0, 8));
+    } catch {}
+  }
+
+  async function loadDone() {
+    try {
+      const result = await todosApi.listDone();
+      setDoneTodos(result.slice(0, 20));
     } catch {}
   }
 
   useEffect(() => {
     load();
-    const handler = () => load();
-    window.addEventListener("nekodesk:agent_done", handler);
-    return () => window.removeEventListener("nekodesk:agent_done", handler);
+    return appEvents.on("agentDone", () => load());
   }, []);
+
+  useEffect(() => {
+    if (showDone) loadDone();
+  }, [showDone]);
 
   async function complete(id: number) {
     try {
-      await invoke("todo_complete", { id });
+      await todosApi.complete(id);
       setTodos((prev) => prev.filter((t) => t.id !== id));
+      if (showDone) loadDone();
     } catch {}
   }
 
   return (
     <div className="panel-card">
-      <div className="panel-card__header">✓ TODO List</div>
+      <div className="panel-card__header">
+        ✓ TODO List
+        <button
+          className="todo-done-toggle"
+          onClick={() => setShowDone((v) => !v)}
+          title={showDone ? "할 일 보기" : "완료 목록 보기"}
+        >
+          {showDone ? "미완료" : "완료"}
+        </button>
+      </div>
       <div className="panel-card__body">
-        {todos.length === 0 ? (
+        {showDone ? (
+          doneTodos.length === 0 ? (
+            <span className="panel-empty">완료된 할 일 없음</span>
+          ) : (
+            <ul className="todo-list">
+              {doneTodos.map((t) => (
+                <li
+                  key={t.id}
+                  className="todo-item todo-item--done"
+                  title={t.completed_at ? `완료: ${t.completed_at.slice(0, 10)}` : t.content}
+                >
+                  <span className="todo-item__check todo-item__check--done">✓</span>
+                  <span className="todo-item__text">{t.content}</span>
+                  {t.completed_at && (
+                    <span className="todo-item__due">{t.completed_at.slice(5, 10)}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )
+        ) : todos.length === 0 ? (
           <span className="panel-empty">할 일 없음</span>
         ) : (
           <ul className="todo-list">
@@ -94,16 +138,14 @@ function CalendarCard() {
 
   async function loadEvents() {
     try {
-      const result = await invoke<ScheduleEvent[]>("schedule_list", { range: "all" });
+      const result = await scheduleApi.list("all");
       setEvents(result);
     } catch {}
   }
 
   useEffect(() => {
     loadEvents();
-    const handler = () => loadEvents();
-    window.addEventListener("nekodesk:agent_done", handler);
-    return () => window.removeEventListener("nekodesk:agent_done", handler);
+    return appEvents.on("agentDone", () => loadEvents());
   }, []);
 
   const [calKey, setCalKey] = useState(0);
@@ -194,7 +236,17 @@ function CalendarCard() {
                 <span className="panel-empty">{month + 1}/{selectedDay} 일정 없음</span>
               ) : (
                 selectedEvents.map((e) => (
-                  <div key={e.id} className="cal-event">
+                  <div
+                    key={e.id}
+                    className="cal-event"
+                    title={[
+                      e.title,
+                      e.end_at && !e.all_day
+                        ? `${parseEventDate(e.start_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} ~ ${parseEventDate(e.end_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`
+                        : null,
+                      e.notes,
+                    ].filter(Boolean).join("\n")}
+                  >
                     <span className="cal-event__time">
                       {e.all_day
                         ? "종일"
@@ -269,9 +321,9 @@ function PomodoroCard() {
         mode === "focus"
           ? `집중 완료! ${nextMode === "long-break" ? "☕ 긴 휴식 시간이에요." : "🍵 잠깐 쉬어가요."}`
           : "휴식 끝! 🐱 다시 집중해볼까요?";
-      invoke("code_exec", {
-        code: `display notification "${msg}" with title "NekoDesk 포모도로" sound name "Glass"`,
-        language: "applescript",
+      invoke("notify_send", {
+        title: "NekoDesk 포모도로",
+        body: msg,
       }).catch(() => {});
       setMode(nextMode);
       setSecondsLeft(POMODORO_DURATIONS[nextMode]);
@@ -361,16 +413,45 @@ const DRAW_COLORS = [
   "#ffffff",  // white
 ];
 
-export function DrawingPadCard() {
+export function DrawingPadCard({
+  gameMode,
+}: {
+  gameMode?: (DrawingGameState & DrawingGameActions) | null;
+}) {
+  const MAX_CANVAS_W = 500;
+  const MAX_CANVAS_H = 600;
+
   const [open, setOpen] = useState(false);
   const [tool, setTool] = useState<"pen" | "eraser">("pen");
   const [color, setColor] = useState("#111111");
   const [thick, setThick] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [canvasHeight, setCanvasHeight] = useState(160);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawingRef = useRef(false);
   const lastPtRef = useRef<{ x: number; y: number } | null>(null);
   const canvasInitRef = useRef(false);
+  const undoStackRef = useRef<ImageData[]>([]);
+  const redoStackRef = useRef<ImageData[]>([]);
+
+  const isGameActive = !!(gameMode && gameMode.phase !== "idle");
+
+  function onResizeMouseDown(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const startH = canvasHeight;
+    function onMouseMove(ev: MouseEvent) {
+      const delta = startY - ev.clientY;
+      setCanvasHeight(Math.max(80, Math.min(MAX_CANVAS_H, startH + delta)));
+    }
+    function onMouseUp() {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
 
   function getCtx() {
     const canvas = canvasRef.current;
@@ -378,8 +459,9 @@ export function DrawingPadCard() {
     return canvas.getContext("2d");
   }
 
-  // 흰색 배경 초기화 — 최초 1회만
+  // 흰색 배경 초기화 — 최초 1회만 (game mode가 아닐 때)
   useEffect(() => {
+    if (isGameActive) return;
     if (canvasInitRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
@@ -387,7 +469,28 @@ export function DrawingPadCard() {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     canvasInitRef.current = true;
-  }, []);
+  }, [isGameActive]);
+
+  // 게임 round 변경 시 캔버스 초기화
+  useEffect(() => {
+    if (!gameMode || gameMode.phase !== "playing") return;
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+  }, [gameMode?.round, gameMode?.phase]);
+
+  // 시간 초과 시 캔버스 자동 제출
+  useEffect(() => {
+    if (!gameMode?.timedOut) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dataUrl = canvas.toDataURL("image/png");
+    gameMode.submitDrawing(dataUrl);
+  }, [gameMode?.timedOut]);
 
   function getPos(e: React.MouseEvent<HTMLCanvasElement>) {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -400,11 +503,15 @@ export function DrawingPadCard() {
   }
 
   function onMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
+    const ctx = getCtx();
+    const canvas = canvasRef.current;
+    if (!ctx || !canvas) return;
+    // undo 스택에 현재 상태 저장
+    undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    redoStackRef.current = [];
     isDrawingRef.current = true;
     const pt = getPos(e);
     lastPtRef.current = pt;
-    const ctx = getCtx();
-    if (!ctx) return;
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, (thick ? 6 : 2) / 2, 0, Math.PI * 2);
     ctx.fillStyle = tool === "eraser" ? "#ffffff" : color;
@@ -437,47 +544,185 @@ export function DrawingPadCard() {
     const canvas = canvasRef.current;
     const ctx = getCtx();
     if (!canvas || !ctx) return;
+    undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    redoStackRef.current = [];
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  function undoCanvas() {
+    const canvas = canvasRef.current;
+    const ctx = getCtx();
+    if (!canvas || !ctx || undoStackRef.current.length === 0) return;
+    const current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    redoStackRef.current.push(current);
+    const prev = undoStackRef.current.pop()!;
+    ctx.putImageData(prev, 0, 0);
   }
 
   async function saveImage() {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const dataUrl = canvas.toDataURL("image/png");
+    const crop = document.createElement("canvas");
+    crop.width = MAX_CANVAS_W;
+    crop.height = canvasHeight;
+    crop.getContext("2d")!.drawImage(canvas, 0, 0, MAX_CANVAS_W, canvasHeight, 0, 0, MAX_CANVAS_W, canvasHeight);
+    const dataUrl = crop.toDataURL("image/png");
     try {
-      const savedPath = await invoke<string>("save_canvas_image", { dataUrl });
-      const name = savedPath.split("/").pop() ?? "저장됨";
-      setSaveMsg(`✓ ${name}`);
+      await invoke<string>("save_canvas_image", { dataUrl });
+      setSaveMsg("✓");
       window.setTimeout(() => setSaveMsg(null), 2000);
     } catch (err) {
-      setSaveMsg(`✕ 저장 실패`);
+      setSaveMsg("✕");
       window.setTimeout(() => setSaveMsg(null), 2000);
     }
   }
 
-  return (
-    <div className="panel-card">
-      <button className="panel-card__header pomo-header" onClick={() => setOpen((v) => !v)}>
-        <span className="draw-header-title"><Pencil size={10} strokeWidth={2} /> 그림판</span>
-        <span className="pomo-chevron">{open ? "▲" : "▼"}</span>
-      </button>
-      <div className={`acc-wrap ${open ? "acc-wrap--open" : ""}`}>
-        <div className="acc-inner">
-        <div className="panel-card__body draw-body">
-          <canvas
-            ref={canvasRef}
-            className="draw-canvas"
-            width={360}
-            height={200}
-            onMouseDown={onMouseDown}
-            onMouseMove={onMouseMove}
-            onMouseUp={onMouseUp}
-            onMouseLeave={onMouseUp}
-          />
-          <div className="draw-toolbar">
+  function handleSubmitDrawing() {
+    if (!gameMode) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dataUrl = canvas.toDataURL("image/png");
+    gameMode.submitDrawing(dataUrl);
+  }
+
+  // 게임 모드에서 보여줄 색상 (mono면 흑백만)
+  const gameColors = gameMode?.config.mode === "mono"
+    ? ["#1c1c1e", "#ffffff"]
+    : DRAW_COLORS;
+
+  // 현재 열림 상태: 게임 활성 시 강제 open
+  const isOpen = isGameActive ? true : open;
+
+  // ── 게임 모드 헤더 렌더 ──────────────────────────────────────────────────────
+
+  function renderGameHeader() {
+    if (!gameMode) return null;
+    const { phase, currentWord, timeLeft, round, totalRounds, guessResult, isCorrect } = gameMode;
+
+    if (phase === "setup") {
+      return (
+        <div className="draw-header-title">
+          <span>🎮 그림 맞추기</span>
+        </div>
+      );
+    }
+    if (phase === "playing") {
+      const urgent = timeLeft <= 10;
+      return (
+        <div className="draw-header-title" style={{ gap: 6, flex: 1 }}>
+          <span className="draw-game-word">{currentWord}</span>
+          <span className={`draw-game-timer${urgent ? " draw-game-timer--urgent" : ""}`}>{timeLeft}s</span>
+          <span className="draw-game-rounds">{round}/{totalRounds}</span>
+        </div>
+      );
+    }
+    if (phase === "guessing") {
+      return <div className="draw-header-title"><span className="draw-game-word">추리 중...</span></div>;
+    }
+    if (phase === "round_result") {
+      return (
+        <div className="draw-header-title">
+          <span className={isCorrect ? "draw-game-result--ok" : "draw-game-result--ng"}>
+            {isCorrect ? "✓" : "✗"} {guessResult}
+          </span>
+        </div>
+      );
+    }
+    if (phase === "done") {
+      return <div className="draw-header-title"><span>게임 종료</span></div>;
+    }
+    return null;
+  }
+
+  // ── 게임 모드 바디 렌더 ──────────────────────────────────────────────────────
+
+  function renderGameBody() {
+    if (!gameMode) return null;
+    const { phase, config, score, totalRounds } = gameMode;
+
+    if (phase === "setup") {
+      return (
+        <div className="draw-game-setup">
+          <div className="draw-game-row">
+            <span className="draw-game-label">모드</span>
+            <button
+              className={`draw-game-opt${config.mode === "mono" ? " draw-game-opt--on" : ""}`}
+              onClick={() => gameMode.updateConfig({ ...config, mode: "mono" })}
+            >
+              흑백<span className="draw-game-opt-sub">mono</span>
+            </button>
+            <button
+              className={`draw-game-opt${config.mode === "color" ? " draw-game-opt--on" : ""}`}
+              onClick={() => gameMode.updateConfig({ ...config, mode: "color" })}
+            >
+              컬러<span className="draw-game-opt-sub">color</span>
+            </button>
+          </div>
+          <div className="draw-game-row">
+            <span className="draw-game-label">라운드</span>
+            {([3, 5] as const).map((n) => (
+              <button
+                key={n}
+                className={`draw-game-opt${config.rounds === n ? " draw-game-opt--on" : ""}`}
+                onClick={() => gameMode.updateConfig({ ...config, rounds: n })}
+              >
+                {n}판
+              </button>
+            ))}
+          </div>
+          <button
+            className="draw-game-btn draw-game-btn--primary"
+            onClick={() => gameMode.startGame(config)}
+          >
+            시작하기
+          </button>
+        </div>
+      );
+    }
+
+    if (phase === "done") {
+      return (
+        <div className="draw-game-setup">
+          <div className="draw-game-score">{totalRounds}판 중 {score}판 맞췄어!</div>
+          <div className="draw-game-row" style={{ justifyContent: "center" }}>
+            <button className="draw-game-btn" onClick={() => gameMode.startSetup()}>다시</button>
+            <button className="draw-game-btn" onClick={() => gameMode.resetGame()}>닫기</button>
+          </div>
+        </div>
+      );
+    }
+
+    // playing / guessing / round_result — canvas + toolbar
+    const canvasLocked = phase === "guessing" || phase === "round_result";
+    return (
+      <div className="draw-body">
+        <canvas
+          ref={canvasRef}
+          className={`draw-canvas draw-canvas--game${canvasLocked ? " draw-canvas--locked" : ""}`}
+          width={MAX_CANVAS_W}
+          height={MAX_CANVAS_H}
+          onMouseDown={canvasLocked ? undefined : onMouseDown}
+          onMouseMove={canvasLocked ? undefined : onMouseMove}
+          onMouseUp={canvasLocked ? undefined : onMouseUp}
+          onMouseLeave={canvasLocked ? undefined : onMouseUp}
+        />
+        {!canvasLocked && (
+          <div className="draw-game-toolbar">
+            <button className="draw-tool-btn" onClick={undoCanvas} title="실행취소">↩</button>
+            <button className="draw-tool-btn" onClick={clearCanvas} title="전체 지우기">✕</button>
+            <button
+              className={`draw-tool-btn ${tool === "eraser" ? "draw-tool-btn--active" : ""}`}
+              onClick={() => setTool((t) => t === "eraser" ? "pen" : "eraser")}
+              title="지우개"
+            >⌫</button>
+            <button
+              className={`draw-tool-btn ${thick ? "draw-tool-btn--active" : ""}`}
+              onClick={() => setThick((v) => !v)}
+              title={thick ? "굵게" : "얇게"}
+            >{thick ? "●" : "•"}</button>
             <div className="draw-colors">
-              {DRAW_COLORS.map((c) => (
+              {gameColors.map((c) => (
                 <button
                   key={c}
                   className={`draw-color-btn ${color === c && tool === "pen" ? "draw-color-btn--active" : ""}`}
@@ -487,32 +732,106 @@ export function DrawingPadCard() {
                 />
               ))}
             </div>
-            <div className="draw-tools">
-              <button
-                className={`draw-tool-btn ${thick ? "draw-tool-btn--active" : ""}`}
-                onClick={() => setThick((v) => !v)}
-                title={thick ? "굵게 (현재)" : "얇게 (현재)"}
-              >
-                {thick ? "●" : "•"}
-              </button>
-              <button
-                className={`draw-tool-btn ${tool === "eraser" ? "draw-tool-btn--active" : ""}`}
-                onClick={() => setTool((t) => t === "eraser" ? "pen" : "eraser")}
-                title="지우개"
-              >
-                ⌫
-              </button>
-              <button className="draw-tool-btn" onClick={clearCanvas} title="전체 지우기">✕</button>
-              <button
-                className="draw-tool-btn draw-tool-btn--save"
-                onClick={saveImage}
-                title="PNG로 저장"
-              >
-                {saveMsg ?? "↓"}
-              </button>
-            </div>
+            <button
+              className="draw-game-btn draw-game-btn--primary draw-game-action"
+              onClick={handleSubmitDrawing}
+            >제출</button>
           </div>
-        </div>
+        )}
+        {phase === "round_result" && (
+          <div className="draw-game-toolbar">
+            <button
+              className="draw-game-btn draw-game-btn--primary draw-game-action"
+              onClick={() => gameMode.nextRound()}
+            >
+              {gameMode.round >= gameMode.totalRounds ? "결과" : "다음 →"}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Normal mode (no game) ──────────────────────────────────────────────────
+
+  return (
+    <div className="panel-card">
+      <button
+        className="panel-card__header pomo-header"
+        onClick={() => !isGameActive && setOpen((v) => !v)}
+        style={isGameActive ? { cursor: "default" } : undefined}
+      >
+        {isGameActive ? renderGameHeader() : (
+          <span className="draw-header-title"><Pencil size={10} strokeWidth={2} /> 그림판</span>
+        )}
+        {isGameActive ? (
+          <button
+            className="draw-game-close-btn"
+            onClick={(e) => { e.stopPropagation(); gameMode!.resetGame(); }}
+            title="게임 닫기"
+          >
+            <X size={12} strokeWidth={2} />
+          </button>
+        ) : (
+          <span className="pomo-chevron">{open ? "▼" : "▲"}</span>
+        )}
+      </button>
+      <div className={`acc-wrap ${isOpen ? "acc-wrap--open" : ""}`}>
+        <div className="acc-inner">
+          {isGameActive ? (
+            renderGameBody()
+          ) : (
+            <div className="panel-card__body draw-body">
+              <div className="draw-resize-handle" onMouseDown={onResizeMouseDown} onDoubleClick={() => setCanvasHeight(160)} />
+              <div className="draw-canvas-wrapper" style={{ height: `${canvasHeight}px` }}>
+                <canvas
+                  ref={canvasRef}
+                  className="draw-canvas"
+                  width={MAX_CANVAS_W}
+                  height={MAX_CANVAS_H}
+                  onMouseDown={onMouseDown}
+                  onMouseMove={onMouseMove}
+                  onMouseUp={onMouseUp}
+                  onMouseLeave={onMouseUp}
+                />
+              </div>
+              <div className="draw-colors">
+                {DRAW_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    className={`draw-color-btn ${color === c && tool === "pen" ? "draw-color-btn--active" : ""}`}
+                    style={{ background: c, border: c === "#ffffff" ? "1px solid var(--border)" : "none" }}
+                    onClick={() => { setColor(c); setTool("pen"); }}
+                    title={c}
+                  />
+                ))}
+              </div>
+              <div className="draw-tools">
+                <button
+                  className={`draw-tool-btn ${thick ? "draw-tool-btn--active" : ""}`}
+                  onClick={() => setThick((v) => !v)}
+                  title={thick ? "굵게 (현재)" : "얇게 (현재)"}
+                >
+                  {thick ? "●" : "•"}
+                </button>
+                <button
+                  className={`draw-tool-btn ${tool === "eraser" ? "draw-tool-btn--active" : ""}`}
+                  onClick={() => setTool((t) => t === "eraser" ? "pen" : "eraser")}
+                  title="지우개"
+                >
+                  ⌫
+                </button>
+                <button className="draw-tool-btn" onClick={clearCanvas} title="전체 지우기">✕</button>
+                <button
+                  className="draw-tool-btn draw-tool-btn--save"
+                  onClick={saveImage}
+                  title="PNG로 저장"
+                >
+                  {saveMsg ?? "↓"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -525,11 +844,7 @@ function CodeRunCard() {
   const [result, setResult] = useState<CodeExecResult | null>(null);
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      setResult((e as CustomEvent<CodeExecResult>).detail);
-    };
-    window.addEventListener("nekodesk:coderun", handler);
-    return () => window.removeEventListener("nekodesk:coderun", handler);
+    return appEvents.on("coderun", (r) => setResult(r));
   }, []);
 
   return (

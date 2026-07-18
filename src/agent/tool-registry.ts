@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { todosApi, scheduleApi, execHistoryApi, type ScheduleRange } from "../api/tauri";
+import { appEvents, requestWordchainFirstWord } from "../lib/events";
 import { getFile, getStoredFileNames } from "./file-store";
 import type {
   ToolName,
@@ -42,19 +44,27 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
   "todo.list": {
     name: "todo.list",
     description: "열린 할 일 목록을 가져온다",
-    execute: async () => invoke<Todo[]>("todo_list"),
+    execute: async () => todosApi.list(),
     resultLimit: 5,
     summarize: (r) => summarizeTodos((r as Todo[]).slice(0, 5)),
+  },
+
+  "todo.list_done": {
+    name: "todo.list_done",
+    description: "완료된 할 일 목록을 가져온다 (최근 완료순)",
+    execute: async () => todosApi.listDone(),
+    resultLimit: 10,
+    summarize: (r) => summarizeTodos((r as Todo[]).slice(0, 10)),
   },
 
   "todo.add": {
     name: "todo.add",
     description: "할 일을 추가한다",
     execute: async (p) =>
-      invoke<Todo>("todo_add", {
-        content: p["content"] as string,
-        dueAt: (p["due_at"] as string | null | undefined) ?? null,
-      }),
+      todosApi.add(
+        p["content"] as string,
+        (p["due_at"] as string | null | undefined) ?? null
+      ),
     resultLimit: 1,
     summarize: (r) => `할 일 추가됨: ${(r as Todo).id}`,
   },
@@ -62,7 +72,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
   "todo.complete": {
     name: "todo.complete",
     description: "할 일을 완료 처리한다",
-    execute: async (p) => invoke<boolean>("todo_complete", { id: p["id"] as number }),
+    execute: async (p) => todosApi.complete(p["id"] as number),
     resultLimit: 1,
     summarize: () => "완료 처리됨",
   },
@@ -71,32 +81,30 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     name: "schedule.list",
     description: "일정을 조회한다",
     execute: async (p) =>
-      invoke<ScheduleEvent[]>("schedule_list", {
-        range: (p["range"] as string | undefined) ?? "all",
-      }),
+      scheduleApi.list((p["range"] as ScheduleRange) ?? "all"),
     resultLimit: 5,
     summarize: (r) => summarizeEvents((r as ScheduleEvent[]).slice(0, 5)),
   },
 
   "schedule.add": {
     name: "schedule.add",
-    description: "일정을 추가한다",
+    description: "일정을 추가한다 (하루 단위, 여러 날짜는 각각 호출)",
     execute: async (p) =>
-      invoke<ScheduleEvent>("schedule_add", {
-        title: p["title"] as string,
-        startAt: p["start_at"] as string,
-        endAt: (p["end_at"] as string | null | undefined) ?? null,
-      }),
+      scheduleApi.add(p["title"] as string, p["start_at"] as string),
     resultLimit: 1,
     summarize: (r) => `일정 추가됨: ${(r as ScheduleEvent).title}`,
   },
 
   "schedule.delete": {
     name: "schedule.delete",
-    description: "일정을 삭제한다",
-    execute: async (p) => invoke<boolean>("schedule_delete", { id: p["id"] as number }),
+    description: "일정을 삭제한다. ids 배열로 여러 개 동시 삭제 가능. 반드시 schedule.list로 실제 id를 확인한 후 사용할 것",
+    execute: async (p) => scheduleApi.delete(p["ids"] as number[]),
     resultLimit: 1,
-    summarize: () => "일정 삭제됨",
+    summarize: (r) => {
+      const n = r as number;
+      if (n === 0) return "일정 삭제 실패: 해당 ID의 일정이 존재하지 않음";
+      return `일정 ${n}개 삭제됨`;
+    },
   },
 
   "code.exec": {
@@ -108,14 +116,14 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
         language: (p["language"] as string | undefined) ?? "python",
         workDir: (p["work_dir"] as string | null | undefined) ?? null,
       });
-      window.dispatchEvent(new CustomEvent("nekodesk:coderun", { detail: result }));
-      invoke("exec_history_save", {
-        language: (p["language"] as string | undefined) ?? "python",
-        code: p["code"] as string,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        exitCode: result.exit_code,
-      }).catch(() => {});
+      appEvents.emit("coderun", result);
+      execHistoryApi.save(
+        (p["language"] as string | undefined) ?? "python",
+        p["code"] as string,
+        result.stdout,
+        result.stderr,
+        result.exit_code,
+      ).catch(() => {});
       return result;
     },
     resultLimit: 1,
@@ -155,6 +163,32 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     execute: async (p) => invoke<string>("weather_get", { location: p["location"] as string }),
     resultLimit: 1,
     summarize: (r) => r as string,
+  },
+
+  "game.start": {
+    name: "game.start",
+    description: "미니게임을 시작한다. type: 'drawing' = 그림 맞추기(고양이가 그림 보고 추리), 'wordchain' = 끝말잇기(한국어 단어 이어받기)",
+    execute: async (p) => {
+      const type = (p["type"] as string) === "wordchain" ? "wordchain" : "drawing";
+      if (type === "wordchain") {
+        const firstWord = await requestWordchainFirstWord();
+        return { started: "wordchain", firstWord };
+      }
+      appEvents.emit("startGame", { type: "drawing" });
+      return { started: type };
+    },
+    resultLimit: 1,
+    summarize: (r) => {
+      const res = r as { started: string; firstWord?: string | null };
+      if (res.started === "wordchain") {
+        if (res.firstWord) {
+          const last = res.firstWord[res.firstWord.length - 1];
+          return `끝말잇기 게임 시작. 고양이 첫 단어: "${res.firstWord}". 유저는 "${last}"로 시작하는 단어를 말해야 함.`;
+        }
+        return "끝말잇기 게임 시작 실패";
+      }
+      return "그림 맞추기 게임 시작!";
+    },
   },
 
   "file.upload": {

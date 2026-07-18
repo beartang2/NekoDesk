@@ -8,6 +8,8 @@ import {
   getCatVariant,
 } from "./spriteData";
 import type { CatEmotion } from "../agent/types";
+import { useTrackpadPet } from "../hooks/useTrackpadPet";
+import { useCatStore } from "../stores/catStore";
 import "./CatCanvas.css";
 
 const HEARTS = ["♡", "♡", "♡", "✦", "˚"];
@@ -99,11 +101,10 @@ function recolorCoat(ctx: CanvasRenderingContext2D, variantId: string) {
 interface CatCanvasProps {
   emotion: CatEmotion;
   onPet?: () => void;
-  variantId: string;
-  petSignal?: number; // 증가할 때마다 handlePet 호출
 }
 
-export function CatCanvas({ emotion, onPet, variantId, petSignal }: CatCanvasProps) {
+export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
+  const variantId = useCatStore((s) => s.variantId);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [frameIdx, setFrameIdx] = useState(0);
   const [petEmotion, setPetEmotion] = useState<CatEmotion | null>(null);
@@ -154,14 +155,14 @@ export function CatCanvas({ emotion, onPet, variantId, petSignal }: CatCanvasPro
     }, PET_DURATION_MS);
   }, [onPet]);
 
-  // 외부 pet 트리거 (가속도계 등)
-  const prevPetSignalRef = useRef(0);
-  useEffect(() => {
-    if (petSignal && petSignal !== prevPetSignalRef.current) {
-      prevPetSignalRef.current = petSignal;
-      handlePet();
-    }
-  }, [petSignal, handlePet]);
+  // 트랙패드로 쓰다듬기. 문지르는 동안 handlePet 이 (스로틀되어) 반복 호출된다.
+  const { isPetting, togglePetting, onHoverMove, bindRef } = useTrackpadPet(handlePet);
+
+  // 클릭: 한 번 쓰다듬고 + 쓰다듬기 모드(커서 숨김) 토글
+  const handleClick = useCallback(() => {
+    handlePet();
+    togglePetting();
+  }, [handlePet, togglePetting]);
 
   // Advance frame
   useEffect(() => {
@@ -222,7 +223,13 @@ export function CatCanvas({ emotion, onPet, variantId, petSignal }: CatCanvasPro
   return (
     <div className="cat-canvas-wrap">
       <div className={`cat-canvas-stage cat-canvas-stage--${displayEmotion}`}>
-        <div className="cat-canvas-pet-area" onClick={handlePet} title="쓰다듬기">
+        <div
+          ref={bindRef}
+          className={`cat-canvas-pet-area${isPetting ? " cat-canvas-pet-area--petting" : ""}`}
+          onClick={handleClick}
+          onMouseMove={onHoverMove}
+          // title={isPetting ? "트랙패드를 문질러 쓰다듬기 (Esc 로 종료)" : "클릭해서 쓰다듬기"}
+        >
           <canvas
             ref={canvasRef}
             width={CANVAS_WIDTH}

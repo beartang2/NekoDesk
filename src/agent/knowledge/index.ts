@@ -39,6 +39,9 @@ const KNOWLEDGE_MAP: KnowledgeEntry[] = [
       "플레이리스트", "playlist",
       "요루시카", "아티스트", "artist",
       "airplay",
+      "틀어줘", "틀어", "들을래", "들을게", "들어볼게", "추천", "recommend",
+      "lemon", "yonezu", "yorushika", "kenshi",
+      "새로운 노래", "모르는 노래", "안 들어본", "미리듣기", "취향에 맞는",
     ],
   },
   {
@@ -116,11 +119,11 @@ const KNOWLEDGE_MAP: KnowledgeEntry[] = [
  * 사용자 입력 키워드를 보고 관련 knowledge 파일만 골라 반환한다.
  * 매칭되는 게 없으면 빈 문자열 반환 (프롬프트에 불필요한 내용 추가 안 함).
  */
-export function buildKnowledgeSection(userInput: string): string {
-  const input = userInput.toLowerCase();
+export function buildKnowledgeSection(userInput: string, recentContext = ""): string {
+  const combined = (userInput + " " + recentContext).toLowerCase();
 
   const matched = KNOWLEDGE_MAP.filter(({ keywords }) =>
-    keywords.some((kw) => input.includes(kw.toLowerCase()))
+    keywords.some((kw) => combined.includes(kw.toLowerCase()))
   );
 
   if (matched.length === 0) return "";
