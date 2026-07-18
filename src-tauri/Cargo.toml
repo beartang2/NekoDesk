@@ -25,7 +25,12 @@ tauri = { version = "2.10.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-window-state = "2"
 rusqlite = { version = "0.31", features = ["bundled"] }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 scraper = "0.22"
 dirs = "5"
 base64 = "0.22"
+thiserror = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# NSHapticFeedbackManager 호출용. tauri 가 이미 쓰는 버전이라 추가 빌드 비용 없음.
+objc2 = "0.6"

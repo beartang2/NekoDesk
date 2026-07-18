@@ -1,14 +1,39 @@
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::io::Read;
 use tauri::Manager;
+use base64::{Engine as _, engine::general_purpose};
+
+mod error;
+mod db;
+mod http;
+pub use error::AppError;
+// 모델은 db::models 소속. 예전에 lib.rs 에 있던 경로를 유지하려 재노출.
+pub use db::models::{ConversationMessage, ExecHistoryItem, ScheduleEvent, Todo};
 
 // ── Database state ────────────────────────────────────────────────────────────
 
 pub struct DbState(pub Mutex<Connection>);
 pub struct LlamaServerState(pub Mutex<Option<std::process::Child>>);
+
+/// NSHapticFeedbackManager.defaultPerformer 에 performFeedbackPattern:performanceTime: 를 보낸다.
+/// 타입 래퍼(objc2-app-kit) 없이 런타임 클래스 조회로 호출해 의존성을 최소화한다.
+/// 반드시 main thread 에서 호출할 것.
+#[cfg(target_os = "macos")]
+unsafe fn perform_haptic(pattern: isize) {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+
+    let Some(cls) = AnyClass::get(c"NSHapticFeedbackManager") else { return };
+    let performer: *mut AnyObject = msg_send![cls, defaultPerformer];
+    if performer.is_null() {
+        return;
+    }
+    // performanceTime: 1 = .now
+    let _: () = msg_send![performer, performFeedbackPattern: pattern, performanceTime: 1isize];
+}
 
 fn open_db(data_dir: PathBuf) -> rusqlite::Result<Connection> {
     // dev 빌드는 별도 디렉토리로 분리
@@ -26,75 +51,11 @@ fn open_db(data_dir: PathBuf) -> rusqlite::Result<Connection> {
     Ok(conn)
 }
 
-fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS todos (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            content      TEXT NOT NULL,
-            status       TEXT NOT NULL DEFAULT 'open',
-            priority     INTEGER,
-            due_at       TEXT,
-            created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-            completed_at TEXT
-        );
-        CREATE TABLE IF NOT EXISTS events (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            title      TEXT NOT NULL,
-            start_at   TEXT NOT NULL,
-            end_at     TEXT,
-            notes      TEXT,
-            all_day    INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS conversation_messages (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT NOT NULL,
-            role       TEXT NOT NULL,
-            content    TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS settings (
-            key        TEXT PRIMARY KEY,
-            value      TEXT NOT NULL,
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS exec_history (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            language    TEXT NOT NULL,
-            code        TEXT NOT NULL,
-            stdout      TEXT NOT NULL DEFAULT '',
-            stderr      TEXT NOT NULL DEFAULT '',
-            exit_code   INTEGER NOT NULL,
-            executed_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        ",
-    )
-}
+// init_schema 는 db::init_schema 로 이동했다(DB 계층 소속).
 
 // ── Shared types ──────────────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Todo {
-    pub id: i64,
-    pub content: String,
-    pub status: String,
-    pub priority: Option<i64>,
-    pub due_at: Option<String>,
-    pub created_at: String,
-    pub completed_at: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ScheduleEvent {
-    pub id: i64,
-    pub title: String,
-    pub start_at: String,
-    pub end_at: Option<String>,
-    pub notes: Option<String>,
-    pub all_day: bool,
-    pub created_at: String,
-}
+// Todo/ScheduleEvent/ConversationMessage/ExecHistoryItem 는 db::models 로 이동
+// (상단에서 pub use 로 재노출). 아래는 아직 DB 계층이 아닌 순수 IPC 타입들.
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SearchResult {
@@ -116,16 +77,19 @@ pub struct CodeExecResult {
     pub stderr: String,
     pub exit_code: i32,
     pub truncated: bool,
+    pub image_data_url: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConversationMessage {
-    pub id: i64,
-    pub session_id: String,
-    pub role: String,
-    pub content: String,
-    pub created_at: String,
+const NEKO_IMG_PATH: &str = "/tmp/neko_output.png";
+
+fn collect_output_image() -> Option<String> {
+    let path = std::path::Path::new(NEKO_IMG_PATH);
+    if !path.exists() { return None; }
+    let data = std::fs::read(path).ok()?;
+    std::fs::remove_file(path).ok();
+    Some(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&data)))
 }
+
 
 // ── Commands module ───────────────────────────────────────────────────────────
 // Tauri 2 requires commands to be in their own module when using generate_handler!
@@ -137,34 +101,16 @@ mod commands {
     use std::time::{Duration, Instant};
     use std::thread;
     use std::sync::mpsc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tauri::State;
 
+    // todos 커맨드는 DB 잠금만 잡고 db::todos 순수 함수에 위임한다.
+    // SQL·행 매핑은 db/todos.rs 에 있고 거기서 단위 테스트된다.
+
     #[tauri::command]
-    pub fn todo_list(db: State<DbState>) -> Result<Vec<Todo>, String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, content, status, priority, due_at, created_at, completed_at
-                 FROM todos WHERE status = 'open'
-                 ORDER BY due_at ASC NULLS LAST, created_at DESC LIMIT 20",
-            )
-            .map_err(|e| e.to_string())?;
-
-        let rows = stmt
-            .query_map([], |row| {
-                Ok(Todo {
-                    id: row.get(0)?,
-                    content: row.get(1)?,
-                    status: row.get(2)?,
-                    priority: row.get(3)?,
-                    due_at: row.get(4)?,
-                    created_at: row.get(5)?,
-                    completed_at: row.get(6)?,
-                })
-            })
-            .map_err(|e| e.to_string())?;
-
-        rows.map(|r| r.map_err(|e| e.to_string())).collect()
+    pub fn todo_list(db: State<DbState>) -> Result<Vec<Todo>, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::todos::list_open(&conn)
     }
 
     #[tauri::command]
@@ -172,81 +118,27 @@ mod commands {
         db: State<DbState>,
         content: String,
         due_at: Option<String>,
-    ) -> Result<Todo, String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.execute(
-            "INSERT INTO todos (content, due_at) VALUES (?1, ?2)",
-            params![content, due_at],
-        )
-        .map_err(|e| e.to_string())?;
-
-        let id = conn.last_insert_rowid();
-        conn.query_row(
-            "SELECT id, content, status, priority, due_at, created_at, completed_at
-             FROM todos WHERE id = ?1",
-            params![id],
-            |row| {
-                Ok(Todo {
-                    id: row.get(0)?,
-                    content: row.get(1)?,
-                    status: row.get(2)?,
-                    priority: row.get(3)?,
-                    due_at: row.get(4)?,
-                    created_at: row.get(5)?,
-                    completed_at: row.get(6)?,
-                })
-            },
-        )
-        .map_err(|e| e.to_string())
+    ) -> Result<Todo, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::todos::add(&conn, &content, due_at.as_deref())
     }
 
     #[tauri::command]
-    pub fn todo_complete(db: State<DbState>, id: i64) -> Result<bool, String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let updated = conn
-            .execute(
-                "UPDATE todos SET status = 'done', completed_at = datetime('now') WHERE id = ?1",
-                params![id],
-            )
-            .map_err(|e| e.to_string())?;
-        Ok(updated > 0)
+    pub fn todo_list_done(db: State<DbState>) -> Result<Vec<Todo>, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::todos::list_done(&conn)
     }
 
     #[tauri::command]
-    pub fn schedule_list(db: State<DbState>, range: String) -> Result<Vec<ScheduleEvent>, String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
+    pub fn todo_complete(db: State<DbState>, id: i64) -> Result<bool, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::todos::complete(&conn, id)
+    }
 
-        let sql = match range.as_str() {
-            "today" => "SELECT id, title, start_at, end_at, notes, all_day, created_at
-                        FROM events WHERE date(start_at) = date('now')
-                        ORDER BY start_at ASC LIMIT 20".to_string(),
-            "week"  => "SELECT id, title, start_at, end_at, notes, all_day, created_at
-                        FROM events WHERE start_at >= datetime('now')
-                          AND date(start_at) BETWEEN date('now') AND date('now', '+7 days')
-                        ORDER BY start_at ASC LIMIT 20".to_string(),
-            _       => "SELECT id, title, start_at, end_at, notes, all_day, created_at
-                        FROM events
-                        ORDER BY start_at ASC LIMIT 200".to_string(),
-        };
-
-        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-
-        let rows = stmt
-            .query_map([], |row| {
-                let all_day_int: i64 = row.get(5)?;
-                Ok(ScheduleEvent {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    start_at: row.get(2)?,
-                    end_at: row.get(3)?,
-                    notes: row.get(4)?,
-                    all_day: all_day_int != 0,
-                    created_at: row.get(6)?,
-                })
-            })
-            .map_err(|e| e.to_string())?;
-
-        rows.map(|r| r.map_err(|e| e.to_string())).collect()
+    #[tauri::command]
+    pub fn schedule_list(db: State<DbState>, range: String) -> Result<Vec<ScheduleEvent>, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::events::list(&conn, crate::db::events::Range::parse(&range))
     }
 
     #[tauri::command]
@@ -255,51 +147,63 @@ mod commands {
         title: String,
         start_at: String,
         end_at: Option<String>,
-    ) -> Result<ScheduleEvent, String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.execute(
-            "INSERT INTO events (title, start_at, end_at) VALUES (?1, ?2, ?3)",
-            params![title, start_at, end_at],
-        )
-        .map_err(|e| e.to_string())?;
-
-        let id = conn.last_insert_rowid();
-        conn.query_row(
-            "SELECT id, title, start_at, end_at, notes, all_day, created_at
-             FROM events WHERE id = ?1",
-            params![id],
-            |row| {
-                let all_day_int: i64 = row.get(5)?;
-                Ok(ScheduleEvent {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    start_at: row.get(2)?,
-                    end_at: row.get(3)?,
-                    notes: row.get(4)?,
-                    all_day: all_day_int != 0,
-                    created_at: row.get(6)?,
-                })
-            },
-        )
-        .map_err(|e| e.to_string())
+    ) -> Result<ScheduleEvent, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::events::add(&conn, &title, &start_at, end_at.as_deref())
     }
 
     #[tauri::command]
-    pub fn schedule_delete(db: State<DbState>, id: i64) -> Result<bool, String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let deleted = conn
-            .execute("DELETE FROM events WHERE id = ?1", params![id])
-            .map_err(|e| e.to_string())?;
-        Ok(deleted > 0)
+    pub fn schedule_delete(db: State<DbState>, ids: Vec<i64>) -> Result<usize, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::events::delete(&conn, &ids)
+    }
+
+    /// 바이트 인덱스로 String을 자르면 멀티바이트 문자(한글 3바이트, 이모지 4바이트)
+    /// 경계에서 패닉한다. 항상 문자 단위로 자른다.
+    fn truncate_chars(s: String, max_chars: usize) -> (String, bool) {
+        if s.chars().count() <= max_chars {
+            return (s, false);
+        }
+        let mut out: String = s.chars().take(max_chars).collect();
+        out.push_str("…(잘림)");
+        (out, true)
+    }
+
+    /// 프런트엔드의 확인 다이얼로그를 우회한 호출(예: webview 스크립트가 직접
+    /// invoke)에 대한 Rust 측 최종 방어선. 신뢰 경계를 렌더러에만 두지 않는다.
+    /// 여기서는 되돌릴 수 없는 최악의 명령만 하드 차단한다.
+    fn hard_blocked(code: &str) -> Option<&'static str> {
+        const BLOCK: &[(&str, &str)] = &[
+            ("sudo ", "관리자 권한 실행"),
+            ("rm -rf /", "루트 경로 강제 삭제"),
+            ("rm -rf ~", "홈 디렉토리 강제 삭제"),
+            ("mkfs", "디스크 포맷"),
+            ("diskutil erase", "디스크 초기화"),
+            ("with administrator privileges", "관리자 권한 실행(AppleScript)"),
+            ("id_rsa", "SSH 개인키 접근"),
+            ("id_ed25519", "SSH 개인키 접근"),
+        ];
+        let lower = code.to_lowercase();
+        BLOCK.iter().find(|(p, _)| lower.contains(p)).map(|(_, r)| *r)
     }
 
     #[tauri::command]
     pub fn code_exec(code: String, language: Option<String>, work_dir: Option<String>) -> Result<CodeExecResult, String> {
+        if let Some(reason) = hard_blocked(&code) {
+            return Err(format!("보안상 차단된 명령이야: {reason}. 이건 실행할 수 없어."));
+        }
         let lang = language.as_deref().unwrap_or("python");
 
         // AppleScript는 임시 파일로 실행 (-e 플래그는 멀티라인/한글에서 불안정)
         if lang == "applescript" || lang == "osascript" {
-            let tmp_path = std::env::temp_dir().join("nekodesk_script.applescript");
+            // 고정 경로는 심볼릭 링크 공격과 동시 호출 레이스에 노출된다.
+            // 호출마다 고유 경로를 쓰고 실행 후 지운다.
+            static SCRIPT_SEQ: AtomicUsize = AtomicUsize::new(0);
+            let tmp_path = std::env::temp_dir().join(format!(
+                "nekodesk_{}_{}.applescript",
+                std::process::id(),
+                SCRIPT_SEQ.fetch_add(1, Ordering::Relaxed)
+            ));
             std::fs::write(&tmp_path, code.as_bytes())
                 .map_err(|e| format!("AppleScript 임시 파일 생성 실패: {e}"))?;
 
@@ -332,17 +236,32 @@ mod commands {
                 reader.read_to_string(&mut buf).ok();
                 tx_err.send(buf).ok();
             });
-            let status = child.wait().map_err(|e| format!("프로세스 대기 실패: {e}"))?;
-            let stdout = rx_out.recv().unwrap_or_default();
-            let stderr = rx_err.recv().unwrap_or_default();
-            let exit_code = status.code().unwrap_or(-1);
-            let limit = 8000usize;
-            let (stdout, stderr, truncated) = if stdout.len() + stderr.len() > limit {
-                (stdout.chars().take(limit).collect(), stderr.chars().take(200).collect(), true)
-            } else {
-                (stdout, stderr, false)
+            // python/shell 분기와 동일한 30초 상한. 예전에는 child.wait() 무한대기라
+            // `repeat`나 `display dialog` 하나로 앱이 영구 정지했다.
+            let timeout = Duration::from_secs(30);
+            let start = Instant::now();
+            let exit_code = loop {
+                match child.try_wait().map_err(|e| format!("프로세스 대기 실패: {e}"))? {
+                    Some(status) => break status.code().unwrap_or(-1),
+                    None => {
+                        if start.elapsed() > timeout {
+                            child.kill().ok();
+                            std::fs::remove_file(&tmp_path).ok();
+                            return Err("AppleScript 실행 시간 초과 (30초)".to_string());
+                        }
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                }
             };
-            return Ok(CodeExecResult { stdout, stderr, exit_code, truncated });
+            std::fs::remove_file(&tmp_path).ok();
+
+            let stdout_raw = rx_out.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
+            let stderr_raw = rx_err.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
+            let (stdout, stdout_trunc) = truncate_chars(stdout_raw, 4000);
+            let (stderr, stderr_trunc) = truncate_chars(stderr_raw, 2000);
+            let truncated = stdout_trunc || stderr_trunc;
+            let image_data_url = collect_output_image();
+            return Ok(CodeExecResult { stdout, stderr, exit_code, truncated, image_data_url });
         }
 
         let (interpreter, flag) = match lang {
@@ -406,192 +325,42 @@ mod commands {
         let stderr_raw = rx_err.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
 
         const MAX_OUTPUT: usize = 4000;
-        let truncated = stdout_raw.len() > MAX_OUTPUT || stderr_raw.len() > MAX_OUTPUT;
-        let stdout = if stdout_raw.len() > MAX_OUTPUT {
-            format!("{}…(잘림)", &stdout_raw[..MAX_OUTPUT])
-        } else {
-            stdout_raw
+        let (stdout, stdout_trunc) = truncate_chars(stdout_raw, MAX_OUTPUT);
+        let (stderr, stderr_trunc) = truncate_chars(stderr_raw, MAX_OUTPUT);
+        let truncated = stdout_trunc || stderr_trunc;
+
+        let image_data_url = collect_output_image();
+        Ok(CodeExecResult { stdout, stderr, exit_code, truncated, image_data_url })
+    }
+
+    #[tauri::command]
+    pub async fn web_search(
+        db: State<'_, DbState>,
+        query: String,
+    ) -> Result<Vec<SearchResult>, AppError> {
+        // brave 키는 lock 을 await 전에 버리고 owned 로 뽑는다(가드는 !Send).
+        let brave_key = {
+            let conn = db.0.lock()?;
+            crate::db::settings::get(&conn, "brave_search_key")?
         };
-        let stderr = if stderr_raw.len() > MAX_OUTPUT {
-            format!("{}…(잘림)", &stderr_raw[..MAX_OUTPUT])
-        } else {
-            stderr_raw
-        };
-
-        Ok(CodeExecResult { stdout, stderr, exit_code, truncated })
+        crate::http::search::run(&query, brave_key).await
     }
 
     #[tauri::command]
-    pub fn web_search(db: State<DbState>, query: String) -> Result<Vec<SearchResult>, String> {
-        // ── 1) DuckDuckGo lite (기본) ───────────────────────────────────────────
-        let ddg_results = (|| -> Result<Vec<SearchResult>, String> {
-            let encoded = urlencoding(&query);
-            let url = format!("https://lite.duckduckgo.com/lite/?q={}", encoded);
-
-            let client = reqwest::blocking::Client::builder()
-                .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                .timeout(std::time::Duration::from_secs(12))
-                .build()
-                .map_err(|e: reqwest::Error| e.to_string())?;
-
-            let html = client
-                .get(&url)
-                .header("Accept", "text/html,application/xhtml+xml")
-                .header("Accept-Language", "en-US,en;q=0.9,ko;q=0.8")
-                .send()
-                .map_err(|e| e.to_string())?
-                .text()
-                .map_err(|e| e.to_string())?;
-
-            let document = scraper::Html::parse_document(&html);
-            let link_sel    = scraper::Selector::parse("a.result-link").unwrap();
-            let snippet_sel = scraper::Selector::parse("td.result-snippet").unwrap();
-            let links:    Vec<_> = document.select(&link_sel).collect();
-            let snippets: Vec<_> = document.select(&snippet_sel).collect();
-
-            let mut results = Vec::new();
-            for (i, node) in links.iter().enumerate().take(5) {
-                let title   = node.text().collect::<String>().trim().to_string();
-                let href    = node.value().attr("href").unwrap_or("").to_string();
-                let snippet = snippets.get(i)
-                    .map(|n| n.text().collect::<String>().trim().to_string())
-                    .unwrap_or_default();
-                if !title.is_empty() && !href.is_empty() {
-                    results.push(SearchResult { title, url: href, snippet });
-                }
-            }
-            Ok(results)
-        })();
-
-        if let Ok(results) = ddg_results {
-            if !results.is_empty() {
-                return Ok(results);
-            }
-        }
-
-        // ── 2) Brave Search API 폴백 (키가 설정된 경우) ────────────────────────
-        let brave_key: Option<String> = {
-            let conn = db.0.lock().map_err(|e| e.to_string())?;
-            conn.query_row(
-                "SELECT value FROM settings WHERE key = 'brave_search_key'",
-                [],
-                |row| row.get(0),
-            ).ok()
-        };
-
-        if let Some(key) = brave_key.filter(|k| !k.trim().is_empty()) {
-            let encoded = urlencoding(&query);
-            let url = format!(
-                "https://api.search.brave.com/res/v1/web/search?q={}&count=5&search_lang=en",
-                encoded
-            );
-            let client = reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
-                .map_err(|e: reqwest::Error| e.to_string())?;
-
-            let resp = client
-                .get(&url)
-                .header("Accept", "application/json")
-                .header("Accept-Encoding", "gzip")
-                .header("X-Subscription-Token", key.trim())
-                .send()
-                .map_err(|e| e.to_string())?
-                .json::<serde_json::Value>()
-                .map_err(|e| e.to_string())?;
-
-            let mut results = Vec::new();
-            if let Some(items) = resp["web"]["results"].as_array() {
-                for item in items.iter().take(5) {
-                    let title   = item["title"].as_str().unwrap_or("").to_string();
-                    let url     = item["url"].as_str().unwrap_or("").to_string();
-                    let snippet = item["description"].as_str().unwrap_or("").to_string();
-                    if !title.is_empty() && !url.is_empty() {
-                        results.push(SearchResult { title, url, snippet });
-                    }
-                }
-            }
-            if !results.is_empty() {
-                return Ok(results);
-            }
-        }
-
-        Ok(vec![])
+    pub async fn web_scrape(url: String) -> Result<ScrapResult, AppError> {
+        crate::http::scrape::run(&url).await
     }
 
     #[tauri::command]
-    pub fn web_scrape(url: String) -> Result<ScrapResult, String> {
-        // ── GitHub special-case: use API for cleaner data ─────────────────────
-        if let Some(gh_content) = scrape_github(&url) {
-            return gh_content;
-        }
-
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("Mozilla/5.0 (Macintosh; Apple Silicon Mac OS X 15_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15")
-            .timeout(std::time::Duration::from_secs(15))
-            .redirect(reqwest::redirect::Policy::limited(5))
-            .build()
-            .map_err(|e| e.to_string())?;
-
-        let html = client
-            .get(&url)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .header("Accept-Language", "en-US,en;q=0.9,ko;q=0.8")
-            .send()
-            .map_err(|e| format!("요청 실패: {}", e))?
-            .text()
-            .map_err(|e| format!("응답 읽기 실패: {}", e))?;
-
-        let document = scraper::Html::parse_document(&html);
-
-        let title_sel = scraper::Selector::parse("title").unwrap();
-        let title = document.select(&title_sel)
-            .next()
-            .map(|n| n.text().collect::<String>().trim().to_string())
-            .unwrap_or_default();
-
-        // Extract readable text from content tags, skip nav/footer/script/style
-        let content_sel = scraper::Selector::parse(
-            "article, main, p, h1, h2, h3, h4, li, td, th, blockquote"
-        ).unwrap();
-
-        let content: String = document.select(&content_sel)
-            .map(|n| n.text().collect::<String>().trim().to_string())
-            .filter(|s| s.len() > 15)
-            .collect::<Vec<_>>()
-            .join("\n")
-            .chars()
-            .take(6000)
-            .collect();
-
-        Ok(ScrapResult { url, title, content })
+    pub fn settings_set(db: State<DbState>, key: String, value: String) -> Result<(), AppError> {
+        let conn = db.0.lock()?;
+        crate::db::settings::set(&conn, &key, &value)
     }
 
     #[tauri::command]
-    pub fn settings_set(db: State<DbState>, key: String, value: String) -> Result<(), String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES (?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
-            params![key, value],
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    #[tauri::command]
-    pub fn settings_get(db: State<DbState>, key: String) -> Result<Option<String>, String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let result = conn.query_row(
-            "SELECT value FROM settings WHERE key = ?1",
-            params![key],
-            |row| row.get::<_, String>(0),
-        );
-        match result {
-            Ok(v) => Ok(Some(v)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.to_string()),
-        }
+    pub fn settings_get(db: State<DbState>, key: String) -> Result<Option<String>, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::settings::get(&conn, &key)
     }
 
     #[tauri::command]
@@ -600,130 +369,68 @@ mod commands {
         session_id: String,
         role: String,
         content: String,
-    ) -> Result<(), String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.execute(
-            "INSERT INTO conversation_messages (session_id, role, content) VALUES (?1, ?2, ?3)",
-            params![session_id, role, content],
-        )
-        .map_err(|e| e.to_string())?;
-
-        // Trim to 40 most recent messages per session
-        conn.execute(
-            "DELETE FROM conversation_messages WHERE session_id = ?1 AND id NOT IN (
-                 SELECT id FROM conversation_messages WHERE session_id = ?1
-                 ORDER BY id DESC LIMIT 40
-             )",
-            params![session_id],
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(())
+    ) -> Result<(), AppError> {
+        let conn = db.0.lock()?;
+        crate::db::conversations::save(&conn, &session_id, &role, &content)
     }
 
     #[tauri::command]
     pub fn conversation_load(
         db: State<DbState>,
         session_id: String,
-    ) -> Result<Vec<ConversationMessage>, String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, session_id, role, content, created_at
-                 FROM conversation_messages WHERE session_id = ?1
-                 ORDER BY id ASC",
-            )
-            .map_err(|e| e.to_string())?;
-
-        let rows = stmt
-            .query_map(params![session_id], |row| {
-                Ok(ConversationMessage {
-                    id: row.get(0)?,
-                    session_id: row.get(1)?,
-                    role: row.get(2)?,
-                    content: row.get(3)?,
-                    created_at: row.get(4)?,
-                })
-            })
-            .map_err(|e| e.to_string())?;
-
-        rows.map(|r| r.map_err(|e| e.to_string())).collect()
+    ) -> Result<Vec<ConversationMessage>, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::conversations::load(&conn, &session_id)
     }
 
     #[tauri::command]
-    pub fn conversation_delete(
-        db: State<DbState>,
-        session_id: String,
-    ) -> Result<(), String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.execute(
-            "DELETE FROM conversation_messages WHERE session_id = ?1",
-            params![session_id],
-        )
-        .map_err(|e| e.to_string())?;
+    pub fn conversation_delete(db: State<DbState>, session_id: String) -> Result<(), AppError> {
+        let conn = db.0.lock()?;
+        crate::db::conversations::delete(&conn, &session_id)
+    }
+
+    #[tauri::command]
+    pub async fn weather_get(location: String) -> Result<String, AppError> {
+        crate::http::weather::run(&location).await
+    }
+
+    /// macOS 알림을 띄웁니다.
+    ///
+    /// title/body 를 AppleScript 소스에 문자열 보간하면 안 된다. 큰따옴표 하나로
+    /// 문자열을 탈출해 임의 코드가 실행된다. `on run argv` 로 넘기면 osascript 가
+    /// 이 값들을 파싱하지 않고 데이터로만 취급한다.
+    #[tauri::command]
+    pub fn notify_send(title: String, body: String) -> Result<(), String> {
+        Command::new("osascript")
+            .arg("-e").arg("on run argv")
+            .arg("-e").arg("display notification (item 2 of argv) with title (item 1 of argv) sound name \"Glass\"")
+            .arg("-e").arg("end run")
+            .arg(title)
+            .arg(body)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("알림 표시 실패: {e}"))?;
         Ok(())
     }
 
+    /// 트랙패드에 촉각 피드백을 준다. 고양이를 쓰다듬을 때 실제로 트랙패드가 떨린다.
+    ///
+    /// pattern: 0=generic, 1=alignment(또렷한 탁), 2=levelChange.
+    /// NSHapticFeedbackManager 는 AppKit 이라 main thread 에서 호출한다.
     #[tauri::command]
-    pub fn weather_get(_db: State<DbState>, location: String) -> Result<String, String> {
-        // Step 1: Geocoding
-        let geo_url = format!(
-            "https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&language=ko&format=json",
-            urlencoding(&location)
-        );
-        let geo_resp: serde_json::Value = reqwest::blocking::get(&geo_url)
-            .map_err(|e| e.to_string())?
-            .json()
-            .map_err(|e| e.to_string())?;
-
-        let results = geo_resp["results"].as_array()
-            .ok_or_else(|| format!("'{}' 위치를 찾을 수 없습니다.", location))?;
-        if results.is_empty() {
-            return Err(format!("'{}' 위치를 찾을 수 없습니다.", location));
+    pub fn haptic_feedback(app: tauri::AppHandle, pattern: Option<i64>) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            let p = pattern.unwrap_or(1) as isize;
+            app.run_on_main_thread(move || unsafe { perform_haptic(p) })
+                .map_err(|e| e.to_string())?;
         }
-        let lat = results[0]["latitude"].as_f64().unwrap_or(0.0);
-        let lon = results[0]["longitude"].as_f64().unwrap_or(0.0);
-        let place_name = results[0]["name"].as_str().unwrap_or(&location).to_string();
-
-        // Step 2: Weather fetch
-        let weather_url = format!(
-            "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,apparent_temperature&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FSeoul&forecast_days=3",
-            lat, lon
-        );
-        let weather: serde_json::Value = reqwest::blocking::get(&weather_url)
-            .map_err(|e| e.to_string())?
-            .json()
-            .map_err(|e| e.to_string())?;
-
-        let cur = &weather["current"];
-        let temp = cur["temperature_2m"].as_f64().unwrap_or(0.0);
-        let feels = cur["apparent_temperature"].as_f64().unwrap_or(temp);
-        let humidity = cur["relative_humidity_2m"].as_i64().unwrap_or(0);
-        let wind = cur["wind_speed_10m"].as_f64().unwrap_or(0.0);
-        let code = cur["weather_code"].as_i64().unwrap_or(0);
-
-        let condition = super::weather_code_to_str(code);
-
-        let daily = &weather["daily"];
-        let max_temps = daily["temperature_2m_max"].as_array();
-        let min_temps = daily["temperature_2m_min"].as_array();
-        let precip = daily["precipitation_probability_max"].as_array();
-
-        let mut result = format!(
-            "{} 현재 날씨\n{} | {:.1}°C (체감 {:.1}°C)\n습도 {}% | 바람 {:.1}km/h",
-            place_name, condition, temp, feels, humidity, wind
-        );
-
-        let day_labels = ["오늘", "내일", "모레"];
-        for i in 0..3 {
-            let tmax = max_temps.and_then(|a| a.get(i)).and_then(|v| v.as_f64());
-            let tmin = min_temps.and_then(|a| a.get(i)).and_then(|v| v.as_f64());
-            let rain = precip.and_then(|a| a.get(i)).and_then(|v| v.as_i64());
-            if let (Some(mx), Some(mn)) = (tmax, tmin) {
-                let rain_str = rain.map(|r| format!(" 강수 {}%", r)).unwrap_or_default();
-                result.push_str(&format!("\n{}: 최고 {:.0}°C / 최저 {:.0}°C{}", day_labels[i], mx, mn, rain_str));
-            }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (app, pattern);
         }
-        Ok(result)
+        Ok(())
     }
 
     /// macOS URL 스킴 또는 앱을 엽니다 (권한 설정 페이지 열기 등에 사용)
@@ -757,17 +464,7 @@ mod commands {
     }
 
     // ── 실행 이력 ─────────────────────────────────────────────────────────────
-
-    #[derive(Debug, Serialize, Deserialize, Clone)]
-    pub struct ExecHistoryItem {
-        pub id: i64,
-        pub language: String,
-        pub code: String,
-        pub stdout: String,
-        pub stderr: String,
-        pub exit_code: i64,
-        pub executed_at: String,
-    }
+    // ExecHistoryItem 은 db::models 로 이동(상단 재노출).
 
     #[tauri::command]
     pub fn exec_history_save(
@@ -777,41 +474,21 @@ mod commands {
         stdout: String,
         stderr: String,
         exit_code: i64,
-    ) -> Result<(), String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.execute(
-            "INSERT INTO exec_history (language, code, stdout, stderr, exit_code) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![language, code, stdout, stderr, exit_code],
-        ).map_err(|e| e.to_string())?;
-        Ok(())
+    ) -> Result<(), AppError> {
+        let conn = db.0.lock()?;
+        crate::db::exec_history::save(&conn, &language, &code, &stdout, &stderr, exit_code)
     }
 
     #[tauri::command]
-    pub fn exec_history_list(db: State<DbState>) -> Result<Vec<ExecHistoryItem>, String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let mut stmt = conn.prepare(
-            "SELECT id, language, code, stdout, stderr, exit_code, executed_at
-             FROM exec_history ORDER BY id DESC LIMIT 20",
-        ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([], |row| {
-            Ok(ExecHistoryItem {
-                id: row.get(0)?,
-                language: row.get(1)?,
-                code: row.get(2)?,
-                stdout: row.get(3)?,
-                stderr: row.get(4)?,
-                exit_code: row.get(5)?,
-                executed_at: row.get(6)?,
-            })
-        }).map_err(|e| e.to_string())?;
-        rows.map(|r| r.map_err(|e| e.to_string())).collect()
+    pub fn exec_history_list(db: State<DbState>) -> Result<Vec<ExecHistoryItem>, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::exec_history::list(&conn)
     }
 
     #[tauri::command]
-    pub fn exec_history_clear(db: State<DbState>) -> Result<(), String> {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM exec_history", []).map_err(|e| e.to_string())?;
-        Ok(())
+    pub fn exec_history_clear(db: State<DbState>) -> Result<(), AppError> {
+        let conn = db.0.lock()?;
+        crate::db::exec_history::clear(&conn)
     }
 
     // ── llama-server 관련 ─────────────────────────────────────────────────────
@@ -820,6 +497,7 @@ mod commands {
     pub struct LlamaConfig {
         pub model: String,
         pub mmproj: Option<String>,
+        pub model_draft: Option<String>,
         pub ngl: i32,
         pub flash_attn: bool,
         pub jinja: bool,
@@ -834,29 +512,27 @@ mod commands {
         pub host: String,
         pub reasoning: String,
         pub reasoning_format: String,
+        pub mtp_n_draft: Option<i32>,
     }
 
     #[tauri::command]
     pub fn llama_scan_models() -> Result<Vec<String>, String> {
-        let models_dir = dirs::home_dir()
-            .ok_or("홈 디렉토리를 찾을 수 없습니다")?
-            .join("models");
-
-        if !models_dir.exists() {
-            return Ok(vec![]);
-        }
-
+        let home = dirs::home_dir().ok_or("홈 디렉토리를 찾을 수 없습니다")?;
         let mut files = vec![];
-        if let Ok(entries) = std::fs::read_dir(&models_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("gguf") {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        files.push(name.to_string());
+
+        // ~/models (flat)
+        let models_dir = home.join("models");
+        if models_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&models_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()) == Some("gguf") {
+                        files.push(path.to_string_lossy().to_string());
                     }
                 }
             }
         }
+
         files.sort();
         Ok(files)
     }
@@ -878,7 +554,11 @@ mod commands {
 
         let home = dirs::home_dir().ok_or("홈 디렉토리를 찾을 수 없습니다")?;
         let models_dir = home.join("models");
-        let model_path = models_dir.join(&config.model);
+        let model_path = if std::path::Path::new(&config.model).is_absolute() {
+            std::path::PathBuf::from(&config.model)
+        } else {
+            models_dir.join(&config.model)
+        };
 
         // llama-server 바이너리 찾기 (brew 경로 포함)
         let binary = ["llama-server", "/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"]
@@ -910,9 +590,37 @@ mod commands {
         if config.jinja {
             args.push("--jinja".to_string());
         }
+        if let Some(n) = config.mtp_n_draft {
+            if n > 0 {
+                args.push("--spec-type".to_string());
+                args.push("draft-mtp".to_string());
+                args.push("--spec-draft-n-max".to_string());
+                args.push(n.to_string());
+            }
+        }
+
+        if let Some(draft) = &config.model_draft {
+            if !draft.is_empty() {
+                let draft_path = if std::path::Path::new(draft).is_absolute() {
+                    std::path::PathBuf::from(draft)
+                } else {
+                    models_dir.join(draft)
+                };
+                if !draft_path.exists() {
+                    return Err(format!("MTP 드래프트 모델 파일을 찾을 수 없습니다: {}\n설정에서 MTP 모델을 '없음'으로 변경해주세요.", draft));
+                }
+                args.push("--model-draft".to_string());
+                args.push(draft_path.to_string_lossy().to_string());
+            }
+        }
+
         if let Some(mmproj) = &config.mmproj {
             if !mmproj.is_empty() {
-                let mmproj_path = models_dir.join(mmproj);
+                let mmproj_path = if std::path::Path::new(mmproj).is_absolute() {
+                    std::path::PathBuf::from(mmproj)
+                } else {
+                    models_dir.join(mmproj)
+                };
                 if !mmproj_path.exists() {
                     return Err(format!("mmproj 파일을 찾을 수 없습니다: {}\n설정에서 mmproj를 '없음'으로 변경해주세요.", mmproj));
                 }
@@ -978,152 +686,65 @@ mod commands {
             Ok(false)
         }
     }
-}
 
-fn weather_code_to_str(code: i64) -> &'static str {
-    match code {
-        0 => "맑음 ☀",
-        1 => "대체로 맑음 🌤",
-        2 => "부분 흐림 ⛅",
-        3 => "흐림 ☁",
-        45 | 48 => "안개 🌫",
-        51 | 53 | 55 => "이슬비 🌦",
-        61 | 63 => "비 🌧",
-        65 => "강한 비 🌧",
-        71 | 73 | 75 => "눈 🌨",
-        77 => "눈보라 ❄",
-        80 | 81 | 82 => "소나기 🌦",
-        85 | 86 => "눈 소나기 🌨",
-        95 => "천둥번개 ⛈",
-        96 | 99 => "우박 동반 뇌우 ⛈",
-        _ => "알 수 없음",
-    }
-}
+    // 가속도계(macimu Python subprocess)는 제거됨. M4 실증 결과 non-root 로는
+    // HID 데이터를 못 받고 root 데몬이 필요해, 트랙패드 쓰다듬기 + haptic_feedback 으로 대체.
 
-/// GitHub API scraper — returns Some(Result) for github.com URLs, None otherwise.
-fn scrape_github(url: &str) -> Option<Result<ScrapResult, String>> {
-    // Strip protocol and trailing slash
-    let stripped = url
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .trim_end_matches('/');
+    #[cfg(test)]
+    mod tests {
+        use super::{truncate_chars, hard_blocked};
 
-    if !stripped.starts_with("github.com/") {
-        return None;
-    }
-
-    let path = stripped.trim_start_matches("github.com/");
-    let parts: Vec<&str> = path.splitn(3, '/').collect();
-
-    if parts.is_empty() || parts[0].is_empty() {
-        return None;
-    }
-
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("NekoDesk/1.0")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .ok()?;
-
-    match parts.len() {
-        // github.com/{user} → list repos
-        1 => {
-            let username = parts[0];
-            let api_url = format!("https://api.github.com/users/{}/repos?sort=updated&per_page=30", username);
-            let resp = client.get(&api_url)
-                .header("Accept", "application/vnd.github+json")
-                .send().ok()?;
-
-            let json: serde_json::Value = resp.json().ok()?;
-            let repos = json.as_array()?;
-
-            let mut lines = vec![format!("GitHub user: {}", username), String::new()];
-            for repo in repos.iter().take(20) {
-                let name = repo["name"].as_str().unwrap_or("");
-                let desc = repo["description"].as_str().unwrap_or("").trim();
-                let stars = repo["stargazers_count"].as_u64().unwrap_or(0);
-                let lang = repo["language"].as_str().unwrap_or("").to_string();
-                let forked = repo["fork"].as_bool().unwrap_or(false);
-                if forked { continue; }
-                let desc_part = if desc.is_empty() { String::new() } else { format!(" — {}", desc) };
-                let meta = if !lang.is_empty() || stars > 0 {
-                    format!(" [{}{}]", lang, if stars > 0 { format!(", ★{}", stars) } else { String::new() })
-                } else { String::new() };
-                lines.push(format!("• {}{}{}", name, desc_part, meta));
-            }
-
-            let content = lines.join("\n");
-            Some(Ok(ScrapResult {
-                url: url.to_string(),
-                title: format!("{}'s GitHub repositories", username),
-                content,
-            }))
+        #[test]
+        fn hard_block_stops_worst_commands() {
+            assert!(hard_blocked("sudo rm -rf /").is_some());
+            assert!(hard_blocked("SUDO echo hi").is_some());          // 대소문자 무시
+            assert!(hard_blocked("diskutil eraseDisk ...").is_some());
+            assert!(hard_blocked("cat ~/.ssh/id_rsa").is_some());
+            assert!(hard_blocked("display dialog \"x\" with administrator privileges").is_some());
         }
-        // github.com/{user}/{repo} → repo info + README
-        2 | _ => {
-            let username = parts[0];
-            let repo_name = parts[1];
 
-            // Get repo metadata
-            let api_url = format!("https://api.github.com/repos/{}/{}", username, repo_name);
-            let resp = client.get(&api_url)
-                .header("Accept", "application/vnd.github+json")
-                .send().ok()?;
-            let repo: serde_json::Value = resp.json().ok()?;
+        #[test]
+        fn hard_block_allows_normal_code() {
+            assert!(hard_blocked("print('hello')").is_none());
+            assert!(hard_blocked("date +%Y-%m-%d").is_none());
+            assert!(hard_blocked("display notification \"회의 5분 전\"").is_none());
+        }
 
-            let desc = repo["description"].as_str().unwrap_or("").trim().to_string();
-            let stars = repo["stargazers_count"].as_u64().unwrap_or(0);
-            let forks = repo["forks_count"].as_u64().unwrap_or(0);
-            let lang = repo["language"].as_str().unwrap_or("").to_string();
-            let topics: Vec<String> = repo["topics"].as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_default();
+        /// 한글은 UTF-8에서 3바이트다. 이전 구현은 `&s[..4000]`로 바이트 슬라이스를
+        /// 했기 때문에 4000번째 바이트가 글자 중간이면 패닉했다.
+        #[test]
+        fn korean_output_truncates_without_panic() {
+            let s = "가".repeat(2000); // 6000 bytes, 2000 chars
+            let (out, truncated) = truncate_chars(s, 1500);
+            assert!(truncated);
+            assert_eq!(out.chars().count(), 1500 + "…(잘림)".chars().count());
+        }
 
-            let mut lines = vec![
-                format!("{}/{}", username, repo_name),
-                if desc.is_empty() { String::new() } else { desc },
-                format!("Language: {}  ★{}  Forks: {}", lang, stars, forks),
-            ];
-            if !topics.is_empty() {
-                lines.push(format!("Topics: {}", topics.join(", ")));
-            }
-            lines.push(String::new());
+        #[test]
+        fn emoji_truncates_on_char_boundary() {
+            let (out, truncated) = truncate_chars("🐱".repeat(10), 5);
+            assert!(truncated);
+            assert!(out.starts_with(&"🐱".repeat(5)));
+            assert!(!out.contains("\u{FFFD}")); // 깨진 문자 없음
+        }
 
-            // Fetch README
-            let readme_url = format!("https://api.github.com/repos/{}/{}/readme", username, repo_name);
-            if let Ok(r) = client.get(&readme_url)
-                .header("Accept", "application/vnd.github.raw+json")
-                .send()
-            {
-                if let Ok(text) = r.text() {
-                    let readme_trimmed: String = text.chars().take(3000).collect();
-                    lines.push("README:".to_string());
-                    lines.push(readme_trimmed);
-                }
-            }
+        #[test]
+        fn short_output_passes_through_untouched() {
+            let (out, truncated) = truncate_chars("안녕 🐱".to_string(), 100);
+            assert!(!truncated);
+            assert_eq!(out, "안녕 🐱");
+        }
 
-            Some(Ok(ScrapResult {
-                url: url.to_string(),
-                title: format!("{}/{}", username, repo_name),
-                content: lines.join("\n"),
-            }))
+        /// 경계값: 정확히 max_chars 면 자르지 않는다.
+        #[test]
+        fn exact_length_is_not_truncated() {
+            let (out, truncated) = truncate_chars("가나다".to_string(), 3);
+            assert!(!truncated);
+            assert_eq!(out, "가나다");
         }
     }
 }
 
-fn urlencoding(s: &str) -> String {
-    s.bytes()
-        .flat_map(|b| {
-            if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' || b == b'~' {
-                vec![b as char]
-            } else if b == b' ' {
-                vec!['+']
-            } else {
-                format!("%{:02X}", b).chars().collect::<Vec<_>>()
-            }
-        })
-        .collect()
-}
 
 #[allow(dead_code)]
 fn percent_decode(s: &str) -> String {
@@ -1158,7 +779,7 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()
                 .expect("Failed to resolve app data dir");
             let conn = open_db(data_dir).expect("Failed to open database");
-            init_schema(&conn).expect("Failed to initialize schema");
+            db::init_schema(&conn).expect("Failed to initialize schema");
             app.manage(DbState(Mutex::new(conn)));
             app.manage(LlamaServerState(Mutex::new(None)));
 
@@ -1173,6 +794,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::todo_list,
+            commands::todo_list_done,
             commands::todo_add,
             commands::todo_complete,
             commands::schedule_list,
@@ -1187,6 +809,8 @@ pub fn run() {
             commands::conversation_load,
             commands::conversation_delete,
             commands::weather_get,
+            commands::notify_send,
+            commands::haptic_feedback,
             commands::open_url,
             commands::save_canvas_image,
             commands::exec_history_save,
