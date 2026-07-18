@@ -1,27 +1,26 @@
 {
   "name": "nekodesk",
   "version": "0.1.0",
-  "description": "ASCII cat pet + personal dashboard for the terminal",
+  "description": "ASCII cat pet + AI agent + personal dashboard for macOS",
   "type": "module",
-  "bin": {
-    "nekodesk": "./bin/nekodesk.js"
-  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
     "tauri": "tauri",
-    "start": "node ./bin/nekodesk.js",
-    "test": "node --test",
-    "smoke": "node ./bin/nekodesk.js --once \"/help\""
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:rust": "cd src-tauri && cargo test --lib",
+    "test:all": "npm run typecheck && npm run test && npm run test:rust"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
-    "ink": "^6.8.0",
     "lucide-react": "^1.8.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.6",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
@@ -29,6 +28,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "typescript": "^6.0.2",
-    "vite": "^8.0.8"
+    "vite": "^8.0.8",
+    "vitest": "^4.1.10"
   }
 }
