@@ -346,6 +346,39 @@ function extractJson(raw: string): string {
   return stripped;
 }
 
+/**
+ * finalAnswer 를 탐욕적으로 복구한다(최후의 수단).
+ *
+ * 모델이 finalAnswer 안에 마크다운 표나 따옴표(이스케이프 안 된)를 넣으면 JSON 이
+ * 깨지고 엄격한 정규식도 실패한다. finalAnswer 는 출력 형식상 마지막 필드이므로,
+ * 여는 따옴표부터 "마지막 } 직전의 마지막 따옴표"까지를 통째로 내용으로 본다.
+ */
+function looseFinalAnswer(json: string): string | null {
+  const key = '"finalAnswer"';
+  const ki = json.indexOf(key);
+  if (ki === -1) return null;
+  let i = ki + key.length;
+  while (i < json.length && /\s/.test(json[i])) i++;
+  if (json[i] !== ":") return null;
+  i++;
+  while (i < json.length && /\s/.test(json[i])) i++;
+  if (json[i] !== '"') return null;
+  i++; // 여는 따옴표 다음
+
+  const rest = json.slice(i);
+  const lastBrace = rest.lastIndexOf("}");
+  const scope = lastBrace !== -1 ? rest.slice(0, lastBrace) : rest;
+  const lastQuote = scope.lastIndexOf('"');
+  const body = lastQuote !== -1 ? scope.slice(0, lastQuote) : scope;
+
+  const unescaped = body
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\");
+  return unescaped.trim() || null;
+}
+
 function parseAgentResponse(raw: string): ParsedAgentStep {
   const json = extractJson(raw);
 
@@ -366,19 +399,8 @@ function parseAgentResponse(raw: string): ParsedAgentStep {
     // JSON parse failed (often due to max_tokens truncation or unescaped quotes in code).
     console.warn("[agentStep] JSON parse failed. raw:", raw, "| extracted:", json);
 
-    // 1) Try to pull finalAnswer out of the partial JSON via regex.
-    const faMatch = json.match(/"finalAnswer"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-    if (faMatch) {
-      return {
-        thought: "응답 파싱 실패",
-        tool: "none",
-        params: {},
-        finalAnswer: faMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"'),
-      };
-    }
-
-    // 2) Try to recover tool + code from malformed JSON (unescaped quotes in code field).
-    //    This handles the common case where AppleScript "..." strings break JSON.
+    // 1) 툴 호출 복구 먼저 (code 필드가 있으면). AppleScript "..." 문자열이 JSON 을
+    //    깨뜨리는 흔한 경우. 답변(finalAnswer)보다 툴을 우선 판정한다.
     const toolMatch = json.match(/"tool"\s*:\s*"([^"]+)"/);
     const langMatch = json.match(/"language"\s*:\s*"([^"]+)"/);
     const codeStart = json.indexOf('"code"');
@@ -407,6 +429,12 @@ function parseAgentResponse(raw: string): ParsedAgentStep {
           }
         }
       }
+    }
+
+    // 2) finalAnswer 탐욕적 복구 (표·이스케이프 안 된 따옴표로 JSON 이 깨진 답변).
+    const loose = looseFinalAnswer(json);
+    if (loose) {
+      return { thought: "응답 파싱 실패", tool: "none", params: {}, finalAnswer: loose };
     }
 
     const stripped = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
