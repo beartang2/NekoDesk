@@ -75,7 +75,7 @@ function nowKst(): string {
   });
 }
 
-function buildAgentSystemPrompt(userInput = "", recentContext = ""): string {
+function buildAgentSystemPrompt(): string {
   const mcpEntries = getMcpTools();
   const mcpDesc = mcpEntries.length > 0
     ? "\n" + mcpEntries.map((e) => {
@@ -95,8 +95,10 @@ function buildAgentSystemPrompt(userInput = "", recentContext = ""): string {
     ? `\n\n사용자 지정 컨텍스트:\n${customPrompt}`
     : "";
 
-  return `너는 NekoDesk 고양이 어시스턴트야. 사용자를 돕기 위해 툴을 순서대로 사용해.
-현재 날짜/시각: ${nowKst()}${profileSection}${customSection}${buildKnowledgeSection(userInput, recentContext)}
+  // 시각·지식은 이 프롬프트에 넣지 않는다. 매번 바뀌어 llama.cpp 프롬프트 캐시가
+  // 깨지면 ~3000토큰 규칙을 매 쿼리 재처리(수 초 TTFT)한다. 이 부분을 고정해 캐시하고,
+  // 시각·지식은 현재 user 메시지에 붙인다(buildAgentContextPrefix).
+  return `너는 NekoDesk 고양이 어시스턴트야. 사용자를 돕기 위해 툴을 순서대로 사용해.${profileSection}${customSection}
 
 사용 가능한 툴:
 ${STATIC_TOOLS_DESC}${mcpDesc}
@@ -446,6 +448,32 @@ function stripImageParts(messages: LlmMessage[]): { messages: LlmMessage[]; hadI
   return { messages: stripped, hadImages };
 }
 
+/** 매 호출 바뀌는 컨텍스트(시각 + 상황별 지식). 시스템 프롬프트가 아니라 현재
+ *  user 메시지 앞에 붙여, 큰 정적 시스템 프롬프트의 프롬프트 캐시를 보존한다. */
+function buildAgentContextPrefix(userInput: string, recentContext: string): string {
+  const knowledge = buildKnowledgeSection(userInput, recentContext);
+  return `[현재 날짜/시각: ${nowKst()}]${knowledge}\n\n`;
+}
+
+/** messages 배열에서 마지막 user 메시지 앞에 컨텍스트 프리픽스를 끼운다.
+ *  멀티모달(content 배열)이면 맨 앞에 text 파트로 추가한다. */
+function injectContextIntoLastUser(messages: LlmMessage[], prefix: string): LlmMessage[] {
+  const out = [...messages];
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i].role !== "user") continue;
+    const c = out[i].content;
+    out[i] = {
+      ...out[i],
+      content:
+        typeof c === "string"
+          ? prefix + c
+          : [{ type: "text", text: prefix }, ...c],
+    };
+    break;
+  }
+  return out;
+}
+
 function buildAgentMessages(messages: LlmMessage[], userInput: string): LlmMessage[] {
   // 최근 5개 user 메시지 텍스트를 context로 추출해 knowledge 주입에 활용
   const recentUserContext = messages
@@ -453,8 +481,10 @@ function buildAgentMessages(messages: LlmMessage[], userInput: string): LlmMessa
     .slice(-5)
     .map((m) => (typeof m.content === "string" ? m.content : ""))
     .join(" ");
-  const systemMessage: LlmMessage = { role: "system", content: buildAgentSystemPrompt(userInput, recentUserContext) };
-  return [systemMessage, ...messages];
+  // 시스템 프롬프트는 고정(캐시됨), 시각·지식은 현재 user 메시지에 붙인다.
+  const systemMessage: LlmMessage = { role: "system", content: buildAgentSystemPrompt() };
+  const prefix = buildAgentContextPrefix(userInput, recentUserContext);
+  return [systemMessage, ...injectContextIntoLastUser(messages, prefix)];
 }
 
 export type AgentStepEvent =
