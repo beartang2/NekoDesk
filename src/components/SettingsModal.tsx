@@ -12,6 +12,7 @@ import {
 import { getStoredAccent, saveAccentHex, deriveAccent } from "../theme-colors";
 import { CAT_VARIANTS } from "../cat/spriteData";
 import { useCatStore } from "../stores/catStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import "./SettingsModal.css";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -634,16 +635,16 @@ function UserProfileSection() {
   function save() {
     const val = profile.trim();
     if (val && val !== DEFAULT_USER_PROFILE.trim()) {
-      localStorage.setItem(USER_PROFILE_KEY, val);
+      useSettingsStore.getState().setUserProfile(val);
     } else {
-      localStorage.removeItem(USER_PROFILE_KEY);
+      useSettingsStore.getState().setUserProfile(null);
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   }
 
   function reset() {
-    localStorage.removeItem(USER_PROFILE_KEY);
+    useSettingsStore.getState().setUserProfile(null);
     setProfile(DEFAULT_USER_PROFILE);
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
@@ -723,9 +724,9 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
   function saveSystemPrompt() {
     const trimmed = systemPrompt.trim();
     if (trimmed) {
-      localStorage.setItem(SYSTEM_PROMPT_KEY, trimmed);
+      useSettingsStore.getState().setSystemPrompt(trimmed);
     } else {
-      localStorage.removeItem(SYSTEM_PROMPT_KEY);
+      useSettingsStore.getState().setSystemPrompt(null);
       setSystemPrompt(DEFAULT_CHAT_SYSTEM_PROMPT);
     }
     setPromptSaved(true);
@@ -733,7 +734,7 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
   }
 
   function resetSystemPrompt() {
-    localStorage.removeItem(SYSTEM_PROMPT_KEY);
+    useSettingsStore.getState().setSystemPrompt(null);
     setSystemPrompt(DEFAULT_CHAT_SYSTEM_PROMPT);
     setPromptSaved(true);
     setTimeout(() => setPromptSaved(false), 1500);
@@ -765,7 +766,7 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
   }, [servers]);
 
   function saveLlmUrl() {
-    localStorage.setItem(LLM_URL_KEY, llmUrl.trim());
+    useSettingsStore.getState().setLlmUrl(llmUrl.trim());
   }
 
   async function checkLlm() {

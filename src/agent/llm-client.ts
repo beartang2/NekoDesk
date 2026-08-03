@@ -2,12 +2,10 @@ import type { LlmMessage, LlmParams, LlmStreamChunk, ParsedAgentStep } from "./t
 import { getMcpTools } from "./mcp-registry";
 import { buildKnowledgeSection } from "./knowledge";
 import { createJsonStringFieldStreamer } from "./json-stream";
-
-// llama.cpp default endpoint — configurable via localStorage
-const DEFAULT_LLM_URL = "http://127.0.0.1:8803";
+import { useSettingsStore, type GenParams } from "../stores/settingsStore";
 
 function getLlmUrl(): string {
-  return localStorage.getItem("nekodesk_llm_url") ?? DEFAULT_LLM_URL;
+  return useSettingsStore.getState().llmUrl;
 }
 
 /**
@@ -23,29 +21,11 @@ function abortAfterTimeout(signal?: AbortSignal): AbortSignal {
   return AbortSignal.any([signal, timeout]);
 }
 
-// ── Generation parameters ─────────────────────────────────────────────────────
+// ── Generation parameters (settingsStore 위임, SettingsModal 백호환 re-export) ────
 
-export const GEN_PARAMS_KEY = "nekodesk_gen_params";
-
-export const DEFAULT_GEN_PARAMS = {
-  max_tokens_agent: 2048,
-  max_tokens_chat: 512,
-};
-
-export type GenParams = typeof DEFAULT_GEN_PARAMS;
-
-export function loadGenParams(): GenParams {
-  try {
-    const raw = localStorage.getItem(GEN_PARAMS_KEY);
-    return raw ? { ...DEFAULT_GEN_PARAMS, ...JSON.parse(raw) } : { ...DEFAULT_GEN_PARAMS };
-  } catch {
-    return { ...DEFAULT_GEN_PARAMS };
-  }
-}
-
-export function saveGenParams(p: GenParams) {
-  localStorage.setItem(GEN_PARAMS_KEY, JSON.stringify(p));
-}
+export type { GenParams };
+export const loadGenParams = (): GenParams => useSettingsStore.getState().genParams;
+export const saveGenParams = (p: GenParams) => useSettingsStore.getState().setGenParams(p);
 
 // ── Agent system prompt (built dynamically with MCP tools) ────────────────────
 
@@ -87,10 +67,10 @@ function buildAgentSystemPrompt(): string {
       }).join("\n")
     : "";
 
-  const profile = localStorage.getItem("nekodesk_user_profile")?.trim();
+  const profile = useSettingsStore.getState().userProfile?.trim();
   const profileSection = profile ? `\n\n사용자 프로필:\n${profile}` : "";
 
-  const customPrompt = localStorage.getItem("nekodesk_system_prompt")?.trim();
+  const customPrompt = useSettingsStore.getState().systemPrompt?.trim();
   const customSection = customPrompt && customPrompt !== DEFAULT_CHAT_SYSTEM_PROMPT.trim()
     ? `\n\n사용자 지정 컨텍스트:\n${customPrompt}`
     : "";
@@ -172,7 +152,7 @@ const STATIC_TOOLS_BRIEF = `todo.list, todo.add, todo.complete, schedule.list, s
 
 /** Returns base system prompt + dynamic tool list injected at the end. */
 function buildChatSystemPrompt(): string {
-  const base = localStorage.getItem("nekodesk_system_prompt") ?? DEFAULT_CHAT_SYSTEM_PROMPT;
+  const base = useSettingsStore.getState().systemPrompt ?? DEFAULT_CHAT_SYSTEM_PROMPT;
   const dateSection = `\n현재 날짜/시각: ${nowKst()}`;
 
   const mcpEntries = getMcpTools();
@@ -182,7 +162,7 @@ function buildChatSystemPrompt(): string {
 
   const toolsSection = `\n\n사용 가능한 도구 (사용자가 물어보면 목록을 알려줘):\n- 기본: ${STATIC_TOOLS_BRIEF}${mcpList}`;
 
-  const profile = localStorage.getItem("nekodesk_user_profile")?.trim();
+  const profile = useSettingsStore.getState().userProfile?.trim();
   const profileSection = profile ? `\n사용자 프로필:\n${profile}` : "";
 
   return base + dateSection + profileSection + toolsSection;
