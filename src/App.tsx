@@ -13,6 +13,7 @@ import { useDrawingGame } from "./hooks/useDrawingGame";
 import { useWordChainGame } from "./hooks/useWordChainGame";
 import { useAgentPool, makeInitialMessages } from "./hooks/useAgentLoop";
 import { useMessageStore } from "./stores/messageStore";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
@@ -1164,6 +1165,7 @@ export default function App() {
         isDark={isDark}
       />}
 
+      <ErrorBoundary label="사이드바">
       <Sidebar
         onNew={handleNew}
         onDelete={handleDelete}
@@ -1195,6 +1197,7 @@ export default function App() {
         modelContextLength={modelContextLength}
         gameMode={game.phase !== "idle" ? game : null}
       />
+      </ErrorBoundary>
 
       <main className="main">
 
@@ -1234,7 +1237,9 @@ export default function App() {
             />
           )}
 
-          <ChatMessages messages={activeMessages} isRunning={isRunning} onScrollChange={handleScrollChange} />
+          <ErrorBoundary label="채팅">
+            <ChatMessages messages={activeMessages} isRunning={isRunning} onScrollChange={handleScrollChange} />
+          </ErrorBoundary>
         </div>
 
         {pool.pendingConfirm && pool.pendingConfirm.sessionId === activeId && (
@@ -1263,10 +1268,12 @@ export default function App() {
         />
       </main>
 
-      <RightPanel
-        onResizeStart={rightPanelVisible ? (e) => startDrag("right", e) : undefined}
-        isResizing={isDragging === "right"}
-      />
+      <ErrorBoundary label="패널">
+        <RightPanel
+          onResizeStart={rightPanelVisible ? (e) => startDrag("right", e) : undefined}
+          isResizing={isDragging === "right"}
+        />
+      </ErrorBoundary>
     </div>
   );
 }
