@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { conversationApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
+import { useMessageStore } from "../stores/messageStore";
 import { runAgentLoop } from "../agent/agent-loop";
 import type { AgentStep, CatEmotion, ContentPart, LlmMessage, LoopEvent } from "../agent/types";
 
@@ -120,10 +121,9 @@ function deriveFinalEmotion(steps: AgentStep[]): CatEmotion {
  * Per-session agent pool — enables parallel processing across sessions.
  * Each session has its own isRunning / catEmotion / error / abortRef.
  */
-export function useAgentPool(
-  allMessagesRef: React.MutableRefObject<Record<string, ChatMessage[]>>,
-  setAllMessages: React.Dispatch<React.SetStateAction<Record<string, ChatMessage[]>>>
-) {
+export function useAgentPool() {
+  // 메시지 상태는 messageStore 소유. 비동기 루프는 getState() 로 최신값을 읽어
+  // 예전 allMessagesRef 미러링 해킹이 필요 없다.
   // Use a ref for fast reads inside async loops, and state for UI reactivity
   const runningSetRef = useRef<Set<string>>(new Set());
   const [runningSet, setRunningSet] = useState<Set<string>>(new Set());
@@ -146,16 +146,10 @@ export function useAgentPool(
     setCatEmotions((prev) => ({ ...prev, [id]: emotion }));
   }
 
-  function patchSessionMessages(
+  const patchSessionMessages = (
     sessionId: string,
     action: React.SetStateAction<ChatMessage[]>
-  ) {
-    setAllMessages((prev) => {
-      const current = prev[sessionId] ?? [];
-      const next = typeof action === "function" ? action(current) : action;
-      return { ...prev, [sessionId]: next };
-    });
-  }
+  ) => useMessageStore.getState().patch(sessionId, action);
 
   const sendMessage = useCallback(
     async (sessionId: string, userText: string, files: AttachedFile[] = [], displayText?: string, summaryContext?: string) => {
@@ -195,7 +189,7 @@ export function useAgentPool(
       const llmContent = buildLlmContent(userText, files);
       conversationApi.save(sessionId, "user", buildTextContent(visibleText, files)).catch(() => {});
 
-      const rawHistory = buildHistory(allMessagesRef.current[sessionId] ?? []);
+      const rawHistory = buildHistory(useMessageStore.getState().get(sessionId));
       const history: LlmMessage[] = summaryContext
         ? [{ role: "user", content: `[이전 대화 요약]\n${summaryContext}` }, { role: "assistant", content: "알겠어, 이전 내용 참고할게." }, ...rawHistory]
         : rawHistory;
@@ -348,16 +342,11 @@ export function useAgentPool(
       setCatEmotion(sessionId, "idle");
       setPendingClarify((prev) => (prev?.sessionId === sessionId ? null : prev));
       setPendingConfirm((prev) => (prev?.sessionId === sessionId ? null : prev));
-      setAllMessages((prev) => {
-        const msgs = prev[sessionId] ?? [];
-        const updated = msgs.map((m) =>
-          m.isStreaming ? { ...m, isStreaming: false } : m
-        );
-        return { ...prev, [sessionId]: updated };
-      });
+      useMessageStore.getState().patch(sessionId, (msgs) =>
+        msgs.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+      );
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [setAllMessages]
+    []
   );
 
   return {

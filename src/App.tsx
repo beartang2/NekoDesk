@@ -12,6 +12,7 @@ import { MenuModal } from "./components/MenuModal";
 import { useDrawingGame } from "./hooks/useDrawingGame";
 import { useWordChainGame } from "./hooks/useWordChainGame";
 import { useAgentPool, makeInitialMessages } from "./hooks/useAgentLoop";
+import { useMessageStore } from "./stores/messageStore";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
@@ -647,9 +648,9 @@ export default function App() {
   }, []);
 
   // ── Per-session messages: Record<sessionId, ChatMessage[]> ────────────────
-  const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>(
-    () => Object.fromEntries(sessions.map((s) => [s.id, makeInitialMessages()]))
-  );
+  // 메시지 상태는 messageStore 소유. 이름은 그대로 두어 아래 사용처는 무변경.
+  const allMessages = useMessageStore((s) => s.messages);
+  const setAllMessages = useMessageStore((s) => s.setAll);
 
   // ── Per-session compact summaries (상단 접이식 요약 바) ──────────────────────
   const [compactSummaries, setCompactSummaries] = useState<Record<string, string>>(() => {
@@ -796,12 +797,8 @@ export default function App() {
   // Active session's messages
   const activeMessages = allMessages[activeId] ?? [];
 
-  // Ref so the pool's async loops always read the latest allMessages
-  const allMessagesRef = useRef(allMessages);
-  allMessagesRef.current = allMessages;
-
   // ── Agent pool (parallel per-session processing) ──────────────────────
-  const pool = useAgentPool(allMessagesRef, setAllMessages);
+  const pool = useAgentPool();
   const { state: rpgState, dayCount, canFeed, feed, playAction, pet, reward } = useCatRpg();
 
   const isRunning = pool.isRunning(activeId);
