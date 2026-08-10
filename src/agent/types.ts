@@ -13,6 +13,8 @@ export interface LlmParams {
   temperature?: number;
   max_tokens?: number;
   stream?: boolean;
+  /** llama.cpp GBNF grammar. 에이전트 JSON 출력을 강제해 파싱 실패를 뿌리에서 막는다. */
+  grammar?: string;
 }
 
 export interface LlmStreamChunk {

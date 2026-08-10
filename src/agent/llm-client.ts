@@ -9,6 +9,20 @@ function getLlmUrl(): string {
 }
 
 /**
+ * 에이전트 스텝 출력을 valid JSON 객체로 강제하는 GBNF grammar.
+ * 모델이 이스케이프 안 된 따옴표·개행으로 JSON 을 깨뜨리는 것을 뿌리에서 막는다
+ * (표를 finalAnswer 에 넣을 때 특히). 문자열 이스케이프까지 문법이 강제한다.
+ * (json_schema/response_format 은 이 llama.cpp 빌드의 sampler 에서 400 → grammar 사용)
+ */
+const AGENT_JSON_GRAMMAR = `root   ::= object
+object ::= "{" ws ( string ":" ws value ("," ws string ":" ws value)* )? "}" ws
+value  ::= object | array | string | number | ("true"|"false"|"null") ws
+array  ::= "[" ws ( value ("," ws value)* )? "]" ws
+string ::= "\\"" ( [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" (["\\\\bfnrt/] | "u" [0-9a-fA-F]{4}) )* "\\"" ws
+number ::= ("-"? ([0-9] | [1-9][0-9]*)) ("." [0-9]+)? ([eE][-+]?[0-9]+)? ws
+ws     ::= [ \\t\\n]*`;
+
+/**
  * 로컬 llama.cpp 는 느릴 수 있으니 넉넉하게 잡되, 무한 대기는 막는다.
  * 서버가 멈추면 고양이가 영원히 'working' 상태로 굳는다.
  */
@@ -182,6 +196,7 @@ export async function fetchCompletion(
     max_tokens: params.max_tokens ?? p.max_tokens_agent,
     stream: false,
   };
+  if (params.grammar) body.grammar = params.grammar;
   if (params.temperature !== undefined) body.temperature = params.temperature;
   const res = await fetch(`${getLlmUrl()}/v1/chat/completions`, {
     method: "POST",
@@ -217,6 +232,7 @@ export async function* fetchStream(
     stream: true,
     stream_options: { include_usage: true },
   };
+  if (params.grammar) body.grammar = params.grammar;
   if (params.temperature !== undefined) body.temperature = params.temperature;
   const res = await fetch(`${getLlmUrl()}/v1/chat/completions`, {
     method: "POST",
@@ -526,7 +542,7 @@ export async function* agentStepStream(
   try {
     for await (const chunk of fetchStream(
       allMessages,
-      { temperature: 0.1, max_tokens: p.max_tokens_agent },
+      { temperature: 0.1, max_tokens: p.max_tokens_agent, grammar: AGENT_JSON_GRAMMAR },
       onUsage,
       signal
     )) {
@@ -560,7 +576,7 @@ export async function agentStep(
   const allMessages = buildAgentMessages(messages, userInput);
 
   try {
-    const raw = await fetchCompletion(allMessages, { temperature: 0.1 }, onUsage, signal);
+    const raw = await fetchCompletion(allMessages, { temperature: 0.1, grammar: AGENT_JSON_GRAMMAR }, onUsage, signal);
     return parseAgentResponse(raw);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -572,7 +588,7 @@ export async function agentStep(
         if (note && typeof note.content === "string") {
           note.content = `${note.content}\n\n[이미지를 첨부했지만 현재 모델이 이미지를 지원하지 않아요.]`;
         }
-        const raw2 = await fetchCompletion(fallback, { temperature: 0.1 }, onUsage, signal);
+        const raw2 = await fetchCompletion(fallback, { temperature: 0.1, grammar: AGENT_JSON_GRAMMAR }, onUsage, signal);
         return parseAgentResponse(raw2);
       }
     }
