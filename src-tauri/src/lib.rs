@@ -16,7 +16,33 @@ pub use db::models::{ConversationMessage, ExecHistoryItem, ScheduleEvent, Todo};
 // ── Database state ────────────────────────────────────────────────────────────
 
 pub struct DbState(pub Mutex<Connection>);
-pub struct LlamaServerState(pub Mutex<Option<std::process::Child>>);
+
+/// llama-server 자식 프로세스와 그 포트를 함께 보관한다.
+/// 포트를 같이 들고 있어야, 자식 핸들이 stale/None 이어도(앱이 SIGKILL 로 죽어
+/// 자식이 launchd 로 reparent 된 고아, 또는 포트 선점으로 spawn 이 조용히 실패한
+/// 경우) 종료 시 포트 기준으로 확실히 죽일 수 있다.
+#[derive(Default)]
+pub struct LlamaProc {
+    pub child: Option<std::process::Child>,
+    pub port: Option<i32>,
+}
+pub struct LlamaServerState(pub Mutex<LlamaProc>);
+
+/// 해당 TCP 포트를 LISTEN 중인 프로세스를 종료한다(고아 llama 청소용).
+/// 추적 핸들이 없어도 동작하도록 lsof 로 PID 를 찾아 신호를 보낸다.
+pub fn kill_port(port: i32) {
+    let _ = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+            "pids=$(lsof -ti tcp:{p} -sTCP:LISTEN 2>/dev/null); \
+             [ -n \"$pids\" ] && kill $pids 2>/dev/null; \
+             sleep 0.3; \
+             pids=$(lsof -ti tcp:{p} -sTCP:LISTEN 2>/dev/null); \
+             [ -n \"$pids\" ] && kill -9 $pids 2>/dev/null; exit 0",
+            p = port
+        ))
+        .output();
+}
 
 /// NSHapticFeedbackManager.defaultPerformer 에 performFeedbackPattern:performanceTime: 를 보낸다.
 /// 타입 래퍼(objc2-app-kit) 없이 런타임 클래스 조회로 호출해 의존성을 최소화한다.
@@ -561,15 +587,17 @@ mod commands {
         config: LlamaConfig,
         server_state: State<LlamaServerState>,
     ) -> Result<(), String> {
-        // 기존 서버 종료
+        // 기존 서버 종료: 추적 중인 자식 + 포트를 선점 중인 고아(이전 앱이 SIGKILL 로
+        // 죽어 남은 프로세스)까지 청소해야, 포트 충돌로 새 서버가 조용히 즉사하는 것을 막는다.
         {
             let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
-            if let Some(ref mut child) = *guard {
+            if let Some(ref mut child) = guard.child {
                 child.kill().ok();
                 child.wait().ok();
             }
-            *guard = None;
+            *guard = LlamaProc::default();
         }
+        super::kill_port(config.port);
 
         let home = dirs::home_dir().ok_or("홈 디렉토리를 찾을 수 없습니다")?;
         let models_dir = home.join("models");
@@ -668,7 +696,7 @@ mod commands {
         }
 
         let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
-        *guard = Some(child);
+        *guard = LlamaProc { child: Some(child), port: Some(config.port) };
         Ok(())
     }
 
@@ -676,28 +704,25 @@ mod commands {
     pub fn llama_stop(port: i32, server_state: State<LlamaServerState>) -> Result<(), String> {
         {
             let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
-            if let Some(ref mut child) = *guard {
+            if let Some(ref mut child) = guard.child {
                 child.kill().ok();
                 child.wait().ok();
             }
-            *guard = None;
+            *guard = LlamaProc::default();
         }
-        // child handle이 없어도 해당 포트를 점유 중인 프로세스 강제 종료
-        let _ = Command::new("sh")
-            .arg("-c")
-            .arg(format!("lsof -ti tcp:{} | xargs kill 2>/dev/null; exit 0", port))
-            .output();
+        // child handle이 없어도(고아·stale) 해당 포트를 점유 중인 프로세스 강제 종료
+        kill_port(port);
         Ok(())
     }
 
     #[tauri::command]
     pub fn llama_is_running(server_state: State<LlamaServerState>) -> Result<bool, String> {
         let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
-        if let Some(ref mut child) = *guard {
+        if let Some(ref mut child) = guard.child {
             match child.try_wait() {
                 Ok(None) => Ok(true),   // 아직 실행 중
                 _ => {
-                    *guard = None;
+                    *guard = LlamaProc::default();
                     Ok(false)
                 }
             }
@@ -800,7 +825,7 @@ pub fn run() {
             let conn = open_db(data_dir).expect("Failed to open database");
             db::init_schema(&conn).expect("Failed to initialize schema");
             app.manage(DbState(Mutex::new(conn)));
-            app.manage(LlamaServerState(Mutex::new(None)));
+            app.manage(LlamaServerState(Mutex::new(LlamaProc::default())));
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -847,11 +872,16 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<LlamaServerState>() {
                     let mut guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some(ref mut child) = *guard {
+                    if let Some(ref mut child) = guard.child {
                         child.kill().ok();
                         child.wait().ok();
                     }
-                    *guard = None;
+                    // 자식 핸들이 stale/None 이어도(spawn 조용히 실패, 고아 재사용 등)
+                    // 우리가 띄운 포트를 점유 중이면 확실히 죽인다.
+                    if let Some(port) = guard.port {
+                        kill_port(port);
+                    }
+                    *guard = LlamaProc::default();
                 }
             }
         });
