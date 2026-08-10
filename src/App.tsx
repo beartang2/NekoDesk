@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Sun, Moon, Settings, Paperclip, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
@@ -9,6 +9,7 @@ import { CatCanvas } from "./cat/CatCanvas";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPanel";
 import { MenuModal } from "./components/MenuModal";
+import { CommandPalette, type Command } from "./components/CommandPalette";
 import { useDrawingGame } from "./hooks/useDrawingGame";
 import { useWordChainGame } from "./hooks/useWordChainGame";
 import { useAgentPool, makeInitialMessages } from "./hooks/useAgentLoop";
@@ -1163,6 +1164,60 @@ export default function App() {
     appStyle,
   } = useLayout();
 
+  // ── ⌘K 커맨드 팔레트 ───────────────────────────────────────────────────────
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      } else if (k === "n") {
+        e.preventDefault();
+        handleNew();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const paletteCommands = useMemo<Command[]>(() => {
+    const base: Command[] = [
+      { id: "new", icon: "✍️", label: "새 대화", hint: "⌘N", keywords: "new chat 새대화", run: handleNew },
+      { id: "settings", icon: "⚙️", label: "설정 열기", keywords: "settings 설정 환경설정", run: () => setMenuOpen(true) },
+      {
+        id: "theme",
+        icon: isDark ? "☀️" : "🌙",
+        label: isDark ? "라이트 모드로 전환" : "다크 모드로 전환",
+        keywords: "theme dark light 테마 다크 라이트",
+        run: toggleTheme,
+      },
+      {
+        id: "rightpanel",
+        icon: "🐱",
+        label: rightPanelVisible ? "고양이 패널 숨기기" : "고양이 패널 보기",
+        keywords: "panel 패널 고양이",
+        run: () => setRightPanelVisible((v) => !v),
+      },
+      { id: "delete", icon: "🗑️", label: "현재 대화 삭제", keywords: "delete 삭제 지우기", run: () => handleDelete(activeId) },
+    ];
+    const go: Command[] = sessions
+      .filter((s) => s.id !== activeId)
+      .slice(0, 20)
+      .map((s) => ({
+        id: `go-${s.id}`,
+        icon: "💬",
+        label: `이동: ${s.title}`,
+        hint: s.date,
+        keywords: `session 세션 이동 ${s.title}`,
+        run: () => setActiveId(s.id),
+      }));
+    return [...base, ...go];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDark, rightPanelVisible, sessions, activeId]);
+
   return (
     <div className={`app${isDragging ? " app--resizing" : ""}`} style={appStyle}>
       <TitleBar
@@ -1177,6 +1232,11 @@ export default function App() {
         onClose={() => setMenuOpen(false)}
         isDark={isDark}
       />}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        commands={paletteCommands}
+      />
 
       <ErrorBoundary label="사이드바">
       <Sidebar
