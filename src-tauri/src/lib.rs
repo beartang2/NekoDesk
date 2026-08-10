@@ -433,10 +433,29 @@ mod commands {
         Ok(())
     }
 
-    /// macOS URL 스킴 또는 앱을 엽니다 (권한 설정 페이지 열기 등에 사용)
+    /// macOS URL 스킴 또는 앱을 엽니다 (권한 설정 페이지 열기 등에 사용).
+    /// 내부 신뢰 호출 전용(x-apple.systempreferences: 등). 미신뢰 링크는 open_external_url.
     #[tauri::command]
     pub fn open_url(url: String) -> Result<(), String> {
         std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// 채팅 마크다운의 링크를 기본 브라우저로 연다.
+    /// 링크 출처가 LLM·웹 스크랩(미신뢰)이라 http/https 스킴만 허용한다.
+    /// file://·x-apple.systempreferences:·app 스킴 등으로 `open` 이 로컬 리소스를
+    /// 실행하는 것을 막는다. arg 는 데이터로 전달돼 셸 해석은 없음.
+    #[tauri::command]
+    pub fn open_external_url(url: String) -> Result<(), String> {
+        let lower = url.trim_start().to_ascii_lowercase();
+        if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+            return Err("http/https 링크만 열 수 있습니다".into());
+        }
+        std::process::Command::new("open")
+            .arg("--")
             .arg(&url)
             .spawn()
             .map_err(|e| e.to_string())?;
@@ -812,6 +831,7 @@ pub fn run() {
             commands::notify_send,
             commands::haptic_feedback,
             commands::open_url,
+            commands::open_external_url,
             commands::save_canvas_image,
             commands::exec_history_save,
             commands::exec_history_list,

@@ -308,6 +308,19 @@ function ChatMessages({
                     table: ({ children }) => (
                       <div className="table-wrapper"><table>{children}</table></div>
                     ),
+                    a: ({ href, children }) => (
+                      // Tauri webview 는 <a> 클릭을 자기 창에서 처리해 브라우저를 안 띄운다.
+                      // 가로채서 기본 브라우저로 연다(http/https 만, Rust 에서 재검증).
+                      <a
+                        href={href}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (href) invoke("open_external_url", { url: href }).catch(() => {});
+                        }}
+                      >
+                        {children}
+                      </a>
+                    ),
                   }}
                 >
                   {m.content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()}

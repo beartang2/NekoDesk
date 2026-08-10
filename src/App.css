@@ -673,6 +673,17 @@ html, body, #root {
   max-width: 720px;
 }
 
+/* 채팅 링크 = 포인트(accent) 색, 밑줄로 링크임을 표시 */
+.message__bubble a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.message__bubble a:hover {
+  text-decoration-thickness: 2px;
+}
+
 /* Copy button on assistant bubbles */
 .message--assistant .message__bubble .message__copy {
   position: absolute;
