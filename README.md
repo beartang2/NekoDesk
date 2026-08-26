@@ -1,164 +1,98 @@
 # NekoDesk
 
-터미널에서 실행하는 ASCII 고양이 펫 + 개인 대시보드 프로젝트입니다.  
-메모, 할 일, 일정, GitHub 상태 확인을 한곳에서 다루고, 로컬 LLM과 연결해 자연어 기반 상호작용까지 지원하는 것을 목표로 합니다.
+🐱 픽셀 고양이 펫 + 로컬 LLM 에이전트 데스크톱 앱 (macOS)
 
-## 현재 구현 범위
+로컬 `llama.cpp` 모델을 두뇌로 쓰는 데스크톱 에이전트입니다. 한국어로 말을 걸면 할 일·일정을 정리하고,
+필요하면 직접 스크립트를 짜서 실행하고, 웹을 찾아보고, 그 사이 고양이가 옆에서 반응합니다.
+데이터는 전부 로컬 SQLite에 남고 외부 클라우드로 나가지 않습니다.
 
-- ASCII 고양이 펫 상태 표시
-- 자연어 기반 메모 추가 / 조회
-- 자연어 기반 할 일 추가 / 완료 / 조회
-- 로컬 일정 추가 / 조회
-- `GITHUB_TOKEN` 기반 GitHub 읽기 전용 요약 및 follow-up 질의
-- DuckDuckGo 기반 읽기 전용 웹 검색
-- `FastAPI` 백엔드(`localhost:8000`)를 통한 대화 / intent 처리
-- `llama.cpp` 서버(`localhost:8803`)를 FastAPI 뒤에서 사용
-- SQLite 기반 로컬 저장
+## 기능
+
+### 에이전트 도구
+
+모델이 상황에 따라 직접 호출하는 도구 목록입니다.
+
+| 도구 | 설명 |
+|------|------|
+| `todo.list` / `todo.list_done` / `todo.add` / `todo.complete` | 할 일 관리 |
+| `schedule.list` / `schedule.add` / `schedule.delete` | 캘린더 일정 기록·조회·삭제 |
+| `code.exec` | Python / Shell / AppleScript 스크립트를 로컬에서 실행 (30초 상한, 위험 패턴 차단) |
+| `web.search` / `web.scrape` | 웹 검색과 페이지 본문 추출 |
+| `weather.get` | 현재 날씨와 단기 예보 |
+| `file.upload` | 첨부 파일을 HTTP 엔드포인트로 업로드 |
+| `game.start` | 미니게임 (그림 맞추기 / 끝말잇기) |
+
+추가로 MCP(SSE 전송) 서버를 연결하면 그 서버의 도구도 같은 루프에서 쓸 수 있습니다.
+
+### UI
+
+- **좌측**: 픽셀 고양이 스테이지 — 스프라이트 애니메이션, 기분 상태, 트랙패드 쓰다듬기, RPG 레이어
+- **중앙**: 채팅 — 스트리밍 응답, 에이전트 단계 아코디언, 마크다운/표 렌더링
+- **우측 패널**: 할 일 카드 / 캘린더 카드 / 뽀모도로 / 코드 실행 결과
+- `⌘K` 커맨드 팔레트, `⌘N` 새 대화
+
+### 모델 라이프사이클
+
+- 앱이 `llama-server`를 직접 기동/종료합니다 (`~/models`의 `.gguf` 스캔).
+- 앱 종료 시 자식 프로세스를 확실히 정리하고, 시작 시 고아 프로세스를 청소합니다.
+- 시스템 프롬프트는 정적으로 유지해 llama.cpp의 프롬프트 캐시가 살아있게 합니다 (TTFT 약 10.7s → 0.36s).
+- 도구 호출 JSON은 GBNF 문법으로 강제해 파싱 실패를 원천 차단합니다.
+
+## 기술 스택
+
+| 영역 | 스택 |
+|------|------|
+| 셸 | Tauri 2 |
+| 프론트엔드 | React 19 + TypeScript + Vite |
+| 상태 관리 | Zustand (`messageStore` / `sessionStore` / `settingsStore` / `catStore`) |
+| 백엔드 | Rust (rusqlite, reqwest, scraper) |
+| 저장소 | SQLite (todos / events / conversations / exec_history / settings) |
+| 모델 | 로컬 llama.cpp (OpenAI 호환 엔드포인트, 기본 `http://127.0.0.1:8803`) |
+| 테스트 | Vitest (프론트) + `cargo test` (Rust) |
 
 ## 준비 사항
 
-- Node.js 22+
-- Python 3.11+
-- 로컬 `llama.cpp` 서버 실행 환경
-- 선택: `GITHUB_TOKEN`
+- macOS
+- Node.js 20+
+- Rust 1.77.2+
+- `llama-server` (Homebrew의 `llama.cpp` 등)
+- `~/models` 아래에 `.gguf` 모델 파일
 
-## 설치
-
-Node 패키지:
+## 실행
 
 ```bash
 npm install
+npm run tauri dev
 ```
 
-Python 패키지:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-## 실행 순서
-
-### 1. llama.cpp 서버 실행
-
-예시는 현재 프로젝트 기본값인 `localhost:8803` 기준입니다.
-
-```bash
-llama-server \
-  -m ~/models/Qwen3-8B-Q4_K_M.gguf \
-  --host 127.0.0.1 \
-  --port 8803
-```
-
-### 2. FastAPI 백엔드 실행
-
-프로젝트 루트에서:
-
-```bash
-source .venv/bin/activate
-uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-확인:
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-### 3. NekoDesk TUI 실행
-
-```bash
-npm start
-```
-
-앱은 기본적으로 REPL/TUI 형태로 실행됩니다.
-
-정리하면 실행 순서는 아래와 같습니다.
-
-1. `llama.cpp`
-2. `FastAPI`
-3. `npm start`
-
-## 단일 명령 실행
-
-스모크 체크나 빠른 확인용으로 한 번만 실행할 수도 있습니다.
-
-```bash
-node ./bin/nekodesk.js --once "/help"
-```
+앱 안에서 설정 모달을 열어 모델을 고르고 기동하면 됩니다. LLM 주소 기본값은 `http://127.0.0.1:8803`입니다.
 
 ## 테스트
 
 ```bash
-npm test
+npm run test        # Vitest
+npm run test:rust   # cargo test --lib
+npm run typecheck   # tsc --noEmit
+npm run test:all    # 위 세 가지 전부
 ```
 
-FastAPI 파일 문법만 빠르게 확인하려면:
+## 문서
 
-```bash
-python3 -m py_compile backend/main.py backend/routers/chat.py backend/routers/github.py
-```
+| 문서 | 내용 |
+|------|------|
+| `docs/plan.md` | 제품 계획 (0번 섹션이 현재 확정 스코프) |
+| `docs/packages.md` | 에이전트 확장용 패키지 조사 및 도입 우선순위 |
+| `docs/agentic-loop.md` | 에이전틱 루프 설계 |
+| `docs/cat-rpg.md` | 고양이 RPG 레이어 설계 |
+| `docs/minigame-design.md` | 미니게임 설계 |
+| `docs/research.md` | TUI 시절 구조 분석 (역사적 자료) |
 
-## 환경 변수
+## 스코프에서 빠진 것
 
-선택적으로 아래 환경 변수를 사용할 수 있습니다.
+초기 계획에 있었지만 현재는 제외된 기능입니다.
 
-- `GITHUB_TOKEN`: GitHub 상태 요약 활성화
-- `NEKODESK_LLM_GITHUB_QUERY_SYSTEM_PROMPT`: GitHub follow-up 답변용 system prompt 텍스트
-- `NEKODESK_LLM_GITHUB_QUERY_SYSTEM_PROMPT_FILE`: GitHub follow-up 답변 prompt 파일 경로
-- `NEKODESK_HOME`: 기본 앱 데이터 디렉터리 변경
-- `NEKODESK_DB_PATH`: SQLite DB 파일 경로 직접 지정
-- `NEKODESK_CONVERSATION_MEMORY_LIMIT`: 메모리에 유지할 최근 대화 메시지 개수
-- `NEKODESK_WEB_SEARCH_ENABLED`: 웹 검색 tool 활성화 여부, 기본값 `true`
-- `NEKODESK_WEB_SEARCH_TIMEOUT_MS`: 웹 검색 타임아웃 밀리초, 기본값 `8000`
-- `NEKODESK_WEB_SEARCH_RESULT_LIMIT`: 웹 검색 결과 최대 개수, 기본값 `5`
-- `NEKODESK_LLM_URL`: 내부 llama.cpp 주소용 설정값, 기본값 `http://127.0.0.1:8803`
-- `NEKODESK_LLM_API_PATH`: 내부 llama.cpp endpoint 경로, 기본값 `/v1/chat/completions`
-- `NEKODESK_LLM_MODEL`: 모델 이름, 기본값 `Qwen3 8B Q4_K_M`
-- `NEKODESK_LLM_TIMEOUT_MS`: LLM 요청 타임아웃 밀리초
-- `NEKODESK_LLM_HISTORY_LIMIT`: 대화 컨텍스트에 포함할 최근 메시지 개수
-- `NEKODESK_LLM_CHAT_TEMPERATURE`: 일반 대화 temperature
-- `NEKODESK_LLM_INTENT_TEMPERATURE`: intent 분류 temperature
-- `NEKODESK_LLM_INTENT_MAX_TOKENS`: intent 분류 응답 최대 토큰 수, 기본값 `48`
-- `NEKODESK_LLM_TOOL_PLAN_TEMPERATURE`: chat 경로에서 내부 tool 계획용 temperature
-- `NEKODESK_LLM_TOOL_PLAN_MAX_TOKENS`: chat 경로에서 내부 tool 계획 응답 최대 토큰 수
-- `NEKODESK_LLM_TOOL_PLAN_SYSTEM_PROMPT`: 내부 tool planner system prompt 텍스트
-- `NEKODESK_LLM_MAX_TOKENS`: 최대 출력 토큰 수
-- `NEKODESK_LLM_HEADERS_JSON`: 추가 HTTP 헤더 JSON
-- `NEKODESK_LLM_BODY_JSON`: 추가 request body JSON
-- `NEKODESK_LLM_CHAT_SYSTEM_PROMPT`: 기본 대화 system prompt 텍스트
-- `NEKODESK_LLM_INTENT_SYSTEM_PROMPT`: intent 분류 system prompt 텍스트
-- `NEKODESK_LLM_TOOL_PLAN_SYSTEM_PROMPT_FILE`: tool planner prompt 파일 경로
-- `NEKODESK_LLM_CHAT_SYSTEM_PROMPT_FILE`: 대화 prompt 파일 경로
-- `NEKODESK_LLM_INTENT_SYSTEM_PROMPT_FILE`: intent prompt 파일 경로
-- `NEKODESK_LLM_FALLBACK_REPLY`: 모델 응답이 비었을 때 사용할 문구
-- `NEKODESK_LLM_CONNECTION_ERROR_REPLY`: LLM 연결 실패 시 문구
+- **메모** — 제거됨 (할 일과 역할이 겹침)
+- **GitHub API 연동** — 제거됨
+- **터미널 TUI/CLI** — 데스크톱 앱으로 완전히 대체됨
 
-기본 저장 위치는 `./.nekodesk/nekodesk.sqlite` 입니다.
-
-현재 Node 앱의 LLM 호출은 FastAPI `POST http://127.0.0.1:8000/chat`을 사용하고, FastAPI가 다시 `llama.cpp`로 요청을 전달합니다.
-
-## 사용 예시
-
-- `메모 프로젝트 아이디어 정리`
-- `할 일 README 정리 추가`
-- `할 일 1번 완료`
-- `내일 3시 회의 등록`
-- `오늘 일정 보여줘`
-- `내 GitHub 상태 요약해줘`
-- `OpenAI 최신 뉴스 검색해줘`
-- `이 오류 메시지 웹에서 찾아봐`
-- `/github` 뷰에서 `지금 뭘 먼저 봐야 해?`
-- `/github` 뷰에서 `리뷰 요청 있는 PR이 뭐야?`
-- `/help`
-- `/exit`
-
-## 프로젝트 방향
-
-NekoDesk는 단순한 CLI 툴이 아니라, 터미널 안에서 함께 있는 펫 같은 감각과 실용적인 생산성 도구를 합치는 것을 지향합니다.
-
-- 기본 펫은 ASCII 고양이
-- 표정과 소품이 상태에 따라 조금씩 바뀌는 구조
-- 이후 커스텀 ASCII 펫 확장 가능성 고려
-- 장기적으로 메모 / 일정 / Todo / GitHub 흐름을 하나의 인터페이스로 연결
+이전 CLI/TUI 버전 코드는 `feat/pet-tui`, `feat/github-llm`, `dev` 브랜치에 보존되어 있습니다.
