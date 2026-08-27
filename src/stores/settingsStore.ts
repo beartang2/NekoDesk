@@ -23,12 +23,30 @@ export const DEFAULT_GEN_PARAMS: GenParams = {
   max_tokens_chat: 512,
 };
 
+/**
+ * 툴 호출 방식.
+ *  - native: 서버의 `tools` 파라미터 (한 턴에 여러 툴, 파싱은 서버가 담당)
+ *  - json:   GBNF grammar 로 JSON 한 덩이를 강제하는 예전 방식 (턴당 툴 1개)
+ *  - auto:   native 로 시도하고, 서버가 거부하면 이 세션 동안 json 으로 강등
+ *
+ * `--jinja` 없이 뜬 llama-server 나 툴 템플릿이 없는 모델은 `tools` 를 거부한다.
+ * auto 가 기본이라 사용자가 서버 옵션을 몰라도 동작한다.
+ */
+export type ToolMode = "auto" | "native" | "json";
+export const DEFAULT_TOOL_MODE: ToolMode = "auto";
+
 const K = {
   llmUrl: "nekodesk_llm_url",
   genParams: "nekodesk_gen_params",
   systemPrompt: "nekodesk_system_prompt",
   userProfile: "nekodesk_user_profile",
+  toolMode: "nekodesk_tool_mode",
 } as const;
+
+function loadToolMode(): ToolMode {
+  const raw = localStorage.getItem(K.toolMode);
+  return raw === "native" || raw === "json" || raw === "auto" ? raw : DEFAULT_TOOL_MODE;
+}
 
 function loadGen(): GenParams {
   try {
@@ -44,11 +62,16 @@ interface SettingsStore {
   genParams: GenParams;
   systemPrompt: string | null; // null = 읽는 쪽 기본값 사용
   userProfile: string | null;
+  toolMode: ToolMode;
+  /** auto 모드에서 서버가 `tools` 를 거부해 json 으로 내려앉았다. 영속화하지 않는다. */
+  nativeToolsDegraded: boolean;
   setLlmUrl: (url: string) => void;
   setGenParams: (p: GenParams) => void;
   /** null 이면 삭제(기본값으로 복귀). */
   setSystemPrompt: (v: string | null) => void;
   setUserProfile: (v: string | null) => void;
+  setToolMode: (m: ToolMode) => void;
+  setNativeToolsDegraded: (v: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
@@ -56,6 +79,8 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   genParams: loadGen(),
   systemPrompt: localStorage.getItem(K.systemPrompt),
   userProfile: localStorage.getItem(K.userProfile),
+  toolMode: loadToolMode(),
+  nativeToolsDegraded: false,
 
   setLlmUrl: (url) => {
     localStorage.setItem(K.llmUrl, url);
@@ -75,4 +100,18 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
     else localStorage.setItem(K.userProfile, v);
     set({ userProfile: v });
   },
+  setToolMode: (m) => {
+    localStorage.setItem(K.toolMode, m);
+    // 사용자가 직접 모드를 고르면 이전 강등 기록은 무효 — 새 설정으로 다시 시도한다.
+    set({ toolMode: m, nativeToolsDegraded: false });
+  },
+  setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));
+
+/** 이번 호출에 native tool calling 을 쓸 것인가. */
+export function shouldUseNativeTools(): boolean {
+  const { toolMode, nativeToolsDegraded } = useSettingsStore.getState();
+  if (toolMode === "json") return false;
+  if (toolMode === "native") return true;
+  return !nativeToolsDegraded;
+}

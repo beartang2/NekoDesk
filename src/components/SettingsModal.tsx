@@ -12,7 +12,7 @@ import {
 import { getStoredAccent, saveAccentHex, deriveAccent } from "../theme-colors";
 import { CAT_VARIANTS } from "../cat/spriteData";
 import { useCatStore } from "../stores/catStore";
-import { useSettingsStore } from "../stores/settingsStore";
+import { useSettingsStore, type ToolMode } from "../stores/settingsStore";
 import "./SettingsModal.css";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -615,6 +615,50 @@ function GenParamsSection() {
   );
 }
 
+// ── Tool calling mode section ─────────────────────────────────────────────────
+
+const TOOL_MODE_LABELS: Record<ToolMode, string> = {
+  auto: "자동 (권장)",
+  native: "네이티브 강제",
+  json: "JSON 강제",
+};
+
+function ToolModeSection() {
+  const toolMode = useSettingsStore((s) => s.toolMode);
+  const degraded = useSettingsStore((s) => s.nativeToolsDegraded);
+  const setToolMode = useSettingsStore((s) => s.setToolMode);
+
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">툴 호출 방식</h3>
+      <p className="settings-section__desc">
+        네이티브는 서버의 tool_calls 를 쓴다. 한 턴에 여러 툴을 동시에 부를 수 있고
+        프롬프트가 짧아진다. <code>--jinja</code> 로 띄운 llama-server 와 툴 템플릿이
+        있는 모델이 필요하다. JSON 은 예전 방식으로, 턴당 툴 하나만 부른다.
+      </p>
+      <div className="settings-row">
+        <select
+          className="mcp-form__select"
+          value={toolMode}
+          onChange={(e) => setToolMode(e.target.value as ToolMode)}
+        >
+          {(Object.keys(TOOL_MODE_LABELS) as ToolMode[]).map((m) => (
+            <option key={m} value={m}>
+              {TOOL_MODE_LABELS[m]}
+            </option>
+          ))}
+        </select>
+      </div>
+      {toolMode === "auto" && degraded && (
+        <div className="settings-feedback">
+          서버가 네이티브 툴 호출을 거부해서 JSON 모드로 돌고 있어요.
+          llama-server 를 <code>--jinja</code> 로 다시 띄우면 자동으로 복구돼요.
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── User profile section ──────────────────────────────────────────────────────
 
 const USER_PROFILE_KEY = "nekodesk_user_profile";
@@ -875,6 +919,9 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
 
           {/* ── 생성 파라미터 ─────────────────────────────────────── */}
           <GenParamsSection />
+
+          {/* ── 툴 호출 방식 ──────────────────────────────────────── */}
+          <ToolModeSection />
 
           {/* ── Brave Search API ─────────────────────────────────── */}
           <section className="settings-section">

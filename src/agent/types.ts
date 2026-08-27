@@ -7,6 +7,17 @@ export type ContentPart =
 export interface LlmMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string | ContentPart[];
+  /** native tool calling: assistant 가 요청한 툴 호출들 (OpenAI 형식 그대로 전송). */
+  tool_calls?: WireToolCall[];
+  /** native tool calling: 이 tool 메시지가 어느 호출의 결과인지. */
+  tool_call_id?: string;
+}
+
+/** 서버로 오가는 OpenAI 형식의 툴 호출. arguments 는 JSON 문자열이다. */
+export interface WireToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
 }
 
 export interface LlmParams {
@@ -15,11 +26,25 @@ export interface LlmParams {
   stream?: boolean;
   /** llama.cpp GBNF grammar. 에이전트 JSON 출력을 강제해 파싱 실패를 뿌리에서 막는다. */
   grammar?: string;
+  /** native tool calling 용 툴 스키마. 있으면 tool_choice:"auto" 로 함께 보낸다. */
+  tools?: OpenAiToolSchema[];
+}
+
+/** 스트림 델타에 실려 오는 툴 호출 조각. arguments 는 여러 청크에 걸쳐 온다. */
+export interface RawToolCallDelta {
+  index: number;
+  id?: string;
+  name?: string;
+  argumentsFragment?: string;
 }
 
 export interface LlmStreamChunk {
   content: string;
   done: boolean;
+  /** 모델의 사고 과정(llama.cpp `reasoning_content`). 답변 본문이 아니다. */
+  reasoning?: string;
+  toolCalls?: RawToolCallDelta[];
+  finishReason?: string | null;
 }
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
@@ -37,22 +62,47 @@ export type ToolName =
   | "web.scrape"
   | "file.upload"
   | "weather.get"
-  | "game.start";
+  | "game.start"
+  /** 루프가 직접 처리하는 가상 툴 (execute 없음). */
+  | "user.ask";
 
-export interface ToolParamSchema {
-  type: "string" | "number" | "boolean" | "array";
-  required?: boolean;
+/**
+ * 툴 파라미터는 JSON Schema 로 기술한다. 이 스키마 하나가 두 곳에 쓰인다:
+ * native tool calling 의 `tools` 배열, 그리고 json 폴백 모드의 프롬프트 텍스트.
+ * (예전엔 프롬프트 문자열에 손으로 중복 기재해 registry 와 어긋날 수 있었다.)
+ */
+export interface JsonSchemaProp {
+  type: "string" | "number" | "boolean" | "array" | "object";
   description?: string;
+  enum?: string[];
+  items?: { type: string };
 }
 
-export interface ToolDef<TParams, TResult> {
-  name: ToolName;
-  description: string;
-  params: Record<string, ToolParamSchema>;
-  execute: (params: TParams) => Promise<TResult>;
-  /** Max items to inject into LLM context */
-  resultLimit: number;
-  summarize: (result: TResult) => string;
+export interface JsonSchema {
+  type: "object";
+  properties: Record<string, JsonSchemaProp>;
+  required?: string[];
+}
+
+export interface OpenAiToolSchema {
+  type: "function";
+  function: { name: string; description: string; parameters: JsonSchema };
+}
+
+/** 모델이 요청한 툴 호출 하나 (arguments 파싱 완료). */
+export interface ToolCall {
+  id: string;
+  name: string;
+  params: Record<string, unknown>;
+}
+
+/**
+ * 에이전트 한 턴의 결과. 툴 호출이 비어 있으면 `text` 가 최종 답변이다
+ * (예전 `tool: "none"` 관례를 대체한다).
+ */
+export interface AgentTurn {
+  text: string;
+  toolCalls: ToolCall[];
 }
 
 // ── DB records ────────────────────────────────────────────────────────────────

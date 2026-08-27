@@ -1,8 +1,23 @@
-import type { LlmMessage, LlmParams, LlmStreamChunk, ParsedAgentStep } from "./types";
+import type {
+  AgentTurn,
+  LlmMessage,
+  LlmParams,
+  LlmStreamChunk,
+  ParsedAgentStep,
+  RawToolCallDelta,
+  ToolCall,
+  WireToolCall,
+} from "./types";
 import { getMcpTools } from "./mcp-registry";
+import { buildToolSchemas, describeToolsForPrompt } from "./tool-schemas";
+import { ToolCallAccumulator, fromWireToolCalls } from "./tool-calls";
 import { buildKnowledgeSection } from "./knowledge";
 import { createJsonStringFieldStreamer } from "./json-stream";
-import { useSettingsStore, type GenParams } from "../stores/settingsStore";
+import {
+  shouldUseNativeTools,
+  useSettingsStore,
+  type GenParams,
+} from "../stores/settingsStore";
 
 function getLlmUrl(): string {
   return useSettingsStore.getState().llmUrl;
@@ -43,19 +58,79 @@ export const saveGenParams = (p: GenParams) => useSettingsStore.getState().setGe
 
 // ── Agent system prompt (built dynamically with MCP tools) ────────────────────
 
-const STATIC_TOOLS_DESC = `- todo.list: 열린 할 일 목록을 가져온다 (params: {})
-- todo.add: 할 일을 추가한다 (params: { "content": string, "due_at": string | null })
-- todo.complete: 할 일을 완료 처리한다 (params: { "id": number })
-- schedule.list: 일정을 조회한다 (params: { "range": "today" | "week" | "all" })
-- schedule.add: 일정을 추가한다 (params: { "title": string, "start_at": string }) ※ 하루 단위 이벤트만 지원. start_at은 ISO 8601 형식(예: "2026-05-22" 또는 "2026-05-22T14:00:00"). 여러 날짜에 추가할 때는 날짜마다 따로 호출할 것
-- schedule.delete: 일정을 삭제한다 (params: { "id": number }) ※ 삭제 전 반드시 schedule.list로 id를 조회해서 사용
-- code.exec: Python, Shell, AppleScript를 로컬에서 실행하고 결과를 반환한다 (params: { "code": string, "language": "python" | "shell" | "applescript", "work_dir": string | null }) ※ language가 "applescript"일 때 code는 순수 AppleScript 문법만 작성 (osascript -e 래퍼 절대 사용 금지. 예: tell application "Music" to get name of current track)
-- web.search: 웹에서 정보를 검색한다 (params: { "query": string })
-- web.scrape: 특정 URL의 페이지 내용을 가져온다 (params: { "url": string })
-- file.upload: 첨부된 파일을 HTTP 엔드포인트에 multipart/form-data로 업로드한다. url은 반드시 사용자가 직접 알려준 실제 URL만 사용해. 절대 URL을 추측하거나 만들어내지 마. (params: { "url": string, "field_name": string, "filename": string })
-- weather.get: 현재 날씨와 단기 예보를 가져온다 (params: { "location": string })
-- user.ask: 작업을 시작하기 전에 사용자에게 선택지로 질문한다. 잘못 진행하면 되돌리기 어렵거나 중요한 분기가 필요할 때만 사용해. 명확한 요청엔 절대 사용하지 마. (params: { "question": string, "options": string[] })
-- game.start: 미니게임을 시작한다. (params: { "type": "drawing" | "wordchain" }) drawing = 그림 맞추기(고양이가 그림 보고 단어 추리), wordchain = 끝말잇기`;
+/**
+ * 행동 규칙.
+ *
+ * 툴 목록·파라미터·출력 형식은 여기 없다. native 모드에선 서버가 `tools` 스키마로
+ * 받고, json 모드에선 `describeToolsForPrompt()` 가 registry 에서 생성한다.
+ * 예전에는 이 문자열 안에 툴 설명을 손으로 적어둬서 registry 와 어긋날 수 있었다.
+ */
+const BEHAVIOR_RULES = `규칙:
+1. 사용자의 요청이 완전히 끝났을 때만 툴을 그만 쓰고 답해. 중간에 정보를 얻었더라도 남은 작업이 있으면 계속 툴을 호출해.
+2. 여러 단계가 필요한 작업(예: 파일 업로드 후 프로세스 실행)은 모든 단계를 직접 순서대로 실행해. 방법을 설명하고 멈추지 마.
+3. 서로 의존하지 않는 조회는 한 번에 여러 툴을 함께 호출해 (예: 할 일 + 오늘 일정).
+4. 단순 인사·잡담·감사, "도구 목록"·"뭐 할 수 있어" 같은 자기 자신에 관한 질문은 툴 없이 바로 답해.
+5. 사용 가능한 툴로 할 수 없는 작업(UI 테마 변경 등)은 툴을 부르지 말고 "해당 기능은 지원하지 않아"라고 답해.
+6. 사용자가 이미지를 첨부하면 너는 그 이미지를 직접 볼 수 있어. 툴 없이 보이는 내용을 바로 답해.
+7. 목록·비교는 마크다운 표를 써. (a) 헤더 다음 줄에 구분선 "| --- | --- |"을 꼭 넣고, (b) 모든 행의 칸(|) 개수를 맞추고, (c) 표를 \`\`\` 로 감싸지 마.
+
+툴 사용:
+8. 툴은 명시적 지시 없이도 자유롭게 써. 계산·자동화가 필요하면 code.exec, 일정이 언급되면 schedule.add 처럼 상황에 맞게 스스로 골라.
+9. web.search 는 사용자가 검색을 명시적으로 요청했거나 실시간·최신 정보(뉴스, 가격, 공식 발표 등)가 꼭 필요할 때만 써. 일반 지식·의견·생각을 묻는 질문엔 검색하지 말고 바로 답해.
+10. 웹사이트 주소·URL·홈페이지·"링크 줘"류 질문에는 절대 기억으로 답하지 마. 반드시 web.search 를 먼저 호출해서 실제 검색 결과에 나온 URL만 그대로 복사해 써. 검색해도 확실한 URL이 없으면 링크 대신 이름만 답해.
+11. web.scrape 는 web.search 결과를 받은 뒤에만 써. 검색 없이 단독으로 호출하지 마.
+12. 검색 쿼리는 영어 우선. 영어로 충분한 결과가 없을 것 같을 때만 한국어로 검색해.
+13. weather.get 은 사용자가 날씨를 명시적으로 물어볼 때만. 사용자가 시간과 목적(일정·약속·활동)을 언급하면 schedule.add 를 먼저 실행하고, 날씨는 따로 요청받지 않는 한 자동 조회하지 마.
+14. 기억해둘 만한 것(나중에 할 일, 아이디어, 확인해야 할 것)이 대화에 나오면 지시가 없어도 todo.add 를 호출해. 이미 완료된 일이나 단순 사실 언급은 빼.
+15. Messages·이메일·SNS 등 외부로 메시지를 보내기 직전에는 반드시 user.ask 로 수신자와 내용을 확인받아.
+
+코드 실행:
+16. code.exec 에서 사용자의 한국어 키워드(검색어·아티스트명·앱 이름·플레이리스트명)는 영어/로마자로 바꿔서 먼저 실행하고, 실패하면 원문 한국어로 재시도해. (예: "요루시카" → 먼저 "Yorushika")
+17. Python·Shell 로 AppleScript 코드를 생성·조합하지 마. AppleScript 작업은 단일 code.exec(language: "applescript") 호출로 끝내. 날짜 같은 동적 값은 AppleScript 안에서 do shell script 로 처리해 (예: set dateStr to do shell script "date '+%Y-%m-%d'"). 곡명·플레이리스트명은 네가 직접 판단해서 문자열로 써 넣어.
+18. Messages 앱으로 보낼 때는 AppleScript 코드 안 send 문자열 끝에 "\\n\\nsent by Neko 🐱"를 붙여. 네 답변이 아니라 코드 속 문자열에만 적용해.
+19. Python 으로 이미지를 만들 때는 반드시 "/tmp/neko_output.png" 에 저장해. 그래야 채팅창에 자동으로 표시돼. plt.show() 나 tkinter mainloop() 는 쓰지 마.
+20. 툴 결과에 오류가 보이면(exit_code != 0, stderr 에 에러, "error" 필드 등):
+    a. 오류에서 개인정보(파일 경로, 사용자명, API키, 호스트명)를 제거한다.
+    b. 오류 핵심("command not found: ffmpeg", "permission denied" 등)만으로 web.search 해 해결책을 찾는다.
+    c. 찾은 방법으로 고쳐서 재시도한다. 같은 오류가 반복되면 툴을 멈추고 오류를 보고한다.
+
+해석:
+21. "너가", "네가", "추천해줘", "골라줘", "어떻게 생각해", "뭐가 좋아" 처럼 네가 주어인 요청은 네가 직접 의견·추천·선택을 내라는 뜻이야. "사용자가 뭔가를 조회하고 싶어 한다"는 뜻이 절대 아니야. 취향·조건이 불명확하면 user.ask 로 먼저 묻고, 정보가 충분하면 툴 없이 바로 답해.
+22. 한국어 약어는 아래대로 매핑해. 비슷한 영어 단어로 오해하지 마.
+    - 플리 = 플레이리스트 (Music 앱 재생목록, 절대 "Fly" 앱이 아님)
+    - 뮤직 = Music 앱 / 캘린더 = Calendar 앱 / 메모 = Notes 앱
+    앱 이름이 불명확하면 macOS 기본 앱 맥락에서 먼저 해석해. 새 소프트웨어를 설치하거나 CLI 도구를 실행하는 쪽으로 해석하지 마.`;
+
+/** 말투·정직성. 두 모드 공통 — 최종 답변 전체에 적용된다. */
+const STYLE_RULES = `⚠️ 말투 규칙 (답변 전체에 적용, 예외 없음):
+① 첫 문장부터 마지막 문장까지 반말(해체)로 통일해. 한 답변 안에서 존댓말과 반말을 섞지 마.
+② 금지 어미: ~습니다, ~합니다, ~됩니다, ~입니다, ~해요, ~예요, ~드릴게요, ~드릴게, ~드려요, ~세요, ~십시오.
+   대신 이렇게 써: ~야, ~어, ~해, ~거야, ~했어, ~없었어, ~줄게, ~볼게, ~정리했어.
+③ 자기 지칭은 "나" 또는 "내가". "네코야는", "고양이는" 같은 3인칭으로 자기를 부르지 마.
+④ 툴 결과·웹 검색 문서·인용문의 문체를 그대로 옮기지 마. 내용만 가져오고 문장은 네 말투로 다시 써.
+⑤ "네," "네!" 나 사용자 호칭("○○야!")으로 시작하지 마. 바로 본론부터 시작해.
+⚠️ 할루시네이션 금지:
+① 데이터 날조 금지 — 곡명·아티스트명·URL·검색 결과 등은 절대 만들어내지 마. 답변의 모든 데이터는 반드시 툴 실행 결과에서만 가져와.
+② 액션 날조 금지 — 앱 실행·음악 재생·파일 조작·메시지 전송 등 시스템 조작은 반드시 툴을 실제로 호출한 후에만 완료 표현("재생 중이야", "실행했어")을 써. 툴을 호출하지 않았으면 아무것도 실행된 게 아니다.`;
+
+/**
+ * json 폴백 모드 전용. native 모드에선 서버가 `tool_calls` 를 직접 파싱하므로
+ * 출력 형식·이스케이프 규칙이 통째로 필요 없다.
+ *
+ * 참고: 손으로 쓴 시스템 프롬프트는 native 가 782토큰 짧지만, 채팅 템플릿이 툴
+ * 스키마를 JSON 원문으로 펼치고 호출 형식 설명까지 붙여 1553토큰을 더한다.
+ * 즉 **최종 프롬프트는 native 가 767토큰 더 크다** (측정: prompt-size.integration.test.ts).
+ * 시스템 프롬프트가 고정이라 이 비용은 프롬프트 캐시에 한 번만 실린다 — native 를
+ * 쓰는 이유는 토큰이 아니라 정확성(병렬 호출, 파싱 실패 없음)이다.
+ */
+const JSON_MODE_RULES = `출력 규칙 (json 모드):
+J1. 매번 아래 JSON 만 출력해. 다른 텍스트는 절대 쓰지 마.
+J2. 한 번에 툴 하나만 호출할 수 있어. 작업이 끝나면 tool 을 "none" 으로 두고 finalAnswer 에 답을 써.
+J3. thought 는 한 문장 이내로 짧게.
+
+{"thought":"...","tool":"툴이름 또는 none","params":{},"finalAnswer":"tool이 none일 때만"}
+
+⚠️ params.code 안에 큰따옴표(")가 있으면 반드시 백슬래시로 이스케이프(\\")해야 해. AppleScript 는 문자열에 큰따옴표를 쓰므로 특히 주의: \\"Music\\", \\"Neko Queue\\" 처럼.`;
 
 function nowKst(): string {
   return new Date().toLocaleString("ko-KR", {
@@ -69,96 +144,35 @@ function nowKst(): string {
   });
 }
 
-function buildAgentSystemPrompt(): string {
-  const mcpEntries = getMcpTools();
-  const mcpDesc = mcpEntries.length > 0
-    ? "\n" + mcpEntries.map((e) => {
-        const props = e.tool.inputSchema?.properties ?? {};
-        const paramStr = Object.entries(props)
-          .map(([k, v]) => `"${k}": ${(v as { type: string }).type}`)
-          .join(", ");
-        return `- ${e.tool.name}: ${e.tool.description} [MCP:${e.serverName}] (params: { ${paramStr} })`;
-      }).join("\n")
-    : "";
-
+/**
+ * 시각·지식은 이 프롬프트에 넣지 않는다. 매번 바뀌어 llama.cpp 프롬프트 캐시가
+ * 깨지면 규칙 전체를 매 쿼리 재처리(수 초 TTFT)한다. 이 부분을 고정해 캐시하고,
+ * 시각·지식은 현재 user 메시지에 붙인다(buildAgentContextPrefix).
+ */
+function buildAgentSystemPrompt(native: boolean): string {
   const profile = useSettingsStore.getState().userProfile?.trim();
   const profileSection = profile ? `\n\n사용자 프로필:\n${profile}` : "";
 
   const customPrompt = useSettingsStore.getState().systemPrompt?.trim();
-  const customSection = customPrompt && customPrompt !== DEFAULT_CHAT_SYSTEM_PROMPT.trim()
-    ? `\n\n사용자 지정 컨텍스트:\n${customPrompt}`
-    : "";
+  const customSection =
+    customPrompt && customPrompt !== DEFAULT_CHAT_SYSTEM_PROMPT.trim()
+      ? `\n\n사용자 지정 컨텍스트:\n${customPrompt}`
+      : "";
 
-  // 시각·지식은 이 프롬프트에 넣지 않는다. 매번 바뀌어 llama.cpp 프롬프트 캐시가
-  // 깨지면 ~3000토큰 규칙을 매 쿼리 재처리(수 초 TTFT)한다. 이 부분을 고정해 캐시하고,
-  // 시각·지식은 현재 user 메시지에 붙인다(buildAgentContextPrefix).
-  return `너는 NekoDesk 고양이 어시스턴트야. 사용자를 돕기 위해 툴을 순서대로 사용해.${profileSection}${customSection}
+  // native 모드에선 툴 목록을 `tools` 파라미터로 보내므로 프롬프트에 중복 기재하지
+  // 않는다. json 모드에서만 registry 에서 생성한 설명을 붙인다.
+  const toolsSection = native ? "" : `\n\n사용 가능한 툴:\n${describeToolsForPrompt()}`;
+  const modeSection = native ? "" : `\n\n${JSON_MODE_RULES}`;
 
-사용 가능한 툴:
-${STATIC_TOOLS_DESC}${mcpDesc}
+  return `너는 NekoDesk 고양이 어시스턴트야. 사용자를 돕기 위해 툴을 사용해.${profileSection}${customSection}${toolsSection}
 
-규칙:
-1. 매번 아래 JSON만 출력해. 다른 텍스트는 절대 쓰지 마.
-2. 사용자의 요청이 완전히 완료됐을 때만 tool을 "none"으로 설정해. 중간에 정보를 얻었더라도 아직 할 작업이 남아있으면 반드시 다음 툴을 계속 호출해야 해.
-3. thought는 한 문장 이내로 짧게.
-4. "도구 목록", "기능", "뭐 할 수 있어" 같은 자기 자신에 관한 질문은 툴을 쓰지 말고 위 목록을 참고해서 finalAnswer로 바로 답해.
-5. finalAnswer에서 목록·비교는 마크다운 표를 써. 규칙: (a) 헤더 바로 다음 줄에 구분선 "| --- | --- |"을 반드시 넣어(없으면 표로 안 보임), (b) 모든 행의 칸(|) 개수를 똑같이 맞춰, (c) 표를 \`\`\`로 감싸지 마. 예: "| 이름 | 설명 |\\n| --- | --- |\\n| A | 가 |"
-6. 여러 단계가 필요한 작업(예: 파일 업로드 후 프로세스 실행)은 모든 단계를 직접 순서대로 실행해. 방법을 설명하고 멈추지 마.
-7. 툴 결과에 오류가 감지되면(exit_code != 0, stderr에 에러, "error" 필드 등):
-   a. 오류 메시지에서 개인정보(파일 경로, 사용자명, API키, 호스트명 등)를 제거한다.
-   b. 오류 핵심("command not found: ffmpeg", "permission denied" 등)만으로 web.search를 먼저 실행해 해결책을 찾는다.
-   c. 검색 결과를 반영해 수정된 방법으로 재시도한다.
-   d. 같은 오류가 두 번 반복되면 즉시 tool을 "none"으로 설정하고 finalAnswer로 오류를 보고한다.
-15. code.exec에서 사용자의 한국어 키워드(검색어·아티스트명·앱 이름·플레이리스트명 등)는 영어/로마자로 변환해서 먼저 실행해. 실패하면 원문 한국어로 재시도해. (예: "요루시카" → 먼저 "Yorushika"로 검색, 실패 시 "요루시카"로 재시도)
-24. 한국어 약어·줄임말 해석: 아래 목록을 참고해서 정확히 매핑해. 유사한 영어 단어로 오해하지 마.
-    - 플리 = 플레이리스트 (Music 앱 재생목록, 절대 "Fly" 앱이 아님)
-    - 뮤직 = Music 앱
-    - 캘린더 = Calendar 앱
-    - 메모 = Notes 앱
-    앱 이름이 불명확할 때는 macOS 기본 앱 또는 사용자가 평소 쓰는 앱 맥락에서 먼저 해석해. 새 소프트웨어를 설치하거나 CLI 도구를 실행하는 방향으로 해석하지 마.
-8. 단순 인사, 잡담, 감사 인사 등 툴이 전혀 필요없는 대화는 즉시 tool을 "none"으로 설정하고 finalAnswer로 바로 답해.
-23. 사용 가능한 툴로 실행할 수 없는 작업(UI 테마 변경, 앱 내 시각적 설정 등)을 요청받으면 툴을 호출하지 말고 즉시 tool을 "none"으로 설정해서 finalAnswer로 "해당 기능은 지원하지 않아"라고 설명해.
-18. 사용자가 이미지를 첨부하면 너는 그 이미지를 직접 볼 수 있어. file.upload나 web.search 없이 즉시 tool을 "none"으로 설정하고 보이는 내용을 finalAnswer로 답해.
-9. web.scrape는 반드시 web.search로 결과를 먼저 받은 뒤에만 사용해. 검색 없이 단독으로 호출하지 마.
-10. 웹 검색 시 영어 쿼리를 우선으로 사용해. 영어로 검색해도 충분한 결과가 없을 것 같은 경우에만 한국어로 검색해.
-25. 웹사이트 주소·URL·홈페이지·"링크 줘"류 질문에는 절대 기억으로 답하지 마. 반드시 web.search를 먼저 호출해서 실제 검색 결과에 나온 URL만 그대로 복사해 써. 검색 없이 URL을 지어내는 것은 엄격히 금지(예: samsungsds.co.kr을 samsungsd.co.kr로 잘못 쓰는 오타). 검색해도 확실한 URL이 없으면 링크 대신 이름만 답해.
-11. 사용자가 명시적으로 요청하지 않아도 기억해둘 만한 것(나중에 할 일, 아이디어, 메모, 확인해야 할 것 등)이 대화에 등장하면 스스로 판단해서 todo.add를 호출해. 단, 이미 완료된 일이나 단순 사실 언급은 추가하지 마.
-12. 모든 툴은 명시적 지시 없이도 자유롭게 활용해. 계산이나 자동화가 필요하면 code.exec, 일정이 언급되면 schedule.add 등 상황에 맞는 툴을 스스로 선택해서 실행해. 단, web.search는 사용자가 검색을 명시적으로 요청했거나, 실시간·최신 정보(뉴스, 날씨 제외, 가격, 공식 발표 등)가 꼭 필요할 때만 사용해. 일반 지식, 의견, 생각을 묻는 질문에는 검색하지 말고 바로 답해.
-13. user.ask는 다음 두 경우에 사용해:
-    ① 되돌리기 어려운 작업 직전 — 파일 삭제·덮어쓰기, 어느 대상에 적용할지 불명확한 경우 등.
-    ② 추천·창작·계획 등 열린 작업에서 취향·조건·목적이 불명확해 방향이 여러 갈래인 경우 (예: "노래 추천해줘" → 장르? 분위기? 현재 플레이리스트 기반? 등).
-    단, 명확한 요청이나 의도가 분명한 대화에는 절대 쓰지 마. options는 2~4개로 제한해.
-16. Messages 앱·이메일·SNS 등 외부로 메시지를 전송하기 직전에는 반드시 user.ask로 수신자명과 메시지 내용을 확인받아. 예: question="홍길동 (01012345678)께 이 메시지를 보낼까요?\n\n안녕하세요", options=["보내기", "취소"]
-17. Messages 앱(iMessage/SMS)으로 전송할 때, code.exec의 AppleScript 코드 안에서 send 명령에 전달하는 메시지 문자열 끝에 "\n\nsent by Neko 🐱"를 붙여. finalAnswer나 네 답변에 붙이는 게 아니라, AppleScript 코드 내 문자열에만 적용해. 예: send "안녕하세요\n\nsent by Neko 🐱" to buddy ...
-14. weather.get은 사용자가 날씨를 명시적으로 물어볼 때만 사용해. 사용자가 시간과 목적(일정·약속·활동 등)을 언급하면 반드시 schedule.add를 먼저 실행해. 날씨는 사용자가 따로 요청하지 않는 한 자동으로 조회하지 마.
-21. Python으로 이미지를 생성할 때는 반드시 "/tmp/neko_output.png"에 저장해. 그러면 이미지가 자동으로 채팅창에 표시돼. plt.show()나 tkinter mainloop()는 절대 쓰지 마. 예시:
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots()
-    # ... 그리기 코드 ...
-    plt.savefig("/tmp/neko_output.png", dpi=100, bbox_inches="tight")
-    plt.close()
-20. "너가", "네가", "추천해줘", "골라줘", "어떻게 생각해", "뭐가 좋아" 등 에이전트 자신이 주어인 요청은 에이전트가 직접 의견·추천·선택을 제공해야 해. "사용자가 뭔가를 조회·공유하고 싶어 한다"는 뜻이 절대 아니야. 취향·조건이 불명확하면 user.ask로 먼저 물어보고, 충분한 정보가 있으면 tool 없이 finalAnswer로 바로 답해도 돼.
-19. code.exec를 호출할 때 JSON에 needsConfirm, isDangerous, dangerReason을 반드시 포함해:
-    - needsConfirm: true = 파일 삭제·이동·덮어쓰기, 시스템 설정 변경, brew install·pip install 등 패키지 설치·제거, 프로세스 종료 등 되돌리기 어려운 작업. false = 정보 조회·읽기·계산 등 읽기 전용 작업. ⚠️ 패키지 설치는 반드시 needsConfirm: true
-    - isDangerous: true = rm -rf, sudo, shutdown, dd 등 시스템에 치명적인 명령만. 대부분 false.
-    - dangerReason: isDangerous가 true일 때 이유 (짧게, 예: "강제 삭제"). 그 외엔 빈 문자열.
-22. Python이나 Shell로 AppleScript 코드를 생성·조합하는 방식 절대 금지. AppleScript 작업은 반드시 단일 code.exec(language: "applescript") 호출로 완결해. 날짜 등 동적 값은 AppleScript 내 do shell script로 처리 (예: set dateStr to do shell script "date '+%Y-%m-%d'"). 키워드·곡명·플레이리스트명은 LLM이 직접 판단해서 AppleScript 코드에 문자열로 기입.
+${BEHAVIOR_RULES}${modeSection}
 
-출력 형식:
-{"thought":"...","tool":"툴이름 또는 none","params":{},"needsConfirm":false,"isDangerous":false,"dangerReason":"","finalAnswer":"tool이 none일 때만"}
-
-⚠️ JSON 출력 규칙: params.code 필드 안의 코드에 큰따옴표(")가 있으면 반드시 백슬래시로 이스케이프(\")해야 해. AppleScript는 문자열에 큰따옴표를 쓰므로 특히 주의. 예: \"Music\", \"Neko Queue\", \"Library\" 처럼 이스케이프할 것.
-⚠️ 말투 규칙 (finalAnswer 전체에 적용, 예외 없음):
-① 첫 문장부터 마지막 문장까지 반말(해체)로 통일해. 한 답변 안에서 존댓말과 반말을 섞으면 안 돼.
-② 금지 어미: ~습니다, ~합니다, ~됩니다, ~입니다, ~해요, ~예요, ~드릴게요, ~드릴게, ~드려요, ~세요, ~십시오.
-   대신 이렇게 써: ~야, ~어, ~해, ~거야, ~했어, ~없었어, ~줄게, ~볼게, ~정리했어.
-③ 자기 지칭은 "나" 또는 "내가". "네코야는", "고양이는" 같은 3인칭으로 자기를 부르지 마.
-④ 툴 결과·웹 검색 문서·문서 인용문의 문체를 그대로 옮기지 마. 내용만 가져오고 문장은 네 말투로 다시 써.
-⑤ "네," "네!" 나 사용자 호칭("○○야!")으로 시작하지 마. 바로 본론부터 시작해.
-⚠️ 할루시네이션 금지:
-① 데이터 날조 금지 — 곡명·아티스트명·URL·검색 결과 등은 절대 만들어내지 마. finalAnswer의 모든 데이터는 반드시 툴 실행 결과에서만 가져와.
-② 액션 날조 금지 — 앱 실행·음악 재생·파일 조작·메시지 전송 등 시스템 조작은 반드시 code.exec(또는 해당 툴)를 실제로 호출한 후에만 완료 표현("재생 중이야", "실행했어" 등)을 써. 툴을 호출하지 않았으면 아무것도 실행된 게 아니다.`;
+${STYLE_RULES}`;
 }
+
+/** 테스트 전용 — 프롬프트 크기 측정에 쓴다. 런타임 코드는 쓰지 않는다. */
+export const __promptsForTest = { system: buildAgentSystemPrompt };
 
 // ── Chat system prompt ────────────────────────────────────────────────────────
 
@@ -195,24 +209,47 @@ function buildChatSystemPrompt(): string {
 
 // ── Core fetch ────────────────────────────────────────────────────────────────
 
-export async function fetchCompletion(
+/** LLM 요청 본문 조립. 스트리밍/비스트리밍이 같은 규칙을 쓰도록 한 곳에 모은다. */
+function buildRequestBody(
+  messages: LlmMessage[],
+  params: LlmParams,
+  defaultMaxTokens: number,
+  stream: boolean
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    messages,
+    max_tokens: params.max_tokens ?? defaultMaxTokens,
+    stream,
+  };
+  if (stream) body.stream_options = { include_usage: true };
+  if (params.grammar) body.grammar = params.grammar;
+  if (params.temperature !== undefined) body.temperature = params.temperature;
+  if (params.tools?.length) {
+    body.tools = params.tools;
+    body.tool_choice = "auto";
+  }
+  return body;
+}
+
+/** 비스트리밍 응답 한 건. reasoning 은 답변 본문이 아니라 사고 과정이다. */
+export interface LlmCompletion {
+  text: string;
+  reasoning: string;
+  toolCalls: ToolCall[];
+}
+
+/** 비스트리밍 호출. 텍스트·사고 과정·툴 호출을 함께 돌려준다. */
+export async function fetchCompletionMessage(
   messages: LlmMessage[],
   params: LlmParams = {},
   onUsage?: (promptTokens: number) => void,
   signal?: AbortSignal
-): Promise<string> {
+): Promise<LlmCompletion> {
   const p = loadGenParams();
-  const body: Record<string, unknown> = {
-    messages,
-    max_tokens: params.max_tokens ?? p.max_tokens_agent,
-    stream: false,
-  };
-  if (params.grammar) body.grammar = params.grammar;
-  if (params.temperature !== undefined) body.temperature = params.temperature;
   const res = await fetch(`${getLlmUrl()}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(buildRequestBody(messages, params, p.max_tokens_agent, false)),
     signal: abortAfterTimeout(signal),
   });
 
@@ -221,13 +258,54 @@ export async function fetchCompletion(
   }
 
   const data = await res.json() as {
-    choices: Array<{ message: { content: string }; finish_reason?: string }>;
+    choices: Array<{
+      message: {
+        content: string;
+        reasoning_content?: string;
+        tool_calls?: WireToolCall[];
+      };
+      finish_reason?: string;
+    }>;
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   };
   if (data.usage?.prompt_tokens !== undefined) {
     onUsage?.(data.usage.prompt_tokens);
   }
-  return data.choices[0]?.message?.content ?? "";
+  const message = data.choices[0]?.message;
+  return {
+    text: message?.content ?? "",
+    reasoning: message?.reasoning_content ?? "",
+    toolCalls: fromWireToolCalls(message?.tool_calls),
+  };
+}
+
+export async function fetchCompletion(
+  messages: LlmMessage[],
+  params: LlmParams = {},
+  onUsage?: (promptTokens: number) => void,
+  signal?: AbortSignal
+): Promise<string> {
+  return (await fetchCompletionMessage(messages, params, onUsage, signal)).text;
+}
+
+/** 서버가 보내는 tool_calls 델타의 원형. 첫 조각만 id·name 을 싣는다. */
+interface WireToolCallDelta {
+  index: number;
+  id?: string;
+  type?: string;
+  function?: { name?: string; arguments?: string };
+}
+
+function mapToolCallDeltas(
+  deltas: WireToolCallDelta[] | undefined
+): RawToolCallDelta[] | undefined {
+  if (!deltas?.length) return undefined;
+  return deltas.map((d) => ({
+    index: d.index ?? 0,
+    ...(d.id ? { id: d.id } : {}),
+    ...(d.function?.name ? { name: d.function.name } : {}),
+    ...(d.function?.arguments ? { argumentsFragment: d.function.arguments } : {}),
+  }));
 }
 
 export async function* fetchStream(
@@ -237,23 +315,17 @@ export async function* fetchStream(
   signal?: AbortSignal
 ): AsyncGenerator<LlmStreamChunk> {
   const p = loadGenParams();
-  const body: Record<string, unknown> = {
-    messages,
-    max_tokens: params.max_tokens ?? p.max_tokens_chat,
-    stream: true,
-    stream_options: { include_usage: true },
-  };
-  if (params.grammar) body.grammar = params.grammar;
-  if (params.temperature !== undefined) body.temperature = params.temperature;
   const res = await fetch(`${getLlmUrl()}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(buildRequestBody(messages, params, p.max_tokens_chat, true)),
     signal: abortAfterTimeout(signal),
   });
 
   if (!res.ok) {
-    throw new Error(`LLM stream error ${res.status}`);
+    // 본문을 함께 싣는다. native tool calling 을 서버가 거부했는지(폴백 판정) 여기서
+    // 알아야 한다 — 상태코드만으로는 이유를 구분할 수 없다.
+    throw new Error(`LLM stream error ${res.status}: ${await res.text()}`);
   }
 
   const reader = res.body?.getReader();
@@ -317,17 +389,38 @@ export async function* fetchStream(
         }
         try {
           const chunk = JSON.parse(payload) as {
-            choices: Array<{ delta: { content?: string }; finish_reason: string | null }>;
+            choices: Array<{
+              delta: {
+                content?: string;
+                reasoning_content?: string;
+                tool_calls?: WireToolCallDelta[];
+              };
+              finish_reason: string | null;
+            }>;
             usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
           };
           if (chunk.usage?.prompt_tokens !== undefined) {
             onUsage?.(chunk.usage.prompt_tokens);
           }
-          const raw = chunk.choices[0]?.delta?.content ?? "";
-          const finished = chunk.choices[0]?.finish_reason != null;
-          const content = filterThink(raw);
-          if (content) yield { content, done: finished };
-          else if (finished) yield { content: "", done: true };
+          // usage 전용 마지막 청크는 choices 가 비어 있다.
+          const choice = chunk.choices[0];
+          const finishReason = choice?.finish_reason ?? null;
+          const finished = finishReason != null;
+          // `--reasoning-format none` 으로 뜬 서버는 사고 과정을 content 안의
+          // <think> 태그로 준다. 별도 필드로 주는 서버도 있어 둘 다 처리한다.
+          const content = filterThink(choice?.delta?.content ?? "");
+          const reasoning = choice?.delta?.reasoning_content ?? "";
+          const toolCalls = mapToolCallDeltas(choice?.delta?.tool_calls);
+
+          if (content || reasoning || toolCalls || finished) {
+            yield {
+              content,
+              done: finished,
+              finishReason,
+              ...(reasoning ? { reasoning } : {}),
+              ...(toolCalls ? { toolCalls } : {}),
+            };
+          }
           if (finished) return;
         } catch {
           // malformed chunk — skip
@@ -509,7 +602,11 @@ function injectContextIntoLastUser(messages: LlmMessage[], prefix: string): LlmM
   return out;
 }
 
-function buildAgentMessages(messages: LlmMessage[], userInput: string): LlmMessage[] {
+function buildAgentMessages(
+  messages: LlmMessage[],
+  userInput: string,
+  native: boolean
+): LlmMessage[] {
   // 최근 5개 user 메시지 텍스트를 context로 추출해 knowledge 주입에 활용
   const recentUserContext = messages
     .filter((m) => m.role === "user")
@@ -517,7 +614,10 @@ function buildAgentMessages(messages: LlmMessage[], userInput: string): LlmMessa
     .map((m) => (typeof m.content === "string" ? m.content : ""))
     .join(" ");
   // 시스템 프롬프트는 고정(캐시됨), 시각·지식은 현재 user 메시지에 붙인다.
-  const systemMessage: LlmMessage = { role: "system", content: buildAgentSystemPrompt() };
+  const systemMessage: LlmMessage = {
+    role: "system",
+    content: buildAgentSystemPrompt(native),
+  };
   const prefix = buildAgentContextPrefix(userInput, recentUserContext);
   return [systemMessage, ...injectContextIntoLastUser(messages, prefix)];
 }
@@ -541,7 +641,7 @@ export async function* agentStepStream(
   onUsage?: (promptTokens: number) => void,
   signal?: AbortSignal
 ): AsyncGenerator<AgentStepEvent> {
-  const allMessages = buildAgentMessages(messages, userInput);
+  const allMessages = buildAgentMessages(messages, userInput, false);
   const p = loadGenParams();
   // JSON 에서 thought 가 finalAnswer 보다 먼저 나온다. 둘 다 도착하는 대로 흘려
   // thought 는 "생각 중" 표시로, finalAnswer 는 답변으로 스트리밍한다.
@@ -549,6 +649,10 @@ export async function* agentStepStream(
   const answerStreamer = createJsonStringFieldStreamer("finalAnswer");
 
   let raw = "";
+  // 서버가 reasoning 을 별도 필드로 뽑아내면(`--reasoning-format` 이 none 이 아닐 때)
+  // grammar 로 강제한 JSON 이 통째로 그쪽으로 간다. content 는 빈 채로 끝나므로
+  // 이걸 안 받아두면 "응답을 해석하지 못했어" 로 죽는다.
+  let reasoningRaw = "";
   let emitted = 0;
   try {
     for await (const chunk of fetchStream(
@@ -557,6 +661,10 @@ export async function* agentStepStream(
       onUsage,
       signal
     )) {
+      if (chunk.reasoning) {
+        reasoningRaw += chunk.reasoning;
+        yield { type: "thinking", text: chunk.reasoning };
+      }
       if (!chunk.content) continue;
       raw += chunk.content;
       const thinking = thoughtStreamer.push(chunk.content);
@@ -575,7 +683,7 @@ export async function* agentStepStream(
     return;
   }
 
-  yield { type: "parsed", parsed: parseAgentResponse(raw) };
+  yield { type: "parsed", parsed: parseAgentResponse(raw.trim() ? raw : reasoningRaw) };
 }
 
 export async function agentStep(
@@ -584,11 +692,16 @@ export async function agentStep(
   onUsage?: (promptTokens: number) => void,
   signal?: AbortSignal
 ): Promise<ParsedAgentStep> {
-  const allMessages = buildAgentMessages(messages, userInput);
+  const allMessages = buildAgentMessages(messages, userInput, false);
 
   try {
-    const raw = await fetchCompletion(allMessages, { temperature: 0.1, grammar: AGENT_JSON_GRAMMAR }, onUsage, signal);
-    return parseAgentResponse(raw);
+    const done = await fetchCompletionMessage(
+      allMessages,
+      { temperature: 0.1, grammar: AGENT_JSON_GRAMMAR },
+      onUsage,
+      signal
+    );
+    return parseAgentResponse(done.text.trim() ? done.text : done.reasoning);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // 이미지 처리 실패 시 이미지를 빼고 재시도
@@ -599,11 +712,160 @@ export async function agentStep(
         if (note && typeof note.content === "string") {
           note.content = `${note.content}\n\n[이미지를 첨부했지만 현재 모델이 이미지를 지원하지 않아요.]`;
         }
-        const raw2 = await fetchCompletion(fallback, { temperature: 0.1, grammar: AGENT_JSON_GRAMMAR }, onUsage, signal);
-        return parseAgentResponse(raw2);
+        const retry = await fetchCompletionMessage(
+          fallback,
+          { temperature: 0.1, grammar: AGENT_JSON_GRAMMAR },
+          onUsage,
+          signal
+        );
+        return parseAgentResponse(retry.text.trim() ? retry.text : retry.reasoning);
       }
     }
     throw err;
+  }
+}
+
+// ── Agent turn (native tool calling + json 폴백) ───────────────────────────────
+
+/**
+ * 한 턴의 스트리밍 이벤트. native 든 json 이든 소비자(agent-loop)는 같은 모양을 본다.
+ *  - thinking: 모델의 사고 과정 (답변 아님)
+ *  - delta:    답변 본문 조각
+ *  - turn:     확정된 턴 (텍스트 + 툴 호출 목록)
+ */
+export type AgentTurnEvent =
+  | { type: "thinking"; text: string }
+  | { type: "delta"; text: string }
+  | { type: "turn"; turn: AgentTurn };
+
+/** 서버가 `tools` 파라미터를 거부했는가. 4xx 만 폴백 대상 — 5xx 는 일시적 장애다. */
+function isNativeToolsRejected(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /LLM (stream )?error (400|404|422|501)\b/.test(msg);
+}
+
+function isImageError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("failed to process image") || msg.includes("500");
+}
+
+/** json 모드의 단일 스텝 결과를 공통 AgentTurn 으로 변환한다. */
+function stepToTurn(parsed: ParsedAgentStep, seq: number): AgentTurn {
+  // finalAnswer 가 있으면 tool 값과 무관하게 종료 턴이다(복구 파서가 둘 다 채우는 경우).
+  if (parsed.tool === "none" || !parsed.tool || parsed.finalAnswer) {
+    return { text: parsed.finalAnswer ?? parsed.thought, toolCalls: [] };
+  }
+  return {
+    text: parsed.thought,
+    toolCalls: [{ id: `json_${seq}`, name: parsed.tool, params: parsed.params }],
+  };
+}
+
+/** native 비스트리밍 경로. 이미지 처리 실패 시 이미지를 빼고 한 번 재시도한다. */
+async function nativeTurn(
+  messages: LlmMessage[],
+  userInput: string,
+  onUsage?: (promptTokens: number) => void,
+  signal?: AbortSignal
+): Promise<AgentTurn> {
+  const allMessages = buildAgentMessages(messages, userInput, true);
+  const params: LlmParams = { temperature: 0.1, tools: buildToolSchemas() };
+
+  const toTurn = ({ text, toolCalls }: LlmCompletion): AgentTurn => ({ text, toolCalls });
+
+  try {
+    return toTurn(await fetchCompletionMessage(allMessages, params, onUsage, signal));
+  } catch (err) {
+    if (!isImageError(err)) throw err;
+    const { messages: fallback, hadImages } = stripImageParts(allMessages);
+    if (!hadImages) throw err;
+    const note = fallback[fallback.length - 1];
+    if (note && typeof note.content === "string") {
+      note.content = `${note.content}\n\n[이미지를 첨부했지만 현재 모델이 이미지를 지원하지 않아요.]`;
+    }
+    return toTurn(await fetchCompletionMessage(fallback, params, onUsage, signal));
+  }
+}
+
+/**
+ * native 스트리밍 경로.
+ *
+ * 서버가 tool_calls 를 조각내서 보내므로 ToolCallAccumulator 로 조립한다. 툴 호출이
+ * 하나도 없으면 흘려보낸 텍스트가 그대로 최종 답변이다.
+ */
+async function* nativeTurnStream(
+  messages: LlmMessage[],
+  userInput: string,
+  onUsage?: (promptTokens: number) => void,
+  signal?: AbortSignal
+): AsyncGenerator<AgentTurnEvent> {
+  const allMessages = buildAgentMessages(messages, userInput, true);
+  const p = loadGenParams();
+  const accumulator = new ToolCallAccumulator();
+  let text = "";
+  let emitted = 0;
+
+  try {
+    for await (const chunk of fetchStream(
+      allMessages,
+      { temperature: 0.1, max_tokens: p.max_tokens_agent, tools: buildToolSchemas() },
+      onUsage,
+      signal
+    )) {
+      if (chunk.reasoning) {
+        emitted++;
+        yield { type: "thinking", text: chunk.reasoning };
+      }
+      if (chunk.toolCalls) accumulator.push(chunk.toolCalls);
+      if (chunk.content) {
+        text += chunk.content;
+        emitted++;
+        yield { type: "delta", text: chunk.content };
+      }
+      if (chunk.done) break;
+    }
+  } catch (err) {
+    // 이미 흘려보낸 뒤 끊겼다면 되돌릴 수 없다. 그대로 올린다.
+    if (emitted > 0) throw err;
+    yield { type: "turn", turn: await nativeTurn(messages, userInput, onUsage, signal) };
+    return;
+  }
+
+  yield { type: "turn", turn: { text: text.trim(), toolCalls: accumulator.finish() } };
+}
+
+/**
+ * 에이전트 한 턴 — 모드 선택과 폴백을 여기서 흡수한다.
+ *
+ * auto 모드에서 서버가 `tools` 를 거부하면(예: `--jinja` 없이 뜬 llama-server,
+ * 툴 템플릿이 없는 모델) 이 세션 동안 json 모드로 강등하고 같은 턴을 다시 시도한다.
+ * 아직 아무것도 흘려보내지 않은 시점에만 강등하므로 사용자에겐 이어져 보인다.
+ */
+export async function* agentTurnStream(
+  messages: LlmMessage[],
+  userInput = "",
+  turnSeq = 0,
+  onUsage?: (promptTokens: number) => void,
+  signal?: AbortSignal
+): AsyncGenerator<AgentTurnEvent> {
+  if (shouldUseNativeTools()) {
+    let emitted = 0;
+    try {
+      for await (const ev of nativeTurnStream(messages, userInput, onUsage, signal)) {
+        emitted++;
+        yield ev;
+      }
+      return;
+    } catch (err) {
+      if (emitted > 0 || !isNativeToolsRejected(err)) throw err;
+      console.warn("[tools] 서버가 native tool calling 을 거부해 json 모드로 강등:", err);
+      useSettingsStore.getState().setNativeToolsDegraded(true);
+    }
+  }
+
+  for await (const ev of agentStepStream(messages, userInput, onUsage, signal)) {
+    if (ev.type === "parsed") yield { type: "turn", turn: stepToTurn(ev.parsed, turnSeq) };
+    else yield ev;
   }
 }
 

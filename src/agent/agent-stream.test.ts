@@ -27,6 +27,24 @@ function sseResponse(pieces: string[], opts: { holdOpen?: boolean } = {}): Respo
   return new Response(stream, { status: 200 });
 }
 
+/** 서버가 사고 과정을 별도 필드(`reasoning_content`)로 뽑아 보내는 경우. */
+function reasoningOnlySse(pieces: string[]): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const piece of pieces) {
+        const frame = {
+          choices: [{ delta: { reasoning_content: piece }, finish_reason: null }],
+        };
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
+      }
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+  return new Response(stream, { status: 200 });
+}
+
 beforeEach(() => {
   const store = new Map<string, string>();
   vi.stubGlobal("localStorage", {
@@ -113,5 +131,24 @@ describe("agentStepStream", () => {
 
     // generator 를 닫으면 finally 가 돌아 reader 가 정리된다
     await gen.return(undefined as never);
+  });
+
+  it("grammar 출력이 reasoning_content 로만 와도 파싱한다", async () => {
+    // `--reasoning-format` 이 none 이 아닌 서버는 grammar 로 강제한 JSON 을 통째로
+    // reasoning_content 에 싣고 content 는 비운다. 이걸 못 받으면 루프가 죽는다.
+    const { agentStepStream } = await import("./llm-client");
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      reasoningOnlySse([`{"thought":"조회","tool":"todo.list",`, `"params":{}}`])
+    ));
+
+    const events = [];
+    for await (const ev of agentStepStream([{ role: "user", content: "할 일" }])) {
+      events.push(ev);
+    }
+
+    const parsed = events.find((e) => e.type === "parsed");
+    expect(parsed).toMatchObject({ parsed: { tool: "todo.list", params: {} } });
+    // 사고 과정은 "생각 중" 표시로 흘러야 한다.
+    expect(events.some((e) => e.type === "thinking")).toBe(true);
   });
 });
