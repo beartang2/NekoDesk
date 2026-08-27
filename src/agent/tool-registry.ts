@@ -1,5 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import { todosApi, scheduleApi, execHistoryApi, fsApi, type ScheduleRange } from "../api/tauri";
+import {
+  todosApi,
+  scheduleApi,
+  execHistoryApi,
+  fsApi,
+  memoryApi,
+  type ScheduleRange,
+} from "../api/tauri";
 import { appEvents, requestWordchainFirstWord } from "../lib/events";
 import { getFile, getStoredFileNames } from "./file-store";
 import type {
@@ -10,6 +17,7 @@ import type {
   FsWriteResult,
   FsGrepHit,
   FsReadResult,
+  Memory,
   Todo,
   ScheduleEvent,
   SearchResult,
@@ -500,6 +508,52 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       ),
     resultLimit: 50,
     summarize: (r) => summarizeGrep((r as FsGrepHit[]).slice(0, 50)),
+  },
+
+  // ── 기억 ──────────────────────────────────────────────────────────────────
+  // 세션이 끝나도 남는다. 관련 기억은 요청마다 자동으로 떠올려 컨텍스트에 붙으므로,
+  // memory.search 는 자동 회상이 놓친 것을 모델이 직접 찾을 때만 쓴다.
+
+  "memory.save": {
+    name: "memory.save",
+    description:
+      "다음에도 알고 있어야 할 사실을 기억해둔다. 사용자의 취향·습관·이름·관계·" +
+      "진행 중인 일처럼 오래 유효한 것만. 이번 대화에서만 쓸 임시 정보나 이미 끝난 일은 저장하지 마",
+    params: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "한 문장으로. 나중에 읽어도 뜻이 통하게 써" },
+        kind: {
+          type: "string",
+          enum: ["fact", "preference", "project", "reference"],
+          description: "fact=사실, preference=취향, project=진행 중인 일, reference=링크·자료",
+        },
+      },
+      required: ["content"],
+    },
+    readOnly: false,
+    execute: async (p) =>
+      memoryApi.save(p["content"] as string, (p["kind"] as string | undefined) ?? "fact"),
+    resultLimit: 1,
+    summarize: (r) => `기억했어: ${(r as Memory).content}`,
+  },
+
+  "memory.search": {
+    name: "memory.search",
+    description: "예전에 기억해둔 것을 찾는다. 자동으로 떠오른 기억만으로 부족할 때만 써",
+    params: {
+      type: "object",
+      properties: { query: { type: "string", description: "찾을 내용" } },
+      required: ["query"],
+    },
+    readOnly: true,
+    execute: async (p) => memoryApi.search(p["query"] as string),
+    resultLimit: 5,
+    summarize: (r) => {
+      const found = r as Memory[];
+      if (found.length === 0) return "기억에 없음";
+      return found.map((m) => `- [${m.kind}] ${m.content}`).join("\n");
+    },
   },
 
   // ── 계획 ──────────────────────────────────────────────────────────────────

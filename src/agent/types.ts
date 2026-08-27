@@ -72,7 +72,9 @@ export type ToolName =
   /** 루프가 직접 처리하는 가상 툴 (execute 없음). */
   | "user.ask"
   | "plan.set"
-  | "plan.complete";
+  | "plan.complete"
+  | "memory.save"
+  | "memory.search";
 
 /**
  * 툴 파라미터는 JSON Schema 로 기술한다. 이 스키마 하나가 두 곳에 쓰인다:
@@ -205,6 +207,15 @@ export interface ExecHistoryItem {
   stderr: string;
   exit_code: number;
   executed_at: string;
+}
+
+/** 세션을 넘어 남는 기억 한 조각. */
+export interface Memory {
+  id: number;
+  kind: string;
+  content: string;
+  created_at: string;
+  use_count: number;
 }
 
 export interface ConversationMessage {

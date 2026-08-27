@@ -633,6 +633,55 @@ mod commands {
         crate::mcp::is_running(&state, &id)
     }
 
+    // ── 기억 (db::memories 위임) ───────────────────────────────────────────────
+    // 세션을 넘어 남는다. 검색어 추출·랭킹은 db 모듈 안에서 단위 테스트된다.
+
+    #[tauri::command]
+    pub fn memory_save(
+        db: State<DbState>,
+        kind: Option<String>,
+        content: String,
+    ) -> Result<crate::db::memories::Memory, AppError> {
+        if content.trim().is_empty() {
+            return Err(AppError::msg("저장할 내용이 비어 있어"));
+        }
+        let conn = db.0.lock()?;
+        crate::db::memories::save(&conn, kind.as_deref().unwrap_or("fact"), &content)
+    }
+
+    /// 자유 문장으로 검색한다. 검색어 분해는 백엔드가 한다 — 조사 처리 규칙을
+    /// 프런트엔드와 나눠 가지면 둘이 어긋난다.
+    #[tauri::command]
+    pub fn memory_search(
+        db: State<DbState>,
+        query: String,
+        limit: Option<usize>,
+    ) -> Result<Vec<crate::db::memories::Memory>, AppError> {
+        let terms = crate::db::terms::extract(&query);
+        let conn = db.0.lock()?;
+        let found = crate::db::memories::search(
+            &conn,
+            &terms,
+            limit.unwrap_or(crate::db::memories::RECALL_LIMIT),
+        )?;
+        // 떠올린 것에 표시해 다음 검색에서 우선순위를 올린다.
+        let ids: Vec<i64> = found.iter().map(|m| m.id).collect();
+        crate::db::memories::mark_used(&conn, &ids)?;
+        Ok(found)
+    }
+
+    #[tauri::command]
+    pub fn memory_list(db: State<DbState>) -> Result<Vec<crate::db::memories::Memory>, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::memories::list(&conn)
+    }
+
+    #[tauri::command]
+    pub fn memory_delete(db: State<DbState>, id: i64) -> Result<bool, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::memories::delete(&conn, id)
+    }
+
     // ── 실행 이력 ─────────────────────────────────────────────────────────────
     // ExecHistoryItem 은 db::models 로 이동(상단 재노출).
 
@@ -994,6 +1043,10 @@ pub fn run() {
             commands::fs_glob,
             commands::fs_grep,
             commands::fs_check,
+            commands::memory_save,
+            commands::memory_search,
+            commands::memory_list,
+            commands::memory_delete,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,

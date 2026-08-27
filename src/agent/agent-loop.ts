@@ -10,7 +10,7 @@ import {
   remember,
   writeRuleKey,
 } from "./permissions";
-import { fsApi } from "../api/tauri";
+import { fsApi, memoryApi } from "../api/tauri";
 import { isMcpTool, executeMcpTool } from "./mcp-registry";
 import { AgentContext, type ExecutedCall } from "./agent-context";
 import { findDangerReason, isSafeReadOnly } from "./danger-patterns";
@@ -277,6 +277,21 @@ function clip(text: string, max = 600): string {
   return text.length > max ? `${text.slice(0, max)}\n… (${text.length - max}자 더)` : text;
 }
 
+/**
+ * 이번 요청과 관련된 기억을 떠올려 한 덩이 문자열로 만든다.
+ *
+ * 검색어 분해(한국어 조사 처리 포함)와 랭킹은 백엔드가 한다. 실패해도 조용히
+ * 빈 문자열을 돌려준다 — 기억이 없다고 대화를 못 할 이유는 없다.
+ */
+async function recallMemories(userInput: string): Promise<string> {
+  try {
+    const found = await memoryApi.search(userInput);
+    return found.map((m) => `- [${m.kind}] ${m.content}`).join("\n");
+  } catch {
+    return "";
+  }
+}
+
 /** 최종 답변으로 쓸 텍스트. 모델이 아무 말도 안 했으면 알려준다. */
 function finalAnswerOf(text: string): string {
   const trimmed = text.trim();
@@ -301,6 +316,11 @@ export async function* runAgentLoop(
   );
   const failures = new FailureTracker();
   const plan = new Plan();
+
+  // 관련 기억은 요청 시작 때 한 번만 떠올린다. 사용자 입력은 요청 안에서 안 바뀌므로
+  // 턴마다 다시 검색할 이유가 없다(턴당 IPC 왕복 하나를 아낀다).
+  // 기억이 없거나 조회에 실패해도 요청은 계속돼야 한다 — 부가 기능이지 전제가 아니다.
+  const memories = await recallMemories(userInput);
   const startedAt = Date.now();
   let stepId = 0;
   let toolCallCount = 0;
@@ -316,7 +336,7 @@ export async function* runAgentLoop(
     let turn: AgentTurn | undefined;
     let streamedAnswer = "";
     try {
-      for await (const ev of agentTurnStream(context.toMessages(), userInput, i, trackUsage, signal)) {
+      for await (const ev of agentTurnStream(context.toMessages(), userInput, i, memories, trackUsage, signal)) {
         if (ev.type === "thinking") {
           yield { type: "thinking_token", token: ev.text };
         } else if (ev.type === "delta") {

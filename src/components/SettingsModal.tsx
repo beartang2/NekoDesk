@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { settingsApi } from "../api/tauri";
+import { memoryApi, settingsApi } from "../api/tauri";
 import { X, Zap, Pencil, Trash2, Settings } from "lucide-react";
+import type { Memory } from "../agent/types";
 import {
   loadMcpServers as syncMcpRegistry,
   readMcpServerConfigs,
@@ -788,6 +789,62 @@ function ToolRulesSection() {
   );
 }
 
+// ── Memories section ──────────────────────────────────────────────────────────
+
+const MEMORY_KIND_LABELS: Record<string, string> = {
+  fact: "사실",
+  preference: "취향",
+  project: "진행 중",
+  reference: "자료",
+};
+
+/**
+ * 고양이가 기억해둔 것들. 지우는 수단이 없으면 기억은 무섭기만 하다 — 무엇을
+ * 알고 있는지 보이고 지울 수 있어야 한다.
+ */
+function MemoriesSection() {
+  const [memories, setMemories] = useState<Memory[]>([]);
+
+  const refresh = useCallback(async () => {
+    try {
+      setMemories(await memoryApi.list());
+    } catch {
+      setMemories([]);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function remove(id: number) {
+    await memoryApi.delete(id).catch(() => {});
+    setMemories((prev) => prev.filter((m) => m.id !== id));
+  }
+
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">고양이가 기억하는 것</h3>
+      <p className="settings-section__desc">
+        대화하면서 알게 된 것들이에요. 다음 대화에서도 관련된 것만 자동으로 떠올려요.
+      </p>
+      {memories.length === 0 ? (
+        <div className="settings-feedback">아직 기억한 게 없어요.</div>
+      ) : (
+        <div className="rule-list">
+          {memories.map((m) => (
+            <div className="rule-row" key={m.id}>
+              <span className="memory-row__kind">{MEMORY_KIND_LABELS[m.kind] ?? m.kind}</span>
+              <span className="rule-row__key" title={m.content}>{m.content}</span>
+              <button className="rule-row__remove" onClick={() => remove(m.id)} title="잊기">
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── Settings modal ────────────────────────────────────────────────────────────
 
 interface SettingsModalProps {
@@ -1006,6 +1063,9 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
 
           {/* ── 항상 허용한 작업 ──────────────────────────────────── */}
           <ToolRulesSection />
+
+          {/* ── 기억 ──────────────────────────────────────────────── */}
+          <MemoriesSection />
 
           {/* ── Brave Search API ─────────────────────────────────── */}
           <section className="settings-section">

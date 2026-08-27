@@ -11,6 +11,8 @@ pub mod events;
 pub mod settings;
 pub mod conversations;
 pub mod exec_history;
+pub mod memories;
+pub mod terms;
 
 /// 스키마 초기화. 앱 시작 시 1회 호출.
 ///
@@ -49,6 +51,14 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             value      TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS memories (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind         TEXT NOT NULL DEFAULT 'fact',
+            content      TEXT NOT NULL UNIQUE,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            last_used_at TEXT,
+            use_count    INTEGER NOT NULL DEFAULT 0
+        );
         CREATE TABLE IF NOT EXISTS exec_history (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             language    TEXT NOT NULL,
@@ -61,3 +71,4 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         ",
     )
 }
+

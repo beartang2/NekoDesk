@@ -82,6 +82,7 @@ const BEHAVIOR_RULES = `규칙:
 12. 검색 쿼리는 영어 우선. 영어로 충분한 결과가 없을 것 같을 때만 한국어로 검색해.
 13. weather.get 은 사용자가 날씨를 명시적으로 물어볼 때만. 사용자가 시간과 목적(일정·약속·활동)을 언급하면 schedule.add 를 먼저 실행하고, 날씨는 따로 요청받지 않는 한 자동 조회하지 마.
 14. 기억해둘 만한 것(나중에 할 일, 아이디어, 확인해야 할 것)이 대화에 나오면 지시가 없어도 todo.add 를 호출해. 이미 완료된 일이나 단순 사실 언급은 빼.
+14-1. 사용자에 대해 오래 유효한 것(취향·습관·이름·관계·쓰는 도구·진행 중인 일)을 알게 되면 지시가 없어도 memory.save 로 저장해. 이번 대화에서만 쓸 임시 정보나 이미 끝난 일은 저장하지 마. 관련 기억은 요청마다 자동으로 떠올라 위에 붙으니, memory.search 는 그걸로 부족할 때만 써.
 15. Messages·이메일·SNS 등 외부로 메시지를 보내기 직전에는 반드시 user.ask 로 수신자와 내용을 확인받아.
 
 코드 실행:
@@ -289,6 +290,20 @@ export async function fetchCompletion(
   return (await fetchCompletionMessage(messages, params, onUsage, signal)).text;
 }
 
+/**
+ * `buf` 의 끝에서 `tag` 의 접두사가 될 수 있는 꼬리의 길이.
+ *
+ * `<thi` 로 끝나는 청크를 본문으로 흘려보내면 다음 청크에서 `nk>` 가 와도 태그를
+ * 못 알아본다. 그런 꼬리만 남겨뒀다가 다음 청크와 이어 붙인다.
+ */
+function partialTagTail(buf: string, tag: string): number {
+  const max = Math.min(buf.length, tag.length - 1);
+  for (let n = max; n > 0; n--) {
+    if (tag.startsWith(buf.slice(buf.length - n))) return n;
+  }
+  return 0;
+}
+
 /** 서버가 보내는 tool_calls 델타의 원형. 첫 조각만 id·name 을 싣는다. */
 interface WireToolCallDelta {
   index: number;
@@ -334,39 +349,52 @@ export async function* fetchStream(
 
   const decoder = new TextDecoder();
   let buffer = "";
-  // Think-tag filter state: suppress tokens inside <think>...</think>
+  // <think> 태그 분리 상태. 청크 경계에 태그가 걸쳐 와도 되도록 상태를 들고 간다.
   let thinkBuf = "";
   let inThink = false;
 
-  // Returns the token with any <think>...</think> content removed.
-  // Stateful across chunks so partial tags spanning chunks are handled.
-  function filterThink(token: string): string {
+  /**
+   * 답변 본문과 사고 과정을 가른다.
+   *
+   * 예전에는 think 블록 안의 내용을 **버렸다**. `--reasoning-format none` 으로 뜬
+   * 서버는 채팅 템플릿이 `<think>` 를 미리 넣어주는데, grammar 로 JSON 출력을
+   * 강제하면 모델이 `</think>` 를 낼 수 없다(JSON 이 아니니까). 그러면 태그가 끝내
+   * 안 닫히고 그 뒤 출력 전체가 버려져 "응답을 해석하지 못했어" 가 된다.
+   *
+   * 지금은 버리지 않고 thinking 으로 돌려준다. 소비자가 이걸 "생각 중" 표시로 쓰고,
+   * 본문이 끝내 비면 파싱 폴백으로도 쓴다.
+   */
+  function splitThink(token: string): { text: string; thinking: string } {
     let out = "";
+    let thinking = "";
     thinkBuf += token;
+
     while (thinkBuf.length > 0) {
-      if (inThink) {
-        const end = thinkBuf.indexOf("</think>");
-        if (end === -1) {
-          // Still inside think block, consume all and wait
-          thinkBuf = "";
-          break;
-        }
-        // Consume through </think>
-        thinkBuf = thinkBuf.slice(end + "</think>".length);
-        inThink = false;
-      } else {
-        const start = thinkBuf.indexOf("<think>");
-        if (start === -1) {
-          out += thinkBuf;
-          thinkBuf = "";
-          break;
-        }
-        out += thinkBuf.slice(0, start);
-        thinkBuf = thinkBuf.slice(start + "<think>".length);
-        inThink = true;
+      const [tag, isOpen] = inThink ? (["</think>", false] as const) : (["<think>", true] as const);
+      const at = thinkBuf.indexOf(tag);
+      if (at === -1) {
+        // 태그가 청크 경계에 걸쳐 있을 수 있다. 태그의 접두사가 될 수 있는 꼬리만 남긴다.
+        const keep = partialTagTail(thinkBuf, tag);
+        const emit = thinkBuf.slice(0, thinkBuf.length - keep);
+        if (inThink) thinking += emit;
+        else out += emit;
+        thinkBuf = thinkBuf.slice(thinkBuf.length - keep);
+        break;
       }
+      const before = thinkBuf.slice(0, at);
+      if (inThink) thinking += before;
+      else out += before;
+      thinkBuf = thinkBuf.slice(at + tag.length);
+      inThink = isOpen;
     }
-    return out;
+    return { text: out, thinking };
+  }
+
+  /** 스트림이 끝났는데 안 닫힌 think 블록이 남았으면 그 내용을 돌려준다. */
+  function flushThink(): string {
+    const left = thinkBuf;
+    thinkBuf = "";
+    return inThink ? left : "";
   }
 
   // 소비자가 루프를 벗어나거나(stop 버튼) abort 되면 generator 의 return() 이 불려
@@ -409,8 +437,13 @@ export async function* fetchStream(
           const finished = finishReason != null;
           // `--reasoning-format none` 으로 뜬 서버는 사고 과정을 content 안의
           // <think> 태그로 준다. 별도 필드로 주는 서버도 있어 둘 다 처리한다.
-          const content = filterThink(choice?.delta?.content ?? "");
-          const reasoning = choice?.delta?.reasoning_content ?? "";
+          const split = splitThink(choice?.delta?.content ?? "");
+          const content = split.text;
+          // 서버가 별도 필드로 주는 것과 <think> 태그 안의 것을 같이 다룬다.
+          const reasoning =
+            (choice?.delta?.reasoning_content ?? "") +
+            split.thinking +
+            (finished ? flushThink() : "");
           const toolCalls = mapToolCallDeltas(choice?.delta?.tool_calls);
 
           if (content || reasoning || toolCalls || finished) {
@@ -577,11 +610,19 @@ function stripImageParts(messages: LlmMessage[]): { messages: LlmMessage[]; hadI
   return { messages: stripped, hadImages };
 }
 
-/** 매 호출 바뀌는 컨텍스트(시각 + 상황별 지식). 시스템 프롬프트가 아니라 현재
- *  user 메시지 앞에 붙여, 큰 정적 시스템 프롬프트의 프롬프트 캐시를 보존한다. */
-function buildAgentContextPrefix(userInput: string, recentContext: string): string {
+/** 매 호출 바뀌는 컨텍스트(시각 + 상황별 지식 + 떠올린 기억). 시스템 프롬프트가
+ *  아니라 현재 user 메시지 앞에 붙여, 큰 정적 시스템 프롬프트의 프롬프트 캐시를
+ *  보존한다. */
+function buildAgentContextPrefix(
+  userInput: string,
+  recentContext: string,
+  memories: string
+): string {
   const knowledge = buildKnowledgeSection(userInput, recentContext);
-  return `[현재 날짜/시각: ${nowKst()}]${knowledge}\n\n`;
+  // 기억은 "참고" 로만 준다. 모델이 이걸 사용자가 방금 한 말로 착각하면
+  // 엉뚱한 것을 확인 없이 실행한다.
+  const recalled = memories ? `\n\n[예전에 기억해둔 것 — 참고만 해]\n${memories}` : "";
+  return `[현재 날짜/시각: ${nowKst()}]${knowledge}${recalled}\n\n`;
 }
 
 /** messages 배열에서 마지막 user 메시지 앞에 컨텍스트 프리픽스를 끼운다.
@@ -606,7 +647,8 @@ function injectContextIntoLastUser(messages: LlmMessage[], prefix: string): LlmM
 function buildAgentMessages(
   messages: LlmMessage[],
   userInput: string,
-  native: boolean
+  native: boolean,
+  memories: string
 ): LlmMessage[] {
   // 최근 5개 user 메시지 텍스트를 context로 추출해 knowledge 주입에 활용
   const recentUserContext = messages
@@ -619,7 +661,7 @@ function buildAgentMessages(
     role: "system",
     content: buildAgentSystemPrompt(native),
   };
-  const prefix = buildAgentContextPrefix(userInput, recentUserContext);
+  const prefix = buildAgentContextPrefix(userInput, recentUserContext, memories);
   return [systemMessage, ...injectContextIntoLastUser(messages, prefix)];
 }
 
@@ -639,10 +681,11 @@ export type AgentStepEvent =
 export async function* agentStepStream(
   messages: LlmMessage[],
   userInput = "",
+  memories = "",
   onUsage?: (promptTokens: number) => void,
   signal?: AbortSignal
 ): AsyncGenerator<AgentStepEvent> {
-  const allMessages = buildAgentMessages(messages, userInput, false);
+  const allMessages = buildAgentMessages(messages, userInput, false, memories);
   const p = loadGenParams();
   // JSON 에서 thought 가 finalAnswer 보다 먼저 나온다. 둘 다 도착하는 대로 흘려
   // thought 는 "생각 중" 표시로, finalAnswer 는 답변으로 스트리밍한다.
@@ -680,7 +723,7 @@ export async function* agentStepStream(
     // 이미 답을 흘려보낸 뒤 끊겼다면 되돌릴 수 없다. 그대로 올린다.
     if (emitted > 0) throw err;
     // 아직 아무것도 안 보냈으면 비스트리밍 경로로 한 번 더(이미지 폴백 포함).
-    yield { type: "parsed", parsed: await agentStep(messages, userInput, onUsage, signal) };
+    yield { type: "parsed", parsed: await agentStep(messages, userInput, memories, onUsage, signal) };
     return;
   }
 
@@ -690,10 +733,11 @@ export async function* agentStepStream(
 export async function agentStep(
   messages: LlmMessage[],
   userInput = "",
+  memories = "",
   onUsage?: (promptTokens: number) => void,
   signal?: AbortSignal
 ): Promise<ParsedAgentStep> {
-  const allMessages = buildAgentMessages(messages, userInput, false);
+  const allMessages = buildAgentMessages(messages, userInput, false, memories);
 
   try {
     const done = await fetchCompletionMessage(
@@ -766,10 +810,11 @@ function stepToTurn(parsed: ParsedAgentStep, seq: number): AgentTurn {
 async function nativeTurn(
   messages: LlmMessage[],
   userInput: string,
+  memories: string,
   onUsage?: (promptTokens: number) => void,
   signal?: AbortSignal
 ): Promise<AgentTurn> {
-  const allMessages = buildAgentMessages(messages, userInput, true);
+  const allMessages = buildAgentMessages(messages, userInput, true, memories);
   const params: LlmParams = { temperature: 0.1, tools: buildToolSchemas() };
 
   const toTurn = ({ text, toolCalls }: LlmCompletion): AgentTurn => ({ text, toolCalls });
@@ -797,10 +842,11 @@ async function nativeTurn(
 async function* nativeTurnStream(
   messages: LlmMessage[],
   userInput: string,
+  memories: string,
   onUsage?: (promptTokens: number) => void,
   signal?: AbortSignal
 ): AsyncGenerator<AgentTurnEvent> {
-  const allMessages = buildAgentMessages(messages, userInput, true);
+  const allMessages = buildAgentMessages(messages, userInput, true, memories);
   const p = loadGenParams();
   const accumulator = new ToolCallAccumulator();
   let text = "";
@@ -828,7 +874,7 @@ async function* nativeTurnStream(
   } catch (err) {
     // 이미 흘려보낸 뒤 끊겼다면 되돌릴 수 없다. 그대로 올린다.
     if (emitted > 0) throw err;
-    yield { type: "turn", turn: await nativeTurn(messages, userInput, onUsage, signal) };
+    yield { type: "turn", turn: await nativeTurn(messages, userInput, memories, onUsage, signal) };
     return;
   }
 
@@ -846,13 +892,14 @@ export async function* agentTurnStream(
   messages: LlmMessage[],
   userInput = "",
   turnSeq = 0,
+  memories = "",
   onUsage?: (promptTokens: number) => void,
   signal?: AbortSignal
 ): AsyncGenerator<AgentTurnEvent> {
   if (shouldUseNativeTools()) {
     let emitted = 0;
     try {
-      for await (const ev of nativeTurnStream(messages, userInput, onUsage, signal)) {
+      for await (const ev of nativeTurnStream(messages, userInput, memories, onUsage, signal)) {
         emitted++;
         yield ev;
       }
@@ -864,7 +911,7 @@ export async function* agentTurnStream(
     }
   }
 
-  for await (const ev of agentStepStream(messages, userInput, onUsage, signal)) {
+  for await (const ev of agentStepStream(messages, userInput, memories, onUsage, signal)) {
     if (ev.type === "parsed") yield { type: "turn", turn: stepToTurn(ev.parsed, turnSeq) };
     else yield ev;
   }

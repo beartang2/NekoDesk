@@ -795,3 +795,13 @@
 .rule-row__remove:hover {
   color: var(--error);
 }
+
+/* 기억 종류 뱃지 — 내용보다 눈에 덜 띄어야 한다. */
+.memory-row__kind {
+  font-size: 10px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}

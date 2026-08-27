@@ -8,6 +8,9 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["src/**/*.integration.test.ts"],
+    // llama-server 는 슬롯 하나로 뜬다. 파일을 병렬로 돌리면 두 테스트가 같은
+    // 서버에 동시에 붙어 서로를 굶긴다 — 각각은 통과하는데 같이 돌리면 실패한다.
+    fileParallelism: false,
     testTimeout: 240_000,
     hookTimeout: 30_000,
   },

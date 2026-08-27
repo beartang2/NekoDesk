@@ -20,6 +20,7 @@ import type {
   FsWriteResult,
   FsGrepHit,
   FsReadResult,
+  Memory,
 } from "../agent/types";
 
 export const todosApi = {
@@ -87,6 +88,20 @@ export const mcpApi = {
     invoke<unknown>("mcp_stdio_rpc", { id, method, params }),
   stop: (id: string) => invoke<void>("mcp_stdio_stop", { id }),
   isRunning: (id: string) => invoke<boolean>("mcp_stdio_is_running", { id }),
+};
+
+/**
+ * 세션을 넘어 남는 기억. 검색어 분해(한국어 조사 처리 포함)는 백엔드가 한다 —
+ * 규칙을 양쪽이 나눠 가지면 어긋난다.
+ */
+export const memoryApi = {
+  save: (content: string, kind?: string) =>
+    invoke<Memory>("memory_save", { content, kind }),
+  /** 자유 문장으로 검색. 떠올린 기억은 사용 횟수가 올라간다. */
+  search: (query: string, limit?: number) =>
+    invoke<Memory[]>("memory_search", { query, limit }),
+  list: () => invoke<Memory[]>("memory_list"),
+  delete: (id: number) => invoke<boolean>("memory_delete", { id }),
 };
 
 export const settingsApi = {
