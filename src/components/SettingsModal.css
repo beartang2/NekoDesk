@@ -754,3 +754,44 @@
 .settings-btn--stop:hover:not(:disabled) {
   background: rgba(181, 90, 90, 0.22);
 }
+
+/* ── 항상 허용한 작업 목록 ── */
+.rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-base);
+}
+
+.rule-row__key {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-row__remove {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  transition: color 0.1s;
+}
+
+.rule-row__remove:hover {
+  color: var(--error);
+}

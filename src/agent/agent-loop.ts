@@ -1,5 +1,14 @@
 import { agentTurnStream, chatStream } from "./llm-client";
 import { getTool, isParallelSafe, isStaticTool } from "./tool-registry";
+import {
+  addWriteRoot,
+  execRuleKey,
+  isAllowed,
+  parentDir,
+  remember,
+  writeRuleKey,
+} from "./permissions";
+import { fsApi } from "../api/tauri";
 import { isMcpTool, executeMcpTool } from "./mcp-registry";
 import { AgentContext, type ExecutedCall } from "./agent-context";
 import { findDangerReason, isSafeReadOnly } from "./danger-patterns";
@@ -11,6 +20,7 @@ import type {
   ContentPart,
   LlmMessage,
   LoopEvent,
+  PermissionDecision,
   ToolCall,
   ToolName,
 } from "./types";
@@ -111,8 +121,34 @@ function newStep(id: number, call: ToolCall, thought: string): AgentStep {
  * error 상태로 표현해야 여러 호출을 병렬로 돌릴 때 하나의 실패가 나머지를
  * 날려버리지 않는다.
  */
-async function runCall(call: ToolCall, step: AgentStep): Promise<AgentStep> {
+async function runCall(call: ToolCall, step: AgentStep, approved = false): Promise<AgentStep> {
   try {
+    // 쓰기 계열은 registry 의 execute 가 아니라 여기서 실행한다. `approved` 는
+    // 모델이 정하는 파라미터가 아니라 루프가 사용자 확인을 받고 붙이는 값이라,
+    // 모델이 채우는 params 를 통과시킬 수 없다.
+    if (call.name === "fs.write") {
+      const path = call.params["path"] as string;
+      await fsApi.write(path, (call.params["content"] as string) ?? "", approved);
+      step.result = { path };
+      step.summary = `저장됨: ${path}`;
+      step.status = "done";
+      return step;
+    }
+    if (call.name === "fs.edit") {
+      const path = call.params["path"] as string;
+      const result = await fsApi.edit(
+        path,
+        (call.params["old_string"] as string) ?? "",
+        (call.params["new_string"] as string) ?? "",
+        (call.params["replace_all"] as boolean) ?? false,
+        approved
+      );
+      step.result = result;
+      step.summary = `${path}: ${result.replaced}군데 수정됨`;
+      step.status = "done";
+      return step;
+    }
+
     if (isMcpTool(call.name)) {
       const text = await executeMcpTool(call.name, call.params);
       step.result = text;
@@ -168,6 +204,77 @@ function failureKey(step: AgentStep): string | null {
     return `code.exec|${code}|${lang}|${exit}`;
   }
   return `${step.tool}|${JSON.stringify(step.params)}|${step.errorMessage ?? step.summary}`;
+}
+
+/**
+ * 실행 전에 사용자 확인이 필요한 호출의 정보. null 이면 그냥 실행해도 되는 호출이다.
+ */
+interface Gate {
+  /** 확인 창에 표시할 종류 — 코드면 언어, 파일이면 "write"/"edit". */
+  language: string;
+  /** 확인 창에 보여줄 본문. */
+  preview: string;
+  isDangerous: boolean;
+  dangerReason: string;
+  /** "세션 동안"/"항상" 을 고르면 저장될 규칙 키. */
+  ruleKey: string;
+  /** 파일 쓰기라면 승인 루트로 등록할 디렉토리. */
+  writeDir?: string;
+}
+
+/** 하드 차단된 경로면 던진다 — 확인 창을 띄우는 것 자체가 잘못이다. */
+async function buildGate(call: ToolCall): Promise<Gate | null> {
+  if (call.name === "code.exec") {
+    const code = (call.params["code"] as string) ?? "";
+    const language = (call.params["language"] as string) ?? "python";
+    const dangerReason = findDangerReason(code);
+    const isDangerous = dangerReason !== undefined;
+    if (!isDangerous && isSafeReadOnly(code, language)) return null;
+    return {
+      language,
+      preview: code,
+      isDangerous,
+      dangerReason: dangerReason ?? "",
+      ruleKey: execRuleKey(code, language),
+    };
+  }
+
+  if (call.name !== "fs.write" && call.name !== "fs.edit") return null;
+
+  const path = (call.params["path"] as string) ?? "";
+  if (!path) throw new Error("path 파라미터가 없어");
+
+  // 백엔드가 정책의 주인이다. 여기서 물어보는 건 확인 창을 띄울지 정하기 위해서다.
+  const decision = await fsApi.check(path, true);
+  if (decision.kind === "deny") throw new Error(decision.reason);
+  if (decision.kind === "allow") return null; // 이미 승인된 쓰기 루트 안
+
+  const kind = call.name === "fs.write" ? "write" : "edit";
+  return {
+    language: kind,
+    preview: previewOf(call, decision.path),
+    isDangerous: false,
+    dangerReason: "",
+    ruleKey: writeRuleKey(decision.path),
+    writeDir: parentDir(decision.path),
+  };
+}
+
+/** 확인 창에 보여줄 파일 변경 요약. 통째로 붙이면 긴 파일에서 창이 터진다. */
+function previewOf(call: ToolCall, path: string): string {
+  if (call.name === "fs.edit") {
+    return [
+      path,
+      "",
+      `- ${clip((call.params["old_string"] as string) ?? "")}`,
+      `+ ${clip((call.params["new_string"] as string) ?? "")}`,
+    ].join("\n");
+  }
+  return [path, "", clip((call.params["content"] as string) ?? "")].join("\n");
+}
+
+function clip(text: string, max = 600): string {
+  return text.length > max ? `${text.slice(0, max)}\n… (${text.length - max}자 더)` : text;
 }
 
 /** 최종 답변으로 쓸 텍스트. 모델이 아무 말도 안 했으면 알려준다. */
@@ -281,29 +388,45 @@ export async function* runAgentLoop(
         continue;
       }
 
-      // ── Confirm code execution ──────────────────────────────────────────────
-      // code.exec 는 임의 코드를 사용자 권한으로 돌린다. 신뢰 경계를 모델의 판단에
-      // 맡길 수 없다(web.scrape 로 프롬프트 인젝션 가능). 따라서 기본적으로 확인을
-      // 요구하고(fail-safe), 안전하다고 알려진 좁은 경우에만 확인을 건너뛴다.
-      if (call.name === "code.exec") {
-        const code = (call.params["code"] as string) ?? "";
-        const language = (call.params["language"] as string) ?? "python";
+      // ── 승인 게이트 ──────────────────────────────────────────────────────
+      // code.exec 는 임의 코드를 사용자 권한으로 돌리고, fs.write/fs.edit 은 파일을
+      // 바꾼다. 신뢰 경계를 모델의 판단에 맡길 수 없다(web.scrape 로 읽은 페이지가
+      // 모델을 조종할 수 있다). 기본은 확인이고, 안전하다고 알려진 좁은 경우와
+      // 사용자가 이미 승인해둔 규칙만 건너뛴다.
+      let gate: Gate | null;
+      try {
+        gate = await buildGate(call);
+      } catch (err) {
+        // 하드 차단된 경로 등 — 판정 단계에서 이미 거부됐다.
+        step.status = "error";
+        step.errorMessage = err instanceof Error ? err.message : String(err);
+        step.summary = `오류: ${step.errorMessage}`;
+        executed.push({ call, step });
+        yield { type: "step_error", step };
+        continue;
+      }
 
-        const dangerReason = findDangerReason(code);
-        const isDangerous = dangerReason !== undefined;
-        if (isDangerous || !isSafeReadOnly(code, language)) {
-          let resolveConfirm!: (ok: boolean) => void;
-          const approvalPromise = new Promise<boolean>((res) => { resolveConfirm = res; });
+      let approved = false;
+      if (gate) {
+        // 위험 패턴에 걸린 코드는 저장된 규칙이 있어도 매번 묻는다. 규칙을 만든
+        // 주체가 사용자가 아니라 프롬프트 인젝션일 수 있다.
+        if (!gate.isDangerous && isAllowed(gate.ruleKey)) {
+          approved = true;
+        } else {
+          let resolveConfirm!: (decision: PermissionDecision) => void;
+          const decisionPromise = new Promise<PermissionDecision>((res) => { resolveConfirm = res; });
           yield {
             type: "confirm_needed",
-            language,
-            code,
-            isDangerous,
-            dangerReason: dangerReason ?? "",
+            language: gate.language,
+            code: gate.preview,
+            isDangerous: gate.isDangerous,
+            dangerReason: gate.dangerReason,
+            ruleKey: gate.ruleKey,
             resolve: resolveConfirm,
           };
+          const decision = await decisionPromise;
 
-          if (!(await approvalPromise)) {
+          if (decision === "deny") {
             step.status = "error";
             step.errorMessage = "사용자가 실행을 취소했습니다";
             step.summary = "실행 취소됨";
@@ -315,10 +438,18 @@ export async function* runAgentLoop(
             yield { type: "done", answer: cancelMsg, steps: context.steps, promptTokens: latestPromptTokens };
             return;
           }
+
+          approved = true;
+          await remember(gate.ruleKey, decision);
+          // "항상" 을 고른 쓰기는 백엔드의 승인 루트에도 넣는다. 그래야 다음부터
+          // approved 플래그 없이도 통과한다.
+          if (decision === "allow_always" && gate.writeDir) {
+            await addWriteRoot(gate.writeDir);
+          }
         }
       }
 
-      await runCall(call, step);
+      await runCall(call, step, approved);
       executed.push({ call, step });
       yield step.status === "error"
         ? { type: "step_error", step }

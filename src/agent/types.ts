@@ -63,6 +63,12 @@ export type ToolName =
   | "file.upload"
   | "weather.get"
   | "game.start"
+  | "fs.read"
+  | "fs.write"
+  | "fs.edit"
+  | "fs.list"
+  | "fs.glob"
+  | "fs.grep"
   /** 루프가 직접 처리하는 가상 툴 (execute 없음). */
   | "user.ask";
 
@@ -147,6 +153,36 @@ export interface CodeExecResult {
   image_data_url?: string;
 }
 
+export interface FsReadResult {
+  /** `   12→내용` 형태로 줄번호가 붙은 본문. */
+  content: string;
+  total_lines: number;
+  truncated: boolean;
+}
+
+export interface FsEditResult {
+  replaced: number;
+}
+
+export interface FsGrepHit {
+  path: string;
+  line_no: number;
+  text: string;
+}
+
+export interface FsEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+}
+
+/** 실제로 건드리기 전에 백엔드에 물어본 접근 판정. */
+export type FsDecision =
+  | { kind: "allow"; path: string }
+  | { kind: "confirm"; path: string }
+  | { kind: "deny"; path: string; reason: string };
+
 export interface ExecHistoryItem {
   id: number;
   language: string;
@@ -164,6 +200,14 @@ export interface ConversationMessage {
   content: string;
   created_at: string;
 }
+
+// ── Permissions ───────────────────────────────────────────────────────────────
+
+/**
+ * 확인 창에서 사용자가 고른 것.
+ * (규칙 저장·판정은 permissions.ts 가 한다. 타입만 여기 둬 순환 import 를 피한다.)
+ */
+export type PermissionDecision = "allow_once" | "allow_session" | "allow_always" | "deny";
 
 // ── Agent step ────────────────────────────────────────────────────────────────
 
@@ -192,7 +236,21 @@ export type LoopEvent =
   | { type: "streaming_token"; token: string }
   | { type: "done"; answer: string; steps: AgentStep[]; promptTokens?: number }
   | { type: "error"; message: string }
-  | { type: "confirm_needed"; language: string; code: string; isDangerous: boolean; dangerReason: string; resolve: (ok: boolean) => void }
+  | {
+      type: "confirm_needed";
+      /** 코드 실행이면 언어("python"/"shell"/...), 파일이면 "write"/"edit". */
+      language: string;
+      /** 사용자에게 보여줄 본문 — 실행할 코드, 또는 쓸 파일과 내용 미리보기. */
+      code: string;
+      isDangerous: boolean;
+      dangerReason: string;
+      /**
+       * "이 세션 동안" / "항상" 을 고르면 저장될 규칙 키.
+       * 위험 패턴에 걸린 건 규칙이 있어도 매번 물으므로 isDangerous 와 무관하다.
+       */
+      ruleKey: string;
+      resolve: (decision: PermissionDecision) => void;
+    }
   | { type: "clarify_needed"; question: string; options: string[]; resolve: (answer: string) => void };
 
 // ── Cat state ─────────────────────────────────────────────────────────────────

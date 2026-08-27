@@ -14,6 +14,11 @@ import type {
   ScheduleEvent,
   ConversationMessage,
   ExecHistoryItem,
+  FsDecision,
+  FsEditResult,
+  FsEntry,
+  FsGrepHit,
+  FsReadResult,
 } from "../agent/types";
 
 export const todosApi = {
@@ -40,6 +45,34 @@ export const scheduleApi = {
     invoke<ScheduleEvent>("schedule_add", { title, startAt, endAt }),
   /** 삭제된 개수를 반환. */
   delete: (ids: number[]) => invoke<number>("schedule_delete", { ids }),
+};
+
+/**
+ * 파일 접근. 경로 정책은 전부 Rust(`files::guard`)가 판정한다 — 프런트엔드는
+ * 확인 창을 띄울지 결정하려고 `check` 를 먼저 물어볼 뿐이고, 실제 강제는 백엔드에
+ * 있다. `approved` 는 "사용자에게 실제로 확인을 받았다" 는 뜻이다.
+ */
+export const fsApi = {
+  read: (path: string, offset?: number, limit?: number) =>
+    invoke<FsReadResult>("fs_read", { path, offset, limit }),
+  write: (path: string, content: string, approved: boolean) =>
+    invoke<void>("fs_write", { path, content, approved }),
+  edit: (
+    path: string,
+    oldString: string,
+    newString: string,
+    replaceAll: boolean,
+    approved: boolean
+  ) =>
+    invoke<FsEditResult>("fs_edit", { path, oldString, newString, replaceAll, approved }),
+  list: (path: string) => invoke<FsEntry[]>("fs_list", { path }),
+  glob: (pattern: string, base?: string) =>
+    invoke<string[]>("fs_glob", { pattern, base }),
+  grep: (pattern: string, base?: string, glob?: string, maxResults?: number) =>
+    invoke<FsGrepHit[]>("fs_grep", { pattern, base, glob, maxResults }),
+  /** 건드리기 전에 정책만 물어본다. */
+  check: (path: string, write: boolean) =>
+    invoke<FsDecision>("fs_check", { path, write }),
 };
 
 export const settingsApi = {

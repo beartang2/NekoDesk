@@ -1,10 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import { todosApi, scheduleApi, execHistoryApi, type ScheduleRange } from "../api/tauri";
+import { todosApi, scheduleApi, execHistoryApi, fsApi, type ScheduleRange } from "../api/tauri";
 import { appEvents, requestWordchainFirstWord } from "../lib/events";
 import { getFile, getStoredFileNames } from "./file-store";
 import type {
   ToolName,
   JsonSchema,
+  FsEditResult,
+  FsEntry,
+  FsGrepHit,
+  FsReadResult,
   Todo,
   ScheduleEvent,
   SearchResult,
@@ -29,6 +33,16 @@ function summarizeEvents(events: ScheduleEvent[]): string {
 function summarizeSearch(results: SearchResult[]): string {
   if (results.length === 0) return "검색 결과 없음";
   return results.map((r) => `- ${r.title}: ${r.snippet}`).join("\n");
+}
+
+function summarizeGrep(hits: FsGrepHit[]): string {
+  if (hits.length === 0) return "일치하는 줄 없음";
+  return hits.map((h) => `${h.path}:${h.line_no}: ${h.text.trim()}`).join("\n");
+}
+
+function summarizeEntries(entries: FsEntry[]): string {
+  if (entries.length === 0) return "빈 디렉토리";
+  return entries.map((e) => (e.is_dir ? `${e.name}/` : `${e.name} (${e.size}B)`)).join("\n");
 }
 
 // ── Tool registry ─────────────────────────────────────────────────────────────
@@ -340,6 +354,145 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     resultLimit: 1,
     summarize: (r) => JSON.stringify(r).slice(0, 300),
+  },
+
+
+  // ── 파일 ──────────────────────────────────────────────────────────────────
+  // 쓰기 계열(fs.write / fs.edit)은 루프가 먼저 확인을 받은 뒤 approved 를 넘긴다.
+  // 여기서 approved:false 로 부르면 백엔드가 거부한다 — 확인을 우회할 수 없다.
+
+  "fs.read": {
+    name: "fs.read",
+    description:
+      "파일을 읽는다. 줄번호가 붙어서 오니 fs.edit 대상을 고를 때 참고해. " +
+      "긴 파일은 offset/limit 으로 이어 읽어",
+    params: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "파일 경로. ~ 로 홈을 쓸 수 있다" },
+        offset: { type: "number", description: "건너뛸 줄 수" },
+        limit: { type: "number", description: "읽을 줄 수. 기본 2000" },
+      },
+      required: ["path"],
+    },
+    readOnly: true,
+    execute: async (p) =>
+      fsApi.read(
+        p["path"] as string,
+        p["offset"] as number | undefined,
+        p["limit"] as number | undefined
+      ),
+    resultLimit: 1,
+    summarize: (r) => {
+      const res = r as FsReadResult;
+      return res.truncated
+        ? `${res.content}\n\n(전체 ${res.total_lines}줄 중 일부. offset 을 올려 이어 읽어)`
+        : res.content;
+    },
+  },
+
+  "fs.write": {
+    name: "fs.write",
+    description: "파일에 내용을 쓴다(덮어쓴다). 기존 파일 일부만 고칠 땐 fs.edit 을 써",
+    params: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "파일 경로. 없는 디렉토리는 만들어진다" },
+        content: { type: "string", description: "파일 전체 내용" },
+      },
+      required: ["path", "content"],
+    },
+    readOnly: false,
+    execute: async () => {
+      throw new Error("fs.write 는 에이전트 루프가 확인을 받은 뒤 실행해야 하는 툴이야");
+    },
+    resultLimit: 1,
+    summarize: () => "파일 저장됨",
+  },
+
+  "fs.edit": {
+    name: "fs.edit",
+    description:
+      "파일에서 정확히 일치하는 문자열을 바꾼다. old_string 은 파일 안에서 유일해야 해 — " +
+      "겹치면 앞뒤 줄을 더 붙여 유일하게 만들거나 replace_all 을 써. 먼저 fs.read 로 실제 내용을 확인할 것",
+    params: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "파일 경로" },
+        old_string: { type: "string", description: "바꿀 문자열 (공백·들여쓰기까지 정확히)" },
+        new_string: { type: "string", description: "새 문자열" },
+        replace_all: { type: "boolean", description: "일치하는 모든 곳을 바꿀지" },
+      },
+      required: ["path", "old_string", "new_string"],
+    },
+    readOnly: false,
+    execute: async () => {
+      throw new Error("fs.edit 은 에이전트 루프가 확인을 받은 뒤 실행해야 하는 툴이야");
+    },
+    resultLimit: 1,
+    summarize: (r) => `${(r as FsEditResult).replaced}군데 수정됨`,
+  },
+
+  "fs.list": {
+    name: "fs.list",
+    description: "디렉토리 내용을 나열한다",
+    params: {
+      type: "object",
+      properties: { path: { type: "string", description: "디렉토리 경로" } },
+      required: ["path"],
+    },
+    readOnly: true,
+    execute: async (p) => fsApi.list(p["path"] as string),
+    resultLimit: 50,
+    summarize: (r) => summarizeEntries((r as FsEntry[]).slice(0, 50)),
+  },
+
+  "fs.glob": {
+    name: "fs.glob",
+    description:
+      "패턴으로 파일을 찾는다. 최근 수정 순으로 돌려준다. .gitignore 는 자동으로 존중한다",
+    params: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: 'glob 패턴. 예: "*.png", "src/**/*.ts"' },
+        base: { type: "string", description: "탐색 시작 디렉토리. 기본 홈" },
+      },
+      required: ["pattern"],
+    },
+    readOnly: true,
+    execute: async (p) => fsApi.glob(p["pattern"] as string, p["base"] as string | undefined),
+    resultLimit: 50,
+    summarize: (r) => {
+      const paths = r as string[];
+      if (paths.length === 0) return "일치하는 파일 없음";
+      const shown = paths.slice(0, 50).join("\n");
+      return paths.length > 50 ? `${shown}\n… 외 ${paths.length - 50}개` : shown;
+    },
+  },
+
+  "fs.grep": {
+    name: "fs.grep",
+    description: "파일 내용을 정규식으로 검색한다. 파일:줄번호와 함께 돌려준다",
+    params: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "정규식" },
+        base: { type: "string", description: "탐색 시작 디렉토리. 기본 홈" },
+        glob: { type: "string", description: '검색 대상을 좁히는 glob. 예: "*.ts"' },
+        max_results: { type: "number", description: "최대 결과 수. 기본 200" },
+      },
+      required: ["pattern"],
+    },
+    readOnly: true,
+    execute: async (p) =>
+      fsApi.grep(
+        p["pattern"] as string,
+        p["base"] as string | undefined,
+        p["glob"] as string | undefined,
+        p["max_results"] as number | undefined
+      ),
+    resultLimit: 50,
+    summarize: (r) => summarizeGrep((r as FsGrepHit[]).slice(0, 50)),
   },
 
   // 가상 툴 — 루프가 execute 전에 가로채 UI 로 질문을 띄운다. 스키마가 여기 있어야

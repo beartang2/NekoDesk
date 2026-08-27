@@ -9,6 +9,8 @@ use base64::{Engine as _, engine::general_purpose};
 mod error;
 mod db;
 mod http;
+// 이름을 `fs` 로 두면 이 파일 곳곳의 `std::fs` 와 헷갈린다.
+mod files;
 pub use error::AppError;
 // 모델은 db::models 소속. 예전에 lib.rs 에 있던 경로를 유지하려 재노출.
 pub use db::models::{ConversationMessage, ExecHistoryItem, ScheduleEvent, Todo};
@@ -508,6 +510,87 @@ mod commands {
         Ok(path.to_string_lossy().into_owned())
     }
 
+    // ── 파일 (files 모듈 위임) ────────────────────────────────────────────────
+    // 정책 판정과 실제 I/O 는 crate::files 안에 있고 거기서 단위 테스트된다.
+    // 여기서는 승인된 쓰기 루트를 DB 에서 꺼내 넘겨주는 역할만 한다.
+
+    /// 사용자가 "항상 허용" 한 쓰기 루트 목록(JSON 배열 문자열).
+    fn write_roots(db: &State<DbState>) -> Result<String, AppError> {
+        let conn = db.0.lock()?;
+        Ok(crate::db::settings::get(&conn, "fs_write_roots")?.unwrap_or_else(|| "[]".to_string()))
+    }
+
+    #[tauri::command]
+    pub fn fs_read(
+        path: String,
+        offset: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<crate::files::FsReadResult, AppError> {
+        crate::files::read(&path, offset, limit)
+    }
+
+    #[tauri::command]
+    pub fn fs_write(
+        db: State<DbState>,
+        path: String,
+        content: String,
+        approved: bool,
+    ) -> Result<(), AppError> {
+        let roots = write_roots(&db)?;
+        crate::files::write(&path, &content, &roots, approved)
+    }
+
+    #[tauri::command]
+    pub fn fs_edit(
+        db: State<DbState>,
+        path: String,
+        old_string: String,
+        new_string: String,
+        replace_all: Option<bool>,
+        approved: bool,
+    ) -> Result<crate::files::FsEditResult, AppError> {
+        let roots = write_roots(&db)?;
+        crate::files::edit(
+            &path,
+            &old_string,
+            &new_string,
+            replace_all.unwrap_or(false),
+            &roots,
+            approved,
+        )
+    }
+
+    #[tauri::command]
+    pub fn fs_list(path: String) -> Result<Vec<crate::files::FsEntry>, AppError> {
+        crate::files::list(&path)
+    }
+
+    #[tauri::command]
+    pub fn fs_glob(pattern: String, base: Option<String>) -> Result<Vec<String>, AppError> {
+        crate::files::glob(&pattern, base.as_deref())
+    }
+
+    #[tauri::command]
+    pub fn fs_grep(
+        pattern: String,
+        base: Option<String>,
+        glob: Option<String>,
+        max_results: Option<usize>,
+    ) -> Result<Vec<crate::files::FsGrepHit>, AppError> {
+        crate::files::grep(&pattern, base.as_deref(), glob.as_deref(), max_results)
+    }
+
+    /// 실제로 건드리기 전에 정책만 물어본다. 프런트엔드가 확인 창을 띄울지 판단한다.
+    #[tauri::command]
+    pub fn fs_check(
+        db: State<DbState>,
+        path: String,
+        write: bool,
+    ) -> Result<crate::files::FsDecision, AppError> {
+        let roots = write_roots(&db)?;
+        crate::files::check(&path, write, &roots)
+    }
+
     // ── 실행 이력 ─────────────────────────────────────────────────────────────
     // ExecHistoryItem 은 db::models 로 이동(상단 재노출).
 
@@ -861,6 +944,13 @@ pub fn run() {
             commands::exec_history_save,
             commands::exec_history_list,
             commands::exec_history_clear,
+            commands::fs_read,
+            commands::fs_write,
+            commands::fs_edit,
+            commands::fs_list,
+            commands::fs_glob,
+            commands::fs_grep,
+            commands::fs_check,
             commands::llama_scan_models,
             commands::llama_start,
             commands::llama_stop,

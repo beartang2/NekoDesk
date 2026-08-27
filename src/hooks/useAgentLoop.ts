@@ -3,15 +3,26 @@ import { conversationApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { useMessageStore } from "../stores/messageStore";
 import { runAgentLoop } from "../agent/agent-loop";
-import type { AgentStep, CatEmotion, ContentPart, LlmMessage, LoopEvent } from "../agent/types";
+import type {
+  AgentStep,
+  CatEmotion,
+  ContentPart,
+  LlmMessage,
+  LoopEvent,
+  PermissionDecision,
+} from "../agent/types";
 
 export interface PendingConfirm {
   sessionId: string;
+  /** 코드면 언어("python"/"shell"/...), 파일이면 "write"/"edit". */
   language: string;
+  /** 보여줄 본문 — 실행할 코드 또는 파일 변경 요약. */
   code: string;
   isDangerous: boolean;
   dangerReason: string;
-  resolve: (ok: boolean) => void;
+  /** "이 세션 동안"/"항상" 을 고르면 저장될 규칙. 버튼 라벨에도 쓴다. */
+  ruleKey: string;
+  resolve: (decision: PermissionDecision) => void;
 }
 
 export interface PendingClarify {
@@ -261,6 +272,7 @@ export function useAgentPool() {
               code: event.code,
               isDangerous: event.isDangerous,
               dangerReason: event.dangerReason,
+              ruleKey: event.ruleKey,
               resolve: event.resolve,
             });
             break;
@@ -341,7 +353,13 @@ export function useAgentPool() {
       setRunning(sessionId, false);
       setCatEmotion(sessionId, "idle");
       setPendingClarify((prev) => (prev?.sessionId === sessionId ? null : prev));
-      setPendingConfirm((prev) => (prev?.sessionId === sessionId ? null : prev));
+      // 확인 대기 중에 stop 을 누르면 promise 를 풀어줘야 한다. 안 그러면 제너레이터가
+      // 영원히 await 에 매달려 abort 신호를 확인할 기회조차 못 갖는다.
+      setPendingConfirm((prev) => {
+        if (prev?.sessionId !== sessionId) return prev;
+        prev.resolve("deny");
+        return null;
+      });
       useMessageStore.getState().patch(sessionId, (msgs) =>
         msgs.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
       );
@@ -362,8 +380,8 @@ export function useAgentPool() {
     sendMessage,
     stop,
     pendingConfirm,
-    confirmResolve: (ok: boolean) => {
-      pendingConfirm?.resolve(ok);
+    confirmResolve: (decision: PermissionDecision) => {
+      pendingConfirm?.resolve(decision);
       setPendingConfirm(null);
     },
     pendingClarify,

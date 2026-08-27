@@ -82,7 +82,8 @@ describe.skipIf(!serverUp)("프롬프트 크기", () => {
     // 호출 형식 설명까지 붙이기 때문이다. 이 비용은 시스템 프롬프트가 고정이라
     // llama.cpp 프롬프트 캐시에 한 번만 실린다.
     // 상한을 걸어 앞으로 프롬프트·툴 설명이 슬금슬금 불어나는 걸 잡는다.
-    expect(nativeTotal).toBeLessThan(4000);
-    expect(jsonTotal).toBeLessThan(3000);
+    // 툴 하나당 대략 130토큰이 붙으니, 툴을 늘릴 땐 이 숫자도 같이 본다.
+    expect(nativeTotal).toBeLessThan(5000);
+    expect(jsonTotal).toBeLessThan(3500);
   });
 });

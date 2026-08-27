@@ -1010,6 +1010,8 @@ html, body, #root {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  /* 버튼이 4개라 좁은 창에서 넘친다. */
+  flex-wrap: wrap;
 }
 
 .confirm-banner__deny {
@@ -1027,6 +1029,30 @@ html, body, #root {
 .confirm-banner__deny:hover {
   background: var(--bg-base);
   border-color: var(--text-secondary);
+}
+
+/* "세션 동안" / "항상" — 기본 승인(한 번만)보다 한 단계 조용하게 둔다.
+   눈에 덜 띄어야 습관적으로 누르지 않는다. */
+.confirm-banner__remember {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+
+.confirm-banner__remember:hover {
+  background: var(--bg-base);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .confirm-banner__allow {

@@ -21,10 +21,17 @@ import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
+import { loadPermissionRules } from "./agent/permissions";
 import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
 import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
-import type { CatEmotion, LlmMessage, ScheduleEvent, Todo } from "./agent/types";
+import type {
+  CatEmotion,
+  LlmMessage,
+  PermissionDecision,
+  ScheduleEvent,
+  Todo,
+} from "./agent/types";
 import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
 import "./App.css";
 
@@ -556,7 +563,22 @@ function Composer({
 
 // ── Confirm banner ────────────────────────────────────────────────────────────
 
-function ConfirmBanner({ confirm, onResolve }: { confirm: PendingConfirm; onResolve: (ok: boolean) => void }) {
+/** 규칙 키에서 사람이 읽을 부분만 꺼낸다. `code.exec:shell:git status` → `git status`. */
+function ruleLabel(ruleKey: string): string {
+  const parts = ruleKey.split(":");
+  return parts[parts.length - 1] || ruleKey;
+}
+
+function ConfirmBanner({
+  confirm,
+  onResolve,
+}: {
+  confirm: PendingConfirm;
+  onResolve: (decision: PermissionDecision) => void;
+}) {
+  // 위험 패턴에 걸린 건 규칙으로 미리 승인해둘 수 없다 — 매번 물어야 하므로
+  // "세션 동안"·"항상" 버튼 자체를 감춘다.
+  const canRemember = !confirm.isDangerous;
   return (
     <div className={`confirm-banner ${confirm.isDangerous ? "confirm-banner--danger" : ""}`}>
       <div className="confirm-banner__header">
@@ -567,8 +589,33 @@ function ConfirmBanner({ confirm, onResolve }: { confirm: PendingConfirm; onReso
       </div>
       <pre className="confirm-banner__code">{confirm.code}</pre>
       <div className="confirm-banner__actions">
-        <button className="confirm-banner__deny" onClick={() => onResolve(false)}>Deny</button>
-        <button className={`confirm-banner__allow ${confirm.isDangerous ? "confirm-banner__allow--danger" : ""}`} onClick={() => onResolve(true)}>Allow</button>
+        <button className="confirm-banner__deny" onClick={() => onResolve("deny")}>
+          거부
+        </button>
+        {canRemember && (
+          <>
+            <button
+              className="confirm-banner__remember"
+              onClick={() => onResolve("allow_session")}
+              title={`이 세션 동안 ${confirm.ruleKey} 를 묻지 않아요`}
+            >
+              세션 동안
+            </button>
+            <button
+              className="confirm-banner__remember"
+              onClick={() => onResolve("allow_always")}
+              title={`앞으로 ${confirm.ruleKey} 를 묻지 않아요`}
+            >
+              항상 ({ruleLabel(confirm.ruleKey)})
+            </button>
+          </>
+        )}
+        <button
+          className={`confirm-banner__allow ${confirm.isDangerous ? "confirm-banner__allow--danger" : ""}`}
+          onClick={() => onResolve("allow_once")}
+        >
+          한 번만
+        </button>
       </div>
     </div>
   );
@@ -1073,6 +1120,9 @@ export default function App() {
 
   // Init MCP servers on mount
   useEffect(() => { initMcpFromStorage(); }, []);
+  // 저장해둔 "항상 허용" 규칙을 메모리에 올린다. 이게 없으면 첫 요청은
+  // 이미 승인한 명령에도 확인 창이 뜬다.
+  useEffect(() => { loadPermissionRules(); }, []);
 
   // Auto-start llama server on mount if configured
   useEffect(() => {

@@ -13,6 +13,11 @@ import { getStoredAccent, saveAccentHex, deriveAccent } from "../theme-colors";
 import { CAT_VARIANTS } from "../cat/spriteData";
 import { useCatStore } from "../stores/catStore";
 import { useSettingsStore, type ToolMode } from "../stores/settingsStore";
+import {
+  forgetAlwaysRule,
+  listAlwaysRules,
+  loadPermissionRules,
+} from "../agent/permissions";
 import "./SettingsModal.css";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -717,6 +722,79 @@ function UserProfileSection() {
   );
 }
 
+// ── Tool approval rules section ───────────────────────────────────────────────
+
+const WRITE_ROOTS_KEY = "fs_write_roots";
+
+/**
+ * "항상 허용" 해둔 툴 규칙과 파일 쓰기 루트를 보여주고 지운다.
+ *
+ * 승인은 쌓이면 잊힌다. 무엇을 열어뒀는지 한 곳에서 볼 수 없으면 "항상 허용" 은
+ * 안전한 선택지가 아니다.
+ */
+function ToolRulesSection() {
+  const [rules, setRules] = useState<string[]>([]);
+  const [roots, setRoots] = useState<string[]>([]);
+
+  const refresh = useCallback(async () => {
+    await loadPermissionRules();
+    setRules(listAlwaysRules());
+    try {
+      const raw = await settingsApi.get(WRITE_ROOTS_KEY);
+      setRoots(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      setRoots([]);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function removeRule(key: string) {
+    await forgetAlwaysRule(key);
+    setRules(listAlwaysRules());
+  }
+
+  async function removeRoot(dir: string) {
+    const next = roots.filter((r) => r !== dir);
+    await settingsApi.set(WRITE_ROOTS_KEY, JSON.stringify(next));
+    setRoots(next);
+  }
+
+  const empty = rules.length === 0 && roots.length === 0;
+
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">항상 허용한 작업</h3>
+      <p className="settings-section__desc">
+        확인 창에서 "항상" 을 고른 것들이에요. 지우면 다음부터 다시 물어봐요.
+        위험한 명령(rm -rf, sudo 등)은 여기에 담기지 않고 매번 확인해요.
+      </p>
+      {empty ? (
+        <div className="settings-feedback">아직 없어요.</div>
+      ) : (
+        <div className="rule-list">
+          {rules.map((key) => (
+            <div className="rule-row" key={key}>
+              <code className="rule-row__key">{key}</code>
+              <button className="rule-row__remove" onClick={() => removeRule(key)} title="지우기">
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+          {roots.map((dir) => (
+            <div className="rule-row" key={`root:${dir}`}>
+              <code className="rule-row__key">쓰기 허용: {dir}</code>
+              <button className="rule-row__remove" onClick={() => removeRoot(dir)} title="지우기">
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── Settings modal ────────────────────────────────────────────────────────────
 
 interface SettingsModalProps {
@@ -922,6 +1000,9 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
 
           {/* ── 툴 호출 방식 ──────────────────────────────────────── */}
           <ToolModeSection />
+
+          {/* ── 항상 허용한 작업 ──────────────────────────────────── */}
+          <ToolRulesSection />
 
           {/* ── Brave Search API ─────────────────────────────────── */}
           <section className="settings-section">
