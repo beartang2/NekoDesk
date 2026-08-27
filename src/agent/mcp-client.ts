@@ -1,3 +1,5 @@
+import { mcpApi } from "../api/tauri";
+
 // ── MCP SSE transport client ───────────────────────────────────────────────────
 // Implements the legacy MCP SSE transport:
 //   1. GET <sseUrl>  → establishes SSE connection
@@ -147,11 +149,40 @@ async function withSession<T>(
   }
 }
 
+// ── Tool call result ──────────────────────────────────────────────────────────
+
+interface ToolCallResult {
+  content?: Array<{ type: string; text?: string }>;
+  isError?: boolean;
+}
+
+/** MCP 의 tools/call 응답을 텍스트로 편다. isError 면 던진다. */
+export function unwrapToolResult(result: ToolCallResult | null | undefined): string {
+  if (result?.isError) {
+    throw new Error(result.content?.map((c) => c.text ?? "").join("") || "tool error");
+  }
+  return result?.content?.map((c) => c.text ?? "").join("\n") ?? "";
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/**
+ * 서버 하나를 가리키는 핸들.
+ *
+ * SSE 는 요청마다 세션을 새로 열고 닫는다(서버가 상태를 안 들고 있어도 되게).
+ * stdio 는 이미 떠 있는 프로세스에 붙으므로 id 만 있으면 된다.
+ */
+export type McpTarget =
+  | { transport: "http-sse"; url: string }
+  | { transport: "stdio"; id: string };
+
 /** List all tools exposed by this MCP server. */
-export async function mcpListTools(sseUrl: string): Promise<McpTool[]> {
-  return withSession(sseUrl, async (s) => {
+export async function mcpListTools(target: McpTarget): Promise<McpTool[]> {
+  if (target.transport === "stdio") {
+    const result = (await mcpApi.rpc(target.id, "tools/list", {})) as { tools?: McpTool[] };
+    return result?.tools ?? [];
+  }
+  return withSession(target.url, async (s) => {
     const result = (await s.rpc("tools/list", {})) as { tools?: McpTool[] };
     return result?.tools ?? [];
   });
@@ -159,19 +190,20 @@ export async function mcpListTools(sseUrl: string): Promise<McpTool[]> {
 
 /** Call a tool and return its text output. */
 export async function mcpCallTool(
-  sseUrl: string,
+  target: McpTarget,
   name: string,
   args: Record<string, unknown>
 ): Promise<string> {
-  return withSession(sseUrl, async (s) => {
-    const result = (await s.rpc("tools/call", { name, arguments: args }, 30_000)) as {
-      content?: Array<{ type: string; text?: string }>;
-      isError?: boolean;
-    };
-    if (result?.isError) {
-      const msg = result.content?.map((c) => c.text ?? "").join("") ?? "tool error";
-      throw new Error(msg);
-    }
-    return result?.content?.map((c) => c.text ?? "").join("\n") ?? "";
-  });
+  if (target.transport === "stdio") {
+    const result = (await mcpApi.rpc(target.id, "tools/call", {
+      name,
+      arguments: args,
+    })) as ToolCallResult;
+    return unwrapToolResult(result);
+  }
+  return withSession(target.url, async (s) =>
+    unwrapToolResult(
+      (await s.rpc("tools/call", { name, arguments: args }, 30_000)) as ToolCallResult
+    )
+  );
 }

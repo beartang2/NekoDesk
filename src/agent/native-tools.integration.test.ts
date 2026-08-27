@@ -97,4 +97,27 @@ describe.skipIf(!serverUp)("native tool calling — 실서버", () => {
     },
     240_000
   );
+
+  it(
+    "다단계 요청에는 스스로 계획을 세운다",
+    async () => {
+      const { runAgentLoop } = await import("./agent-loop");
+      const { useSettingsStore } = await import("../stores/settingsStore");
+      useSettingsStore.getState().setToolMode("native");
+
+      const planned: string[][] = [];
+      for await (const ev of runAgentLoop(
+        "할 일 목록을 보고, 오늘 일정도 확인한 다음, 둘을 합쳐서 하루 계획을 정리해줘. " +
+          "여러 단계니까 plan.set 으로 계획부터 세워.",
+        []
+      )) {
+        if (ev.type === "plan_updated") planned.push(ev.steps.map((s) => s.text));
+        if (ev.type === "error") throw new Error(ev.message);
+      }
+
+      expect(planned.length, "계획을 한 번도 안 세웠다").toBeGreaterThan(0);
+      expect(planned[0].length).toBeGreaterThan(1);
+    },
+    240_000
+  );
 });

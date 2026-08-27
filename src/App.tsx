@@ -5,6 +5,7 @@ import { Sun, Moon, Settings, Paperclip, PanelLeftClose, PanelLeftOpen, PanelRig
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
+import { PlanChecklist } from "./components/PlanChecklist";
 import { CatCanvas } from "./cat/CatCanvas";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPanel";
@@ -291,6 +292,10 @@ function ChatMessages({
     <div className="chat-messages" ref={containerRef} onScroll={handleScroll}>
       {messages.map((m) => (
         <div key={m.id} className={`message message--${m.role}`}>
+          {m.role === "assistant" && m.plan && m.plan.length > 0 && (
+            <PlanChecklist steps={m.plan} />
+          )}
+
           {m.role === "assistant" && m.steps && m.steps.length > 0 && (
             <AgentStepAccordion
               steps={m.steps}

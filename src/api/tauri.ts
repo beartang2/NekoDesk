@@ -75,6 +75,19 @@ export const fsApi = {
     invoke<FsDecision>("fs_check", { path, write }),
 };
 
+/**
+ * stdio MCP 서버. HTTP(SSE) 서버는 프런트엔드가 직접 붙지만, stdio 는 로컬
+ * 프로세스를 띄워야 해서 백엔드를 거친다.
+ */
+export const mcpApi = {
+  start: (id: string, command: string, env?: Record<string, string>) =>
+    invoke<{ server_name: string | null }>("mcp_stdio_start", { id, command, env }),
+  rpc: (id: string, method: string, params: unknown) =>
+    invoke<unknown>("mcp_stdio_rpc", { id, method, params }),
+  stop: (id: string) => invoke<void>("mcp_stdio_stop", { id }),
+  isRunning: (id: string) => invoke<boolean>("mcp_stdio_is_running", { id }),
+};
+
 export const settingsApi = {
   /** 없으면 null. */
   get: (key: string) => invoke<string | null>("settings_get", { key }),

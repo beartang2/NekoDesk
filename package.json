@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:rust": "cd src-tauri && cargo test --lib",
+    "test:rust": "cd src-tauri && cargo test",
     "test:all": "npm run typecheck && npm run test && npm run test:rust"
   },
   "dependencies": {

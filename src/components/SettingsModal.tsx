@@ -2,7 +2,11 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { settingsApi } from "../api/tauri";
 import { X, Zap, Pencil, Trash2, Settings } from "lucide-react";
-import { loadMcpServers as syncMcpRegistry } from "../agent/mcp-registry";
+import {
+  loadMcpServers as syncMcpRegistry,
+  readMcpServerConfigs,
+  writeMcpServerConfigs,
+} from "../agent/mcp-registry";
 import {
   DEFAULT_CHAT_SYSTEM_PROMPT,
   loadGenParams,
@@ -34,22 +38,11 @@ export interface McpServer {
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
 const LLM_URL_KEY = "nekodesk_llm_url";
-const MCP_KEY = "nekodesk_mcp_servers";
 const SYSTEM_PROMPT_KEY = "nekodesk_system_prompt";
 const DEFAULT_LLM_URL = "http://127.0.0.1:8803";
 
-function loadStoredMcpServers(): McpServer[] {
-  try {
-    const raw = localStorage.getItem(MCP_KEY);
-    return raw ? (JSON.parse(raw) as McpServer[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveMcpServers(servers: McpServer[]) {
-  localStorage.setItem(MCP_KEY, JSON.stringify(servers));
-}
+// MCP 서버 설정은 mcp-registry 가 SQLite 에 보관한다(예전 localStorage 값은 거기서
+// 한 번 옮겨온다). 저장 위치를 두 곳에서 알면 어긋난다.
 
 // ── Connection status badge ───────────────────────────────────────────────────
 
@@ -876,16 +869,26 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
     setTimeout(() => setBraveSearchSaved(false), 1500);
   }
 
-  // MCP
-  const [servers, setServers] = useState<McpServer[]>(loadStoredMcpServers);
+  // MCP — 설정은 DB 에 있으므로 비동기로 읽어온다.
+  const [servers, setServers] = useState<McpServer[]>([]);
+  const [serversLoaded, setServersLoaded] = useState(false);
   const [addingNew, setAddingNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  useEffect(() => {
+    readMcpServerConfigs()
+      .then((loaded) => setServers(loaded as McpServer[]))
+      .catch(console.warn)
+      .finally(() => setServersLoaded(true));
+  }, []);
+
   // Persist MCP servers on change and reload tool registry
   useEffect(() => {
-    saveMcpServers(servers);
+    // 첫 렌더의 빈 배열로 저장된 설정을 덮어쓰면 안 된다.
+    if (!serversLoaded) return;
+    writeMcpServerConfigs(servers).catch(console.warn);
     syncMcpRegistry(servers).catch(console.warn);
-  }, [servers]);
+  }, [servers, serversLoaded]);
 
   function saveLlmUrl() {
     useSettingsStore.getState().setLlmUrl(llmUrl.trim());

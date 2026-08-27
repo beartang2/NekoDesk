@@ -1,0 +1,52 @@
+.plan-checklist {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+
+.plan-checklist__header {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+
+.plan-checklist__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.plan-checklist__item {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+
+.plan-checklist__mark {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  width: 12px;
+}
+
+/* 끝난 단계는 남은 단계보다 눈에 덜 띄어야 한다 — 읽을 곳은 아직 안 한 쪽이다. */
+.plan-checklist__item--done {
+  color: var(--text-secondary);
+}
+
+.plan-checklist__item--done .plan-checklist__mark {
+  color: var(--accent);
+}
+
+.plan-checklist__item--done .plan-checklist__text {
+  text-decoration: line-through;
+  text-decoration-color: var(--border);
+}

@@ -70,7 +70,9 @@ export type ToolName =
   | "fs.glob"
   | "fs.grep"
   /** 루프가 직접 처리하는 가상 툴 (execute 없음). */
-  | "user.ask";
+  | "user.ask"
+  | "plan.set"
+  | "plan.complete";
 
 /**
  * 툴 파라미터는 JSON Schema 로 기술한다. 이 스키마 하나가 두 곳에 쓰인다:
@@ -201,6 +203,8 @@ export interface ConversationMessage {
   created_at: string;
 }
 
+import type { PlanStep } from "./plan";
+
 // ── Permissions ───────────────────────────────────────────────────────────────
 
 /**
@@ -234,7 +238,8 @@ export type LoopEvent =
   | { type: "step_error"; step: AgentStep }
   | { type: "thinking_token"; token: string }
   | { type: "streaming_token"; token: string }
-  | { type: "done"; answer: string; steps: AgentStep[]; promptTokens?: number }
+  | { type: "plan_updated"; steps: PlanStep[] }
+  | { type: "done"; answer: string; steps: AgentStep[]; promptTokens?: number; plan?: PlanStep[] }
   | { type: "error"; message: string }
   | {
       type: "confirm_needed";

@@ -11,6 +11,8 @@ mod db;
 mod http;
 // 이름을 `fs` 로 두면 이 파일 곳곳의 `std::fs` 와 헷갈린다.
 mod files;
+// 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
+pub mod mcp;
 pub use error::AppError;
 // 모델은 db::models 소속. 예전에 lib.rs 에 있던 경로를 유지하려 재노출.
 pub use db::models::{ConversationMessage, ExecHistoryItem, ScheduleEvent, Todo};
@@ -591,6 +593,46 @@ mod commands {
         crate::files::check(&path, write, &roots)
     }
 
+    // ── MCP stdio (mcp 모듈 위임) ─────────────────────────────────────────────
+    // HTTP(SSE) 서버는 프런트엔드가 직접 붙는다. stdio 는 로컬 프로세스를 띄워야
+    // 하므로 여기를 거친다. 프로토콜 자체는 crate::mcp 안에서 단위 테스트된다.
+
+    #[tauri::command]
+    pub fn mcp_stdio_start(
+        state: State<crate::mcp::McpRegistry>,
+        id: String,
+        command: String,
+        env: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<crate::mcp::McpStartResult, AppError> {
+        crate::mcp::start(&state, &id, &command, &env.unwrap_or_default())
+    }
+
+    #[tauri::command]
+    pub fn mcp_stdio_rpc(
+        state: State<crate::mcp::McpRegistry>,
+        id: String,
+        method: String,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, AppError> {
+        crate::mcp::rpc(&state, &id, &method, params)
+    }
+
+    #[tauri::command]
+    pub fn mcp_stdio_stop(
+        state: State<crate::mcp::McpRegistry>,
+        id: String,
+    ) -> Result<(), AppError> {
+        crate::mcp::stop(&state, &id)
+    }
+
+    #[tauri::command]
+    pub fn mcp_stdio_is_running(
+        state: State<crate::mcp::McpRegistry>,
+        id: String,
+    ) -> Result<bool, AppError> {
+        crate::mcp::is_running(&state, &id)
+    }
+
     // ── 실행 이력 ─────────────────────────────────────────────────────────────
     // ExecHistoryItem 은 db::models 로 이동(상단 재노출).
 
@@ -909,6 +951,7 @@ pub fn run() {
             db::init_schema(&conn).expect("Failed to initialize schema");
             app.manage(DbState(Mutex::new(conn)));
             app.manage(LlamaServerState(Mutex::new(LlamaProc::default())));
+            app.manage(crate::mcp::McpRegistry::new());
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -951,6 +994,10 @@ pub fn run() {
             commands::fs_glob,
             commands::fs_grep,
             commands::fs_check,
+            commands::mcp_stdio_start,
+            commands::mcp_stdio_rpc,
+            commands::mcp_stdio_stop,
+            commands::mcp_stdio_is_running,
             commands::llama_scan_models,
             commands::llama_start,
             commands::llama_stop,
@@ -972,6 +1019,10 @@ pub fn run() {
                         kill_port(port);
                     }
                     *guard = LlamaProc::default();
+                }
+                // MCP stdio 서버들도 우리가 띄운 자식이다. 안 죽이면 고아로 남는다.
+                if let Some(registry) = app_handle.try_state::<crate::mcp::McpRegistry>() {
+                    crate::mcp::shutdown_all(&registry);
                 }
             }
         });

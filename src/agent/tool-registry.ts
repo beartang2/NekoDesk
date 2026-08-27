@@ -495,6 +495,43 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     summarize: (r) => summarizeGrep((r as FsGrepHit[]).slice(0, 50)),
   },
 
+  // ── 계획 ──────────────────────────────────────────────────────────────────
+  // 사용자용 todo.* 와 다르다. 이건 이번 요청을 끝내기 위한 에이전트 자신의
+  // 단계 목록이고, 요청이 끝나면 사라진다. 루프가 상태를 들고 처리한다.
+
+  "plan.set": {
+    name: "plan.set",
+    description:
+      "여러 단계가 필요한 작업을 시작할 때 할 일 순서를 정한다. 단계마다 무엇을 할지 한 줄로 써. " +
+      "도중에 계획이 바뀌면 다시 불러도 되고, 이미 끝낸 단계는 완료 상태가 유지돼. " +
+      "한두 번의 툴 호출로 끝나는 단순한 요청에는 쓰지 마",
+    params: {
+      type: "object",
+      properties: {
+        steps: { type: "array", items: { type: "string" }, description: "단계 목록 (순서대로)" },
+      },
+      required: ["steps"],
+    },
+    readOnly: false,
+    execute: virtual("plan.set"),
+    resultLimit: 1,
+    summarize: (r) => String(r),
+  },
+
+  "plan.complete": {
+    name: "plan.complete",
+    description: "계획의 한 단계를 완료 처리한다. 그 단계의 작업이 실제로 끝난 뒤에만 불러",
+    params: {
+      type: "object",
+      properties: { index: { type: "number", description: "완료한 단계 번호 (1부터)" } },
+      required: ["index"],
+    },
+    readOnly: false,
+    execute: virtual("plan.complete"),
+    resultLimit: 1,
+    summarize: (r) => String(r),
+  },
+
   // 가상 툴 — 루프가 execute 전에 가로채 UI 로 질문을 띄운다. 스키마가 여기 있어야
   // native tool calling 의 tools 배열에 실린다.
   "user.ask": {

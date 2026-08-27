@@ -11,6 +11,7 @@ import type {
   LoopEvent,
   PermissionDecision,
 } from "../agent/types";
+import type { PlanStep } from "../agent/plan";
 
 export interface PendingConfirm {
   sessionId: string;
@@ -50,6 +51,8 @@ export interface ChatMessage {
   thinking?: string; // 답변이 나오기 전 실시간으로 흐르는 "생각"(thought)
   attachments?: AttachedFile[];
   images?: string[];
+  /** 에이전트가 세운 작업 계획. 없으면 계획을 안 세운 요청이다. */
+  plan?: PlanStep[];
 }
 
 function nowTime(): string {
@@ -227,6 +230,12 @@ export function useAgentPool() {
             );
             break;
 
+          case "plan_updated":
+            patchSessionMessages(sessionId, (prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, plan: event.steps } : m))
+            );
+            break;
+
           case "step_done":
             finalSteps = [...finalSteps, event.step];
             setCatEmotion(sessionId, "working");
@@ -308,7 +317,15 @@ export function useAgentPool() {
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, content: clean, steps: finalSteps, isStreaming: false, thinking: undefined, images: images.length > 0 ? images : undefined }
+                  ? {
+                      ...m,
+                      content: clean,
+                      steps: finalSteps,
+                      isStreaming: false,
+                      thinking: undefined,
+                      images: images.length > 0 ? images : undefined,
+                      plan: event.plan?.length ? event.plan : undefined,
+                    }
                   : m
               )
             );

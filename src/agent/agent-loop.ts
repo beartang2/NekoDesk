@@ -1,5 +1,6 @@
 import { agentTurnStream, chatStream, getModelContextLength } from "./llm-client";
 import { FailureTracker } from "./failure-tracker";
+import { Plan } from "./plan";
 import { getTool, isParallelSafe, isStaticTool } from "./tool-registry";
 import {
   addWriteRoot,
@@ -297,6 +298,7 @@ export async function* runAgentLoop(
     getModelContextLength()
   );
   const failures = new FailureTracker();
+  const plan = new Plan();
   const startedAt = Date.now();
   let stepId = 0;
   let toolCallCount = 0;
@@ -345,7 +347,7 @@ export async function* runAgentLoop(
       if (answer.startsWith(streamedAnswer) && answer.length > streamedAnswer.length) {
         yield { type: "streaming_token", token: answer.slice(streamedAnswer.length) };
       }
-      yield { type: "done", answer, steps: context.steps, promptTokens: latestPromptTokens };
+      yield { type: "done", answer, steps: context.steps, promptTokens: latestPromptTokens, plan: plan.snapshot() };
       return;
     }
 
@@ -386,6 +388,33 @@ export async function* runAgentLoop(
     for (const idx of sequentialIdx) {
       const call = calls[idx];
       const step = steps[idx];
+
+      // ── plan.*: 에이전트 자신의 작업 계획 ──────────────────────────────────
+      // 루프가 상태를 들고 있다. 세션이 병렬로 도는 앱이라 모듈 전역에 두면
+      // 두 대화의 계획이 서로를 덮어쓴다.
+      if (call.name === "plan.set" || call.name === "plan.complete") {
+        try {
+          if (call.name === "plan.set") {
+            plan.set((call.params["steps"] as string[]) ?? []);
+          } else {
+            plan.complete(Number(call.params["index"]));
+          }
+          step.result = plan.snapshot();
+          // 매번 계획 전체를 되돌려준다 — 모델이 다음 턴에 자기 계획을 다시 읽는다.
+          step.summary = plan.render();
+          step.status = "done";
+          yield { type: "plan_updated", steps: plan.snapshot() };
+        } catch (err) {
+          step.status = "error";
+          step.errorMessage = err instanceof Error ? err.message : String(err);
+          step.summary = `오류: ${step.errorMessage}`;
+        }
+        executed.push({ call, step });
+        yield step.status === "error"
+          ? { type: "step_error", step }
+          : { type: "step_done", step };
+        continue;
+      }
 
       // ── user.ask: 선택지로 사용자에게 질문 ────────────────────────────────
       if (call.name === "user.ask") {
@@ -452,7 +481,7 @@ export async function* runAgentLoop(
             yield { type: "step_error", step };
             const cancelMsg = "실행을 취소했어.";
             yield { type: "streaming_token", token: cancelMsg };
-            yield { type: "done", answer: cancelMsg, steps: context.steps, promptTokens: latestPromptTokens };
+            yield { type: "done", answer: cancelMsg, steps: context.steps, promptTokens: latestPromptTokens, plan: plan.snapshot() };
             return;
           }
 
@@ -492,7 +521,7 @@ export async function* runAgentLoop(
     if (shouldStop) {
       const msg = `같은 오류가 반복돼서 멈췄어. 지금까지 시도한 것:\n\n${failures.summary()}`;
       yield { type: "streaming_token", token: msg };
-      yield { type: "done", answer: msg, steps: context.steps, promptTokens: latestPromptTokens };
+      yield { type: "done", answer: msg, steps: context.steps, promptTokens: latestPromptTokens, plan: plan.snapshot() };
       return;
     }
   }
@@ -519,7 +548,7 @@ export async function* runAgentLoop(
     yield { type: "streaming_token", token: finalAnswer };
   }
 
-  yield { type: "done", answer: finalAnswer, steps: context.steps, promptTokens: latestPromptTokens };
+  yield { type: "done", answer: finalAnswer, steps: context.steps, promptTokens: latestPromptTokens, plan: plan.snapshot() };
 }
 
 /**

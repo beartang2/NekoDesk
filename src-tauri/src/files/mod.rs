@@ -8,7 +8,7 @@ pub mod guard;
 
 use crate::error::{AppError, AppResult};
 use guard::Decision;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 
 /// 한 번에 읽어 들일 최대 줄 수. 컨텍스트를 통째로 태우는 것을 막는다.
@@ -54,9 +54,6 @@ pub enum FsDecision {
     Confirm { path: String },
     Deny { path: String, reason: String },
 }
-
-#[derive(Deserialize, Default)]
-pub struct FsWriteRoots(pub Vec<String>);
 
 fn home() -> AppResult<PathBuf> {
     dirs::home_dir().ok_or_else(|| AppError::msg("홈 디렉토리를 찾을 수 없어"))
