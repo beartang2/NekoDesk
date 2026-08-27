@@ -162,8 +162,20 @@ export interface FsReadResult {
   truncated: boolean;
 }
 
+/**
+ * 쓰기·수정 결과. `preview` 는 파일을 되읽어 만든 증거다 — 모델이 "저장됨" 이라는
+ * 자기 주장 대신 실제로 남은 내용을 보고 완료를 판단한다.
+ */
+export interface FsWriteResult {
+  path: string;
+  bytes: number;
+  lines: number;
+  preview: string;
+}
+
 export interface FsEditResult {
   replaced: number;
+  preview: string;
 }
 
 export interface FsGrepHit {

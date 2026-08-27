@@ -7,6 +7,7 @@ import type {
   JsonSchema,
   FsEditResult,
   FsEntry,
+  FsWriteResult,
   FsGrepHit,
   FsReadResult,
   Todo,
@@ -407,7 +408,10 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       throw new Error("fs.write 는 에이전트 루프가 확인을 받은 뒤 실행해야 하는 툴이야");
     },
     resultLimit: 1,
-    summarize: () => "파일 저장됨",
+    summarize: (r) => {
+      const res = r as FsWriteResult;
+      return `저장됨: ${res.path} (${res.lines}줄)\n${res.preview}`;
+    },
   },
 
   "fs.edit": {
@@ -430,7 +434,10 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       throw new Error("fs.edit 은 에이전트 루프가 확인을 받은 뒤 실행해야 하는 툴이야");
     },
     resultLimit: 1,
-    summarize: (r) => `${(r as FsEditResult).replaced}군데 수정됨`,
+    summarize: (r) => {
+      const res = r as FsEditResult;
+      return `${res.replaced}군데 수정됨\n${res.preview}`;
+    },
   },
 
   "fs.list": {

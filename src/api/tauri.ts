@@ -17,6 +17,7 @@ import type {
   FsDecision,
   FsEditResult,
   FsEntry,
+  FsWriteResult,
   FsGrepHit,
   FsReadResult,
 } from "../agent/types";
@@ -56,7 +57,7 @@ export const fsApi = {
   read: (path: string, offset?: number, limit?: number) =>
     invoke<FsReadResult>("fs_read", { path, offset, limit }),
   write: (path: string, content: string, approved: boolean) =>
-    invoke<void>("fs_write", { path, content, approved }),
+    invoke<FsWriteResult>("fs_write", { path, content, approved }),
   edit: (
     path: string,
     oldString: string,

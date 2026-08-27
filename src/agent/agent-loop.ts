@@ -141,9 +141,11 @@ async function runCall(call: ToolCall, step: AgentStep, approved = false): Promi
     // 모델이 채우는 params 를 통과시킬 수 없다.
     if (call.name === "fs.write") {
       const path = call.params["path"] as string;
-      await fsApi.write(path, (call.params["content"] as string) ?? "", approved);
-      step.result = { path };
-      step.summary = `저장됨: ${path}`;
+      const result = await fsApi.write(path, (call.params["content"] as string) ?? "", approved);
+      step.result = result;
+      // 되읽은 내용을 함께 돌려준다. 백엔드가 이미 바이트 단위로 대조했지만,
+      // 모델이 결과를 눈으로 봐야 "썼다" 를 근거 있게 말한다.
+      step.summary = `저장됨: ${result.path} (${result.lines}줄, ${result.bytes}B)\n\n실제 저장된 내용:\n${result.preview}`;
       step.status = "done";
       return step;
     }
@@ -157,7 +159,7 @@ async function runCall(call: ToolCall, step: AgentStep, approved = false): Promi
         approved
       );
       step.result = result;
-      step.summary = `${path}: ${result.replaced}군데 수정됨`;
+      step.summary = `${path}: ${result.replaced}군데 수정됨\n\n수정 후 실제 내용:\n${result.preview}`;
       step.status = "done";
       return step;
     }

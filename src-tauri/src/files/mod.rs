@@ -26,9 +26,25 @@ pub struct FsReadResult {
     pub truncated: bool,
 }
 
+/// 쓰기·수정의 결과.
+///
+/// `preview` 가 핵심이다. 예전에는 "저장됨" 한 줄만 돌려줘서, 모델이 파일에 실제로
+/// 무엇이 남았는지 **한 번도 보지 못한 채** 완료를 보고했다. 되읽은 내용을 증거로
+/// 함께 주면 "썼다고 했는데 안 씀" 류가 구조적으로 막힌다. 파일 전체를 되돌리면
+/// 컨텍스트를 태우므로 앞뒤 몇 줄만 싣는다.
+#[derive(Serialize, Debug)]
+pub struct FsWriteResult {
+    pub path: String,
+    pub bytes: usize,
+    pub lines: usize,
+    pub preview: String,
+}
+
 #[derive(Serialize, Debug)]
 pub struct FsEditResult {
     pub replaced: usize,
+    /// 바뀐 자리 주변을 줄번호와 함께. 의도대로 바뀌었는지 모델이 직접 본다.
+    pub preview: String,
 }
 
 #[derive(Serialize)]
@@ -143,7 +159,29 @@ pub fn read(path: &str, offset: Option<usize>, limit: Option<usize>) -> AppResul
     })
 }
 
-pub fn write(path: &str, content: &str, write_roots: &str, approved: bool) -> AppResult<()> {
+/// 앞 N줄과 마지막 줄을 줄번호와 함께. 가운데는 생략한다.
+fn head_tail_preview(text: &str, head: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= head + 1 {
+        return number_lines(&lines, 0);
+    }
+    format!(
+        "{}\n     …\n{}",
+        number_lines(&lines[..head], 0),
+        number_lines(&lines[lines.len() - 1..], lines.len() - 1)
+    )
+}
+
+/// 특정 바이트 오프셋 주변 줄들을 줄번호와 함께.
+fn around_offset(text: &str, offset: usize, context: usize) -> String {
+    let line_index = text[..offset.min(text.len())].matches('\n').count();
+    let lines: Vec<&str> = text.lines().collect();
+    let start = line_index.saturating_sub(context);
+    let end = (line_index + context + 1).min(lines.len());
+    number_lines(&lines[start..end], start)
+}
+
+pub fn write(path: &str, content: &str, write_roots: &str, approved: bool) -> AppResult<FsWriteResult> {
     let resolved = resolve(path)?;
     require(&resolved, true, write_roots, approved)?;
 
@@ -151,7 +189,27 @@ pub fn write(path: &str, content: &str, write_roots: &str, approved: bool) -> Ap
         std::fs::create_dir_all(parent)
             .map_err(|e| AppError::msg(format!("디렉토리를 만들 수 없어: {e}")))?;
     }
-    std::fs::write(&resolved, content).map_err(|e| AppError::msg(format!("쓰기 실패: {e}")))
+    std::fs::write(&resolved, content).map_err(|e| AppError::msg(format!("쓰기 실패: {e}")))?;
+
+    // 되읽어 확인한다. write 가 Ok 를 줬다고 디스크에 그게 남았다는 뜻은 아니다
+    // (용량 부족, 다른 프로세스와의 경합 등). 여기서 걸러야 모델이 잘못된 완료를
+    // 보고하지 않는다.
+    let written = std::fs::read(&resolved)
+        .map_err(|e| AppError::msg(format!("쓴 내용을 되읽을 수 없어: {e}")))?;
+    if written != content.as_bytes() {
+        return Err(AppError::msg(format!(
+            "쓰기 후 내용이 일치하지 않아 (쓴 크기 {}B, 파일 크기 {}B). 저장에 실패했어.",
+            content.len(),
+            written.len()
+        )));
+    }
+
+    Ok(FsWriteResult {
+        path: resolved.to_string_lossy().into_owned(),
+        bytes: written.len(),
+        lines: content.lines().count(),
+        preview: head_tail_preview(content, 5),
+    })
 }
 
 /// 정확히 일치하는 문자열을 바꾼다.
@@ -193,10 +251,22 @@ pub fn edit(
             } else {
                 text.replacen(old_string, new_string, 1)
             };
-            std::fs::write(&resolved, updated)
+            std::fs::write(&resolved, &updated)
                 .map_err(|e| AppError::msg(format!("쓰기 실패: {e}")))?;
+
+            // 되읽어 확인. 의도한 문자열이 실제로 들어갔는지 본다.
+            let after = std::fs::read_to_string(&resolved)
+                .map_err(|e| AppError::msg(format!("수정한 내용을 되읽을 수 없어: {e}")))?;
+            if after != updated {
+                return Err(AppError::msg("수정 후 내용이 일치하지 않아. 저장에 실패했어."));
+            }
+            let offset = after.find(new_string).ok_or_else(|| {
+                AppError::msg("수정했는데 새 문자열이 파일에 없어. 저장에 실패했어.")
+            })?;
+
             Ok(FsEditResult {
                 replaced: if replace_all { count } else { 1 },
+                preview: around_offset(&after, offset, 3),
             })
         }
     }
@@ -416,6 +486,70 @@ mod tests {
     }
 
     #[test]
+    fn write_returns_proof_of_what_landed() {
+        let dir = temp_dir("writeproof");
+        let file = dir.join("p.txt");
+        let body = (1..=20).map(|i| format!("줄 {i}")).collect::<Vec<_>>().join("\n");
+
+        let r = write(file.to_str().unwrap(), &body, &roots_json(&dir), false).unwrap();
+
+        assert_eq!(r.lines, 20);
+        assert_eq!(r.bytes, body.len());
+        // 앞부분과 마지막 줄이 줄번호와 함께 실려야 모델이 실제 결과를 볼 수 있다.
+        assert!(r.preview.contains("     1→줄 1"), "{}", r.preview);
+        assert!(r.preview.contains("줄 20"), "{}", r.preview);
+        // 가운데는 생략 — 파일 전체를 되돌리면 컨텍스트를 태운다.
+        assert!(r.preview.contains('…'));
+        assert!(!r.preview.contains("줄 10"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn short_writes_come_back_whole() {
+        let dir = temp_dir("shortwrite");
+        let file = dir.join("s.txt");
+        let r = write(file.to_str().unwrap(), "한 줄", &roots_json(&dir), false).unwrap();
+        assert!(r.preview.contains("한 줄"));
+        assert!(!r.preview.contains('…'));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn edit_shows_the_changed_line_in_place() {
+        let dir = temp_dir("editproof");
+        let file = dir.join("e2.txt");
+        let body = (1..=20).map(|i| format!("줄 {i}")).collect::<Vec<_>>().join("\n");
+        std::fs::write(&file, &body).unwrap();
+
+        let r = edit(file.to_str().unwrap(), "줄 12", "바뀐 줄", false, &roots_json(&dir), false)
+            .unwrap();
+
+        assert_eq!(r.replaced, 1);
+        // 바뀐 줄과 앞뒤 맥락이 줄번호와 함께 보여야 한다.
+        assert!(r.preview.contains("바뀐 줄"), "{}", r.preview);
+        assert!(r.preview.contains("줄 11"), "{}", r.preview);
+        assert!(r.preview.contains("줄 13"), "{}", r.preview);
+        // 파일 전체는 아니다.
+        assert!(!r.preview.contains("줄 3"), "{}", r.preview);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn edit_at_the_first_line_does_not_underflow() {
+        let dir = temp_dir("editfirst");
+        let file = dir.join("e3.txt");
+        std::fs::write(&file, "첫 줄\n둘째 줄\n").unwrap();
+
+        let r = edit(file.to_str().unwrap(), "첫 줄", "바뀜", false, &roots_json(&dir), false)
+            .unwrap();
+        assert!(r.preview.contains("     1→바뀜"), "{}", r.preview);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn edit_replaces_all_when_asked() {
         let dir = temp_dir("replaceall");
         let file = dir.join("d.txt");
@@ -424,6 +558,7 @@ mod tests {
 
         let r = edit(file.to_str().unwrap(), "a", "b", true, &roots, false).unwrap();
         assert_eq!(r.replaced, 3);
+        assert!(r.preview.contains('b'));
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "b\nb\nb\n");
 
         std::fs::remove_dir_all(&dir).ok();

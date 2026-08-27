@@ -10,10 +10,11 @@ const calls: string[] = [];
 
 const fsApi = {
   read: vi.fn(async () => ({ content: "", total_lines: 0, truncated: false })),
-  write: vi.fn(async (path: string, _content: string, approved: boolean) => {
+  write: vi.fn(async (path: string, content: string, approved: boolean) => {
     calls.push(`write(${path}, approved=${approved})`);
+    return { path, bytes: content.length, lines: 1, preview: `     1→${content}` };
   }),
-  edit: vi.fn(async () => ({ replaced: 1 })),
+  edit: vi.fn(async () => ({ replaced: 1, preview: "     1→바뀐 내용" })),
   list: vi.fn(async () => []),
   glob: vi.fn(async () => []),
   grep: vi.fn(async () => []),
@@ -194,5 +195,22 @@ describe("code.exec 승인 게이트", () => {
     let asked = false;
     await drain("몇 시야", () => { asked = true; });
     expect(asked).toBe(false);
+  });
+});
+
+describe("쓰기 결과 검증", () => {
+  it("저장된 실제 내용이 툴 결과로 모델에게 돌아간다", async () => {
+    scriptedTurns = [writeTurn, { text: "썼어", toolCalls: [] }];
+
+    const { runAgentLoop } = await import("./agent-loop");
+    const steps: string[] = [];
+    for await (const ev of runAgentLoop("파일 써줘", [])) {
+      if (ev.type === "confirm_needed") ev.resolve("allow_once");
+      if (ev.type === "step_done") steps.push(ev.step.summary);
+    }
+
+    // "저장됨" 한 줄이 아니라 되읽은 내용이 실려야 한다.
+    expect(steps[0]).toContain("실제 저장된 내용");
+    expect(steps[0]).toContain("냐옹");
   });
 });

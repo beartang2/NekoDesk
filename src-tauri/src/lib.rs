@@ -537,7 +537,7 @@ mod commands {
         path: String,
         content: String,
         approved: bool,
-    ) -> Result<(), AppError> {
+    ) -> Result<crate::files::FsWriteResult, AppError> {
         let roots = write_roots(&db)?;
         crate::files::write(&path, &content, &roots, approved)
     }
