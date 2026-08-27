@@ -1,0 +1,94 @@
+.empty-state {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px;
+  max-width: var(--reading-w);
+  animation: empty-in var(--dur-sheet) var(--ease-standard);
+}
+
+@keyframes empty-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 고양이 색을 그대로 쓴 원. 사용자가 고른 외형이 첫 화면에 반영된다. */
+.empty-state__mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  margin-bottom: 18px;
+  opacity: 0.9;
+  box-shadow: var(--shadow-md);
+}
+
+.empty-state__title {
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+
+.empty-state__sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 24px;
+  max-width: 380px;
+}
+
+.empty-state__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.empty-state__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  opacity: 0;
+  animation: chip-in var(--dur-sheet) var(--ease-standard) forwards;
+  transition:
+    background var(--dur-micro),
+    color var(--dur-micro),
+    border-color var(--dur-micro),
+    scale var(--dur-control) var(--ease-standard);
+}
+
+@keyframes chip-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.empty-state__chip:hover {
+  background: var(--layer-hover);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.empty-state__chip-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* 애니메이션을 끈 사용자에게는 칩이 아예 안 보이면 안 된다. */
+@media (prefers-reduced-motion: reduce) {
+  .empty-state__chip {
+    opacity: 1;
+    animation: none;
+  }
+}

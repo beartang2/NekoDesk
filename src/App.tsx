@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { PlanChecklist } from "./components/PlanChecklist";
+import { ChatEmptyState } from "./components/ChatEmptyState";
 import { CatCanvas } from "./cat/CatCanvas";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPanel";
@@ -246,10 +247,12 @@ function ChatMessages({
   messages,
   isRunning,
   onScrollChange,
+  onPickSuggestion,
 }: {
   messages: ChatMessage[];
   isRunning: boolean;
   onScrollChange?: (show: boolean, scrollFn: () => void) => void;
+  onPickSuggestion?: (text: string) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -290,6 +293,9 @@ function ChatMessages({
 
   return (
     <div className="chat-messages" ref={containerRef} onScroll={handleScroll}>
+      {messages.length === 0 && onPickSuggestion && (
+        <ChatEmptyState onPick={onPickSuggestion} />
+      )}
       {messages.map((m) => (
         <div key={m.id} className={`message message--${m.role}`}>
           {m.role === "assistant" && m.plan && m.plan.length > 0 && (
@@ -1366,7 +1372,12 @@ export default function App() {
           )}
 
           <ErrorBoundary label="채팅">
-            <ChatMessages messages={activeMessages} isRunning={isRunning} onScrollChange={handleScrollChange} />
+            <ChatMessages
+              messages={activeMessages}
+              isRunning={isRunning}
+              onScrollChange={handleScrollChange}
+              onPickSuggestion={(text) => handleSend(text, [])}
+            />
           </ErrorBoundary>
         </div>
 
