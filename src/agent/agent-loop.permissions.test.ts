@@ -38,6 +38,7 @@ vi.mock("./file-store", () => ({ getFile: vi.fn(), getStoredFileNames: vi.fn(() 
 /** 모델이 낼 턴을 미리 정해 순서대로 돌려준다. */
 let scriptedTurns: AgentTurn[] = [];
 vi.mock("./llm-client", () => ({
+  getModelContextLength: () => 8192,
   agentTurnStream: async function* () {
     const turn = scriptedTurns.shift() ?? { text: "끝", toolCalls: [] };
     yield { type: "turn" as const, turn };

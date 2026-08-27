@@ -1,4 +1,5 @@
-import { agentTurnStream, chatStream } from "./llm-client";
+import { agentTurnStream, chatStream, getModelContextLength } from "./llm-client";
+import { FailureTracker } from "./failure-tracker";
 import { getTool, isParallelSafe, isStaticTool } from "./tool-registry";
 import {
   addWriteRoot,
@@ -25,7 +26,18 @@ import type {
   ToolName,
 } from "./types";
 
-const MAX_ITERATIONS = 10;
+/**
+ * 루프 상한.
+ *
+ * 예전엔 반복 10회 하나뿐이라 다단계 작업이 중간에 잘렸다. 반복 수만으로는
+ * "빠른 조회 40번" 과 "30초짜리 실행 10번" 을 구분할 수 없어, 시간과 호출 수도
+ * 함께 본다. 셋 중 먼저 걸리는 것이 이긴다.
+ */
+const LIMITS = {
+  iterations: 40,
+  wallClockMs: 10 * 60_000,
+  toolCalls: 60,
+};
 
 /** 사용자가 stop 을 눌렀다. 스스로 멈춘 것이니 에러 말풍선을 띄우지 않는다. */
 function isAbort(err: unknown): boolean {
@@ -192,21 +204,6 @@ async function runCall(call: ToolCall, step: AgentStep, approved = false): Promi
 }
 
 /**
- * 같은 실패가 반복되는지 판별할 키. work_dir 같은 옵셔널 파라미터가 매번 달라도
- * 같은 실패로 인식되도록 code.exec 는 code+language 만 본다.
- */
-function failureKey(step: AgentStep): string | null {
-  if (step.status !== "error") return null;
-  if (step.tool === "code.exec") {
-    const code = (step.params["code"] as string) ?? "";
-    const lang = (step.params["language"] as string) ?? "python";
-    const exit = (step.result as CodeExecResult | null)?.exit_code ?? step.errorMessage;
-    return `code.exec|${code}|${lang}|${exit}`;
-  }
-  return `${step.tool}|${JSON.stringify(step.params)}|${step.errorMessage ?? step.summary}`;
-}
-
-/**
  * 실행 전에 사용자 확인이 필요한 호출의 정보. null 이면 그냥 실행해도 되는 호출이다.
  */
 interface Gate {
@@ -293,13 +290,21 @@ export async function* runAgentLoop(
   // 모드는 루프 시작 시 한 번 고정한다. 중간에 강등되면 이미 쌓인 컨텍스트의
   // 메시지 형식과 어긋나므로, 강등은 다음 사용자 메시지부터 반영된다.
   const native = shouldUseNativeTools();
-  const context = new AgentContext(chatHistory, userContent ?? userInput, native);
+  const context = new AgentContext(
+    chatHistory,
+    userContent ?? userInput,
+    native,
+    getModelContextLength()
+  );
+  const failures = new FailureTracker();
+  const startedAt = Date.now();
   let stepId = 0;
-  let lastFailKey = ""; // 동일 실패 반복 감지용
+  let toolCallCount = 0;
   let latestPromptTokens: number | undefined;
   const trackUsage = (pts: number) => { latestPromptTokens = pts; };
 
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
+  for (let i = 0; i < LIMITS.iterations; i++) {
+    if (Date.now() - startedAt > LIMITS.wallClockMs || toolCallCount >= LIMITS.toolCalls) break;
     yield { type: "step_start", iteration: i + 1 };
 
     // ── LLM: decide next action ─────────────────────────────────────────────
@@ -345,9 +350,21 @@ export async function* runAgentLoop(
     }
 
     // ── Execute tool calls ───────────────────────────────────────────────────
-    const calls = turn.toolCalls;
+    const lockedSteps: ExecutedCall[] = [];
+    // 반복 실패로 잠긴 툴은 실행하지 않는다. 조용히 무시하면 모델은 아무 일도
+    // 안 일어난 줄 알고 또 부르므로, 잠갔다는 사실을 결과로 돌려준다.
+    const calls = turn.toolCalls.filter((c) => {
+      if (!failures.isLocked(c.name)) return true;
+      const step = newStep(++stepId, c, turn!.text);
+      step.status = "error";
+      step.summary = `${c.name} 은 이번 요청에서 반복 실패해 잠겼어. 다른 방법을 써.`;
+      lockedSteps.push({ call: c, step });
+      return false;
+    });
     const steps = calls.map((c) => newStep(++stepId, c, turn!.text));
-    const executed: ExecutedCall[] = [];
+    const executed: ExecutedCall[] = [...lockedSteps];
+    toolCallCount += calls.length;
+    for (const locked of lockedSteps) yield { type: "step_error", step: locked.step };
 
     // 부작용 없는 조회는 동시에 돌린다. 나머지는 원래 순서대로 하나씩 —
     // 확인 다이얼로그·사용자 질문이 끼어들고, 앞 호출의 부작용에 의존할 수 있다.
@@ -456,20 +473,28 @@ export async function* runAgentLoop(
         : { type: "step_done", step };
     }
 
+    // ── 실패 사다리 ──────────────────────────────────────────────────────────
+    // 같은 실패가 쌓이면 힌트 → 툴 잠금 → 중단 순으로 조인다. 힌트는 스텝 요약에
+    // 붙어 컨텍스트로 들어가므로, 모델이 다음 턴에 "이미 뭘 시도했는지" 를 본다.
+    let shouldStop = false;
+    for (const { step } of executed) {
+      if (step.status !== "error") {
+        failures.recordSuccess(step.tool);
+        continue;
+      }
+      const advice = failures.record(step);
+      if (advice.hint) step.summary += advice.hint;
+      if (advice.stop) shouldStop = true;
+    }
+
     context.addTurn({ text: turn.text, calls: executed });
 
-    // ── 같은 실패의 반복이면 중단 ────────────────────────────────────────────
-    // 모델이 똑같은 코드를 무한정 재시도하며 컨텍스트만 태우는 것을 막는다.
-    const failures = executed.map((e) => failureKey(e.step)).filter((k): k is string => k !== null);
-    const repeated = failures.find((k) => k === lastFailKey);
-    if (repeated) {
-      const failedStep = executed.find((e) => failureKey(e.step) === repeated)!.step;
-      const msg = `같은 오류가 반복되어 중단했어.\n\n${stripLlmHints(failedStep.summary)}`;
+    if (shouldStop) {
+      const msg = `같은 오류가 반복돼서 멈췄어. 지금까지 시도한 것:\n\n${failures.summary()}`;
       yield { type: "streaming_token", token: msg };
       yield { type: "done", answer: msg, steps: context.steps, promptTokens: latestPromptTokens };
       return;
     }
-    lastFailKey = failures[0] ?? "";
   }
 
   // ── Max iterations reached: generate final answer with chat stream ────────

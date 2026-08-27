@@ -993,6 +993,22 @@ export interface LlmModelInfo {
   n_params?: number;
 }
 
+/**
+ * 마지막으로 확인한 모델의 컨텍스트 길이. `fetchLoadedModel` 이 채운다.
+ *
+ * 컨텍스트 예산을 짜려면 에이전트 루프도 이 값을 알아야 하는데, 매 턴 /props 를
+ * 왕복할 이유는 없다. 앱이 시작할 때와 요청이 끝날 때마다 이미 부르고 있으니
+ * 그 결과를 여기 캐시해 공유한다.
+ */
+let cachedContextLength: number | null = null;
+
+/** llama.cpp 가 안 알려줄 때 쓸 값. 요즘 로컬 모델의 흔한 기본값. */
+const DEFAULT_CONTEXT_LENGTH = 8192;
+
+export function getModelContextLength(): number {
+  return cachedContextLength ?? DEFAULT_CONTEXT_LENGTH;
+}
+
 export async function fetchLoadedModel(): Promise<LlmModelInfo | null> {
   try {
     const res = await fetch(`${getLlmUrl()}/v1/models`, { signal: AbortSignal.timeout(3000) });
@@ -1011,6 +1027,7 @@ export async function fetchLoadedModel(): Promise<LlmModelInfo | null> {
           : typeof dgs?.n_ctx === "number"
           ? dgs.n_ctx
           : undefined;
+        if (nCtx) cachedContextLength = nCtx;
         return {
           id: first.id,
           context_length: nCtx,
