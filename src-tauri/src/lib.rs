@@ -11,6 +11,7 @@ mod db;
 mod http;
 // 이름을 `fs` 로 두면 이 파일 곳곳의 `std::fs` 와 헷갈린다.
 mod files;
+mod exec;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
 pub use error::AppError;
@@ -202,25 +203,23 @@ mod commands {
     /// 프런트엔드의 확인 다이얼로그를 우회한 호출(예: webview 스크립트가 직접
     /// invoke)에 대한 Rust 측 최종 방어선. 신뢰 경계를 렌더러에만 두지 않는다.
     /// 여기서는 되돌릴 수 없는 최악의 명령만 하드 차단한다.
-    fn hard_blocked(code: &str) -> Option<&'static str> {
-        const BLOCK: &[(&str, &str)] = &[
-            ("sudo ", "관리자 권한 실행"),
-            ("rm -rf /", "루트 경로 강제 삭제"),
-            ("rm -rf ~", "홈 디렉토리 강제 삭제"),
-            ("mkfs", "디스크 포맷"),
-            ("diskutil erase", "디스크 초기화"),
-            ("with administrator privileges", "관리자 권한 실행(AppleScript)"),
-            ("id_rsa", "SSH 개인키 접근"),
-            ("id_ed25519", "SSH 개인키 접근"),
-        ];
-        let lower = code.to_lowercase();
-        BLOCK.iter().find(|(p, _)| lower.contains(p)).map(|(_, r)| *r)
-    }
-
     #[tauri::command(async)]
-    pub fn code_exec(code: String, language: Option<String>, work_dir: Option<String>) -> Result<CodeExecResult, String> {
-        if let Some(reason) = hard_blocked(&code) {
+    /// `approved` 는 프런트엔드가 승인 절차를 실제로 거쳤다는 뜻이다.
+    ///
+    /// fs_write/fs_edit 과 같은 계약이다. 확인 다이얼로그를 띄우는 판단은 렌더러가
+    /// 하지만, **거치지 않은 호출은 백엔드가 거부한다** — 게이트를 빠뜨린 코드 경로가
+    /// 조용히 실행되는 대신 실패하도록. 하드 차단은 `approved` 와 무관하게 항상 막는다.
+    pub fn code_exec(
+        code: String,
+        language: Option<String>,
+        work_dir: Option<String>,
+        approved: bool,
+    ) -> Result<CodeExecResult, String> {
+        if let Some(reason) = crate::exec::guard::hard_blocked(&code) {
             return Err(format!("보안상 차단된 명령이야: {reason}. 이건 실행할 수 없어."));
+        }
+        if !approved {
+            return Err("승인 절차를 거치지 않은 실행 요청이야.".to_string());
         }
         let lang = language.as_deref().unwrap_or("python");
 

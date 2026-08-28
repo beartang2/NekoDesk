@@ -10,7 +10,7 @@
 use std::path::{Component, Path, PathBuf};
 
 /// 자격증명·개인 데이터가 사는 디렉토리. 조상 중 하나라도 걸리면 읽기·쓰기 모두 거부.
-const BLOCKED_DIRS: &[&str] = &[
+pub(crate) const BLOCKED_DIRS: &[&str] = &[
     ".ssh",
     ".aws",
     ".gnupg",
@@ -24,7 +24,7 @@ const BLOCKED_DIRS: &[&str] = &[
 ];
 
 /// 이름만으로 비밀임을 알 수 있는 파일.
-const BLOCKED_FILE_NAMES: &[&str] = &[
+pub(crate) const BLOCKED_FILE_NAMES: &[&str] = &[
     ".env", ".netrc", ".npmrc", ".pgpass", "credentials", ".git-credentials",
 ];
 

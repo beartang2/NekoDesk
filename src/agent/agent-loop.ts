@@ -177,7 +177,10 @@ async function runCall(call: ToolCall, step: AgentStep, approved = false): Promi
     }
 
     const entry = getTool(call.name as ToolName);
-    const result = await entry.execute(call.params);
+    // 승인 여부는 모델이 채우는 params 가 아니라 루프가 붙인다. 백엔드는 이 표시가
+    // 없으면 code.exec 를 거부한다 — 게이트를 빠뜨린 경로가 조용히 실행되지 않도록.
+    const params = call.name === "code.exec" ? { ...call.params, __approved: approved } : call.params;
+    const result = await entry.execute(params);
     step.result = result;
     step.summary = entry.summarize(result);
     step.status = "done";
@@ -474,7 +477,10 @@ export async function* runAgentLoop(
         continue;
       }
 
-      let approved = false;
+      // `approved` 의 뜻은 "사용자가 눌렀다" 가 아니라 **"승인 절차를 거쳤다"** 다.
+      // 게이트가 확인이 필요 없다고 판단한 경우(부작용 없는 조회)도 거친 것이다.
+      // 이 표시가 없는 호출은 게이트를 아예 안 지난 경로라는 뜻이라 백엔드가 막는다.
+      let approved = gate === null;
       if (gate) {
         // 위험 패턴에 걸린 코드는 저장된 규칙이 있어도 매번 묻는다. 규칙을 만든
         // 주체가 사용자가 아니라 프롬프트 인젝션일 수 있다.

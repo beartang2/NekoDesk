@@ -224,6 +224,9 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
         code: p["code"] as string,
         language: (p["language"] as string | undefined) ?? "python",
         workDir: (p["work_dir"] as string | null | undefined) ?? null,
+        // 루프가 승인 게이트를 통과시킨 뒤에만 채운다(agent-loop 의 runCall).
+        // registry 를 직접 부르는 경로는 승인을 못 받았다는 뜻이라 백엔드가 거부한다.
+        approved: p["__approved"] === true,
       });
       appEvents.emit("coderun", result);
       execHistoryApi.save(
