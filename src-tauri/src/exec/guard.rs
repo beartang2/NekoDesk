@@ -31,21 +31,23 @@ use std::sync::OnceLock;
 fn catastrophic() -> &'static Vec<(regex::Regex, &'static str)> {
     static PATTERNS: OnceLock<Vec<(regex::Regex, &'static str)>> = OnceLock::new();
     PATTERNS.get_or_init(|| {
+        // 모든 패턴은 대소문자를 무시한다. macOS 기본 파일시스템은 대소문자를
+        // 가리지 않아 `SUDO` 도 실제로 실행된다.
         let raw: &[(&str, &'static str)] = &[
             // 권한 상승. 명령어 자리에 온 것만 — 문자열 안의 "sudo" 는 놔둔다.
-            (r"(?m)(^|[;&|]\s*|\bdo shell script\s+\x22)\s*(sudo|doas)\b", "관리자 권한 실행"),
+            (r"(?mi)(^|[;&|]\s*|\bdo shell script\s+\x22)\s*(sudo|doas)\b", "관리자 권한 실행"),
             (r"(?i)with\s+administrator\s+privileges", "관리자 권한 실행(AppleScript)"),
             // 루트·홈 통째로 지우기. 플래그 순서와 공백을 가리지 않는다.
-            (r"\brm\s+(-\w*\s+)*-\w*[rR]\w*\s+(-\w*\s+)*(/|~|\$HOME)\s*$", "루트/홈 강제 삭제"),
-            (r"\brm\s+(-\w*\s+)*--recursive\b.*\s(/|~|\$HOME)\s*$", "루트/홈 강제 삭제"),
-            (r"rmtree\s*\(\s*[\x22']?(/|~|\$HOME)[\x22']?\s*\)", "루트/홈 재귀 삭제(Python)"),
-            (r"rmtree\s*\(\s*os\.path\.expanduser", "홈 디렉토리 재귀 삭제(Python)"),
+            (r"(?i)\brm\s+(-\w*\s+)*-\w*[rR]\w*\s+(-\w*\s+)*(/|~|\$HOME)\s*$", "루트/홈 강제 삭제"),
+            (r"(?i)\brm\s+(-\w*\s+)*--recursive\b.*\s(/|~|\$HOME)\s*$", "루트/홈 강제 삭제"),
+            (r"(?i)rmtree\s*\(\s*[\x22']?(/|~|\$HOME)[\x22']?\s*\)", "루트/홈 재귀 삭제(Python)"),
+            (r"(?i)rmtree\s*\(\s*os\.path\.expanduser", "홈 디렉토리 재귀 삭제(Python)"),
             // 디스크 파괴.
-            (r"\bmkfs(\.\w+)?\b", "디스크 포맷"),
-            (r"\bdiskutil\s+(erase|reformat)", "디스크 초기화"),
-            (r"\bdd\b[^\n]*\bof=/dev/", "디스크 직접 쓰기"),
+            (r"(?i)\bmkfs(\.\w+)?\b", "디스크 포맷"),
+            (r"(?i)\bdiskutil\s+(erase|reformat)", "디스크 초기화"),
+            (r"(?i)\bdd\b[^\n]*\bof=/dev/", "디스크 직접 쓰기"),
             // 포크 폭탄.
-            (r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:", "포크 폭탄"),
+            (r"(?i):\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:", "포크 폭탄"),
         ];
         raw.iter()
             .map(|(p, r)| (regex::Regex::new(p).expect("잘못된 차단 정규식"), *r))
@@ -176,6 +178,18 @@ mod tests {
         assert!(blocked("cat ~/.ssh/id_rsa"));
         assert!(blocked("security find-generic-password -s github"));
         assert!(blocked("cat .env"));
+    }
+
+    #[test]
+    fn matching_ignores_case() {
+        // 옛 구현이 코드 전체를 소문자로 바꿔 비교하던 성질은 유지한다.
+        assert!(blocked("SUDO rm x"));
+        assert!(blocked("DiskUtil eraseDisk JHFS+ x disk2"));
+    }
+
+    #[test]
+    fn notifications_are_not_dialogs_with_admin_rights() {
+        assert!(!blocked(r#"display notification "회의 5분 전""#));
     }
 
     #[test]

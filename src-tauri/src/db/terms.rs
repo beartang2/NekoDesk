@@ -45,7 +45,7 @@ fn strip_particle(token: &str) -> Option<String> {
 pub fn extract(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
 
-    let mut push = |term: String, out: &mut Vec<String>| {
+    let push = |term: String, out: &mut Vec<String>| {
         if term.chars().count() < 2 {
             return;
         }

@@ -914,23 +914,7 @@ mod commands {
 
     #[cfg(test)]
     mod tests {
-        use super::{truncate_chars, hard_blocked};
-
-        #[test]
-        fn hard_block_stops_worst_commands() {
-            assert!(hard_blocked("sudo rm -rf /").is_some());
-            assert!(hard_blocked("SUDO echo hi").is_some());          // 대소문자 무시
-            assert!(hard_blocked("diskutil eraseDisk ...").is_some());
-            assert!(hard_blocked("cat ~/.ssh/id_rsa").is_some());
-            assert!(hard_blocked("display dialog \"x\" with administrator privileges").is_some());
-        }
-
-        #[test]
-        fn hard_block_allows_normal_code() {
-            assert!(hard_blocked("print('hello')").is_none());
-            assert!(hard_blocked("date +%Y-%m-%d").is_none());
-            assert!(hard_blocked("display notification \"회의 5분 전\"").is_none());
-        }
+        use super::truncate_chars;
 
         /// 한글은 UTF-8에서 3바이트다. 이전 구현은 `&s[..4000]`로 바이트 슬라이스를
         /// 했기 때문에 4000번째 바이트가 글자 중간이면 패닉했다.
