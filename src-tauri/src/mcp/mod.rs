@@ -29,9 +29,10 @@ static NEXT_ID: AtomicI64 = AtomicI64::new(1);
 
 type Pending = Arc<Mutex<HashMap<i64, mpsc::Sender<Result<Value, String>>>>>;
 
+/// stdin 을 Arc 로 든다. 그래야 레지스트리 락을 짧게 잡고 핸들만 꺼내올 수 있다.
 struct McpProc {
     child: Child,
-    stdin: ChildStdin,
+    stdin: Arc<Mutex<ChildStdin>>,
     pending: Pending,
 }
 
@@ -88,7 +89,7 @@ fn spawn_reader(stdout: std::process::ChildStdout, pending: Pending) {
 }
 
 fn rpc_on(
-    stdin: &mut ChildStdin,
+    stdin: &Mutex<ChildStdin>,
     pending: &Pending,
     method: &str,
     params: &Value,
@@ -96,12 +97,16 @@ fn rpc_on(
 ) -> AppResult<Value> {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = mpsc::channel();
-    pending
-        .lock()
-        .map_err(|_| AppError::Lock)?
-        .insert(id, tx);
+    pending.lock().map_err(|_| AppError::Lock)?.insert(id, tx);
 
-    if let Err(e) = send_line(stdin, &build_request(id, method, params)) {
+    // stdin 은 **쓰는 동안만** 잠근다. 응답을 기다리는 30초 내내 잡고 있으면 같은
+    // 서버에 대한 다른 호출이 전부 줄을 선다. MCP 는 id 로 응답을 짝지으므로
+    // 요청은 겹쳐도 되고, 실제로 읽기 스레드가 순서와 무관하게 배달한다.
+    let written = {
+        let mut out = stdin.lock().map_err(|_| AppError::Lock)?;
+        send_line(&mut out, &build_request(id, method, params))
+    };
+    if let Err(e) = written {
         pending.lock().ok().map(|mut p| p.remove(&id));
         return Err(e);
     }
@@ -143,16 +148,18 @@ pub fn start(
         .stdout
         .take()
         .ok_or_else(|| AppError::msg("MCP 서버의 stdout 을 열 수 없어"))?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| AppError::msg("MCP 서버의 stdin 을 열 수 없어"))?;
+    let stdin = Arc::new(Mutex::new(
+        child
+            .stdin
+            .take()
+            .ok_or_else(|| AppError::msg("MCP 서버의 stdin 을 열 수 없어"))?,
+    ));
 
     let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
     spawn_reader(stdout, Arc::clone(&pending));
 
     let init = rpc_on(
-        &mut stdin,
+        &stdin,
         &pending,
         "initialize",
         &json!({
@@ -173,7 +180,10 @@ pub fn start(
     };
 
     // 핸드셰이크의 마지막 절차. 이걸 보내야 요청을 받는 서버가 있다.
-    send_line(&mut stdin, &build_notification("notifications/initialized", &json!({})))?;
+    {
+        let mut out = stdin.lock().map_err(|_| AppError::Lock)?;
+        send_line(&mut out, &build_notification("notifications/initialized", &json!({})))?;
+    }
 
     let server_name = init
         .get("serverInfo")
@@ -191,12 +201,17 @@ pub fn start(
 }
 
 pub fn rpc(registry: &McpRegistry, id: &str, method: &str, params: Value) -> AppResult<Value> {
-    let mut map = registry.0.lock().map_err(|_| AppError::Lock)?;
-    let proc = map
-        .get_mut(id)
-        .ok_or_else(|| AppError::msg("연결되지 않은 MCP 서버야. 먼저 시작해줘."))?;
-    let pending = Arc::clone(&proc.pending);
-    rpc_on(&mut proc.stdin, &pending, method, &params, RPC_TIMEOUT)
+    // 레지스트리 락은 핸들을 꺼내는 동안만 잡는다. 예전에는 응답을 기다리는
+    // 30초 내내 들고 있어서, 서버 하나의 느린 툴 호출이 **다른 모든 서버**까지
+    // 막았다(목록 조회·시작·종료 전부 포함).
+    let (stdin, pending) = {
+        let map = registry.0.lock().map_err(|_| AppError::Lock)?;
+        let proc = map
+            .get(id)
+            .ok_or_else(|| AppError::msg("연결되지 않은 MCP 서버야. 먼저 시작해줘."))?;
+        (Arc::clone(&proc.stdin), Arc::clone(&proc.pending))
+    };
+    rpc_on(&stdin, &pending, method, &params, RPC_TIMEOUT)
 }
 
 pub fn stop(registry: &McpRegistry, id: &str) -> AppResult<()> {

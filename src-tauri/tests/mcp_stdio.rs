@@ -7,6 +7,8 @@
 use nekodesk_lib::mcp::{self, McpRegistry};
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
 
 /// 테스트용 서버를 실행할 명령. stdout 에 배너를 먼저 흘리도록 만들어져 있다.
 fn server_command() -> String {
@@ -111,4 +113,69 @@ fn a_command_that_does_not_exist_fails_fast_with_the_program_name() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("이런명령은없다"), "{err}");
+}
+
+fn slow_server_command() -> String {
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/slow_mcp_server.py");
+    format!("python3 {script}")
+}
+
+#[test]
+fn a_slow_server_does_not_block_a_different_one() {
+    // 예전에는 rpc() 가 응답을 기다리는 내내 레지스트리 락을 들고 있었다.
+    // 그래서 서버 하나의 느린 툴 호출이 다른 모든 서버까지 세웠다.
+    let registry = Arc::new(McpRegistry::new());
+    mcp::start(&registry, "slow", &slow_server_command(), &HashMap::new()).unwrap();
+    start(&registry, "fast");
+
+    let slow_registry = Arc::clone(&registry);
+    let slow = std::thread::spawn(move || {
+        mcp::rpc(&slow_registry, "slow", "tools/call",
+                 json!({ "name": "whatever", "arguments": {} })).unwrap()
+    });
+
+    // 느린 호출이 확실히 진행 중일 때 다른 서버를 부른다.
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let started = Instant::now();
+    let fast = mcp::rpc(&registry, "fast", "tools/list", json!({})).unwrap();
+    let waited = started.elapsed();
+
+    assert_eq!(fast["tools"][0]["name"], "echo");
+    assert!(
+        waited.as_millis() < 1500,
+        "느린 서버가 빠른 서버를 {}ms 막았다",
+        waited.as_millis()
+    );
+
+    slow.join().unwrap();
+    mcp::shutdown_all(&registry);
+}
+
+#[test]
+fn concurrent_calls_to_one_server_overlap_instead_of_queueing() {
+    // stdin 을 쓰는 동안만 잠그므로, 클라이언트는 첫 응답을 기다리지 않고 두 번째
+    // 요청을 써 보낸다. 서버가 동시에 처리해주면 3초짜리 두 개가 6초가 아니라
+    // 3초대에 끝난다. (서버가 순차 처리하면 어차피 6초 — 그건 서버의 성질이다.)
+    let registry = Arc::new(McpRegistry::new());
+    mcp::start(&registry, "slow", &slow_server_command(), &HashMap::new()).unwrap();
+
+    let started = Instant::now();
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            let r = Arc::clone(&registry);
+            std::thread::spawn(move || {
+                mcp::rpc(&r, "slow", "tools/call", json!({ "name": "x", "arguments": {} }))
+            })
+        })
+        .collect();
+    for h in handles {
+        h.join().unwrap().unwrap();
+    }
+
+    assert!(
+        started.elapsed().as_secs() < 5,
+        "같은 서버 요청이 겹치지 않고 줄을 섰다: {:?}",
+        started.elapsed()
+    );
+    mcp::shutdown_all(&registry);
 }
