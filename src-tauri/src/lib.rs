@@ -137,15 +137,15 @@ mod commands {
     // todos 커맨드는 DB 잠금만 잡고 db::todos 순수 함수에 위임한다.
     // SQL·행 매핑은 db/todos.rs 에 있고 거기서 단위 테스트된다.
 
-    #[tauri::command]
-    pub fn todo_list(db: State<DbState>) -> Result<Vec<Todo>, AppError> {
+    #[tauri::command(async)]
+    pub fn todo_list(db: State<'_, DbState>) -> Result<Vec<Todo>, AppError> {
         let conn = db.0.lock()?;
         crate::db::todos::list_open(&conn)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn todo_add(
-        db: State<DbState>,
+        db: State<'_, DbState>,
         content: String,
         due_at: Option<String>,
     ) -> Result<Todo, AppError> {
@@ -153,27 +153,27 @@ mod commands {
         crate::db::todos::add(&conn, &content, due_at.as_deref())
     }
 
-    #[tauri::command]
-    pub fn todo_list_done(db: State<DbState>) -> Result<Vec<Todo>, AppError> {
+    #[tauri::command(async)]
+    pub fn todo_list_done(db: State<'_, DbState>) -> Result<Vec<Todo>, AppError> {
         let conn = db.0.lock()?;
         crate::db::todos::list_done(&conn)
     }
 
-    #[tauri::command]
-    pub fn todo_complete(db: State<DbState>, id: i64) -> Result<bool, AppError> {
+    #[tauri::command(async)]
+    pub fn todo_complete(db: State<'_, DbState>, id: i64) -> Result<bool, AppError> {
         let conn = db.0.lock()?;
         crate::db::todos::complete(&conn, id)
     }
 
-    #[tauri::command]
-    pub fn schedule_list(db: State<DbState>, range: String) -> Result<Vec<ScheduleEvent>, AppError> {
+    #[tauri::command(async)]
+    pub fn schedule_list(db: State<'_, DbState>, range: String) -> Result<Vec<ScheduleEvent>, AppError> {
         let conn = db.0.lock()?;
         crate::db::events::list(&conn, crate::db::events::Range::parse(&range))
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn schedule_add(
-        db: State<DbState>,
+        db: State<'_, DbState>,
         title: String,
         start_at: String,
         end_at: Option<String>,
@@ -182,8 +182,8 @@ mod commands {
         crate::db::events::add(&conn, &title, &start_at, end_at.as_deref())
     }
 
-    #[tauri::command]
-    pub fn schedule_delete(db: State<DbState>, ids: Vec<i64>) -> Result<usize, AppError> {
+    #[tauri::command(async)]
+    pub fn schedule_delete(db: State<'_, DbState>, ids: Vec<i64>) -> Result<usize, AppError> {
         let conn = db.0.lock()?;
         crate::db::events::delete(&conn, &ids)
     }
@@ -217,7 +217,7 @@ mod commands {
         BLOCK.iter().find(|(p, _)| lower.contains(p)).map(|(_, r)| *r)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn code_exec(code: String, language: Option<String>, work_dir: Option<String>) -> Result<CodeExecResult, String> {
         if let Some(reason) = hard_blocked(&code) {
             return Err(format!("보안상 차단된 명령이야: {reason}. 이건 실행할 수 없어."));
@@ -381,21 +381,21 @@ mod commands {
         crate::http::scrape::run(&url).await
     }
 
-    #[tauri::command]
-    pub fn settings_set(db: State<DbState>, key: String, value: String) -> Result<(), AppError> {
+    #[tauri::command(async)]
+    pub fn settings_set(db: State<'_, DbState>, key: String, value: String) -> Result<(), AppError> {
         let conn = db.0.lock()?;
         crate::db::settings::set(&conn, &key, &value)
     }
 
-    #[tauri::command]
-    pub fn settings_get(db: State<DbState>, key: String) -> Result<Option<String>, AppError> {
+    #[tauri::command(async)]
+    pub fn settings_get(db: State<'_, DbState>, key: String) -> Result<Option<String>, AppError> {
         let conn = db.0.lock()?;
         crate::db::settings::get(&conn, &key)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn conversation_save(
-        db: State<DbState>,
+        db: State<'_, DbState>,
         session_id: String,
         role: String,
         content: String,
@@ -404,17 +404,17 @@ mod commands {
         crate::db::conversations::save(&conn, &session_id, &role, &content)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn conversation_load(
-        db: State<DbState>,
+        db: State<'_, DbState>,
         session_id: String,
     ) -> Result<Vec<ConversationMessage>, AppError> {
         let conn = db.0.lock()?;
         crate::db::conversations::load(&conn, &session_id)
     }
 
-    #[tauri::command]
-    pub fn conversation_delete(db: State<DbState>, session_id: String) -> Result<(), AppError> {
+    #[tauri::command(async)]
+    pub fn conversation_delete(db: State<'_, DbState>, session_id: String) -> Result<(), AppError> {
         let conn = db.0.lock()?;
         crate::db::conversations::delete(&conn, &session_id)
     }
@@ -429,7 +429,7 @@ mod commands {
     /// title/body 를 AppleScript 소스에 문자열 보간하면 안 된다. 큰따옴표 하나로
     /// 문자열을 탈출해 임의 코드가 실행된다. `on run argv` 로 넘기면 osascript 가
     /// 이 값들을 파싱하지 않고 데이터로만 취급한다.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn notify_send(title: String, body: String) -> Result<(), String> {
         Command::new("osascript")
             .arg("-e").arg("on run argv")
@@ -448,7 +448,7 @@ mod commands {
     ///
     /// pattern: 0=generic, 1=alignment(또렷한 탁), 2=levelChange.
     /// NSHapticFeedbackManager 는 AppKit 이라 main thread 에서 호출한다.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn haptic_feedback(app: tauri::AppHandle, pattern: Option<i64>) -> Result<(), String> {
         #[cfg(target_os = "macos")]
         {
@@ -465,7 +465,7 @@ mod commands {
 
     /// macOS URL 스킴 또는 앱을 엽니다 (권한 설정 페이지 열기 등에 사용).
     /// 내부 신뢰 호출 전용(x-apple.systempreferences: 등). 미신뢰 링크는 open_external_url.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn open_url(url: String) -> Result<(), String> {
         std::process::Command::new("open")
             .arg(&url)
@@ -478,7 +478,7 @@ mod commands {
     /// 링크 출처가 LLM·웹 스크랩(미신뢰)이라 http/https 스킴만 허용한다.
     /// file://·x-apple.systempreferences:·app 스킴 등으로 `open` 이 로컬 리소스를
     /// 실행하는 것을 막는다. arg 는 데이터로 전달돼 셸 해석은 없음.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn open_external_url(url: String) -> Result<(), String> {
         let lower = url.trim_start().to_ascii_lowercase();
         if !(lower.starts_with("http://") || lower.starts_with("https://")) {
@@ -494,7 +494,7 @@ mod commands {
 
     // ── 그림판 저장 ───────────────────────────────────────────────────────────
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn save_canvas_image(data_url: String) -> Result<String, String> {
         use base64::Engine;
         let b64 = data_url.split(',').nth(1).ok_or("invalid data URL")?;
@@ -517,12 +517,12 @@ mod commands {
     // 여기서는 승인된 쓰기 루트를 DB 에서 꺼내 넘겨주는 역할만 한다.
 
     /// 사용자가 "항상 허용" 한 쓰기 루트 목록(JSON 배열 문자열).
-    fn write_roots(db: &State<DbState>) -> Result<String, AppError> {
+    fn write_roots(db: &State<'_, DbState>) -> Result<String, AppError> {
         let conn = db.0.lock()?;
         Ok(crate::db::settings::get(&conn, "fs_write_roots")?.unwrap_or_else(|| "[]".to_string()))
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn fs_read(
         path: String,
         offset: Option<usize>,
@@ -531,9 +531,9 @@ mod commands {
         crate::files::read(&path, offset, limit)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn fs_write(
-        db: State<DbState>,
+        db: State<'_, DbState>,
         path: String,
         content: String,
         approved: bool,
@@ -542,9 +542,9 @@ mod commands {
         crate::files::write(&path, &content, &roots, approved)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn fs_edit(
-        db: State<DbState>,
+        db: State<'_, DbState>,
         path: String,
         old_string: String,
         new_string: String,
@@ -562,17 +562,17 @@ mod commands {
         )
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn fs_list(path: String) -> Result<Vec<crate::files::FsEntry>, AppError> {
         crate::files::list(&path)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn fs_glob(pattern: String, base: Option<String>) -> Result<Vec<String>, AppError> {
         crate::files::glob(&pattern, base.as_deref())
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn fs_grep(
         pattern: String,
         base: Option<String>,
@@ -583,9 +583,9 @@ mod commands {
     }
 
     /// 실제로 건드리기 전에 정책만 물어본다. 프런트엔드가 확인 창을 띄울지 판단한다.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn fs_check(
-        db: State<DbState>,
+        db: State<'_, DbState>,
         path: String,
         write: bool,
     ) -> Result<crate::files::FsDecision, AppError> {
@@ -597,9 +597,9 @@ mod commands {
     // HTTP(SSE) 서버는 프런트엔드가 직접 붙는다. stdio 는 로컬 프로세스를 띄워야
     // 하므로 여기를 거친다. 프로토콜 자체는 crate::mcp 안에서 단위 테스트된다.
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn mcp_stdio_start(
-        state: State<crate::mcp::McpRegistry>,
+        state: State<'_, crate::mcp::McpRegistry>,
         id: String,
         command: String,
         env: Option<std::collections::HashMap<String, String>>,
@@ -607,9 +607,9 @@ mod commands {
         crate::mcp::start(&state, &id, &command, &env.unwrap_or_default())
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn mcp_stdio_rpc(
-        state: State<crate::mcp::McpRegistry>,
+        state: State<'_, crate::mcp::McpRegistry>,
         id: String,
         method: String,
         params: serde_json::Value,
@@ -617,17 +617,17 @@ mod commands {
         crate::mcp::rpc(&state, &id, &method, params)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn mcp_stdio_stop(
-        state: State<crate::mcp::McpRegistry>,
+        state: State<'_, crate::mcp::McpRegistry>,
         id: String,
     ) -> Result<(), AppError> {
         crate::mcp::stop(&state, &id)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn mcp_stdio_is_running(
-        state: State<crate::mcp::McpRegistry>,
+        state: State<'_, crate::mcp::McpRegistry>,
         id: String,
     ) -> Result<bool, AppError> {
         crate::mcp::is_running(&state, &id)
@@ -636,9 +636,9 @@ mod commands {
     // ── 기억 (db::memories 위임) ───────────────────────────────────────────────
     // 세션을 넘어 남는다. 검색어 추출·랭킹은 db 모듈 안에서 단위 테스트된다.
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn memory_save(
-        db: State<DbState>,
+        db: State<'_, DbState>,
         kind: Option<String>,
         content: String,
     ) -> Result<crate::db::memories::Memory, AppError> {
@@ -651,9 +651,9 @@ mod commands {
 
     /// 자유 문장으로 검색한다. 검색어 분해는 백엔드가 한다 — 조사 처리 규칙을
     /// 프런트엔드와 나눠 가지면 둘이 어긋난다.
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn memory_search(
-        db: State<DbState>,
+        db: State<'_, DbState>,
         query: String,
         limit: Option<usize>,
     ) -> Result<Vec<crate::db::memories::Memory>, AppError> {
@@ -670,14 +670,14 @@ mod commands {
         Ok(found)
     }
 
-    #[tauri::command]
-    pub fn memory_list(db: State<DbState>) -> Result<Vec<crate::db::memories::Memory>, AppError> {
+    #[tauri::command(async)]
+    pub fn memory_list(db: State<'_, DbState>) -> Result<Vec<crate::db::memories::Memory>, AppError> {
         let conn = db.0.lock()?;
         crate::db::memories::list(&conn)
     }
 
-    #[tauri::command]
-    pub fn memory_delete(db: State<DbState>, id: i64) -> Result<bool, AppError> {
+    #[tauri::command(async)]
+    pub fn memory_delete(db: State<'_, DbState>, id: i64) -> Result<bool, AppError> {
         let conn = db.0.lock()?;
         crate::db::memories::delete(&conn, id)
     }
@@ -685,9 +685,9 @@ mod commands {
     // ── 실행 이력 ─────────────────────────────────────────────────────────────
     // ExecHistoryItem 은 db::models 로 이동(상단 재노출).
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn exec_history_save(
-        db: State<DbState>,
+        db: State<'_, DbState>,
         language: String,
         code: String,
         stdout: String,
@@ -698,14 +698,14 @@ mod commands {
         crate::db::exec_history::save(&conn, &language, &code, &stdout, &stderr, exit_code)
     }
 
-    #[tauri::command]
-    pub fn exec_history_list(db: State<DbState>) -> Result<Vec<ExecHistoryItem>, AppError> {
+    #[tauri::command(async)]
+    pub fn exec_history_list(db: State<'_, DbState>) -> Result<Vec<ExecHistoryItem>, AppError> {
         let conn = db.0.lock()?;
         crate::db::exec_history::list(&conn)
     }
 
-    #[tauri::command]
-    pub fn exec_history_clear(db: State<DbState>) -> Result<(), AppError> {
+    #[tauri::command(async)]
+    pub fn exec_history_clear(db: State<'_, DbState>) -> Result<(), AppError> {
         let conn = db.0.lock()?;
         crate::db::exec_history::clear(&conn)
     }
@@ -734,7 +734,7 @@ mod commands {
         pub mtp_n_draft: Option<i32>,
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn llama_scan_models() -> Result<Vec<String>, String> {
         let home = dirs::home_dir().ok_or("홈 디렉토리를 찾을 수 없습니다")?;
         let mut files = vec![];
@@ -756,21 +756,27 @@ mod commands {
         Ok(files)
     }
 
-    #[tauri::command]
+    #[tauri::command(async)]
     pub fn llama_start(
         config: LlamaConfig,
-        server_state: State<LlamaServerState>,
+        server_state: State<'_, LlamaServerState>,
     ) -> Result<(), String> {
+        // 락을 함수 전체에 걸쳐 잡는다.
+        //
+        // 예전에는 여기서 잠깐 잡았다 놓고, 1초쯤 걸리는 정리·spawn 을 한 뒤 다시
+        // 잡아 저장했다. 커맨드가 메인 스레드에서 하나씩 돌 때는 그 틈에 아무도
+        // 끼어들 수 없었지만, 워커로 옮긴 지금은 두 번의 실행 요청이 겹치면 서버가
+        // 둘 뜨고 하나는 추적을 잃은 고아로 남는다(GPU 메모리를 문 채로).
+        // 잡고 있는 동안 llama_is_running 이 잠깐 막히지만, 그건 워커에서 기다린다.
+        let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
+
         // 기존 서버 종료: 추적 중인 자식 + 포트를 선점 중인 고아(이전 앱이 SIGKILL 로
         // 죽어 남은 프로세스)까지 청소해야, 포트 충돌로 새 서버가 조용히 즉사하는 것을 막는다.
-        {
-            let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
-            if let Some(ref mut child) = guard.child {
-                child.kill().ok();
-                child.wait().ok();
-            }
-            *guard = LlamaProc::default();
+        if let Some(ref mut child) = guard.child {
+            child.kill().ok();
+            child.wait().ok();
         }
+        *guard = LlamaProc::default();
         super::kill_port(config.port);
 
         let home = dirs::home_dir().ok_or("홈 디렉토리를 찾을 수 없습니다")?;
@@ -869,13 +875,12 @@ mod commands {
             return Err(format!("서버가 즉시 종료됨 (exit {})\n{}", status.code().unwrap_or(-1), excerpt));
         }
 
-        let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
         *guard = LlamaProc { child: Some(child), port: Some(config.port) };
         Ok(())
     }
 
-    #[tauri::command]
-    pub fn llama_stop(port: i32, server_state: State<LlamaServerState>) -> Result<(), String> {
+    #[tauri::command(async)]
+    pub fn llama_stop(port: i32, server_state: State<'_, LlamaServerState>) -> Result<(), String> {
         {
             let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
             if let Some(ref mut child) = guard.child {
@@ -889,8 +894,8 @@ mod commands {
         Ok(())
     }
 
-    #[tauri::command]
-    pub fn llama_is_running(server_state: State<LlamaServerState>) -> Result<bool, String> {
+    #[tauri::command(async)]
+    pub fn llama_is_running(server_state: State<'_, LlamaServerState>) -> Result<bool, String> {
         let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
         if let Some(ref mut child) = guard.child {
             match child.try_wait() {
