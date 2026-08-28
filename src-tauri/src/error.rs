@@ -13,6 +13,12 @@ pub enum AppError {
     #[error("네트워크 오류: {0}")]
     Http(#[from] reqwest::Error),
 
+    #[error("입출력 오류: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("{0}")]
+    Tauri(#[from] tauri::Error),
+
     #[error("내부 상태 잠금 실패")]
     Lock,
 
@@ -23,6 +29,19 @@ pub enum AppError {
 impl AppError {
     pub fn msg(s: impl Into<String>) -> Self {
         AppError::Message(s.into())
+    }
+}
+
+/// 문자열에서 바로 올릴 수 있게 한다. `?` 와 `.into()` 가 자연스럽게 붙는다.
+impl From<&str> for AppError {
+    fn from(s: &str) -> Self {
+        AppError::Message(s.to_string())
+    }
+}
+
+impl From<String> for AppError {
+    fn from(s: String) -> Self {
+        AppError::Message(s)
     }
 }
 

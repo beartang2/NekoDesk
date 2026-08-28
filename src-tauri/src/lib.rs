@@ -2,9 +2,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::io::Read;
 use tauri::Manager;
-use base64::{Engine as _, engine::general_purpose};
 
 mod error;
 mod db;
@@ -12,6 +10,7 @@ mod http;
 // 이름을 `fs` 로 두면 이 파일 곳곳의 `std::fs` 와 헷갈린다.
 mod files;
 mod exec;
+mod llama;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
 pub use error::AppError;
@@ -111,15 +110,7 @@ pub struct CodeExecResult {
     pub image_data_url: Option<String>,
 }
 
-const NEKO_IMG_PATH: &str = "/tmp/neko_output.png";
 
-fn collect_output_image() -> Option<String> {
-    let path = std::path::Path::new(NEKO_IMG_PATH);
-    if !path.exists() { return None; }
-    let data = std::fs::read(path).ok()?;
-    std::fs::remove_file(path).ok();
-    Some(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&data)))
-}
 
 
 // ── Commands module ───────────────────────────────────────────────────────────
@@ -129,10 +120,6 @@ fn collect_output_image() -> Option<String> {
 mod commands {
     use super::*;
     use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
-    use std::thread;
-    use std::sync::mpsc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use tauri::State;
 
     // todos 커맨드는 DB 잠금만 잡고 db::todos 순수 함수에 위임한다.
@@ -189,177 +176,15 @@ mod commands {
         crate::db::events::delete(&conn, &ids)
     }
 
-    /// 바이트 인덱스로 String을 자르면 멀티바이트 문자(한글 3바이트, 이모지 4바이트)
-    /// 경계에서 패닉한다. 항상 문자 단위로 자른다.
-    fn truncate_chars(s: String, max_chars: usize) -> (String, bool) {
-        if s.chars().count() <= max_chars {
-            return (s, false);
-        }
-        let mut out: String = s.chars().take(max_chars).collect();
-        out.push_str("…(잘림)");
-        (out, true)
-    }
-
-    /// 프런트엔드의 확인 다이얼로그를 우회한 호출(예: webview 스크립트가 직접
-    /// invoke)에 대한 Rust 측 최종 방어선. 신뢰 경계를 렌더러에만 두지 않는다.
-    /// 여기서는 되돌릴 수 없는 최악의 명령만 하드 차단한다.
+    /// 로컬 코드 실행. 실제 구현과 하드 게이트는 `crate::exec` 안에 있다.
     #[tauri::command(async)]
-    /// `approved` 는 프런트엔드가 승인 절차를 실제로 거쳤다는 뜻이다.
-    ///
-    /// fs_write/fs_edit 과 같은 계약이다. 확인 다이얼로그를 띄우는 판단은 렌더러가
-    /// 하지만, **거치지 않은 호출은 백엔드가 거부한다** — 게이트를 빠뜨린 코드 경로가
-    /// 조용히 실행되는 대신 실패하도록. 하드 차단은 `approved` 와 무관하게 항상 막는다.
     pub fn code_exec(
         code: String,
         language: Option<String>,
         work_dir: Option<String>,
         approved: bool,
-    ) -> Result<CodeExecResult, String> {
-        if let Some(reason) = crate::exec::guard::hard_blocked(&code) {
-            return Err(format!("보안상 차단된 명령이야: {reason}. 이건 실행할 수 없어."));
-        }
-        if !approved {
-            return Err("승인 절차를 거치지 않은 실행 요청이야.".to_string());
-        }
-        let lang = language.as_deref().unwrap_or("python");
-
-        // AppleScript는 임시 파일로 실행 (-e 플래그는 멀티라인/한글에서 불안정)
-        if lang == "applescript" || lang == "osascript" {
-            // 고정 경로는 심볼릭 링크 공격과 동시 호출 레이스에 노출된다.
-            // 호출마다 고유 경로를 쓰고 실행 후 지운다.
-            static SCRIPT_SEQ: AtomicUsize = AtomicUsize::new(0);
-            let tmp_path = std::env::temp_dir().join(format!(
-                "nekodesk_{}_{}.applescript",
-                std::process::id(),
-                SCRIPT_SEQ.fetch_add(1, Ordering::Relaxed)
-            ));
-            std::fs::write(&tmp_path, code.as_bytes())
-                .map_err(|e| format!("AppleScript 임시 파일 생성 실패: {e}"))?;
-
-            let dir = work_dir
-                .filter(|d| !d.is_empty())
-                .map(PathBuf::from)
-                .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
-
-            let mut child = Command::new("osascript")
-                .arg(&tmp_path)
-                .current_dir(&dir)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("실행 실패: {e}. osascript 가 설치되어 있는지 확인해줘."))?;
-
-            let stdout_pipe = child.stdout.take().unwrap();
-            let stderr_pipe = child.stderr.take().unwrap();
-            let (tx_out, rx_out) = mpsc::channel::<String>();
-            let (tx_err, rx_err) = mpsc::channel::<String>();
-            thread::spawn(move || {
-                let mut buf = String::new();
-                let mut reader = std::io::BufReader::new(stdout_pipe);
-                reader.read_to_string(&mut buf).ok();
-                tx_out.send(buf).ok();
-            });
-            thread::spawn(move || {
-                let mut buf = String::new();
-                let mut reader = std::io::BufReader::new(stderr_pipe);
-                reader.read_to_string(&mut buf).ok();
-                tx_err.send(buf).ok();
-            });
-            // python/shell 분기와 동일한 30초 상한. 예전에는 child.wait() 무한대기라
-            // `repeat`나 `display dialog` 하나로 앱이 영구 정지했다.
-            let timeout = Duration::from_secs(30);
-            let start = Instant::now();
-            let exit_code = loop {
-                match child.try_wait().map_err(|e| format!("프로세스 대기 실패: {e}"))? {
-                    Some(status) => break status.code().unwrap_or(-1),
-                    None => {
-                        if start.elapsed() > timeout {
-                            child.kill().ok();
-                            std::fs::remove_file(&tmp_path).ok();
-                            return Err("AppleScript 실행 시간 초과 (30초)".to_string());
-                        }
-                        thread::sleep(Duration::from_millis(100));
-                    }
-                }
-            };
-            std::fs::remove_file(&tmp_path).ok();
-
-            let stdout_raw = rx_out.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
-            let stderr_raw = rx_err.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
-            let (stdout, stdout_trunc) = truncate_chars(stdout_raw, 4000);
-            let (stderr, stderr_trunc) = truncate_chars(stderr_raw, 2000);
-            let truncated = stdout_trunc || stderr_trunc;
-            let image_data_url = collect_output_image();
-            return Ok(CodeExecResult { stdout, stderr, exit_code, truncated, image_data_url });
-        }
-
-        let (interpreter, flag) = match lang {
-            "python" | "python3" => ("python3", "-c"),
-            "shell" | "sh" | "bash" => ("sh", "-c"),
-            other => return Err(format!("지원하지 않는 언어: {}. python, shell 또는 applescript를 사용해줘.", other)),
-        };
-
-        let dir = work_dir
-            .filter(|d| !d.is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
-
-        let mut child = Command::new(interpreter)
-            .arg(flag)
-            .arg(&code)
-            .current_dir(&dir)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("실행 실패: {}. {} 가 설치되어 있는지 확인해줘.", e, interpreter))?;
-
-        // Collect stdout/stderr in background threads
-        let stdout_pipe = child.stdout.take().unwrap();
-        let stderr_pipe = child.stderr.take().unwrap();
-
-        let (tx_out, rx_out) = mpsc::channel::<String>();
-        let (tx_err, rx_err) = mpsc::channel::<String>();
-
-        thread::spawn(move || {
-            let mut buf = String::new();
-            let mut reader = std::io::BufReader::new(stdout_pipe);
-            reader.read_to_string(&mut buf).ok();
-            tx_out.send(buf).ok();
-        });
-
-        thread::spawn(move || {
-            let mut buf = String::new();
-            let mut reader = std::io::BufReader::new(stderr_pipe);
-            reader.read_to_string(&mut buf).ok();
-            tx_err.send(buf).ok();
-        });
-
-        // Poll for completion with 30s timeout
-        let timeout = Duration::from_secs(30);
-        let start = Instant::now();
-        let exit_code = loop {
-            match child.try_wait().map_err(|e| e.to_string())? {
-                Some(status) => break status.code().unwrap_or(-1),
-                None => {
-                    if start.elapsed() > timeout {
-                        child.kill().ok();
-                        return Err("실행 시간 초과 (30초)".to_string());
-                    }
-                    thread::sleep(Duration::from_millis(100));
-                }
-            }
-        };
-
-        let stdout_raw = rx_out.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
-        let stderr_raw = rx_err.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
-
-        const MAX_OUTPUT: usize = 4000;
-        let (stdout, stdout_trunc) = truncate_chars(stdout_raw, MAX_OUTPUT);
-        let (stderr, stderr_trunc) = truncate_chars(stderr_raw, MAX_OUTPUT);
-        let truncated = stdout_trunc || stderr_trunc;
-
-        let image_data_url = collect_output_image();
-        Ok(CodeExecResult { stdout, stderr, exit_code, truncated, image_data_url })
+    ) -> Result<CodeExecResult, AppError> {
+        crate::exec::run(&code, language.as_deref(), work_dir.as_deref(), approved)
     }
 
     #[tauri::command]
@@ -429,7 +254,7 @@ mod commands {
     /// 문자열을 탈출해 임의 코드가 실행된다. `on run argv` 로 넘기면 osascript 가
     /// 이 값들을 파싱하지 않고 데이터로만 취급한다.
     #[tauri::command(async)]
-    pub fn notify_send(title: String, body: String) -> Result<(), String> {
+    pub fn notify_send(title: String, body: String) -> Result<(), AppError> {
         Command::new("osascript")
             .arg("-e").arg("on run argv")
             .arg("-e").arg("display notification (item 2 of argv) with title (item 1 of argv) sound name \"Glass\"")
@@ -448,7 +273,7 @@ mod commands {
     /// pattern: 0=generic, 1=alignment(또렷한 탁), 2=levelChange.
     /// NSHapticFeedbackManager 는 AppKit 이라 main thread 에서 호출한다.
     #[tauri::command(async)]
-    pub fn haptic_feedback(app: tauri::AppHandle, pattern: Option<i64>) -> Result<(), String> {
+    pub fn haptic_feedback(app: tauri::AppHandle, pattern: Option<i64>) -> Result<(), AppError> {
         #[cfg(target_os = "macos")]
         {
             let p = pattern.unwrap_or(1) as isize;
@@ -465,7 +290,7 @@ mod commands {
     /// macOS URL 스킴 또는 앱을 엽니다 (권한 설정 페이지 열기 등에 사용).
     /// 내부 신뢰 호출 전용(x-apple.systempreferences: 등). 미신뢰 링크는 open_external_url.
     #[tauri::command(async)]
-    pub fn open_url(url: String) -> Result<(), String> {
+    pub fn open_url(url: String) -> Result<(), AppError> {
         std::process::Command::new("open")
             .arg(&url)
             .spawn()
@@ -478,7 +303,7 @@ mod commands {
     /// file://·x-apple.systempreferences:·app 스킴 등으로 `open` 이 로컬 리소스를
     /// 실행하는 것을 막는다. arg 는 데이터로 전달돼 셸 해석은 없음.
     #[tauri::command(async)]
-    pub fn open_external_url(url: String) -> Result<(), String> {
+    pub fn open_external_url(url: String) -> Result<(), AppError> {
         let lower = url.trim_start().to_ascii_lowercase();
         if !(lower.starts_with("http://") || lower.starts_with("https://")) {
             return Err("http/https 링크만 열 수 있습니다".into());
@@ -494,7 +319,7 @@ mod commands {
     // ── 그림판 저장 ───────────────────────────────────────────────────────────
 
     #[tauri::command(async)]
-    pub fn save_canvas_image(data_url: String) -> Result<String, String> {
+    pub fn save_canvas_image(data_url: String) -> Result<String, AppError> {
         use base64::Engine;
         let b64 = data_url.split(',').nth(1).ok_or("invalid data URL")?;
         let bytes = base64::engine::general_purpose::STANDARD
@@ -681,6 +506,31 @@ mod commands {
         crate::db::memories::delete(&conn, id)
     }
 
+    // ── llama-server (llama 모듈 위임) ────────────────────────────────────────
+
+    #[tauri::command(async)]
+    pub fn llama_scan_models() -> Result<Vec<String>, AppError> {
+        crate::llama::scan_models()
+    }
+
+    #[tauri::command(async)]
+    pub fn llama_start(
+        config: crate::llama::LlamaConfig,
+        server_state: State<'_, LlamaServerState>,
+    ) -> Result<(), AppError> {
+        crate::llama::start(config, &server_state)
+    }
+
+    #[tauri::command(async)]
+    pub fn llama_stop(port: i32, server_state: State<'_, LlamaServerState>) -> Result<(), AppError> {
+        crate::llama::stop(port, &server_state)
+    }
+
+    #[tauri::command(async)]
+    pub fn llama_is_running(server_state: State<'_, LlamaServerState>) -> Result<bool, AppError> {
+        crate::llama::is_running(&server_state)
+    }
+
     // ── 실행 이력 ─────────────────────────────────────────────────────────────
     // ExecHistoryItem 은 db::models 로 이동(상단 재노출).
 
@@ -709,246 +559,10 @@ mod commands {
         crate::db::exec_history::clear(&conn)
     }
 
-    // ── llama-server 관련 ─────────────────────────────────────────────────────
-
-    #[derive(Debug, Serialize, Deserialize)]
-    pub struct LlamaConfig {
-        pub model: String,
-        pub mmproj: Option<String>,
-        pub model_draft: Option<String>,
-        pub ngl: i32,
-        pub flash_attn: bool,
-        pub jinja: bool,
-        pub ctk: String,
-        pub ctv: String,
-        pub context: i32,
-        pub temp: f32,
-        pub top_k: i32,
-        pub top_p: f32,
-        pub min_p: f32,
-        pub port: i32,
-        pub host: String,
-        pub reasoning: String,
-        pub reasoning_format: String,
-        pub mtp_n_draft: Option<i32>,
-    }
-
-    #[tauri::command(async)]
-    pub fn llama_scan_models() -> Result<Vec<String>, String> {
-        let home = dirs::home_dir().ok_or("홈 디렉토리를 찾을 수 없습니다")?;
-        let mut files = vec![];
-
-        // ~/models (flat)
-        let models_dir = home.join("models");
-        if models_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(&models_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str()) == Some("gguf") {
-                        files.push(path.to_string_lossy().to_string());
-                    }
-                }
-            }
-        }
-
-        files.sort();
-        Ok(files)
-    }
-
-    #[tauri::command(async)]
-    pub fn llama_start(
-        config: LlamaConfig,
-        server_state: State<'_, LlamaServerState>,
-    ) -> Result<(), String> {
-        // 락을 함수 전체에 걸쳐 잡는다.
-        //
-        // 예전에는 여기서 잠깐 잡았다 놓고, 1초쯤 걸리는 정리·spawn 을 한 뒤 다시
-        // 잡아 저장했다. 커맨드가 메인 스레드에서 하나씩 돌 때는 그 틈에 아무도
-        // 끼어들 수 없었지만, 워커로 옮긴 지금은 두 번의 실행 요청이 겹치면 서버가
-        // 둘 뜨고 하나는 추적을 잃은 고아로 남는다(GPU 메모리를 문 채로).
-        // 잡고 있는 동안 llama_is_running 이 잠깐 막히지만, 그건 워커에서 기다린다.
-        let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
-
-        // 기존 서버 종료: 추적 중인 자식 + 포트를 선점 중인 고아(이전 앱이 SIGKILL 로
-        // 죽어 남은 프로세스)까지 청소해야, 포트 충돌로 새 서버가 조용히 즉사하는 것을 막는다.
-        if let Some(ref mut child) = guard.child {
-            child.kill().ok();
-            child.wait().ok();
-        }
-        *guard = LlamaProc::default();
-        super::kill_port(config.port);
-
-        let home = dirs::home_dir().ok_or("홈 디렉토리를 찾을 수 없습니다")?;
-        let models_dir = home.join("models");
-        let model_path = if std::path::Path::new(&config.model).is_absolute() {
-            std::path::PathBuf::from(&config.model)
-        } else {
-            models_dir.join(&config.model)
-        };
-
-        // llama-server 바이너리 찾기 (brew 경로 포함)
-        let binary = ["llama-server", "/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"]
-            .iter()
-            .find(|&&b| Command::new(b).arg("--version").output().is_ok())
-            .map(|&b| b.to_string())
-            .ok_or_else(|| "llama-server 바이너리를 찾을 수 없습니다. PATH나 Homebrew 설치를 확인해주세요.".to_string())?;
-
-        let mut args: Vec<String> = vec![
-            "--model".to_string(), model_path.to_string_lossy().to_string(),
-            "-ngl".to_string(), config.ngl.to_string(),
-            "-c".to_string(), config.context.to_string(),
-            "--port".to_string(), config.port.to_string(),
-            "--host".to_string(), config.host.clone(),
-            "--temp".to_string(), config.temp.to_string(),
-            "--top-k".to_string(), config.top_k.to_string(),
-            "--top-p".to_string(), config.top_p.to_string(),
-            "--min-p".to_string(), config.min_p.to_string(),
-            "-ctk".to_string(), config.ctk.clone(),
-            "-ctv".to_string(), config.ctv.clone(),
-            "--reasoning".to_string(), config.reasoning.clone(),
-            "--reasoning-format".to_string(), config.reasoning_format.clone(),
-        ];
-
-        if config.flash_attn {
-            args.push("-fa".to_string());
-            args.push("on".to_string());
-        }
-        if config.jinja {
-            args.push("--jinja".to_string());
-        }
-        if let Some(n) = config.mtp_n_draft {
-            if n > 0 {
-                args.push("--spec-type".to_string());
-                args.push("draft-mtp".to_string());
-                args.push("--spec-draft-n-max".to_string());
-                args.push(n.to_string());
-            }
-        }
-
-        if let Some(draft) = &config.model_draft {
-            if !draft.is_empty() {
-                let draft_path = if std::path::Path::new(draft).is_absolute() {
-                    std::path::PathBuf::from(draft)
-                } else {
-                    models_dir.join(draft)
-                };
-                if !draft_path.exists() {
-                    return Err(format!("MTP 드래프트 모델 파일을 찾을 수 없습니다: {}\n설정에서 MTP 모델을 '없음'으로 변경해주세요.", draft));
-                }
-                args.push("--model-draft".to_string());
-                args.push(draft_path.to_string_lossy().to_string());
-            }
-        }
-
-        if let Some(mmproj) = &config.mmproj {
-            if !mmproj.is_empty() {
-                let mmproj_path = if std::path::Path::new(mmproj).is_absolute() {
-                    std::path::PathBuf::from(mmproj)
-                } else {
-                    models_dir.join(mmproj)
-                };
-                if !mmproj_path.exists() {
-                    return Err(format!("mmproj 파일을 찾을 수 없습니다: {}\n설정에서 mmproj를 '없음'으로 변경해주세요.", mmproj));
-                }
-                args.push("--mmproj".to_string());
-                args.push(mmproj_path.to_string_lossy().to_string());
-            }
-        }
-
-        let log_path = std::env::temp_dir().join("nekodesk_llama.log");
-        let log_file = std::fs::File::create(&log_path)
-            .map_err(|e| format!("로그 파일 생성 실패: {}", e))?;
-
-        let mut child = Command::new(&binary)
-            .args(&args)
-            .stdout(Stdio::null())
-            .stderr(log_file)
-            .spawn()
-            .map_err(|e| format!("서버 시작 실패: {}", e))?;
-
-        // 800ms 후 즉시 종료 여부 확인
-        thread::sleep(Duration::from_millis(800));
-        if let Ok(Some(status)) = child.try_wait() {
-            let log = std::fs::read_to_string(&log_path).unwrap_or_default();
-            let excerpt: String = log.lines().rev().take(10).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
-            return Err(format!("서버가 즉시 종료됨 (exit {})\n{}", status.code().unwrap_or(-1), excerpt));
-        }
-
-        *guard = LlamaProc { child: Some(child), port: Some(config.port) };
-        Ok(())
-    }
-
-    #[tauri::command(async)]
-    pub fn llama_stop(port: i32, server_state: State<'_, LlamaServerState>) -> Result<(), String> {
-        {
-            let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
-            if let Some(ref mut child) = guard.child {
-                child.kill().ok();
-                child.wait().ok();
-            }
-            *guard = LlamaProc::default();
-        }
-        // child handle이 없어도(고아·stale) 해당 포트를 점유 중인 프로세스 강제 종료
-        kill_port(port);
-        Ok(())
-    }
-
-    #[tauri::command(async)]
-    pub fn llama_is_running(server_state: State<'_, LlamaServerState>) -> Result<bool, String> {
-        let mut guard = server_state.0.lock().map_err(|e| e.to_string())?;
-        if let Some(ref mut child) = guard.child {
-            match child.try_wait() {
-                Ok(None) => Ok(true),   // 아직 실행 중
-                _ => {
-                    *guard = LlamaProc::default();
-                    Ok(false)
-                }
-            }
-        } else {
-            Ok(false)
-        }
-    }
 
     // 가속도계(macimu Python subprocess)는 제거됨. M4 실증 결과 non-root 로는
     // HID 데이터를 못 받고 root 데몬이 필요해, 트랙패드 쓰다듬기 + haptic_feedback 으로 대체.
 
-    #[cfg(test)]
-    mod tests {
-        use super::truncate_chars;
-
-        /// 한글은 UTF-8에서 3바이트다. 이전 구현은 `&s[..4000]`로 바이트 슬라이스를
-        /// 했기 때문에 4000번째 바이트가 글자 중간이면 패닉했다.
-        #[test]
-        fn korean_output_truncates_without_panic() {
-            let s = "가".repeat(2000); // 6000 bytes, 2000 chars
-            let (out, truncated) = truncate_chars(s, 1500);
-            assert!(truncated);
-            assert_eq!(out.chars().count(), 1500 + "…(잘림)".chars().count());
-        }
-
-        #[test]
-        fn emoji_truncates_on_char_boundary() {
-            let (out, truncated) = truncate_chars("🐱".repeat(10), 5);
-            assert!(truncated);
-            assert!(out.starts_with(&"🐱".repeat(5)));
-            assert!(!out.contains("\u{FFFD}")); // 깨진 문자 없음
-        }
-
-        #[test]
-        fn short_output_passes_through_untouched() {
-            let (out, truncated) = truncate_chars("안녕 🐱".to_string(), 100);
-            assert!(!truncated);
-            assert_eq!(out, "안녕 🐱");
-        }
-
-        /// 경계값: 정확히 max_chars 면 자르지 않는다.
-        #[test]
-        fn exact_length_is_not_truncated() {
-            let (out, truncated) = truncate_chars("가나다".to_string(), 3);
-            assert!(!truncated);
-            assert_eq!(out, "가나다");
-        }
-    }
 }
 
 
