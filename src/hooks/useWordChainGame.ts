@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { wordChainReply } from "../agent/llm-client";
+import { dueumAlternative, matchesStartChar } from "../lib/hangul";
 import type { CatEmotion } from "../agent/types";
 
 export type WordChainPhase = "idle" | "user_turn" | "cat_turn" | "done";
@@ -25,65 +26,14 @@ export interface WordChainGame {
   disputeContext: () => string;
 }
 
-// ── 두음법칙 ─────────────────────────────────────────────────────────────────
-// 한국어 음절 분해: 유니코드 한글 음절 = 가(0xAC00) + (초성*21 + 중성)*28 + 종성
-const KO_BASE = 0xAC00;
-// ㅑ(2) ㅒ(3) ㅕ(4) ㅖ(5) ㅛ(10) ㅠ(13) ㅣ(18) — 두음법칙 적용 대상 중성
-const YI_VOWELS = new Set([2, 3, 4, 5, 10, 13, 18]);
+// 두음법칙 판정은 lib/hangul 이 혼자 안다. 예전에는 이 파일 안에 규칙이 세 벌
+// (canonicalChosung · matchesStartChar · dueumHint) 있었고 서로 어긋나 있었다.
 
-function canonicalChosung(char: string): number | null {
-  const code = char.charCodeAt(0) - KO_BASE;
-  if (code < 0 || code > 11171) return null;
-  const jung = Math.floor(code / 28) % 21;
-  const cho = Math.floor(code / 28 / 21);
-  // 두음법칙 적용
-  if (cho === 5 /* ㄹ */) return YI_VOWELS.has(jung) ? 11 /* ㅇ */ : 2 /* ㄴ */;
-  if (cho === 2 /* ㄴ */ && YI_VOWELS.has(jung)) return 11 /* ㅇ */;
-  return cho;
+/** 이어받을 글자 안내. 두음법칙으로 바꿔 쓸 수 있으면 같이 알려준다. */
+function startCharHint(lastChar: string): string {
+  const alt = dueumAlternative(lastChar);
+  return alt ? `"${lastChar}" (두음법칙: "${alt}"도 가능)` : `"${lastChar}"`;
 }
-
-// 다음 단어 시작 글자가 두음법칙을 포함하여 lastChar와 동치인지 확인
-// 두음법칙은 lastChar의 초성이 ㄹ/ㄴ일 때만 적용 (ㅇ끼리 무조건 매칭 방지)
-function matchesStartChar(word: string, lastChar: string): boolean {
-  if (!lastChar) return true;
-  if (word[0] === lastChar) return true;
-
-  const lastCode = lastChar.charCodeAt(0) - KO_BASE;
-  if (lastCode < 0 || lastCode > 11171) return false;
-  const lastJung = Math.floor(lastCode / 28) % 21;
-  const lastCho = Math.floor(lastCode / 28 / 21);
-
-  const wordCode = word[0].charCodeAt(0) - KO_BASE;
-  if (wordCode < 0 || wordCode > 11171) return false;
-  const wordCho = Math.floor(wordCode / 28 / 21);
-
-  // ㄹ + 이계 모음 → ㅇ 또는 ㄴ으로 시작 허용
-  if (lastCho === 5 /* ㄹ */ && YI_VOWELS.has(lastJung)) {
-    return wordCho === 11 /* ㅇ */ || wordCho === 2 /* ㄴ */;
-  }
-  // ㄴ + 이계 모음 → ㅇ으로 시작 허용
-  if (lastCho === 2 /* ㄴ */ && YI_VOWELS.has(lastJung)) {
-    return wordCho === 11 /* ㅇ */;
-  }
-
-  return false;
-}
-
-// 두음법칙 힌트 문자열 생성 (예: "녕" → "녕(=영)")
-function dueumHint(lastChar: string): string {
-  const code = lastChar.charCodeAt(0) - KO_BASE;
-  if (code < 0 || code > 11171) return `"${lastChar}"`;
-  const jong = code % 28;
-  const jung = Math.floor(code / 28) % 21;
-  const cho = Math.floor(code / 28 / 21);
-  const canonical = canonicalChosung(lastChar)!;
-  if (canonical === cho) return `"${lastChar}"`;
-  // 두음법칙 적용 시 대표 글자 만들기 (종성 유지, 초성만 교체)
-  const altChar = String.fromCharCode(KO_BASE + (canonical * 21 + jung) * 28 + jong);
-  return `"${lastChar}" (두음법칙: "${altChar}"도 가능)`;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function useWordChainGame(
   onEmotionChange: (emotion: CatEmotion, durationMs?: number) => void
@@ -118,7 +68,7 @@ export function useWordChainGame(
     const cleaned = word.trim();
 
     if (lastChar && !matchesStartChar(cleaned, lastChar)) {
-      return { type: "invalid_start", error: `${dueumHint(lastChar)}로 시작하는 단어를 입력해줘!` };
+      return { type: "invalid_start", error: `${startCharHint(lastChar)}로 시작하는 단어를 입력해줘!` };
     }
     if (usedWords.includes(cleaned)) {
       return { type: "duplicate", error: `"${cleaned}"는 이미 나온 단어야!` };
