@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { wordChainReply } from "../agent/llm-client";
+import { wordChainReply } from "../agent/word-chain";
 import { dueumAlternative, matchesStartChar } from "../lib/hangul";
 import type { CatEmotion } from "../agent/types";
 

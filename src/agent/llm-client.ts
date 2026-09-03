@@ -1089,40 +1089,6 @@ export async function fetchLoadedModel(): Promise<LlmModelInfo | null> {
   }
 }
 
-// ── Word chain game ───────────────────────────────────────────────────────────
-
-export async function wordChainReply(
-  lastChar: string,
-  usedWords: string[],
-  validateWord?: string,
-): Promise<string> {
-  const usedStr = usedWords.length > 0 ? ` 이미 사용된 단어: [${usedWords.join(", ")}].` : "";
-
-  // 유저 단어 검증 + 고양이 응답을 한 번의 LLM 호출로 처리
-  const prompt = validateWord
-    ? `끝말잇기 게임이야. 유저가 "${validateWord}"를 냈어.
-이 단어가 실제 한국어 사전에 있는 단어인지 먼저 판단해.
-- 실존하는 단어라면: "${lastChar}"로 시작하는 한국어 명사 하나만 답해줘. 두음법칙 적용 가능.${usedStr}
-- 실존하지 않는 단어라면: INVALID 라고만 답해.
-설명 없이 단어 또는 INVALID만.`
-    : lastChar
-    ? `끝말잇기 게임이야. 반드시 "${lastChar}"로 시작하는 한국어 명사 단어 하나만 답해줘. 반드시 두 글자 이상이어야 해. 두음법칙 적용 가능 (예: '녕'→'영', '렬'→'열', '뇨'→'요').${usedStr} 설명 없이 단어만.`
-    : `끝말잇기 게임 시작! 한국어 명사 하나만 답해줘. 반드시 두 글자 이상이어야 해. 설명 없이 단어만.`;
-
-  const MAX_TRIES = 5;
-  for (let i = 0; i < MAX_TRIES; i++) {
-    const raw = (await fetchCompletion(
-      [{ role: "user", content: prompt }],
-      { max_tokens: 20, temperature: 0.9 }
-    )).trim();
-    if (raw.toUpperCase().includes("INVALID")) return "INVALID";
-    const candidates = (raw.match(/[가-힣]+/g) ?? []).filter(w => w.length >= 2).map(w => w.slice(0, 10));
-    // lastChar로 시작하는 단어 우선, 없으면 첫 번째 후보
-    const word = (lastChar ? candidates.find(w => w[0] === lastChar) : candidates[0]) ?? candidates[0] ?? "";
-    if (word.length >= 2) return word;
-  }
-  return "";
-}
 
 // ── Warm-up ───────────────────────────────────────────────────────────────────
 
