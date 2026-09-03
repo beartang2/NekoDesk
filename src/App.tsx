@@ -1044,7 +1044,11 @@ export default function App() {
       if (isSingleWord) {
         injectMessage("user", trimmed);
         const result = await wordChain.submitWord(trimmed);
-        if (result.type === "invalid_start" || result.type === "duplicate") {
+        if (
+          result.type === "invalid_word" ||
+          result.type === "invalid_start" ||
+          result.type === "duplicate"
+        ) {
           injectMessage("assistant", `앗! ${result.error} 😸`);
         } else if (result.type === "user_invalid") {
           injectMessage("assistant", `"${result.word}"는 사전에 없는 단어야! 속이려 했지? 😾 고양이 승리! (${wordChain.turnCount}턴)`);

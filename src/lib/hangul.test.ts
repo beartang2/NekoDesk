@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   canonicalize,
+  isPlayableWord,
   compose,
   decompose,
   dueumAlternative,
@@ -122,5 +123,23 @@ describe("힌트", () => {
     expect(dueumAlternative("녕")).toBe("영");
     expect(dueumAlternative("려")).toBe("여");
     expect(dueumAlternative("라")).toBe("나");
+  });
+});
+
+describe("낼 수 있는 단어", () => {
+  it("한글 두 글자 이상만 허용", () => {
+    expect(isPlayableWord("나비")).toBe(true);
+    expect(isPlayableWord("고양이")).toBe(true);
+  });
+
+  it("한 글자는 거부 — 끝말잇기가 성립하지 않는다", () => {
+    expect(isPlayableWord("영")).toBe(false);
+    expect(isPlayableWord("")).toBe(false);
+  });
+
+  it("한글이 아닌 글자가 섞이면 거부", () => {
+    for (const w of ["hello", "나비1", "cat", "나 비", "나비!", "ㄱㄴ", "🐱🐱"]) {
+      expect(isPlayableWord(w), w).toBe(false);
+    }
   });
 });

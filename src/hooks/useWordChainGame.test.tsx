@@ -127,4 +127,34 @@ describe("끝말잇기 흐름", () => {
     expect(result.current.lastChar).toBe("");
     expect(result.current.turnCount).toBe(0);
   });
+
+  it("한 글자 단어는 훅이 직접 거부한다", async () => {
+    // 예전에는 UI 정규식만 막았다. 훅을 직접 부르는 경로에는 규칙이 없었다.
+    catReply.mockResolvedValueOnce("안녕");
+    const { result } = setup();
+    await act(async () => { await result.current.startGame(); });
+
+    let outcome!: { type: string; error?: string };
+    await act(async () => {
+      outcome = (await result.current.submitWord("영")) as typeof outcome;
+    });
+
+    expect(outcome.type).toBe("invalid_word");
+    expect(outcome.error).toContain("두 글자");
+    expect(result.current.usedWords).toEqual(["안녕"]);
+  });
+
+  it("한글이 아닌 입력도 훅이 거부한다", async () => {
+    catReply.mockResolvedValueOnce("안녕");
+    const { result } = setup();
+    await act(async () => { await result.current.startGame(); });
+
+    let outcome!: { type: string; error?: string };
+    await act(async () => {
+      outcome = (await result.current.submitWord("hello")) as typeof outcome;
+    });
+
+    expect(outcome.type).toBe("invalid_word");
+    expect(outcome.error).toContain("한글");
+  });
 });

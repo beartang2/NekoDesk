@@ -1,11 +1,12 @@
 import { useState, useCallback } from "react";
 import { wordChainReply } from "../agent/word-chain";
-import { dueumAlternative, matchesStartChar } from "../lib/hangul";
+import { dueumAlternative, isPlayableWord, matchesStartChar } from "../lib/hangul";
 import type { CatEmotion } from "../agent/types";
 
 export type WordChainPhase = "idle" | "user_turn" | "cat_turn" | "done";
 
 export type WordChainResult =
+  | { type: "invalid_word"; error: string }
   | { type: "invalid_start"; error: string }
   | { type: "duplicate"; error: string }
   | { type: "user_invalid"; word: string }
@@ -67,6 +68,14 @@ export function useWordChainGame(
   const submitWord = useCallback(async (word: string): Promise<WordChainResult> => {
     const cleaned = word.trim();
 
+    if (!isPlayableWord(cleaned)) {
+      return {
+        type: "invalid_word",
+        error: [...cleaned].length < 2
+          ? "두 글자 이상인 한글 단어를 입력해줘!"
+          : "한글 단어만 낼 수 있어!",
+      };
+    }
     if (lastChar && !matchesStartChar(cleaned, lastChar)) {
       return { type: "invalid_start", error: `${startCharHint(lastChar)}로 시작하는 단어를 입력해줘!` };
     }

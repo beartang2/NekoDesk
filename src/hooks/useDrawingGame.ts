@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { generateGameWords, guessDrawing } from "../agent/llm-client";
+import { generateGameWords, guessDrawing } from "../agent/drawing-game";
 import type { CatEmotion } from "../agent/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────────

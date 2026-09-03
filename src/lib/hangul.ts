@@ -98,3 +98,14 @@ export function dueumAlternative(char: string): string | null {
   const canonical = canonicalize(char);
   return canonical === char ? null : canonical;
 }
+
+/**
+ * 끝말잇기에 낼 수 있는 형태인가 — 한글 음절만으로 두 글자 이상.
+ *
+ * 한 글자짜리는 끝말잇기가 성립하지 않고(자기 자신으로 이어짐), 한글이 아닌 글자는
+ * 이어받을 글자를 뽑을 수 없다. UI 에도 비슷한 정규식이 있지만 그건 "지금 입력이
+ * 게임 수인가 그냥 대화인가" 를 가르는 라우팅용이다. 규칙은 여기 있어야 한다.
+ */
+export function isPlayableWord(word: string): boolean {
+  return [...word].length >= 2 && [...word].every((ch) => decompose(ch) !== null);
+}
