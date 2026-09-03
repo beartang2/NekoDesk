@@ -1,164 +1,91 @@
 # NekoDesk
 
-터미널에서 실행하는 ASCII 고양이 펫 + 개인 대시보드 프로젝트입니다.  
-메모, 할 일, 일정, GitHub 상태 확인을 한곳에서 다루고, 로컬 LLM과 연결해 자연어 기반 상호작용까지 지원하는 것을 목표로 합니다.
+macOS 데스크톱 앱. ASCII 고양이 펫과 로컬 LLM 에이전트를 한 창에 담았다.
 
-## 현재 구현 범위
+할 일·일정, 파일 다루기, 웹 검색, 맥 조작을 자연어로 시킬 수 있고, 대화는 전부
+로컬에서 돈다 — 외부로 나가는 건 사용자가 요청한 웹 검색뿐이다.
 
-- ASCII 고양이 펫 상태 표시
-- 자연어 기반 메모 추가 / 조회
-- 자연어 기반 할 일 추가 / 완료 / 조회
-- 로컬 일정 추가 / 조회
-- `GITHUB_TOKEN` 기반 GitHub 읽기 전용 요약 및 follow-up 질의
-- DuckDuckGo 기반 읽기 전용 웹 검색
-- `FastAPI` 백엔드(`localhost:8000`)를 통한 대화 / intent 처리
-- `llama.cpp` 서버(`localhost:8803`)를 FastAPI 뒤에서 사용
-- SQLite 기반 로컬 저장
+## 구성
 
-## 준비 사항
+```
+React + TypeScript  ─ 에이전트 루프, 툴 호출, UI
+        │ Tauri IPC
+Rust                ─ SQLite, 파일 접근, 코드 실행, MCP stdio, llama-server 관리
+        │ HTTP
+llama-server        ─ 로컬 모델 (기본 127.0.0.1:8803)
+```
 
+에이전트 루프는 프런트엔드에 있고, Rust 는 능력(파일·실행·DB)과 그 경계를 맡는다.
+
+## 필요한 것
+
+- macOS
 - Node.js 22+
-- Python 3.11+
-- 로컬 `llama.cpp` 서버 실행 환경
-- 선택: `GITHUB_TOKEN`
+- Rust 1.77+ (`rustup`)
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) 의 `llama-server` (`brew install llama.cpp`)
+- GGUF 모델 파일 — `~/models/` 에 두면 설정 화면에서 목록으로 잡힌다
 
-## 설치
-
-Node 패키지:
+## 실행
 
 ```bash
 npm install
+npm run tauri dev
 ```
 
-Python 패키지:
+llama-server 는 따로 띄우지 않아도 된다. 앱 **설정 → 로컬 LLM 모델 실행** 에서
+모델을 고르고 실행하면 앱이 자식 프로세스로 관리하고, 앱을 끄면 같이 정리한다.
+
+직접 띄우고 싶으면 `--jinja` 를 꼭 붙인다. 이게 있어야 모델이 툴을 네이티브로
+호출한다(없으면 앱이 알아서 JSON 폴백 모드로 내려간다).
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+llama-server -m ~/models/<모델>.gguf --host 127.0.0.1 --port 8803 -c 8192 -ngl 99 --jinja
 ```
 
-## 실행 순서
+## 할 수 있는 일
 
-### 1. llama.cpp 서버 실행
+| 분류 | 내용 |
+|---|---|
+| 할 일·일정 | 추가·조회·완료·삭제. 대화 중 나온 할 일은 지시 없이도 알아서 저장 |
+| 파일 | 읽기·쓰기·정확한 문자열 치환·목록·glob·grep |
+| 코드 실행 | Python / Shell / AppleScript. 볼륨·Music·Finder·Messages·브라우저 등 맥 조작 |
+| 웹 | 검색(DuckDuckGo, Brave 키 있으면 Brave)·페이지 읽기·날씨 |
+| 기억 | 취향·습관을 세션 너머로 저장하고 관련될 때 자동으로 떠올림 |
+| 계획 | 다단계 작업을 스스로 체크리스트로 쪼개고 진행 표시 |
+| 게임 | 끝말잇기, 그림 맞추기 |
+| MCP | HTTP(SSE)·stdio 서버 연결. 붙이면 그 서버 툴이 목록에 합류 |
 
-예시는 현재 프로젝트 기본값인 `localhost:8803` 기준입니다.
+이미지를 첨부하면 모델이 직접 본다(mmproj 필요).
+
+## 안전 장치
+
+- **하드 차단** — `~/.ssh`, `~/.aws`, 키체인, `.env`, `*.pem` 접근과 `sudo`·`rm -rf /`·
+  디스크 포맷은 사용자가 승인해도 실행되지 않는다. 파일 툴과 코드 실행이 같은
+  목록을 공유한다
+- **승인** — 파일 쓰기와 코드 실행은 확인을 받는다. "이 세션 동안" / "항상" 을
+  고르면 기억하고, 무엇을 열어뒀는지는 설정에서 보고 취소할 수 있다
+- **쓰기 검증** — 파일을 쓰거나 고치면 되읽어 대조하고, 실제로 저장된 내용을
+  모델에게 돌려준다
+
+## 개발
 
 ```bash
-llama-server \
-  -m ~/models/Qwen3-8B-Q4_K_M.gguf \
-  --host 127.0.0.1 \
-  --port 8803
+npm run typecheck     # 타입 검사
+npm test              # 프런트엔드 단위 테스트
+npm run test:rust     # Rust 단위 + 통합 테스트
+npm run test:all      # 위 셋
+npm run test:integration   # 실제 llama-server 를 띄운 채로만 의미 있음
 ```
 
-### 2. FastAPI 백엔드 실행
+`npm run tauri build` 로 `.app` 을 만든다.
 
-프로젝트 루트에서:
+## 데이터
 
-```bash
-source .venv/bin/activate
-uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
-```
+- SQLite: `~/Library/Application Support/com.nekodesk.app/nekodesk.sqlite`
+  (개발 빌드는 그 옆의 `nekodesk-dev/` 를 따로 쓴다 — 실사용 데이터와 안 섞인다)
+- 스키마는 `PRAGMA user_version` 으로 버전을 추적한다. 컬럼을 더할 때는
+  `db::MIGRATIONS` 끝에 추가하고, 이미 배포된 항목은 고치지 않는다
 
-확인:
+## 라이선스
 
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-### 3. NekoDesk TUI 실행
-
-```bash
-npm start
-```
-
-앱은 기본적으로 REPL/TUI 형태로 실행됩니다.
-
-정리하면 실행 순서는 아래와 같습니다.
-
-1. `llama.cpp`
-2. `FastAPI`
-3. `npm start`
-
-## 단일 명령 실행
-
-스모크 체크나 빠른 확인용으로 한 번만 실행할 수도 있습니다.
-
-```bash
-node ./bin/nekodesk.js --once "/help"
-```
-
-## 테스트
-
-```bash
-npm test
-```
-
-FastAPI 파일 문법만 빠르게 확인하려면:
-
-```bash
-python3 -m py_compile backend/main.py backend/routers/chat.py backend/routers/github.py
-```
-
-## 환경 변수
-
-선택적으로 아래 환경 변수를 사용할 수 있습니다.
-
-- `GITHUB_TOKEN`: GitHub 상태 요약 활성화
-- `NEKODESK_LLM_GITHUB_QUERY_SYSTEM_PROMPT`: GitHub follow-up 답변용 system prompt 텍스트
-- `NEKODESK_LLM_GITHUB_QUERY_SYSTEM_PROMPT_FILE`: GitHub follow-up 답변 prompt 파일 경로
-- `NEKODESK_HOME`: 기본 앱 데이터 디렉터리 변경
-- `NEKODESK_DB_PATH`: SQLite DB 파일 경로 직접 지정
-- `NEKODESK_CONVERSATION_MEMORY_LIMIT`: 메모리에 유지할 최근 대화 메시지 개수
-- `NEKODESK_WEB_SEARCH_ENABLED`: 웹 검색 tool 활성화 여부, 기본값 `true`
-- `NEKODESK_WEB_SEARCH_TIMEOUT_MS`: 웹 검색 타임아웃 밀리초, 기본값 `8000`
-- `NEKODESK_WEB_SEARCH_RESULT_LIMIT`: 웹 검색 결과 최대 개수, 기본값 `5`
-- `NEKODESK_LLM_URL`: 내부 llama.cpp 주소용 설정값, 기본값 `http://127.0.0.1:8803`
-- `NEKODESK_LLM_API_PATH`: 내부 llama.cpp endpoint 경로, 기본값 `/v1/chat/completions`
-- `NEKODESK_LLM_MODEL`: 모델 이름, 기본값 `Qwen3 8B Q4_K_M`
-- `NEKODESK_LLM_TIMEOUT_MS`: LLM 요청 타임아웃 밀리초
-- `NEKODESK_LLM_HISTORY_LIMIT`: 대화 컨텍스트에 포함할 최근 메시지 개수
-- `NEKODESK_LLM_CHAT_TEMPERATURE`: 일반 대화 temperature
-- `NEKODESK_LLM_INTENT_TEMPERATURE`: intent 분류 temperature
-- `NEKODESK_LLM_INTENT_MAX_TOKENS`: intent 분류 응답 최대 토큰 수, 기본값 `48`
-- `NEKODESK_LLM_TOOL_PLAN_TEMPERATURE`: chat 경로에서 내부 tool 계획용 temperature
-- `NEKODESK_LLM_TOOL_PLAN_MAX_TOKENS`: chat 경로에서 내부 tool 계획 응답 최대 토큰 수
-- `NEKODESK_LLM_TOOL_PLAN_SYSTEM_PROMPT`: 내부 tool planner system prompt 텍스트
-- `NEKODESK_LLM_MAX_TOKENS`: 최대 출력 토큰 수
-- `NEKODESK_LLM_HEADERS_JSON`: 추가 HTTP 헤더 JSON
-- `NEKODESK_LLM_BODY_JSON`: 추가 request body JSON
-- `NEKODESK_LLM_CHAT_SYSTEM_PROMPT`: 기본 대화 system prompt 텍스트
-- `NEKODESK_LLM_INTENT_SYSTEM_PROMPT`: intent 분류 system prompt 텍스트
-- `NEKODESK_LLM_TOOL_PLAN_SYSTEM_PROMPT_FILE`: tool planner prompt 파일 경로
-- `NEKODESK_LLM_CHAT_SYSTEM_PROMPT_FILE`: 대화 prompt 파일 경로
-- `NEKODESK_LLM_INTENT_SYSTEM_PROMPT_FILE`: intent prompt 파일 경로
-- `NEKODESK_LLM_FALLBACK_REPLY`: 모델 응답이 비었을 때 사용할 문구
-- `NEKODESK_LLM_CONNECTION_ERROR_REPLY`: LLM 연결 실패 시 문구
-
-기본 저장 위치는 `./.nekodesk/nekodesk.sqlite` 입니다.
-
-현재 Node 앱의 LLM 호출은 FastAPI `POST http://127.0.0.1:8000/chat`을 사용하고, FastAPI가 다시 `llama.cpp`로 요청을 전달합니다.
-
-## 사용 예시
-
-- `메모 프로젝트 아이디어 정리`
-- `할 일 README 정리 추가`
-- `할 일 1번 완료`
-- `내일 3시 회의 등록`
-- `오늘 일정 보여줘`
-- `내 GitHub 상태 요약해줘`
-- `OpenAI 최신 뉴스 검색해줘`
-- `이 오류 메시지 웹에서 찾아봐`
-- `/github` 뷰에서 `지금 뭘 먼저 봐야 해?`
-- `/github` 뷰에서 `리뷰 요청 있는 PR이 뭐야?`
-- `/help`
-- `/exit`
-
-## 프로젝트 방향
-
-NekoDesk는 단순한 CLI 툴이 아니라, 터미널 안에서 함께 있는 펫 같은 감각과 실용적인 생산성 도구를 합치는 것을 지향합니다.
-
-- 기본 펫은 ASCII 고양이
-- 표정과 소품이 상태에 따라 조금씩 바뀌는 구조
-- 이후 커스텀 ASCII 펫 확장 가능성 고려
-- 장기적으로 메모 / 일정 / Todo / GitHub 흐름을 하나의 인터페이스로 연결
+MIT
