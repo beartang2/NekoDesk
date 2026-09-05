@@ -36,6 +36,9 @@ export type ToolName =
   | "web.search"
   | "web.scrape"
   | "file.upload"
+  | "file"
+  | "clipboard"
+  | "math.eval"
   | "weather.get"
   | "game.start";
 

@@ -1,5 +1,5 @@
 import { agentStep, agentStepStream, chatStream } from "./llm-client";
-import { getTool } from "./tool-registry";
+import { getTool, validateToolParams, ToolParamError } from "./tool-registry";
 import { isMcpTool, executeMcpTool } from "./mcp-registry";
 import { AgentContext } from "./agent-context";
 import { findDangerReason, isSafeReadOnly } from "./danger-patterns";
@@ -18,6 +18,9 @@ function isTimeout(err: unknown): boolean {
 }
 
 const ERROR_SEARCH_HINT = `\n\n[자동 힌트] web.search로 이 오류의 해결책을 찾아 재시도하세요. 검색 쿼리에서 파일 경로·사용자명·API키 등 개인정보를 반드시 제거하고, 오류 메시지 핵심만 사용하세요.`;
+
+/** 파라미터 검증 실패용. 웹 검색이 아니라 params 수정으로 유도한다. */
+const PARAM_FIX_HINT = `\n\n[자동 힌트] 웹 검색하지 말고 params를 고쳐서 같은 툴을 다시 호출하세요. 위에 적힌 필드만 정확히 채우면 됩니다.`;
 
 const APPLESCRIPT_ERROR_HINT = `\n\n[AppleScript 오류 힌트]
 1. osascript -e '...' 래퍼를 사용했다면 즉시 제거하고 순수 AppleScript 코드만 작성해서 재시도해. (올바른 예: set volume output volume 30)
@@ -228,7 +231,12 @@ export async function* runAgentLoop(
         // Static built-in tool
         const toolEntry = getTool(toolName as ToolName);
 
-        const result = await toolEntry.execute(parsed.params);
+        // GBNF 는 JSON 형태만 강제한다. 필수 필드 누락·타입 불일치·잘못된 enum
+        // 값은 여기서 걸러야 실행 중에 터지지 않는다. 검증에 성공하면 기본값과
+        // 형변환이 적용된 값을 쓴다.
+        const safeParams = validateToolParams(toolEntry, parsed.params);
+
+        const result = await toolEntry.execute(safeParams);
         step.result = result;
         step.summary = toolEntry.summarize(result);
         step.status = "done";
@@ -277,7 +285,11 @@ export async function* runAgentLoop(
         .replace(/\/home\/[^/\s]+/g, "/home/<user>");
       step.errorMessage = errMsg;
       step.status = "error";
-      step.summary = `오류: ${sanitizedErr}${ERROR_SEARCH_HINT}`;
+      // 파라미터 오류는 웹에서 찾을 것이 없다. 검색 힌트 대신 교정 지시를 준다.
+      step.summary =
+        err instanceof ToolParamError
+          ? `${sanitizedErr}${PARAM_FIX_HINT}`
+          : `오류: ${sanitizedErr}${ERROR_SEARCH_HINT}`;
       context.addStep(step);
       yield { type: "step_error", step };
 

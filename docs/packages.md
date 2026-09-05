@@ -175,17 +175,35 @@ Rust 대안 (더 빠르고 웹뷰 메모리를 안 먹음):
 
 각 단계는 독립적으로 끝나고, 끝날 때마다 체감이 있다.
 
-| 단계 | 내용 | 새 도구 |
-|------|------|---------|
-| 1 | `zod`로 기존 도구 전부 파라미터 검증 | — (기존 도구 성공률 상승) |
-| 2 | 한국어 날짜 파서 자체 구현 + `date-fns` | — (`schedule.add` 정확도 상승) |
-| 3 | `plugin-fs` + `plugin-dialog` | `fs.read` `fs.write` `fs.list` |
-| 4 | `plugin-clipboard-manager` | `clipboard.read` `clipboard.write` |
-| 5 | `mathjs` | `math.eval` |
-| 6 | `readability` + `turndown` | — (`web.scrape` 품질 상승) |
-| 7 | `papaparse` + PDF/docx 파서 | `doc.read` |
-| 8 | `shiki` | — (UI 품질) |
-| 9 | `fuse.js` | `memory.search` |
+| 단계 | 내용 | 새 도구 | 상태 |
+|------|------|---------|------|
+| 1 | `zod`로 기존 도구 전부 파라미터 검증 | — (기존 도구 성공률 상승) | ✅ 완료 |
+| 2 | 한국어 날짜 파서 자체 구현 + `date-fns` | — (`schedule.add` 정확도 상승) | ✅ 완료 |
+| 3 | `plugin-fs` + `plugin-dialog` | `file` (read/write/list) | ✅ 완료 |
+| 4 | `plugin-clipboard-manager` | `clipboard` (read/write) | ✅ 완료 |
+| 5 | `mathjs` | `math.eval` | ✅ 완료 |
+| 6 | `readability` + `turndown` | — (`web.scrape` 품질 상승) | 미착수 |
+| 7 | `papaparse` + PDF/docx 파서 | `doc.read` | 미착수 |
+| 8 | `shiki` | — (UI 품질) | 미착수 |
+| 9 | `fuse.js` | `memory.search` | 미착수 |
+
+### 1~5단계 구현 메모
+
+- **도구 묶기 적용**: 8번 경고대로 `file.read`/`file.write`/`file.list`를 도구 3개로
+  쪼개지 않고 `file` 하나 + `action` 파라미터로 묶었다. `clipboard`도 마찬가지.
+  덕분에 도구 수가 13 → 16으로만 늘었다.
+- **묶기의 약점은 zod가 막는다**: `action: "write"`인데 `content`가 없으면 스키마
+  `refine`이 잡아서 "action이 write면 content가 반드시 있어야 한다"를 모델에게
+  돌려준다. 검증과 묶기가 서로를 보완한다.
+- **파라미터 오류는 웹 검색으로 새지 않는다**: 기존 오류 경로는 무조건 web.search
+  힌트를 붙였는데, 파라미터 오류엔 검색할 게 없다. `ToolParamError`를 따로 두고
+  "params를 고쳐서 같은 툴을 다시 호출하라"는 힌트를 준다.
+- **날짜는 모델을 신뢰하지 않는다**: `schedule.add`/`todo.add`가 받은 날짜 문자열이
+  ISO가 아니면 `normalizeDateInput`이 한국어 상대 표현을 계산해서 교정한다.
+- **fs 접근 범위**: `capabilities/default.json`에서 바탕화면·문서·다운로드·앱 데이터·
+  임시 폴더로 제한하고, `.ssh`/`.aws`/`.config/gh`/`*.env`는 명시적으로 차단했다.
+- **mathjs는 full 빌드 유지**: `mathjs/number`가 gzip 기준 76KB 더 가볍지만 단위
+  변환(`3 kg to lb`)을 못 쓴다. 로컬 번들 데스크톱 앱이라 용량보다 기능을 택했다.
 
 ---
 
@@ -228,7 +246,8 @@ Tauri 플러그인은 npm 설치만으로 끝나지 않는다. 각각:
 
 ## 8. 도구 개수에 대한 경고
 
-현재 도구가 13개다. 여기에 위 계획을 다 넣으면 20개가 넘는다.
+1~5단계를 마친 현재 도구는 16개다(`file`·`clipboard`·`math.eval` 추가). 여기에 6~9단계를
+그대로 다 넣으면 20개가 넘는다.
 4B급 모델은 도구가 15개를 넘어가면 **엉뚱한 도구를 고르는 빈도가 눈에 띄게 는다.**
 
 대응책:

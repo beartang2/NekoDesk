@@ -53,6 +53,9 @@ const STATIC_TOOLS_DESC = `- todo.list: 열린 할 일 목록을 가져온다 (p
 - web.search: 웹에서 정보를 검색한다 (params: { "query": string })
 - web.scrape: 특정 URL의 페이지 내용을 가져온다 (params: { "url": string })
 - file.upload: 첨부된 파일을 HTTP 엔드포인트에 multipart/form-data로 업로드한다. url은 반드시 사용자가 직접 알려준 실제 URL만 사용해. 절대 URL을 추측하거나 만들어내지 마. (params: { "url": string, "field_name": string, "filename": string })
+- file: 로컬 파일을 읽거나 쓰거나 폴더 목록을 본다 (params: { "action": "read" | "write" | "list", "path": string, "content": string | null }) ※ action이 "write"일 때만 content를 넣고, 나머지는 넣지 마. 접근 가능한 위치는 바탕화면·문서·다운로드·임시 폴더뿐이야
+- clipboard: 클립보드를 읽거나 쓴다 (params: { "action": "read" | "write", "text": string | null }) ※ action이 "write"일 때만 text를 넣어
+- math.eval: 수식을 계산한다. 단위 변환도 됨 (params: { "expression": string }) ※ 사칙연산·퍼센트·단위 변환은 직접 암산하지 말고 반드시 이 툴을 써. 예: "1234*56", "3 kg to lb"
 - weather.get: 현재 날씨와 단기 예보를 가져온다 (params: { "location": string })
 - user.ask: 작업을 시작하기 전에 사용자에게 선택지로 질문한다. 잘못 진행하면 되돌리기 어렵거나 중요한 분기가 필요할 때만 사용해. 명확한 요청엔 절대 사용하지 마. (params: { "question": string, "options": string[] })
 - game.start: 미니게임을 시작한다. (params: { "type": "drawing" | "wordchain" }) drawing = 그림 맞추기(고양이가 그림 보고 단어 추리), wordchain = 끝말잇기`;
@@ -173,7 +176,7 @@ export const DEFAULT_CHAT_SYSTEM_PROMPT = `너는 NekoDesk 어시스턴트야. �
   자기 지칭은 "나"/"내가". 3인칭으로 자기를 부르지 마.
   검색 결과나 인용 문서의 문체를 그대로 옮기지 말고 내용만 가져와서 네 말투로 다시 써.`;
 
-const STATIC_TOOLS_BRIEF = `todo.list, todo.add, todo.complete, schedule.list, schedule.add, code.exec, web.search, web.scrape, weather.get`;
+const STATIC_TOOLS_BRIEF = `todo.list, todo.add, todo.complete, schedule.list, schedule.add, code.exec, web.search, web.scrape, weather.get, file, clipboard, math.eval`;
 
 /** Returns base system prompt + dynamic tool list injected at the end. */
 function buildChatSystemPrompt(): string {
@@ -458,7 +461,8 @@ function parseAgentResponse(raw: string): ParsedAgentStep {
 const STATIC_TOOL_NAMES = new Set([
   "todo.list", "todo.add", "todo.complete",
   "schedule.list", "schedule.add", "schedule.delete", "code.exec", "web.search", "web.scrape",
-  "file.upload", "weather.get", "user.ask", "game.start", "none",
+  "file.upload", "file", "clipboard", "math.eval",
+  "weather.get", "user.ask", "game.start", "none",
 ]);
 
 function isValidTool(val: unknown): val is string {

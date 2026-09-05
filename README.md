@@ -17,10 +17,19 @@
 | `todo.list` / `todo.list_done` / `todo.add` / `todo.complete` | 할 일 관리 |
 | `schedule.list` / `schedule.add` / `schedule.delete` | 캘린더 일정 기록·조회·삭제 |
 | `code.exec` | Python / Shell / AppleScript 스크립트를 로컬에서 실행 (30초 상한, 위험 패턴 차단) |
+| `file` | 로컬 파일 읽기/쓰기/폴더 목록 (`action` 으로 분기, 접근 범위 제한됨) |
+| `clipboard` | 클립보드 읽기/쓰기 |
+| `math.eval` | 수식 계산과 단위 변환 (`3 kg to lb`) |
 | `web.search` / `web.scrape` | 웹 검색과 페이지 본문 추출 |
 | `weather.get` | 현재 날씨와 단기 예보 |
 | `file.upload` | 첨부 파일을 HTTP 엔드포인트로 업로드 |
 | `game.start` | 미니게임 (그림 맞추기 / 끝말잇기) |
+
+모든 도구는 실행 전에 zod 스키마로 파라미터를 검증한다. 검증에 걸리면 어떤 필드가
+왜 잘못됐는지가 모델에게 되돌아가서 스스로 고쳐 재호출한다.
+
+일정·마감 날짜는 한국어 상대 표현("다음 주 화요일", "내일 오후 3시")을 앱이
+결정론적으로 ISO로 변환한다. 모델의 날짜 산수를 신뢰하지 않는다.
 
 추가로 MCP(SSE 전송) 서버를 연결하면 그 서버의 도구도 같은 루프에서 쓸 수 있습니다.
 

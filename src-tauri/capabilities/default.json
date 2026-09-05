@@ -7,6 +7,41 @@
   ],
   "permissions": [
     "core:default",
-    "core:window:allow-set-theme"
+    "core:window:allow-set-theme",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "fs:allow-read-dir",
+    "fs:allow-mkdir",
+    "fs:allow-exists",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$DESKTOP" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$DOCUMENT" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DOWNLOAD" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$APPDATA" },
+        { "path": "$APPDATA/**" },
+        { "path": "$TEMP" },
+        { "path": "$TEMP/**" }
+      ],
+      "deny": [
+        { "path": "$HOME/.ssh" },
+        { "path": "$HOME/.ssh/**" },
+        { "path": "$HOME/.aws" },
+        { "path": "$HOME/.aws/**" },
+        { "path": "$HOME/.config/gh" },
+        { "path": "$HOME/.config/gh/**" },
+        { "path": "$DOCUMENT/**/*.env" },
+        { "path": "$DESKTOP/**/*.env" },
+        { "path": "$DOWNLOAD/**/*.env" }
+      ]
+    }
   ]
 }
