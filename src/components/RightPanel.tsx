@@ -418,7 +418,6 @@ export function DrawingPadCard({
 }: {
   gameMode?: (DrawingGameState & DrawingGameActions) | null;
 }) {
-  const MAX_CANVAS_W = 500;
   const MAX_CANVAS_H = 600;
 
   const [open, setOpen] = useState(false);
@@ -430,7 +429,6 @@ export function DrawingPadCard({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawingRef = useRef(false);
   const lastPtRef = useRef<{ x: number; y: number } | null>(null);
-  const canvasInitRef = useRef(false);
   const undoStackRef = useRef<ImageData[]>([]);
   const redoStackRef = useRef<ImageData[]>([]);
 
@@ -459,16 +457,47 @@ export function DrawingPadCard({
     return canvas.getContext("2d");
   }
 
-  // 흰색 배경 초기화 — 최초 1회만 (game mode가 아닐 때)
+  /**
+   * 캔버스 비트맵을 화면에 보이는 크기에 맞춘다.
+   *
+   * 예전에는 비트맵이 500×600 으로 고정이고 wrapper 가 그중 좌상단 일부(기본
+   * 190×160)만 잘라 보여줬다. 사용자는 그 조각에만 그릴 수 있는데 toDataURL 은
+   * 안 보이는 흰 여백까지 통째로 내보내서, 그림 맞추기 모델이 대부분 빈 이미지를
+   * 받았다. 비트맵과 보이는 영역이 같으면 캡처가 저절로 본 대로 나온다.
+   */
   useEffect(() => {
-    if (isGameActive) return;
-    if (canvasInitRef.current) return;
     const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    canvasInitRef.current = true;
+    if (!canvas) return;
+
+    const sync = () => {
+      // 1:1 로 두면 선이 뭉개진다. 캡처 해상도도 이만큼 올라가 모델이 보기 좋다.
+      const SCALE = 2;
+      const w = Math.round(canvas.clientWidth * SCALE);
+      const h = Math.round(canvas.clientHeight * SCALE);
+      if (!w || !h || (canvas.width === w && canvas.height === h)) return;
+
+      // 크기를 바꾸면 캔버스가 지워진다. 그리던 그림을 옮겨 담는다.
+      const prev = document.createElement("canvas");
+      prev.width = canvas.width;
+      prev.height = canvas.height;
+      prev.getContext("2d")?.drawImage(canvas, 0, 0);
+
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(prev, 0, 0);
+
+      // 되돌리기 스냅샷은 이전 크기라 새 캔버스에 맞지 않는다.
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+    };
+
+    const observer = new ResizeObserver(sync);
+    observer.observe(canvas);
+    return () => observer.disconnect();
   }, [isGameActive]);
 
   // 게임 round 변경 시 캔버스 초기화
@@ -563,11 +592,9 @@ export function DrawingPadCard({
   async function saveImage() {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const crop = document.createElement("canvas");
-    crop.width = MAX_CANVAS_W;
-    crop.height = canvasHeight;
-    crop.getContext("2d")!.drawImage(canvas, 0, 0, MAX_CANVAS_W, canvasHeight, 0, 0, MAX_CANVAS_W, canvasHeight);
-    const dataUrl = crop.toDataURL("image/png");
+    // 비트맵이 곧 보이는 영역이라 잘라낼 게 없다. 예전에는 500px 폭으로 잘랐는데
+    // 실제로 보이는 폭은 패널 너비라, 저장한 그림 오른쪽이 늘 빈 여백이었다.
+    const dataUrl = canvas.toDataURL("image/png");
     try {
       await invoke<string>("save_canvas_image", { dataUrl });
       setSaveMsg("✓");
@@ -700,8 +727,6 @@ export function DrawingPadCard({
         <canvas
           ref={canvasRef}
           className={`draw-canvas draw-canvas--game${canvasLocked ? " draw-canvas--locked" : ""}`}
-          width={MAX_CANVAS_W}
-          height={MAX_CANVAS_H}
           onMouseDown={canvasLocked ? undefined : onMouseDown}
           onMouseMove={canvasLocked ? undefined : onMouseMove}
           onMouseUp={canvasLocked ? undefined : onMouseUp}
@@ -787,8 +812,6 @@ export function DrawingPadCard({
                 <canvas
                   ref={canvasRef}
                   className="draw-canvas"
-                  width={MAX_CANVAS_W}
-                  height={MAX_CANVAS_H}
                   onMouseDown={onMouseDown}
                   onMouseMove={onMouseMove}
                   onMouseUp={onMouseUp}

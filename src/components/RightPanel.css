@@ -525,22 +525,20 @@
   border-radius: 4px;
 }
 
+/* 비트맵 크기는 JS 가 이 박스에 맞춘다(RightPanel 의 ResizeObserver).
+   예전에는 500×600 을 고정해두고 wrapper 로 잘라 보여줬다. */
 .draw-canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 500px;
-  height: 600px;
+  width: 100%;
+  height: 100%;
   cursor: crosshair;
   display: block;
   background: #fff;
-  image-rendering: pixelated;
 }
 
+/* 게임에는 높이 조절 핸들이 없으니 비율로 크기를 정한다. */
 .draw-canvas--game {
-  position: static;
-  width: 100%;
   height: auto;
+  aspect-ratio: 5 / 6;
 }
 
 .draw-colors {
