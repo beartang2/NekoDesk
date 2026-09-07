@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Pencil, Terminal, X } from "lucide-react";
 import { todosApi, scheduleApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
+import { syncCanvasToBox } from "../lib/canvas";
 import type { Todo, ScheduleEvent, CodeExecResult } from "../agent/types";
 import type { DrawingGameState, DrawingGameActions } from "../hooks/useDrawingGame";
 import "./RightPanel.css";
@@ -457,45 +458,18 @@ export function DrawingPadCard({
     return canvas.getContext("2d");
   }
 
-  /**
-   * 캔버스 비트맵을 화면에 보이는 크기에 맞춘다.
-   *
-   * 예전에는 비트맵이 500×600 으로 고정이고 wrapper 가 그중 좌상단 일부(기본
-   * 190×160)만 잘라 보여줬다. 사용자는 그 조각에만 그릴 수 있는데 toDataURL 은
-   * 안 보이는 흰 여백까지 통째로 내보내서, 그림 맞추기 모델이 대부분 빈 이미지를
-   * 받았다. 비트맵과 보이는 영역이 같으면 캡처가 저절로 본 대로 나온다.
-   */
+  // 비트맵을 보이는 영역에 맞춘다. 예전에는 500×600 고정 비트맵을 wrapper 로 잘라
+  // 보여줘서, 사용자가 못 본 흰 여백까지 toDataURL 에 실려 나갔다.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
-    const sync = () => {
-      // 1:1 로 두면 선이 뭉개진다. 캡처 해상도도 이만큼 올라가 모델이 보기 좋다.
-      const SCALE = 2;
-      const w = Math.round(canvas.clientWidth * SCALE);
-      const h = Math.round(canvas.clientHeight * SCALE);
-      if (!w || !h || (canvas.width === w && canvas.height === h)) return;
-
-      // 크기를 바꾸면 캔버스가 지워진다. 그리던 그림을 옮겨 담는다.
-      const prev = document.createElement("canvas");
-      prev.width = canvas.width;
-      prev.height = canvas.height;
-      prev.getContext("2d")?.drawImage(canvas, 0, 0);
-
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(prev, 0, 0);
-
+    const observer = new ResizeObserver(() => {
       // 되돌리기 스냅샷은 이전 크기라 새 캔버스에 맞지 않는다.
-      undoStackRef.current = [];
-      redoStackRef.current = [];
-    };
-
-    const observer = new ResizeObserver(sync);
+      if (syncCanvasToBox(canvas)) {
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+      }
+    });
     observer.observe(canvas);
     return () => observer.disconnect();
   }, [isGameActive]);
