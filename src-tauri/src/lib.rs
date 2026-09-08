@@ -615,7 +615,7 @@ pub fn run() {
         .setup(|app| {
             // 앱 데이터 디렉토리 기준으로 DB 경로 결정
             // dev: ~/Library/Application Support/nekodesk
-            // 빌드: ~/Library/Application Support/com.nekodesk.app
+            // 빌드: ~/Library/Application Support/com.nekodesk.desktop
             let data_dir = app.path().app_data_dir()
                 .expect("Failed to resolve app data dir");
             let conn = open_db(data_dir).expect("Failed to open database");

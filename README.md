@@ -98,7 +98,7 @@ npm run test:integration   # 실제 llama-server 를 띄운 채로만 의미 있
 
 ## 데이터
 
-- SQLite: `~/Library/Application Support/com.nekodesk.app/nekodesk.sqlite`
+- SQLite: `~/Library/Application Support/com.nekodesk.desktop/nekodesk.sqlite`
   (개발 빌드는 그 옆의 `nekodesk-dev/` 를 따로 쓴다 — 실사용 데이터와 안 섞인다)
 - 스키마는 `PRAGMA user_version` 으로 버전을 추적한다. 컬럼을 더할 때는
   `db::MIGRATIONS` 끝에 추가하고, 이미 배포된 항목은 고치지 않는다

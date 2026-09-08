@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const load = vi.fn();
+// vi.mock 은 파일 맨 위로 끌어올려지므로 팩토리가 쓸 값은 vi.hoisted 로 만든다.
+const { load } = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("../../api/tauri", () => ({ skillsApi: { load } }));
 
 import { buildKnowledgeSection, reloadUserSkills } from "./index";
