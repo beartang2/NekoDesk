@@ -74,7 +74,8 @@ export type ToolName =
   | "plan.set"
   | "plan.complete"
   | "memory.save"
-  | "memory.search";
+  | "memory.search"
+  | "agent.delegate";
 
 /**
  * 툴 파라미터는 JSON Schema 로 기술한다. 이 스키마 하나가 두 곳에 쓰인다:

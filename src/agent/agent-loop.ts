@@ -1,6 +1,7 @@
 import { agentTurnStream, chatStream, getModelContextLength } from "./llm-client";
 import { FailureTracker } from "./failure-tracker";
 import { Plan } from "./plan";
+import { runSubagent } from "./subagent";
 import { getTool, isParallelSafe, isStaticTool } from "./tool-registry";
 import {
   addWriteRoot,
@@ -413,6 +414,26 @@ export async function* runAgentLoop(
     for (const idx of sequentialIdx) {
       const call = calls[idx];
       const step = steps[idx];
+
+      // ── agent.delegate: 조사를 하위 에이전트에게 ───────────────────────────
+      // 하위 루프는 조회 툴만 쓴다(subagent.ts). 확인이 필요한 툴이 없으니
+      // 여기서 이벤트를 UI 로 올릴 일도 없다.
+      if (call.name === "agent.delegate") {
+        const task = (call.params["task"] as string) ?? "";
+        if (!task.trim()) {
+          step.status = "error";
+          step.summary = "오류: 조사할 내용(task)이 비어 있어";
+        } else {
+          step.summary = await runSubagent(task, signal);
+          step.result = step.summary;
+          step.status = "done";
+        }
+        executed.push({ call, step });
+        yield step.status === "error"
+          ? { type: "step_error", step }
+          : { type: "step_done", step };
+        continue;
+      }
 
       // ── plan.*: 에이전트 자신의 작업 계획 ──────────────────────────────────
       // 루프가 상태를 들고 있다. 세션이 병렬로 도는 앱이라 모듈 전역에 두면
