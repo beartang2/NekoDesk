@@ -33,6 +33,14 @@ const CHO_N = cho("ㄴ");
 const CHO_R = cho("ㄹ");
 const CHO_IEUNG = cho("ㅇ");
 
+const JONGSUNG = [
+  "", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ",
+  "ㄻ", "ㄼ", "ㄽ", "ㄾ", "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ",
+  "ㅆ", "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ",
+] as const;
+
+const JONG_RIEUL = JONGSUNG.indexOf("ㄹ");
+
 /** i·y 로 시작하는 중성. 두음법칙이 ㅇ 으로 바꾸는 조건이다. */
 const I_VOWELS = new Set(["ㅑ", "ㅒ", "ㅕ", "ㅖ", "ㅛ", "ㅠ", "ㅣ"].map(jung));
 
@@ -108,4 +116,16 @@ export function dueumAlternative(char: string): string | null {
  */
 export function isPlayableWord(word: string): boolean {
   return [...word].length >= 2 && [...word].every((ch) => decompose(ch) !== null);
+}
+
+/**
+ * 조사 "로 / 으로" 중 맞는 쪽. 받침이 없거나 ㄹ 받침이면 "로", 그 밖엔 "으로".
+ *
+ * 안내 문구가 `"람"로 시작하는` 처럼 나오면 읽는 사람이 먼저 걸린다.
+ * 여기서도 종성 번호를 손으로 세지 않고 글자 표에서 찾는다.
+ */
+export function roParticle(word: string): string {
+  const last = decompose(word[word.length - 1] ?? "");
+  if (!last) return "로";
+  return last.jong === 0 || last.jong === JONG_RIEUL ? "로" : "으로";
 }

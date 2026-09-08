@@ -37,4 +37,11 @@ describe("게임 시작 의도", () => {
     // 이 말에 모델이 game.start 를 안 부르고 채팅으로 게임을 흉내냈다.
     expect(detectGameIntent("끝말잇기 하자")).toBe("wordchain");
   });
+
+  it("이어서 하자는 말도 잡는다", () => {
+    // 첫 판이 끝난 뒤 "더 하자" 가 모델로 새어나가 또 채팅으로 흉내내는 일이 있었다.
+    for (const s of ["끝말잇기 더 하자", "끝말잇기 한 판 더 하자", "끝말잇기 다시 하자"]) {
+      expect(detectGameIntent(s), s).toBe("wordchain");
+    }
+  });
 });

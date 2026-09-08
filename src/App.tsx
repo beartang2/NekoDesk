@@ -26,6 +26,7 @@ import { initMcpFromStorage } from "./agent/mcp-registry";
 import { loadPermissionRules } from "./agent/permissions";
 import { reloadUserSkills } from "./agent/knowledge";
 import { detectGameIntent } from "./lib/game-intent";
+import { roParticle } from "./lib/hangul";
 import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
 import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
@@ -1070,7 +1071,13 @@ export default function App() {
     // game.start 툴이 있는데도 작은 모델은 채팅으로 게임을 흉내내는 쪽으로 샜고,
     // 흉내낸 게임은 규칙부터 틀렸다("'강'으로 끝나는 단어를 대라" 같은 식으로).
     // 규칙은 코드가 아는데 모델의 판단을 끼워 넣을 이유가 없다.
-    if (game.phase === "idle" && wordChain.phase === "idle") {
+    // "진행 중" 이 아니면 시작할 수 있다. 끝난 게임은 phase 가 "done" 으로 남는데,
+    // 예전에는 "idle" 만 봐서 "끝말잇기 더 하자" 가 모델로 새어나갔다 — 그리고 모델은
+    // 또 채팅으로 흉내냈다.
+    const midGame =
+      (game.phase !== "idle" && game.phase !== "done") ||
+      (wordChain.phase !== "idle" && wordChain.phase !== "done");
+    if (!midGame) {
       const intent = detectGameIntent(text);
       if (intent) {
         injectMessage("user", text.trim());
@@ -1096,7 +1103,7 @@ export default function App() {
         } else if (result.type === "user_invalid") {
           injectMessage("assistant", `"${result.word}"는 사전에 없는 단어야! 속이려 했지? 😾 고양이 승리! (${wordChain.turnCount}턴)`);
         } else if (result.type === "cat_failed") {
-          injectMessage("assistant", `"${result.neededChar}"로 시작하는 단어가 생각이 안 나... 항복! 유저 승리 🏆 (${wordChain.turnCount}턴)`);
+          injectMessage("assistant", `"${result.neededChar}"${roParticle(result.neededChar)} 시작하는 단어가 생각이 안 나... 항복! 유저 승리 🏆 (${wordChain.turnCount}턴)`);
           reward(Math.min(20, Math.floor(wordChain.turnCount / 2)));
         } else if (result.type === "cat_word") {
           injectMessage("assistant", `${result.catWord} 😸`);
@@ -1105,7 +1112,7 @@ export default function App() {
         }
       } else {
         injectMessage("user", trimmed);
-        injectMessage("assistant", `끝말잇기 중이야! 한글 단어만 입력해줘 😺\n"${wordChain.lastChar}"로 시작하는 단어를 입력해봐!`);
+        injectMessage("assistant", `끝말잇기 중이야! 한글 단어만 입력해줘 😺\n"${wordChain.lastChar}"${roParticle(wordChain.lastChar)} 시작하는 단어를 입력해봐!`);
       }
       return;
     }
@@ -1229,7 +1236,8 @@ export default function App() {
           const delivered = resolveWordchainFirstWord(requestId, firstWord);
           if (!delivered) {
             if (firstWord) {
-              injectMessage("assistant", `끝말잇기 시작! 내가 먼저 할게. "${firstWord}" 😸\n"${firstWord[firstWord.length - 1]}"로 시작하는 단어를 입력해봐!`);
+              const next = firstWord[firstWord.length - 1];
+              injectMessage("assistant", `끝말잇기 시작! 내가 먼저 할게. "${firstWord}" 😸\n"${next}"${roParticle(next)} 시작하는 단어를 입력해봐!`);
             } else {
               injectMessage("assistant", "앗, 단어를 못 떠올렸어. 다시 시작해줘!");
             }

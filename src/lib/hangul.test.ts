@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   canonicalize,
+  roParticle,
   isPlayableWord,
   compose,
   decompose,
@@ -141,5 +142,25 @@ describe("낼 수 있는 단어", () => {
     for (const w of ["hello", "나비1", "cat", "나 비", "나비!", "ㄱㄴ", "🐱🐱"]) {
       expect(isPlayableWord(w), w).toBe(false);
     }
+  });
+});
+
+describe("조사 로/으로", () => {
+  it("받침이 없으면 로", () => {
+    for (const w of ["가", "고양이", "지", "이"]) expect(roParticle(w), w).toBe("로");
+  });
+
+  it("ㄹ 받침도 로", () => {
+    for (const w of ["말", "물", "설"]) expect(roParticle(w), w).toBe("로");
+  });
+
+  it("그 밖의 받침이면 으로", () => {
+    // 전사에 실제로 나온 `"람"로 시작하는` 이 이 경우다.
+    for (const w of ["람", "강", "집", "축"]) expect(roParticle(w), w).toBe("으로");
+  });
+
+  it("한글이 아니면 로", () => {
+    expect(roParticle("a")).toBe("로");
+    expect(roParticle("")).toBe("로");
   });
 });

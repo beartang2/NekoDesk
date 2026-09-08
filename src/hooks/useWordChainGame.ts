@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { wordChainReply } from "../agent/word-chain";
-import { dueumAlternative, isPlayableWord, matchesStartChar } from "../lib/hangul";
+import { dueumAlternative, isPlayableWord, matchesStartChar, roParticle } from "../lib/hangul";
 import type { CatEmotion } from "../agent/types";
 
 export type WordChainPhase = "idle" | "user_turn" | "cat_turn" | "done";
@@ -77,7 +77,10 @@ export function useWordChainGame(
       };
     }
     if (lastChar && !matchesStartChar(cleaned, lastChar)) {
-      return { type: "invalid_start", error: `${startCharHint(lastChar)}로 시작하는 단어를 입력해줘!` };
+      return {
+        type: "invalid_start",
+        error: `${startCharHint(lastChar)}${roParticle(lastChar)} 시작하는 단어를 입력해줘!`,
+      };
     }
     if (usedWords.includes(cleaned)) {
       return { type: "duplicate", error: `"${cleaned}"는 이미 나온 단어야!` };
