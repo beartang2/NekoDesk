@@ -25,6 +25,7 @@ import { useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { loadPermissionRules } from "./agent/permissions";
 import { reloadUserSkills } from "./agent/knowledge";
+import { detectGameIntent } from "./lib/game-intent";
 import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
 import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
@@ -1064,6 +1065,20 @@ export default function App() {
   const handleSend = useCallback(async (text: string, files: AttachedFile[]) => {
     markUserActivity();
 
+    // 게임 시작은 모델을 거치지 않는다.
+    //
+    // game.start 툴이 있는데도 작은 모델은 채팅으로 게임을 흉내내는 쪽으로 샜고,
+    // 흉내낸 게임은 규칙부터 틀렸다("'강'으로 끝나는 단어를 대라" 같은 식으로).
+    // 규칙은 코드가 아는데 모델의 판단을 끼워 넣을 이유가 없다.
+    if (game.phase === "idle" && wordChain.phase === "idle") {
+      const intent = detectGameIntent(text);
+      if (intent) {
+        injectMessage("user", text.trim());
+        MINI_GAMES.find((g) => g.id === intent)?.launch();
+        return;
+      }
+    }
+
     // 끝말잇기 게임 중: 한국어 단어 하나만 게임으로 처리, 그 외는 일반 채팅
     if (wordChain.phase === "user_turn") {
       const trimmed = text.trim();
@@ -1096,6 +1111,10 @@ export default function App() {
     }
 
     void pool.sendMessage(activeId, text, files, undefined, compactSummaries[activeId] || undefined);
+  // game 은 이 콜백보다 아래에서 선언돼 의존성 배열에 못 넣는다(TDZ). 본문에서만 읽는다 —
+  // wordChain 이 바뀔 때마다 콜백이 새로 만들어져 실제로 뒤처지는 창은 좁고, 뒤처져도
+  // 최악이 "그림 게임 중에 끝말잇기가 시작됨" 정도다.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markUserActivity, pool, activeId, wordChain, injectMessage, compactSummaries]);
 
   // 세션/activeId 영속화는 sessionStore 액션 안에서 처리한다(예전 useEffect 대체).
