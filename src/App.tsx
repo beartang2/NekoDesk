@@ -1293,10 +1293,11 @@ export default function App() {
         rightPanelVisible={rightPanelVisible}
         onToggleRightPanel={() => setRightPanelVisible((v) => !v)}
       />
-      {menuOpen && <MenuModal
-        onClose={() => setMenuOpen(false)}
-        isDark={isDark}
-      />}
+      {menuOpen && (
+        <ErrorBoundary label="설정">
+          <MenuModal onClose={() => setMenuOpen(false)} isDark={isDark} />
+        </ErrorBoundary>
+      )}
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

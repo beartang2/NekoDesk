@@ -96,6 +96,7 @@ export function useWordChainGame(
       if (catWord === "INVALID") {
         setUsedWords(usedWords); // 유저 단어 취소
         setCurrentWord(usedWords[usedWords.length - 1] ?? "");
+        setTurnCount((t) => t - 1); // 무효 처리된 턴은 세지 않는다
         setPhase("done");
         onEmotionChange("proud", 8000);
         return { type: "user_invalid", word: cleaned };
