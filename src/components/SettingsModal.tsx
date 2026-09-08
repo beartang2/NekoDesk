@@ -246,7 +246,7 @@ const DEFAULT_LLAMA_CONFIG: LlamaConfig = {
   top_p: 0.95,
   min_p: 0.0,
   port: 8803,
-  host: "0.0.0.0",
+  host: "127.0.0.1",
   reasoning: "off",
   reasoning_format: "none",
   mtp_n_draft: 0,
@@ -255,7 +255,13 @@ const DEFAULT_LLAMA_CONFIG: LlamaConfig = {
 function loadLlamaConfig(): LlamaConfig {
   try {
     const raw = localStorage.getItem(LLAMA_CONFIG_KEY);
-    return raw ? { ...DEFAULT_LLAMA_CONFIG, ...JSON.parse(raw) } : { ...DEFAULT_LLAMA_CONFIG };
+    const saved = raw ? { ...DEFAULT_LLAMA_CONFIG, ...JSON.parse(raw) } : { ...DEFAULT_LLAMA_CONFIG };
+    // 예전 기본값 0.0.0.0 은 llama-server 를 모든 네트워크 인터페이스에 연다.
+    // 같은 와이파이의 누구나 인증 없이 모델을 쓸 수 있다는 뜻이고, 앱 자신은
+    // 127.0.0.1 로만 접속하므로 얻는 것도 없다. 저장된 값도 되돌린다 —
+    // 정말 LAN 에 열고 싶으면 다시 입력하면 된다.
+    if (saved.host === "0.0.0.0") saved.host = "127.0.0.1";
+    return saved;
   } catch {
     return { ...DEFAULT_LLAMA_CONFIG };
   }
