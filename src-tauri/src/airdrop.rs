@@ -112,7 +112,7 @@ pub unsafe fn open_share_sheet(files: &[PathBuf]) -> bool {
 /// objc 메시지는 오타가 나도 컴파일이 통과하고 실행할 때 죽는다. 그런데 진짜
 /// `performWithItems:` 를 부르면 사람이 닫아야 하는 시트가 뜨므로 테스트에서 쓸 수 없다.
 /// 그 직전 단계까지가 오타가 숨을 수 있는 구간 전부다.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", test))]
 pub unsafe fn share_sheet_ready(files: &[PathBuf]) -> bool {
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject};
