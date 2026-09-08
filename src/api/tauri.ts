@@ -21,6 +21,7 @@ import type {
   FsGrepHit,
   FsReadResult,
   Memory,
+  Skill,
 } from "../agent/types";
 
 export const todosApi = {
@@ -102,6 +103,11 @@ export const memoryApi = {
     invoke<Memory[]>("memory_search", { query, limit }),
   list: () => invoke<Memory[]>("memory_list"),
   delete: (id: number) => invoke<boolean>("memory_delete", { id }),
+};
+
+/** 사용자가 `~/.nekodesk/skills/*.md` 에 넣어둔 지식. */
+export const skillsApi = {
+  load: () => invoke<Skill[]>("skills_load"),
 };
 
 export const settingsApi = {

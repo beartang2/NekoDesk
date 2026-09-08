@@ -11,6 +11,7 @@ mod http;
 mod files;
 mod exec;
 mod llama;
+mod skills;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
 pub use error::AppError;
@@ -531,6 +532,12 @@ mod commands {
         crate::llama::is_running(&server_state)
     }
 
+    /// 사용자가 `~/.nekodesk/skills/*.md` 에 넣어둔 지식.
+    #[tauri::command(async)]
+    pub fn skills_load() -> Result<Vec<crate::skills::Skill>, AppError> {
+        crate::skills::load()
+    }
+
     // ── 실행 이력 ─────────────────────────────────────────────────────────────
     // ExecHistoryItem 은 db::models 로 이동(상단 재노출).
 
@@ -645,6 +652,7 @@ pub fn run() {
             commands::fs_glob,
             commands::fs_grep,
             commands::fs_check,
+            commands::skills_load,
             commands::memory_save,
             commands::memory_search,
             commands::memory_list,

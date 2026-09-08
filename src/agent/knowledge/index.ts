@@ -116,13 +116,32 @@ const KNOWLEDGE_MAP: KnowledgeEntry[] = [
 ];
 
 /**
+ * 사용자가 `~/.nekodesk/skills/*.md` 에 넣어둔 지식.
+ *
+ * 내장 지식은 빌드에 박혀 있어 못 고친다. 이건 앱 시작 때 한 번 읽어 같은 목록에
+ * 합류시킨다. 파일을 고쳤으면 `reloadUserSkills()` 로 다시 읽는다.
+ */
+let userSkills: KnowledgeEntry[] = [];
+
+export async function reloadUserSkills(): Promise<number> {
+  try {
+    const { skillsApi } = await import("../../api/tauri");
+    userSkills = await skillsApi.load();
+  } catch {
+    userSkills = []; // 지식은 부가 기능이다. 못 읽어도 대화는 계속돼야 한다.
+  }
+  return userSkills.length;
+}
+
+/**
  * 사용자 입력 키워드를 보고 관련 knowledge 파일만 골라 반환한다.
  * 매칭되는 게 없으면 빈 문자열 반환 (프롬프트에 불필요한 내용 추가 안 함).
  */
 export function buildKnowledgeSection(userInput: string, recentContext = ""): string {
   const combined = (userInput + " " + recentContext).toLowerCase();
 
-  const matched = KNOWLEDGE_MAP.filter(({ keywords }) =>
+  // 사용자 것을 앞에 둔다. 내장 지식과 겹치면 사용자 쪽을 먼저 읽게 된다.
+  const matched = [...userSkills, ...KNOWLEDGE_MAP].filter(({ keywords }) =>
     keywords.some((kw) => combined.includes(kw.toLowerCase()))
   );
 

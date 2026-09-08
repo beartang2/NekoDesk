@@ -24,6 +24,7 @@ import { useSessionStore, makeSession, type Session } from "./stores/sessionStor
 import { useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { loadPermissionRules } from "./agent/permissions";
+import { reloadUserSkills } from "./agent/knowledge";
 import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
 import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
@@ -1138,6 +1139,8 @@ export default function App() {
   // 저장해둔 "항상 허용" 규칙을 메모리에 올린다. 이게 없으면 첫 요청은
   // 이미 승인한 명령에도 확인 창이 뜬다.
   useEffect(() => { loadPermissionRules(); }, []);
+  // 사용자가 ~/.nekodesk/skills/ 에 넣어둔 지식을 읽어둔다.
+  useEffect(() => { reloadUserSkills(); }, []);
 
   // Auto-start llama server on mount if configured
   useEffect(() => {

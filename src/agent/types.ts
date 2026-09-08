@@ -209,6 +209,13 @@ export interface ExecHistoryItem {
   executed_at: string;
 }
 
+/** 사용자가 직접 쓴 지식 파일 하나. 내장 knowledge 와 같은 자리에 합류한다. */
+export interface Skill {
+  name: string;
+  keywords: string[];
+  content: string;
+}
+
 /** 세션을 넘어 남는 기억 한 조각. */
 export interface Memory {
   id: number;

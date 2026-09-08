@@ -57,6 +57,22 @@ llama-server -m ~/models/<모델>.gguf --host 127.0.0.1 --port 8803 -c 8192 -ngl
 
 이미지를 첨부하면 모델이 직접 본다(mmproj 필요).
 
+### 지식 추가하기
+
+`~/.nekodesk/skills/*.md` 에 넣어두면 키워드가 걸릴 때만 프롬프트에 붙는다.
+내장 지식(AppleScript 8종)과 같은 자리에 합류하고, 겹치면 사용자 것이 먼저 온다.
+
+```markdown
+---
+name: 회사 배포 절차
+keywords: 배포, deploy, 릴리스
+---
+1. main 에서 태그를 찍는다
+2. ...
+```
+
+`keywords` 가 없으면 영원히 안 걸리므로 무시한다. 앱 시작 시 한 번 읽는다.
+
 ## 안전 장치
 
 - **하드 차단** — `~/.ssh`, `~/.aws`, 키체인, `.env`, `*.pem` 접근과 `sudo`·`rm -rf /`·
