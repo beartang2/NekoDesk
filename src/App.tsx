@@ -260,24 +260,41 @@ function ChatMessages({
   const isUserScrolledUp = useRef(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
+  /** 바닥에서 이만큼 이상 떨어져 있으면 "따라가지 않는 중" 으로 본다. */
+  const BOTTOM_SLACK = 80;
+
+  const distanceFromBottom = () => {
+    const el = containerRef.current;
+    return el ? el.scrollHeight - el.scrollTop - el.clientHeight : 0;
+  };
+
   const scrollToBottom = useCallback(() => {
     isUserScrolledUp.current = false;
     setShowScrollBtn(false);
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  // 유저가 위로 스크롤하면 트래킹 해제
+  /**
+   * 따라갈지 말지는 **사용자 입력에서만** 바꾼다.
+   *
+   * `scroll` 이벤트는 사람이 굴렸든 scrollIntoView 가 움직였든 똑같이 발생한다.
+   * 예전에는 그걸로 판단해서, 사용자가 위로 올려도 진행 중이던 부드러운 스크롤이
+   * 바닥에 닿는 순간 "다시 바닥이네" 하고 따라가기를 되켰다 — 올려도 도로 내려가는
+   * 이유가 이것이었다. wheel·touchmove 는 사람이 움직일 때만 오므로 헷갈릴 일이 없다.
+   *
+   * 브라우저가 스크롤을 적용한 뒤 위치를 읽어야 해서 다음 프레임에 잰다.
+   */
+  const handleUserScroll = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (!containerRef.current) return;
+      isUserScrolledUp.current = distanceFromBottom() > BOTTOM_SLACK;
+      setShowScrollBtn(isUserScrolledUp.current);
+    });
+  }, []);
+
+  /** 버튼 표시만 담당한다. 여기서 따라가기 상태를 건드리면 위 문제가 되살아난다. */
   const handleScroll = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distanceFromBottom > 80) {
-      isUserScrolledUp.current = true;
-      setShowScrollBtn(true);
-    } else {
-      isUserScrolledUp.current = false;
-      setShowScrollBtn(false);
-    }
+    setShowScrollBtn(distanceFromBottom() > BOTTOM_SLACK);
   }, []);
 
   // 스크롤 버튼 상태를 부모에 전달
@@ -285,15 +302,25 @@ function ChatMessages({
     onScrollChange?.(showScrollBtn, scrollToBottom);
   }, [showScrollBtn, scrollToBottom, onScrollChange]);
 
-  // 메시지 변경 시 트래킹 중이면 스크롤다운
+  // 메시지 변경 시 따라가는 중이면 바닥으로.
+  //
+  // 스트리밍은 토큰마다 여기를 지난다. behavior:"smooth" 를 쓰면 매 토큰이 애니메이션을
+  // 새로 시작해서 사용자가 휠을 굴리는 내내 화면과 씨름하게 된다. 즉시 이동이 맞다 —
+  // 부드러운 이동은 "맨 아래로" 버튼처럼 한 번에 크게 뛸 때만 값어치가 있다.
   useEffect(() => {
     if (!isUserScrolledUp.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      bottomRef.current?.scrollIntoView({ behavior: "auto" });
     }
   }, [messages]);
 
   return (
-    <div className="chat-messages" ref={containerRef} onScroll={handleScroll}>
+    <div
+      className="chat-messages"
+      ref={containerRef}
+      onScroll={handleScroll}
+      onWheel={handleUserScroll}
+      onTouchMove={handleUserScroll}
+    >
       {messages.length === 0 && onPickSuggestion && (
         <ChatEmptyState onPick={onPickSuggestion} />
       )}

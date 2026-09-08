@@ -7,23 +7,24 @@ use crate::SearchResult;
 const DDG_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 pub async fn run(query: &str, brave_key: Option<String>) -> Result<Vec<SearchResult>, AppError> {
-    // 1) DuckDuckGo lite — 실패하거나 빈 결과면 폴백으로 넘어간다.
+    // 1) DuckDuckGo lite — 요즘은 봇 차단(202 + anomaly 페이지)이 자주 걸리고,
+    //    그때는 에러가 아니라 "결과 0개"로 온다. 그래서 빈 결과도 실패로 친다.
     if let Ok(results) = duckduckgo(query).await {
         if !results.is_empty() {
             return Ok(results);
         }
     }
 
-    // 2) Brave Search API (키가 설정된 경우에만)
-    if let Some(key) = brave_key.filter(|k| !k.trim().is_empty()) {
-        if let Ok(results) = brave(query, &key).await {
-            if !results.is_empty() {
-                return Ok(results);
-            }
-        }
-    }
-
-    Ok(vec![])
+    // 2) Brave Search API. 키가 없으면 여기서 끝이고, 그 사실을 호출자에게 알린다.
+    //    빈 벡터를 돌려주면 "검색 결과 없음"과 "검색 자체가 죽음"이 구분되지 않아
+    //    에이전트가 이유도 모른 채 답을 포기한다.
+    let Some(key) = brave_key.filter(|k| !k.trim().is_empty()) else {
+        return Err(AppError::msg(
+            "웹 검색 실패: DuckDuckGo 가 결과를 주지 않았고 Brave Search API 키가 설정돼 있지 않다. \
+             설정에서 Brave 검색 키를 넣어야 검색이 된다.",
+        ));
+    };
+    brave(query, &key).await // 여기서 빈 벡터는 진짜 "결과 없음"이다.
 }
 
 async fn duckduckgo(query: &str) -> Result<Vec<SearchResult>, AppError> {
@@ -91,4 +92,29 @@ async fn brave(query: &str, key: &str) -> Result<Vec<SearchResult>, AppError> {
         }
     }
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// DDG 마크업이 바뀌거나 차단 페이지가 오면 셀렉터가 조용히 0개를 뱉는다.
+    /// 이 테스트는 파서가 살아 있는지만 확인한다.
+    #[test]
+    fn parses_ddg_lite_rows() {
+        let html = r#"<table>
+            <tr><td class="result-snippet">스니펫</td></tr>
+            <tr><td><a class="result-link" href="https://example.com">제목</a></td></tr>
+        </table>"#;
+        let r = parse_ddg_html(html);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].url, "https://example.com");
+        assert_eq!(r[0].snippet, "스니펫");
+    }
+
+    /// 차단 페이지(결과 링크 없음)는 0개.
+    #[test]
+    fn blocked_page_yields_nothing() {
+        assert!(parse_ddg_html("<html><body>DuckDuckGo</body></html>").is_empty());
+    }
 }

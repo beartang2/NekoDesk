@@ -42,4 +42,12 @@ describe("사용자 스킬", () => {
     expect(await reloadUserSkills()).toBe(0);
     expect(buildKnowledgeSection("볼륨 줄여줘")).toContain("AppleScript/시스템");
   });
+
+  it("배열이 아닌 게 와도 지식 조회가 죽지 않는다", async () => {
+    // Tauri 커맨드가 예상 밖의 값을 주면 전개에서 터지고, 그 함수는 요청마다
+    // 지나는 길이라 대화 전체가 멈춘다.
+    load.mockResolvedValue(null as never);
+    expect(await reloadUserSkills()).toBe(0);
+    expect(() => buildKnowledgeSection("볼륨 줄여줘")).not.toThrow();
+  });
 });

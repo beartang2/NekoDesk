@@ -126,7 +126,10 @@ let userSkills: KnowledgeEntry[] = [];
 export async function reloadUserSkills(): Promise<number> {
   try {
     const { skillsApi } = await import("../../api/tauri");
-    userSkills = await skillsApi.load();
+    const loaded = await skillsApi.load();
+    // IPC 경계다. 배열이 아닌 게 오면 buildKnowledgeSection 의 전개가 터지고,
+    // 그건 요청마다 지나는 길이라 대화 전체가 "LLM 연결 실패" 로 죽는다.
+    userSkills = Array.isArray(loaded) ? loaded : [];
   } catch {
     userSkills = []; // 지식은 부가 기능이다. 못 읽어도 대화는 계속돼야 한다.
   }
