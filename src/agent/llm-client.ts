@@ -448,16 +448,21 @@ export async function* fetchStream(
             (finished ? flushThink() : "");
           const toolCalls = mapToolCallDeltas(choice?.delta?.tool_calls);
 
+          // `done` 은 finish_reason 이 아니라 스트림이 실제로 끝날 때만 세운다.
+          //
+          // llama.cpp 는 usage 를 finish_reason **다음** 청크에 담아 보낸다
+          // (그 청크는 choices 가 비어 있다). 예전에는 여기서 done:true 를 세우고
+          // 곧장 return 했는데, 소비자도 done 에서 break 하므로 그 usage 청크를
+          // 아무도 읽지 못했다 — 컨텍스트 사용량 게이지가 영원히 0 이던 이유다.
           if (content || reasoning || toolCalls || finished) {
             yield {
               content,
-              done: finished,
+              done: false,
               finishReason,
               ...(reasoning ? { reasoning } : {}),
               ...(toolCalls ? { toolCalls } : {}),
             };
           }
-          if (finished) return;
         } catch {
           // malformed chunk — skip
         }
