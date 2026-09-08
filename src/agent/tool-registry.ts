@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
+  airdropApi,
   todosApi,
   scheduleApi,
   execHistoryApi,
@@ -557,6 +558,29 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       if (found.length === 0) return "기억에 없음";
       return found.map((m) => `- [${m.kind}] ${m.content}`).join("\n");
     },
+  },
+
+  "airdrop.send": {
+    name: "airdrop.send",
+    description:
+      "파일을 AirDrop 으로 보낼 수 있게 선택 시트를 연다. 받는 기기는 사용자가 시트에서 고른다 — " +
+      "너는 보내지 못하고 준비만 해준다. 폴더는 안 되고 파일만 된다",
+    params: {
+      type: "object",
+      properties: {
+        paths: {
+          type: "array",
+          items: { type: "string" },
+          description: "보낼 파일 경로들. 확실하지 않으면 fs.glob 으로 먼저 찾아",
+        },
+      },
+      required: ["paths"],
+    },
+    readOnly: false,
+    execute: async (p) => airdropApi.send((p["paths"] as string[]) ?? []),
+    resultLimit: 1,
+    summarize: (r) =>
+      `AirDrop 시트를 열었어 (파일 ${r as number}개). 받을 기기는 시트에서 골라줘.`,
   },
 
   // ── 하위 에이전트 ──────────────────────────────────────────────────────────

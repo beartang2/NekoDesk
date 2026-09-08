@@ -106,6 +106,11 @@ export const memoryApi = {
 };
 
 /** 사용자가 `~/.nekodesk/skills/*.md` 에 넣어둔 지식. */
+/** AirDrop 선택 시트를 연다. 받는 사람 선택은 사용자 몫이다. */
+export const airdropApi = {
+  send: (paths: string[]) => invoke<number>("airdrop_send", { paths }),
+};
+
 export const skillsApi = {
   load: () => invoke<Skill[]>("skills_load"),
 };

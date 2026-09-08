@@ -9,6 +9,7 @@ mod db;
 mod http;
 // 이름을 `fs` 로 두면 이 파일 곳곳의 `std::fs` 와 헷갈린다.
 mod files;
+mod airdrop;
 mod exec;
 mod llama;
 mod skills;
@@ -538,6 +539,18 @@ mod commands {
         crate::skills::load()
     }
 
+    /// AirDrop 선택 시트를 연다. 받는 사람은 사용자가 고른다 — 그게 곧 확인이다.
+    #[tauri::command(async)]
+    pub fn airdrop_send(app: tauri::AppHandle, paths: Vec<String>) -> Result<usize, AppError> {
+        let files = crate::airdrop::resolve_files(&paths)?;
+        let count = files.len();
+        // AppKit 은 메인 스레드에서만 만질 수 있다. 커맨드는 워커에서 돈다.
+        app.run_on_main_thread(move || unsafe {
+            crate::airdrop::open_share_sheet(&files);
+        })?;
+        Ok(count)
+    }
+
     // ── 실행 이력 ─────────────────────────────────────────────────────────────
     // ExecHistoryItem 은 db::models 로 이동(상단 재노출).
 
@@ -652,6 +665,7 @@ pub fn run() {
             commands::fs_glob,
             commands::fs_grep,
             commands::fs_check,
+            commands::airdrop_send,
             commands::skills_load,
             commands::memory_save,
             commands::memory_search,
