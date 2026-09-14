@@ -75,7 +75,6 @@ export interface ProfileState {
 const KEY = "nekodesk_model_profiles";
 const LEGACY_CONFIG_KEY = "nekodesk_llama_config";
 const LEGACY_URL_KEY = "nekodesk_llm_url";
-export const AUTOSTART_KEY = "nekodesk_llama_autostart";
 
 export function newId(): string {
   return Math.random().toString(36).slice(2, 10);

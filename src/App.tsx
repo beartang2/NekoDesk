@@ -38,7 +38,7 @@ import type {
   Todo,
 } from "./agent/types";
 import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
-import { AUTOSTART_KEY, activateProfile, loadProfiles } from "./stores/modelProfiles";
+import { activateProfile, loadProfiles, probe, profileUrl } from "./stores/modelProfiles";
 import "./App.css";
 
 // ── Session types ─────────────────────────────────────────────────────────────
@@ -738,6 +738,8 @@ export default function App() {
 
   // ── Model context length (from llama.cpp /props) ─────────────────────────
   const [modelContextLength, setModelContextLength] = useState<number | null>(null);
+  /** 시작할 때 활성 프로필에 못 붙었다. 세션 오류와 별개라 따로 들고 있는다. */
+  const [connectError, setConnectError] = useState<string | null>(null);
   useEffect(() => {
     fetchLoadedModel().then((info) => {
       if (info?.context_length) setModelContextLength(info.context_length);
@@ -1196,13 +1198,23 @@ export default function App() {
   // 사용자가 ~/.nekodesk/skills/ 에 넣어둔 지식을 읽어둔다.
   useEffect(() => { reloadUserSkills(); }, []);
 
-  // 활성 모델 프로필 자동 연결 (외부 서버 프로필이면 주소만 맞추고 끝난다)
+  // 앱을 켜면 마지막에 쓰던 프로필로 되돌아간다. 로컬 모델이면 서버를 띄우고,
+  // 외부 서버면 주소를 맞춘 뒤 살아 있는지 확인한다 — 꺼져 있다는 걸 첫 질문을
+  // 던지고 나서야 알게 되면 늦다.
   useEffect(() => {
-    if (localStorage.getItem(AUTOSTART_KEY) !== "true") return;
-    const { profiles, activeId } = loadProfiles();
-    const active = profiles.find((p) => p.id === activeId);
+    const { profiles, activeId: profileId } = loadProfiles();
+    const active = profiles.find((p) => p.id === profileId);
     if (!active) return;
-    activateProfile(active).catch(() => {/* 실패 시 무시 — 설정에서 수동 연결 가능 */});
+    activateProfile(active)
+      .then(async () => {
+        // 관리형은 llama_start 가 즉시 죽었는지 이미 확인했다. 모델 로딩엔 수십 초가
+        // 걸리므로 여기서 또 찔러보면 멀쩡한 서버를 죽었다고 오해한다.
+        if (active.config) return;
+        if ((await probe(profileUrl(active), 3000)) === null) {
+          setConnectError(`'${active.name}' 서버에 연결되지 않았어. 설정 → 모델 프로필에서 확인해줘.`);
+        }
+      })
+      .catch((e) => setConnectError(String(e)));
   }, []);
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1391,6 +1403,10 @@ export default function App() {
       </ErrorBoundary>
 
       <main className="main">
+
+        {connectError && (
+          <ErrorBanner message={connectError} onDismiss={() => setConnectError(null)} />
+        )}
 
         {error && (
           <ErrorBanner message={error} onDismiss={() => pool.clearError(activeId)} />

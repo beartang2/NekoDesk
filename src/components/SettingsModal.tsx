@@ -19,7 +19,6 @@ import { CAT_VARIANTS } from "../cat/spriteData";
 import { useCatStore } from "../stores/catStore";
 import { useSettingsStore, type ToolMode } from "../stores/settingsStore";
 import {
-  AUTOSTART_KEY,
   DEFAULT_LLAMA_CONFIG,
   activateProfile,
   loadProfiles,
@@ -367,7 +366,6 @@ export function ModelProfilesSection() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<boolean | null>(null);
-  const [autostart, setAutostart] = useState(() => localStorage.getItem(AUTOSTART_KEY) === "true");
   // 중지 직후 유예: 포트가 잠깐 살아있어 헬스체크가 "연결됨" 으로 오진하는 것을 막는다.
   const stoppedAtRef = useRef(0);
 
@@ -547,16 +545,6 @@ export function ModelProfilesSection() {
         </div>
       )}
 
-      <div className="server-checkbox-row">
-        <label className="server-checkbox-row__item">
-          <input type="checkbox" checked={autostart}
-            onChange={(e) => {
-              setAutostart(e.target.checked);
-              localStorage.setItem(AUTOSTART_KEY, String(e.target.checked));
-            }} />
-          <span>앱 시작 시 활성 프로필 자동 연결</span>
-        </label>
-      </div>
     </section>
   );
 }
