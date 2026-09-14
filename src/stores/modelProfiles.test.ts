@@ -27,6 +27,7 @@ function localProfile(over: Partial<ModelProfile> = {}): ModelProfile {
 beforeEach(() => {
   localStorage.clear();
   invoke.mockReset();
+  invoke.mockResolvedValue(undefined);
   vi.restoreAllMocks();
 });
 
@@ -103,5 +104,28 @@ describe("activateProfile", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
     await activateProfile(localProfile());
     expect(invoke).toHaveBeenCalledWith("llama_start", expect.anything());
+  });
+
+  it("외부로 옮겨가면 앱이 띄웠던 서버를 내려놓는다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+    const ext: ModelProfile = { id: "x", name: "외부", url: "http://192.168.0.10:8080", config: null };
+    await activateProfile(ext, localProfile());
+    expect(invoke).toHaveBeenCalledWith("llama_stop", { port: 8803 });
+    expect(invoke).not.toHaveBeenCalledWith("llama_start", expect.anything());
+  });
+
+  it("같은 포트의 로컬로 갈아탈 때는 llama_start 에 정리를 맡긴다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+    const other = localProfile({ id: "b", config: { ...DEFAULT_LLAMA_CONFIG, model: "gemma-3-4b.gguf" } });
+    await activateProfile(other, localProfile());
+    expect(invoke).not.toHaveBeenCalledWith("llama_stop", expect.anything());
+    expect(invoke).toHaveBeenCalledWith("llama_start", expect.anything());
+  });
+
+  it("떠나온 게 외부 프로필이면 죽일 것도 없다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+    const ext: ModelProfile = { id: "x", name: "외부", url: "http://192.168.0.10:8080", config: null };
+    await activateProfile(localProfile(), ext);
+    expect(invoke).not.toHaveBeenCalledWith("llama_stop", expect.anything());
   });
 });

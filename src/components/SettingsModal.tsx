@@ -417,8 +417,9 @@ export function ModelProfilesSection() {
     setError(null);
     stoppedAtRef.current = 0;
     try {
+      const prev = active;
       commit({ ...state, activeId: p.id });
-      await activateProfile(p);
+      await activateProfile(p, prev);
       setLive(true);
     } catch (e) {
       setError(String(e));

@@ -191,9 +191,19 @@ function basename(p: string): string {
  * llama-server 를 띄운다(`llama_start` 가 기존 서버와 포트 점유자를 먼저 정리하므로
  * 모델 전환도 이 한 번의 호출로 끝난다).
  */
-export async function activateProfile(p: ModelProfile): Promise<void> {
+export async function activateProfile(p: ModelProfile, prev?: ModelProfile | null): Promise<void> {
   const url = profileUrl(p);
   useSettingsStore.getState().setLlmUrl(url);
+
+  // 떠나온 프로필이 앱이 띄운 서버였다면 내려놓는다. 로컬 모델은 VRAM 을 통째로
+  // 물고 있어서, 남겨두면 쓰지도 않는 모델이 새로 띄울 모델과 메모리를 다툰다.
+  // 같은 포트의 관리형으로 옮겨가는 경우는 건너뛴다 — `llama_start` 가 어차피
+  // 기존 서버를 먼저 정리하므로, 여기서 또 죽이면 왕복만 한 번 더 는다.
+  if (prev?.config && prev.id !== p.id && prev.config.port !== p.config?.port) {
+    await invoke("llama_stop", { port: prev.config.port })
+      .catch((e) => console.warn("이전 프로필 서버 중지 실패:", e));
+  }
+
   if (!p.config) return;
   if (!p.config.model) throw new Error("모델이 선택되지 않은 프로필입니다.");
   const running = await probe(url, 1500);
