@@ -19,6 +19,20 @@ import { CAT_VARIANTS } from "../cat/spriteData";
 import { useCatStore } from "../stores/catStore";
 import { useSettingsStore, type ToolMode } from "../stores/settingsStore";
 import {
+  AUTOSTART_KEY,
+  DEFAULT_LLAMA_CONFIG,
+  activateProfile,
+  loadProfiles,
+  modelLabel,
+  newId,
+  probe,
+  profileUrl,
+  saveProfiles,
+  type LlamaConfig,
+  type ModelProfile,
+  type ProfileState,
+} from "../stores/modelProfiles";
+import {
   forgetAlwaysRule,
   listAlwaysRules,
   loadPermissionRules,
@@ -38,9 +52,7 @@ export interface McpServer {
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
-const LLM_URL_KEY = "nekodesk_llm_url";
 const SYSTEM_PROMPT_KEY = "nekodesk_system_prompt";
-const DEFAULT_LLM_URL = "http://127.0.0.1:8803";
 
 // MCP 서버 설정은 mcp-registry 가 SQLite 에 보관한다(예전 localStorage 값은 거기서
 // 한 번 옮겨온다). 저장 위치를 두 곳에서 알면 어긋난다.
@@ -205,288 +217,99 @@ function McpRow({ server, onToggle, onEdit, onDelete }: McpRowProps) {
   );
 }
 
-// ── llama-server section ──────────────────────────────────────────────────────
+// ── Model profiles section ────────────────────────────────────────────────────
 
-const LLAMA_CONFIG_KEY = "nekodesk_llama_config";
-const LLAMA_AUTOSTART_KEY = "nekodesk_llama_autostart";
-
-interface LlamaConfig {
-  model: string;
-  mmproj: string;
-  model_draft: string;
-  ngl: number;
-  flash_attn: boolean;
-  jinja: boolean;
-  ctk: string;
-  ctv: string;
-  context: number;
-  temp: number;
-  top_k: number;
-  top_p: number;
-  min_p: number;
-  port: number;
-  host: string;
-  reasoning: string;
-  reasoning_format: string;
-  mtp_n_draft: number;
-}
-
-const DEFAULT_LLAMA_CONFIG: LlamaConfig = {
-  model: "",
-  mmproj: "",
-  model_draft: "",
-  ngl: 99,
-  flash_attn: true,
-  jinja: true,
-  ctk: "q4_0",
-  ctv: "q4_0",
-  context: 8192,
-  temp: 1.0,
-  top_k: 64,
-  top_p: 0.95,
-  min_p: 0.0,
-  port: 8803,
-  host: "127.0.0.1",
-  reasoning: "off",
-  reasoning_format: "none",
-  mtp_n_draft: 0,
-};
-
-function loadLlamaConfig(): LlamaConfig {
-  try {
-    const raw = localStorage.getItem(LLAMA_CONFIG_KEY);
-    const saved = raw ? { ...DEFAULT_LLAMA_CONFIG, ...JSON.parse(raw) } : { ...DEFAULT_LLAMA_CONFIG };
-    // 예전 기본값 0.0.0.0 은 llama-server 를 모든 네트워크 인터페이스에 연다.
-    // 같은 와이파이의 누구나 인증 없이 모델을 쓸 수 있다는 뜻이고, 앱 자신은
-    // 127.0.0.1 로만 접속하므로 얻는 것도 없다. 저장된 값도 되돌린다 —
-    // 정말 LAN 에 열고 싶으면 다시 입력하면 된다.
-    if (saved.host === "0.0.0.0") saved.host = "127.0.0.1";
-    return saved;
-  } catch {
-    return { ...DEFAULT_LLAMA_CONFIG };
-  }
-}
-
-function LlamaServerSection() {
-  const [config, setConfig] = useState<LlamaConfig>(loadLlamaConfig);
-  const [autostart, setAutostart] = useState(() => localStorage.getItem(LLAMA_AUTOSTART_KEY) === "true");
-  const [models, setModels] = useState<string[]>([]);
+/** 관리형 프로필의 llama-server 실행 인자 편집기. */
+function LlamaConfigFields({
+  config,
+  models,
+  onChange,
+}: {
+  config: LlamaConfig;
+  models: string[];
+  onChange: (patch: Partial<LlamaConfig>) => void;
+}) {
   const mainModels = models.filter((m) => !m.toLowerCase().includes("mmproj"));
   const mmprojModels = models.filter((m) => m.toLowerCase().includes("mmproj"));
-  const [running, setRunning] = useState<boolean | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [serverError, setServerError] = useState<string | null>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // 중지 직후 유예: 포트가 잠깐 살아있어 헬스체크가 "실행 중"으로 오진하는 것을 막는다.
-  const stoppedAtRef = useRef<number>(0);
-
-  function updateConfig(patch: Partial<LlamaConfig>) {
-    setConfig((c) => ({ ...c, ...patch }));
-  }
-
-  async function scanModels() {
-    try {
-      const files = await invoke<string[]>("llama_scan_models");
-      setModels(files);
-      // 스캔 결과에 없는 모델/mmproj/model_draft는 자동 초기화
-      setConfig((c) => ({
-        ...c,
-        model: files.includes(c.model) ? c.model : "",
-        mmproj: files.includes(c.mmproj) ? c.mmproj : "",
-        model_draft: files.includes(c.model_draft) ? c.model_draft : "",
-      }));
-    } catch (e) {
-      console.warn("llama_scan_models failed:", e);
-    }
-  }
-
-  // child handle 이 있으면 그걸 신뢰하고, 없으면 포트 헬스체크로 판정한다.
-  // 앱이 직접 안 띄운 서버(외부 실행·이전 세션 잔존·autostart)도 "실행 중"으로 잡는다.
-  // 단, 중지 직후 STOP_GRACE_MS 동안은 헬스체크를 건너뛴다(죽어가는 포트 오진 방지).
-  const STOP_GRACE_MS = 3000;
-  async function checkRunning() {
-    try {
-      if (await invoke<boolean>("llama_is_running")) {
-        setRunning(true);
-        return;
-      }
-    } catch { /* handle 확인 실패 → 헬스체크로 폴백 */ }
-
-    if (Date.now() - stoppedAtRef.current < STOP_GRACE_MS) {
-      setRunning(false);
-      return;
-    }
-    try {
-      const cfg = loadLlamaConfig();
-      const host = cfg.host === "0.0.0.0" ? "127.0.0.1" : cfg.host;
-      const res = await fetch(`http://${host}:${cfg.port}/health`, {
-        signal: AbortSignal.timeout(1500),
-      });
-      setRunning(res.ok);
-    } catch {
-      setRunning(false);
-    }
-  }
-
-  useEffect(() => {
-    scanModels();
-    checkRunning();
-    pollingRef.current = setInterval(checkRunning, 3000);
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, []);
-
-  function saveConfig() {
-    localStorage.setItem(LLAMA_CONFIG_KEY, JSON.stringify(config));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-  }
-
-  async function startServer() {
-    localStorage.setItem(LLAMA_CONFIG_KEY, JSON.stringify(config));
-    setLoading(true);
-    setServerError(null);
-    stoppedAtRef.current = 0; // 유예 해제
-    try {
-      await invoke("llama_start", { config });
-      setRunning(true);
-    } catch (e) {
-      setServerError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function stopServer() {
-    setLoading(true);
-    stoppedAtRef.current = Date.now(); // 유예 시작: 죽어가는 포트를 "실행 중"으로 오진하지 않게
-    try {
-      await invoke("llama_stop", { port: config.port });
-      setRunning(false);
-    } catch (e) {
-      console.warn("llama_stop failed:", e);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   return (
-    <section className="settings-section">
-      <h3 className="settings-section__title">로컬 LLM 모델 실행</h3>
-
-      {/* 상태 표시 */}
-      {running !== null && (
-        <div className={`server-status ${running ? "server-status--running" : "server-status--stopped"}`}>
-          {running ? "실행 중" : "중지됨"}
-        </div>
-      )}
-
-      {/* 에러 표시 */}
-      {serverError && (
-        <div className="server-error" onClick={() => setServerError(null)}>
-          {serverError}
-        </div>
-      )}
-
-      {/* 모델 선택 */}
+    <>
       <div className="settings-row" style={{ alignItems: "center" }}>
         <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>모델</span>
-        <select
-          className="server-select"
-          value={config.model}
-          onChange={(e) => updateConfig({ model: e.target.value })}
-        >
+        <select className="server-select" value={config.model} onChange={(e) => onChange({ model: e.target.value })}>
           <option value="">-- 선택 --</option>
           {mainModels.map((m) => <option key={m} value={m}>{m.split("/").pop()}</option>)}
         </select>
-        <button className="settings-btn settings-btn--ghost" style={{ flexShrink: 0 }} onClick={scanModels}>
-          새로고침
-        </button>
       </div>
 
-      {/* mmproj 선택 */}
       <div className="settings-row" style={{ alignItems: "center" }}>
         <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>mmproj</span>
-        <select
-          className="server-select"
-          value={config.mmproj}
-          onChange={(e) => updateConfig({ mmproj: e.target.value })}
-        >
+        <select className="server-select" value={config.mmproj} onChange={(e) => onChange({ mmproj: e.target.value })}>
           <option value="">없음</option>
           {mmprojModels.map((m) => <option key={m} value={m}>{m.split("/").pop()}</option>)}
         </select>
       </div>
 
-      {/* MTP 드래프트 모델 선택 */}
       <div className="settings-row" style={{ alignItems: "center" }}>
         <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>MTP 모델</span>
-        <select
-          className="server-select"
-          value={config.model_draft}
-          onChange={(e) => updateConfig({ model_draft: e.target.value })}
-        >
+        <select className="server-select" value={config.model_draft} onChange={(e) => onChange({ model_draft: e.target.value })}>
           <option value="">없음</option>
           {mainModels.map((m) => <option key={m} value={m}>{m.split("/").pop()}</option>)}
         </select>
       </div>
 
-      {/* 2열 그리드 파라미터 */}
       <div className="gen-params-grid" style={{ marginTop: 4 }}>
         <label className="gen-param">
           <span className="gen-param__label">GPU 레이어</span>
           <input className="gen-param__input" type="number" step="1" min="0"
             value={config.ngl}
-            onChange={(e) => updateConfig({ ngl: parseInt(e.target.value, 10) || 0 })} />
+            onChange={(e) => onChange({ ngl: parseInt(e.target.value, 10) || 0 })} />
         </label>
         <label className="gen-param">
           <span className="gen-param__label">컨텍스트</span>
           <input className="gen-param__input" type="number" step="512" min="512"
             value={config.context}
-            onChange={(e) => updateConfig({ context: parseInt(e.target.value, 10) || 2048 })} />
+            onChange={(e) => onChange({ context: parseInt(e.target.value, 10) || 2048 })} />
         </label>
         <label className="gen-param">
           <span className="gen-param__label">포트</span>
           <input className="gen-param__input" type="number" step="1" min="1024"
             value={config.port}
-            onChange={(e) => updateConfig({ port: parseInt(e.target.value, 10) || 8803 })} />
+            onChange={(e) => onChange({ port: parseInt(e.target.value, 10) || 8803 })} />
         </label>
         <label className="gen-param">
           <span className="gen-param__label">호스트</span>
           <input className="gen-param__input" type="text"
             value={config.host}
-            onChange={(e) => updateConfig({ host: e.target.value })} />
+            onChange={(e) => onChange({ host: e.target.value })} />
         </label>
         <label className="gen-param">
           <span className="gen-param__label">Temperature</span>
           <input className="gen-param__input" type="number" step="0.05" min="0" max="2"
             value={config.temp}
-            onChange={(e) => updateConfig({ temp: parseFloat(e.target.value) || 1.0 })} />
+            onChange={(e) => onChange({ temp: parseFloat(e.target.value) || 1.0 })} />
         </label>
         <label className="gen-param">
           <span className="gen-param__label">Top-K</span>
           <input className="gen-param__input" type="number" step="1" min="0"
             value={config.top_k}
-            onChange={(e) => updateConfig({ top_k: parseInt(e.target.value, 10) || 0 })} />
+            onChange={(e) => onChange({ top_k: parseInt(e.target.value, 10) || 0 })} />
         </label>
         <label className="gen-param">
           <span className="gen-param__label">Top-P</span>
           <input className="gen-param__input" type="number" step="0.05" min="0" max="1"
             value={config.top_p}
-            onChange={(e) => updateConfig({ top_p: parseFloat(e.target.value) || 0 })} />
+            onChange={(e) => onChange({ top_p: parseFloat(e.target.value) || 0 })} />
         </label>
         <label className="gen-param">
           <span className="gen-param__label">Min-P</span>
           <input className="gen-param__input" type="number" step="0.01" min="0" max="1"
             value={config.min_p}
-            onChange={(e) => updateConfig({ min_p: parseFloat(e.target.value) || 0 })} />
+            onChange={(e) => onChange({ min_p: parseFloat(e.target.value) || 0 })} />
         </label>
         <label className="gen-param">
           <span className="gen-param__label">KV Cache K</span>
-          <select className="gen-param__input server-select"
-            value={config.ctk}
-            onChange={(e) => updateConfig({ ctk: e.target.value })}>
+          <select className="gen-param__input server-select" value={config.ctk} onChange={(e) => onChange({ ctk: e.target.value })}>
             <option value="q4_0">q4_0</option>
             <option value="q8_0">q8_0</option>
             <option value="f16">f16</option>
@@ -494,9 +317,7 @@ function LlamaServerSection() {
         </label>
         <label className="gen-param">
           <span className="gen-param__label">KV Cache V</span>
-          <select className="gen-param__input server-select"
-            value={config.ctv}
-            onChange={(e) => updateConfig({ ctv: e.target.value })}>
+          <select className="gen-param__input server-select" value={config.ctv} onChange={(e) => onChange({ ctv: e.target.value })}>
             <option value="q4_0">q4_0</option>
             <option value="q8_0">q8_0</option>
             <option value="f16">f16</option>
@@ -504,18 +325,14 @@ function LlamaServerSection() {
         </label>
         <label className="gen-param">
           <span className="gen-param__label">Reasoning</span>
-          <select className="gen-param__input server-select"
-            value={config.reasoning}
-            onChange={(e) => updateConfig({ reasoning: e.target.value })}>
+          <select className="gen-param__input server-select" value={config.reasoning} onChange={(e) => onChange({ reasoning: e.target.value })}>
             <option value="off">off</option>
             <option value="on">on</option>
           </select>
         </label>
         <label className="gen-param">
           <span className="gen-param__label">Reasoning Format</span>
-          <select className="gen-param__input server-select"
-            value={config.reasoning_format}
-            onChange={(e) => updateConfig({ reasoning_format: e.target.value })}>
+          <select className="gen-param__input server-select" value={config.reasoning_format} onChange={(e) => onChange({ reasoning_format: e.target.value })}>
             <option value="none">none</option>
             <option value="deepseek-r1">deepseek-r1</option>
           </select>
@@ -525,51 +342,219 @@ function LlamaServerSection() {
           <input className="gen-param__input" type="number" step="1" min="0" max="8"
             title="Multi-Token Prediction 드래프트 토큰 수 (0=비활성, 1~4 권장). Qwen3-MTP 등 MTP 모델에서 추론 속도 향상."
             value={config.mtp_n_draft}
-            onChange={(e) => updateConfig({ mtp_n_draft: parseInt(e.target.value, 10) || 0 })} />
+            onChange={(e) => onChange({ mtp_n_draft: parseInt(e.target.value, 10) || 0 })} />
         </label>
       </div>
 
-      {/* Flash Attn / Jinja / Autostart 토글 */}
       <div className="server-checkbox-row">
         <label className="server-checkbox-row__item">
-          <input type="checkbox" checked={config.flash_attn}
-            onChange={(e) => updateConfig({ flash_attn: e.target.checked })} />
+          <input type="checkbox" checked={config.flash_attn} onChange={(e) => onChange({ flash_attn: e.target.checked })} />
           <span>Flash Attn</span>
         </label>
         <label className="server-checkbox-row__item">
-          <input type="checkbox" checked={config.jinja}
-            onChange={(e) => updateConfig({ jinja: e.target.checked })} />
+          <input type="checkbox" checked={config.jinja} onChange={(e) => onChange({ jinja: e.target.checked })} />
           <span>Jinja</span>
         </label>
+      </div>
+    </>
+  );
+}
+
+export function ModelProfilesSection() {
+  const [state, setState] = useState<ProfileState>(loadProfiles);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [models, setModels] = useState<string[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState<boolean | null>(null);
+  const [autostart, setAutostart] = useState(() => localStorage.getItem(AUTOSTART_KEY) === "true");
+  // 중지 직후 유예: 포트가 잠깐 살아있어 헬스체크가 "연결됨" 으로 오진하는 것을 막는다.
+  const stoppedAtRef = useRef(0);
+
+  const active = state.profiles.find((p) => p.id === state.activeId) ?? null;
+  const editing = state.profiles.find((p) => p.id === editingId) ?? null;
+
+  function commit(next: ProfileState) {
+    setState(next);
+    saveProfiles(next);
+  }
+
+  function patchProfile(id: string, patch: Partial<ModelProfile>) {
+    commit({ ...state, profiles: state.profiles.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
+  }
+
+  const scanModels = useCallback(async () => {
+    try {
+      setModels(await invoke<string[]>("llama_scan_models"));
+    } catch (e) {
+      console.warn("llama_scan_models failed:", e);
+    }
+  }, []);
+
+  useEffect(() => { scanModels(); }, [scanModels]);
+
+  // 활성 프로필이 실제로 응답하는지 주기적으로 확인한다. 외부 서버든 앱이 띄운
+  // 서버든 판정 방법은 같다 — 그 주소가 OpenAI 호환 응답을 주는가.
+  useEffect(() => {
+    let cancelled = false;
+    const url = active ? profileUrl(active) : null;
+    async function check() {
+      if (!url) return;
+      if (Date.now() - stoppedAtRef.current < 3000) {
+        if (!cancelled) setLive(false);
+        return;
+      }
+      const id = await probe(url, 1500);
+      if (!cancelled) setLive(id !== null);
+    }
+    check();
+    const t = setInterval(check, 3000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [active?.id, active && profileUrl(active)]);
+
+  async function connect(p: ModelProfile) {
+    setBusyId(p.id);
+    setError(null);
+    stoppedAtRef.current = 0;
+    try {
+      commit({ ...state, activeId: p.id });
+      await activateProfile(p);
+      setLive(true);
+    } catch (e) {
+      setError(String(e));
+      setLive(false);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function stopManaged(p: ModelProfile) {
+    if (!p.config) return;
+    setBusyId(p.id);
+    stoppedAtRef.current = Date.now();
+    try {
+      await invoke("llama_stop", { port: p.config.port });
+      setLive(false);
+    } catch (e) {
+      console.warn("llama_stop failed:", e);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function addProfile(kind: "local" | "external") {
+    const p: ModelProfile =
+      kind === "local"
+        ? { id: newId(), name: "새 로컬 모델", url: "", config: { ...DEFAULT_LLAMA_CONFIG } }
+        : { id: newId(), name: "새 외부 서버", url: "http://", config: null };
+    commit({ ...state, profiles: [...state.profiles, p] });
+    setEditingId(p.id);
+  }
+
+  function removeProfile(id: string) {
+    const profiles = state.profiles.filter((p) => p.id !== id);
+    if (!profiles.length) return; // 마지막 하나는 남긴다
+    commit({ profiles, activeId: state.activeId === id ? profiles[0].id : state.activeId });
+    if (editingId === id) setEditingId(null);
+  }
+
+  return (
+    <section className="settings-section">
+      <div className="settings-section__header">
+        <h3 className="settings-section__title">모델 프로필</h3>
+        <button className="settings-btn settings-btn--ghost" onClick={scanModels}>모델 새로고침</button>
+      </div>
+      <p className="settings-section__desc">
+        한 번 설정해두고 목록에서 누르면 연결된다. 로컬 모델은 눌렀을 때 앱이 직접 띄우고,
+        외부 서버는 이미 떠 있는 OpenAI 호환 엔드포인트에 붙는다.
+      </p>
+
+      {error && <div className="server-error" onClick={() => setError(null)}>{error}</div>}
+
+      <div className="profile-list">
+        {state.profiles.map((p) => {
+          const isActive = p.id === state.activeId;
+          return (
+            <div key={p.id} className={`profile-row ${isActive ? "profile-row--active" : ""}`}>
+              <button className="profile-row__main" onClick={() => connect(p)} disabled={busyId !== null}>
+                <span className={`profile-row__dot ${isActive && live ? "profile-row__dot--live" : ""}`} />
+                <span className="profile-row__text">
+                  <span className="profile-row__name">{p.name}</span>
+                  <span className="profile-row__sub">{modelLabel(p)}</span>
+                </span>
+                <span className="profile-row__state">
+                  {busyId === p.id ? "연결 중…" : isActive ? (live ? "연결됨" : "중지됨") : p.config ? "로컬" : "외부"}
+                </span>
+              </button>
+              <div className="mcp-row__btns">
+                <button className="mcp-row__btn" title="편집"
+                  onClick={() => setEditingId(editingId === p.id ? null : p.id)}>
+                  <Pencil size={12} />
+                </button>
+                <button className="mcp-row__btn mcp-row__btn--del" title="삭제"
+                  disabled={state.profiles.length < 2}
+                  onClick={() => removeProfile(p.id)}>
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="settings-row">
+        <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("local")}>+ 로컬 모델</button>
+        <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("external")}>+ 외부 서버</button>
+      </div>
+
+      {editing && (
+        <div className="profile-editor">
+          <div className="settings-row" style={{ alignItems: "center" }}>
+            <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>이름</span>
+            <input className="settings-input" value={editing.name}
+              onChange={(e) => patchProfile(editing.id, { name: e.target.value })} />
+          </div>
+
+          {editing.config ? (
+            <>
+              <LlamaConfigFields
+                config={editing.config}
+                models={models}
+                onChange={(patch) => patchProfile(editing.id, { config: { ...editing.config!, ...patch } })}
+              />
+              <div className="settings-row settings-row--right">
+                <button className="settings-btn settings-btn--stop"
+                  onClick={() => stopManaged(editing)}
+                  disabled={busyId !== null || !(editing.id === state.activeId && live)}>
+                  중지
+                </button>
+                <button className="settings-btn settings-btn--start"
+                  onClick={() => connect(editing)}
+                  disabled={busyId !== null || !editing.config.model}>
+                  {busyId === editing.id ? "..." : "실행"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="settings-row" style={{ alignItems: "center" }}>
+              <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>주소</span>
+              <input className="settings-input" value={editing.url}
+                placeholder="http://192.168.0.10:8080"
+                onChange={(e) => patchProfile(editing.id, { url: e.target.value })} />
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="server-checkbox-row">
         <label className="server-checkbox-row__item">
           <input type="checkbox" checked={autostart}
             onChange={(e) => {
               setAutostart(e.target.checked);
-              localStorage.setItem(LLAMA_AUTOSTART_KEY, String(e.target.checked));
+              localStorage.setItem(AUTOSTART_KEY, String(e.target.checked));
             }} />
-          <span>앱 시작 시 자동 실행</span>
+          <span>앱 시작 시 활성 프로필 자동 연결</span>
         </label>
-      </div>
-
-      {/* 액션 버튼 */}
-      <div className="settings-row settings-row--right">
-        <button className="settings-btn settings-btn--ghost" onClick={saveConfig}>
-          {saved ? "저장됨" : "설정 저장"}
-        </button>
-        <button
-          className="settings-btn settings-btn--stop"
-          onClick={stopServer}
-          disabled={loading || !running}
-        >
-          {loading && running ? "..." : "중지"}
-        </button>
-        <button
-          className="settings-btn settings-btn--start"
-          onClick={startServer}
-          disabled={loading || !!running || !config.model}
-        >
-          {loading && !running ? "..." : "실행"}
-        </button>
       </div>
     </section>
   );
@@ -887,12 +872,6 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
     setAccentHex(defaultHex);
   }
 
-  // LLM
-  const [llmUrl, setLlmUrl] = useState(
-    () => localStorage.getItem(LLM_URL_KEY) ?? DEFAULT_LLM_URL
-  );
-  const [llmStatus, setLlmStatus] = useState<ConnStatus>("idle");
-
   // System prompt
   const [systemPrompt, setSystemPrompt] = useState(
     () => localStorage.getItem(SYSTEM_PROMPT_KEY) ?? DEFAULT_CHAT_SYSTEM_PROMPT
@@ -952,20 +931,6 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
     writeMcpServerConfigs(servers).catch(console.warn);
     syncMcpRegistry(servers).catch(console.warn);
   }, [servers, serversLoaded]);
-
-  function saveLlmUrl() {
-    useSettingsStore.getState().setLlmUrl(llmUrl.trim());
-  }
-
-  async function checkLlm() {
-    setLlmStatus("checking");
-    try {
-      const res = await fetch(`${llmUrl.trim()}/health`, { signal: AbortSignal.timeout(3000) });
-      setLlmStatus(res.ok ? "ok" : "fail");
-    } catch {
-      setLlmStatus("fail");
-    }
-  }
 
   function addServer(s: McpServer) {
     setServers((prev) => [...prev, s]);
@@ -1033,33 +998,8 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
             </div>
           </section>
 
-          {/* ── LLM 서버 ─────────────────────────────────────────── */}
-          <section className="settings-section">
-            <h3 className="settings-section__title">LLM 서버</h3>
-            <p className="settings-section__desc">
-              OpenAI 호환 API 엔드포인트 (llama.cpp, Ollama, LM Studio 등)
-            </p>
-            <div className="settings-row">
-              <input
-                className="settings-input"
-                value={llmUrl}
-                onChange={(e) => setLlmUrl(e.target.value)}
-                placeholder={DEFAULT_LLM_URL}
-                onBlur={saveLlmUrl}
-              />
-              <button className="settings-btn" onClick={() => { saveLlmUrl(); checkLlm(); }}>
-                확인
-              </button>
-            </div>
-            {llmStatus !== "idle" && (
-              <div className="settings-feedback">
-                <StatusDot status={llmStatus} />
-              </div>
-            )}
-          </section>
-
-          {/* ── llama-server 실행 ────────────────────────────────── */}
-          <LlamaServerSection />
+          {/* ── 모델 프로필 ──────────────────────────────────────── */}
+          <ModelProfilesSection />
 
           {/* ── 생성 파라미터 ─────────────────────────────────────── */}
           <GenParamsSection />

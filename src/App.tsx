@@ -38,6 +38,7 @@ import type {
   Todo,
 } from "./agent/types";
 import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
+import { AUTOSTART_KEY, activateProfile, loadProfiles } from "./stores/modelProfiles";
 import "./App.css";
 
 // ── Session types ─────────────────────────────────────────────────────────────
@@ -1195,19 +1196,13 @@ export default function App() {
   // 사용자가 ~/.nekodesk/skills/ 에 넣어둔 지식을 읽어둔다.
   useEffect(() => { reloadUserSkills(); }, []);
 
-  // Auto-start llama server on mount if configured
+  // 활성 모델 프로필 자동 연결 (외부 서버 프로필이면 주소만 맞추고 끝난다)
   useEffect(() => {
-    const autostart = localStorage.getItem("nekodesk_llama_autostart") === "true";
-    if (!autostart) return;
-    const raw = localStorage.getItem("nekodesk_llama_config");
-    if (!raw) return;
-    try {
-      const config = JSON.parse(raw) as Record<string, unknown>;
-      if (!config.model) return;
-      invoke("llama_start", { config }).catch(() => {/* 실패 시 무시 — 설정 페이지에서 수동 실행 가능 */});
-    } catch {
-      // config 파싱 실패 시 무시
-    }
+    if (localStorage.getItem(AUTOSTART_KEY) !== "true") return;
+    const { profiles, activeId } = loadProfiles();
+    const active = profiles.find((p) => p.id === activeId);
+    if (!active) return;
+    activateProfile(active).catch(() => {/* 실패 시 무시 — 설정에서 수동 연결 가능 */});
   }, []);
 
   const [menuOpen, setMenuOpen] = useState(false);
