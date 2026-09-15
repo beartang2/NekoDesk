@@ -320,6 +320,10 @@ export async function* runAgentLoop(
   );
   const failures = new FailureTracker();
   const plan = new Plan();
+  // 이번 턴에 사용자가 거부한 규칙 키와 그 스텝. 거부는 모델에 돌려줘 다른 길을
+  // 찾게 하되(Claude Code 방식), 같은 걸 또 들고 오면 그때는 끝낸다.
+  const deniedThisTurn = new Set<string>();
+  const deniedSteps = new Set<AgentStep>();
 
   // 관련 기억은 요청 시작 때 한 번만 떠올린다. 사용자 입력은 요청 안에서 안 바뀌므로
   // 턴마다 다시 검색할 이유가 없다(턴당 IPC 왕복 하나를 아낀다).
@@ -508,6 +512,14 @@ export async function* runAgentLoop(
         if (!gate.isDangerous && isAllowed(gate.ruleKey)) {
           approved = true;
         } else {
+          // 방금 거부한 것을 또 들고 왔다 — "다른 방법" 이 아니다. 다시 묻지 않고 끝낸다.
+          if (deniedThisTurn.has(gate.ruleKey)) {
+            context.addTurn({ text: turn.text, calls: executed });
+            const cancelMsg = "실행을 취소했어.";
+            yield { type: "streaming_token", token: cancelMsg };
+            yield { type: "done", answer: cancelMsg, steps: context.steps, promptTokens: latestPromptTokens, plan: plan.snapshot() };
+            return;
+          }
           let resolveConfirm!: (decision: PermissionDecision) => void;
           const decisionPromise = new Promise<PermissionDecision>((res) => { resolveConfirm = res; });
           yield {
@@ -522,16 +534,18 @@ export async function* runAgentLoop(
           const decision = await decisionPromise;
 
           if (decision === "deny") {
+            // 예전엔 여기서 턴을 통째로 끝냈다. Claude Code 는 거부를 툴 결과로
+            // 돌려준다 — "사용자가 거절했다. 같은 걸 그대로 다시 하지 말고 조정해라".
+            // 그래야 모델이 다른 방법을 쓰거나, 왜 필요한지 설명하고 멈출 수 있다.
+            deniedThisTurn.add(gate.ruleKey);
+            deniedSteps.add(step);
             step.status = "error";
-            step.errorMessage = "사용자가 실행을 취소했습니다";
-            step.summary = "실행 취소됨";
+            step.errorMessage = "사용자가 실행을 거부했습니다";
+            step.summary =
+              "사용자가 이 실행을 거부했어. 같은 명령을 다시 시도하지 마. 다른 방법이 있으면 그걸 쓰고, 없으면 무엇이 왜 필요했는지 한 문장으로 말하고 멈춰.";
             executed.push({ call, step });
-            context.addTurn({ text: turn.text, calls: executed });
             yield { type: "step_error", step };
-            const cancelMsg = "실행을 취소했어.";
-            yield { type: "streaming_token", token: cancelMsg };
-            yield { type: "done", answer: cancelMsg, steps: context.steps, promptTokens: latestPromptTokens, plan: plan.snapshot() };
-            return;
+            continue;
           }
 
           approved = true;
@@ -560,6 +574,9 @@ export async function* runAgentLoop(
         failures.recordSuccess(step.tool);
         continue;
       }
+      // 거부는 실패가 아니다. 사다리에 올리면 "검색해서 해결책을 찾아라" 같은
+      // 엉뚱한 힌트가 붙는다.
+      if (deniedSteps.has(step)) continue;
       const advice = failures.record(step);
       if (advice.hint) step.summary += advice.hint;
       if (advice.stop) shouldStop = true;

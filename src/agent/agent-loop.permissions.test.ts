@@ -102,14 +102,29 @@ describe("파일 쓰기 승인 게이트", () => {
     expect(calls).toEqual(["write(/tmp/neko/a.txt, approved=true)"]);
   });
 
-  it("거부하면 쓰지 않고 루프가 끝난다", async () => {
-    scriptedTurns = [writeTurn, { text: "안 씀", toolCalls: [] }];
-
+  it("거부하면 쓰지 않고, 거부됐다는 사실을 모델에 돌려준 뒤 계속 간다", async () => {
+    // Claude Code 방식: 거부는 턴의 끝이 아니라 툴 결과다. 모델이 다른 방법을
+    // 쓰거나 이유를 설명하고 멈출 기회를 가진다.
+    scriptedTurns = [writeTurn, { text: "그럼 화면에 보여줄게", toolCalls: [] }];
     const events = await drain("파일 써줘", (ev) => ev.resolve("deny"));
 
     expect(calls).toEqual([]);
+    const errored = events.find((e) => e.type === "step_error");
+    expect(errored).toBeDefined();
+    expect((errored as { step: { summary: string } }).step.summary).toContain("거부했어");
+    expect((errored as { step: { summary: string } }).step.summary).toContain("다시 시도하지 마");
     const done = events.find((e) => e.type === "done");
-    expect(done).toMatchObject({ answer: "실행을 취소했어." });
+    expect(done).toMatchObject({ answer: "그럼 화면에 보여줄게" });
+  });
+
+  it("거부한 것을 그대로 또 들고 오면 다시 묻지 않고 끝낸다", async () => {
+    scriptedTurns = [writeTurn, writeTurn, { text: "ok", toolCalls: [] }];
+    let asked = 0;
+    const events = await drain("파일 써줘", (ev) => { asked++; ev.resolve("deny"); });
+
+    expect(asked).toBe(1);
+    expect(calls).toEqual([]);
+    expect(events.find((e) => e.type === "done")).toMatchObject({ answer: "실행을 취소했어." });
   });
 
   it("규칙 키는 파일이 아니라 부모 디렉토리다", async () => {
