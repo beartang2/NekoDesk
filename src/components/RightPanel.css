@@ -837,3 +837,15 @@
   color: var(--text-primary);
   background: var(--bg-raised);
 }
+
+/* 제시어는 이모지 그대로 보여준다 — 글자보다 크게. */
+.draw-game-emoji {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.draw-game-answer {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-weight: 400;
+}

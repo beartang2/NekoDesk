@@ -599,7 +599,7 @@ export function DrawingPadCard({
 
   function renderGameHeader() {
     if (!gameMode) return null;
-    const { phase, currentWord, timeLeft, round, totalRounds, guessResult, isCorrect } = gameMode;
+    const { phase, currentEmoji, currentWord, timeLeft, round, totalRounds, guessResult, isCorrect } = gameMode;
 
     if (phase === "setup") {
       return (
@@ -612,7 +612,7 @@ export function DrawingPadCard({
       const urgent = timeLeft <= 10;
       return (
         <div className="draw-header-title" style={{ gap: 6, flex: 1 }}>
-          <span className="draw-game-word">{currentWord}</span>
+          <span className="draw-game-emoji" title={currentWord}>{currentEmoji}</span>
           <span className={`draw-game-timer${urgent ? " draw-game-timer--urgent" : ""}`}>{timeLeft}s</span>
           <span className="draw-game-rounds">{round}/{totalRounds}</span>
         </div>
@@ -626,6 +626,7 @@ export function DrawingPadCard({
         <div className="draw-header-title">
           <span className={isCorrect ? "draw-game-result--ok" : "draw-game-result--ng"}>
             {isCorrect ? "✓" : "✗"} {guessResult}
+            {!isCorrect && <span className="draw-game-answer">정답 {currentEmoji} {currentWord}</span>}
           </span>
         </div>
       );

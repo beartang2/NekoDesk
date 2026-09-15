@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { generateGameWords, guessDrawing } from "../agent/drawing-game";
+import { pickPrompts, isCorrectGuess, guessDrawing, type EmojiPrompt } from "../agent/drawing-game";
 import type { CatEmotion } from "../agent/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -20,6 +20,9 @@ export interface GameConfig {
 export interface DrawingGameState {
   phase: GamePhase;
   config: GameConfig;
+  /** 화면에 내보이는 제시어. 그림 자체가 제시어다. */
+  currentEmoji: string;
+  /** 제시어의 대표 이름 (결과 문구·판정 표시용). */
   currentWord: string;
   timeLeft: number;
   round: number;
@@ -52,7 +55,7 @@ export function useDrawingGame(
 ): DrawingGameState & DrawingGameActions {
   const [phase, setPhase] = useState<GamePhase>("idle");
   const [config, setConfig] = useState<GameConfig>(INITIAL_CONFIG);
-  const [words, setWords] = useState<string[]>([]);
+  const [prompts, setPrompts] = useState<EmojiPrompt[]>([]);
   const [round, setRound] = useState(0);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(DRAW_TIME);
@@ -114,7 +117,7 @@ export function useDrawingGame(
     onEmotionChange("curious", 999999);
   }, [setSpeechBoth, onEmotionChange]);
 
-  const startGame = useCallback(async (cfg: GameConfig) => {
+  const startGame = useCallback((cfg: GameConfig) => {
     setConfig(cfg);
     setScore(0);
     setRound(1);
@@ -122,12 +125,7 @@ export function useDrawingGame(
     setIsCorrect(null);
     setTimedOut(false);
     isSubmittingRef.current = false;
-    setSpeechBoth(null);
-    onEmotionChange("working", 999999);
-
-    const fetched = await generateGameWords(cfg.rounds);
-    setWords(fetched);
-
+    setPrompts(pickPrompts(cfg.rounds));
     setSpeechBoth("열심히 그려봐! ✏️");
     onEmotionChange("curious", 90000);
     setPhase("playing");
@@ -148,8 +146,9 @@ export function useDrawingGame(
       guess = "모르겠어";
     }
 
-    const currentWord = words[round - 1] ?? "";
-    const correct = guess === currentWord || currentWord.includes(guess) || guess.includes(currentWord);
+    const prompt = prompts[round - 1];
+    const correct = prompt ? isCorrectGuess(guess, prompt) : false;
+    const answer = prompt ? `${prompt.emoji} ${prompt.names[0]}` : "";
 
     setGuessResult(guess);
     setIsCorrect(correct);
@@ -160,13 +159,13 @@ export function useDrawingGame(
       onEmotionChange("happy", 999999);
       onCorrect?.();
     } else {
-      setSpeechBoth(`음... "${guess}"? 정답은 "${currentWord}"였어요!`);
+      setSpeechBoth(`음... "${guess}"? 정답은 ${answer} 였어요!`);
       onEmotionChange("sad", 999999);
     }
 
     setPhase("round_result");
     isSubmittingRef.current = false;
-  }, [clearTimer, setSpeechBoth, onEmotionChange, words, round]);
+  }, [clearTimer, setSpeechBoth, onEmotionChange, onCorrect, prompts, round]);
 
   const nextRound = useCallback(async () => {
     const nextRoundNum = round + 1;
@@ -197,14 +196,14 @@ export function useDrawingGame(
     setSpeechBoth("열심히 그려봐! ✏️");
     onEmotionChange("curious", 90000);
     setPhase("playing");
-  }, [round, config.rounds, score, isCorrect, setSpeechBoth, onEmotionChange, words]);
+  }, [round, config.rounds, score, isCorrect, setSpeechBoth, onEmotionChange]);
 
   const resetGame = useCallback(() => {
     clearTimer();
     setPhase("idle");
     setScore(0);
     setRound(0);
-    setWords([]);
+    setPrompts([]);
     setGuessResult(null);
     setIsCorrect(null);
     setSpeechBoth(null);
@@ -218,7 +217,8 @@ export function useDrawingGame(
   return {
     phase,
     config,
-    currentWord: words[round - 1] ?? "",
+    currentEmoji: prompts[round - 1]?.emoji ?? "",
+    currentWord: prompts[round - 1]?.names[0] ?? "",
     timeLeft,
     round,
     totalRounds: config.rounds,
