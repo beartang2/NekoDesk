@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Pencil, Terminal, X } from "lucide-react";
 import { todosApi, scheduleApi } from "../api/tauri";
@@ -427,7 +427,7 @@ export function DrawingPadCard({
   const [thick, setThick] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [canvasHeight, setCanvasHeight] = useState(160);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
   const lastPtRef = useRef<{ x: number; y: number } | null>(null);
   const undoStackRef = useRef<ImageData[]>([]);
@@ -460,19 +460,28 @@ export function DrawingPadCard({
 
   // 비트맵을 보이는 영역에 맞춘다. 예전에는 500×600 고정 비트맵을 wrapper 로 잘라
   // 보여줘서, 사용자가 못 본 흰 여백까지 toDataURL 에 실려 나갔다.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  //
+  // 감시는 ref 콜백에서 건다. effect + 의존성 배열로 하면 "캔버스가 언제 바뀌는지"
+  // 를 사람이 맞춰야 하는데, 실제로 틀렸었다 — isGameActive 는 setup 단계에서
+  // 이미 true 가 되고 그때는 캔버스가 없다. 다음 단계에서 캔버스가 붙어도 의존성은
+  // 그대로라 effect 가 다시 안 돌았고, 게임 캔버스는 300×150(기본값) 비트맵을
+  // 5:6 박스에 늘여 보여줬다. 콜백은 엘리먼트가 실제로 붙고 떨어질 때만 불린다.
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const attachCanvas = useCallback((el: HTMLCanvasElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    canvasRef.current = el;
+    if (!el) return;
     const observer = new ResizeObserver(() => {
       // 되돌리기 스냅샷은 이전 크기라 새 캔버스에 맞지 않는다.
-      if (syncCanvasToBox(canvas)) {
+      if (syncCanvasToBox(el)) {
         undoStackRef.current = [];
         redoStackRef.current = [];
       }
     });
-    observer.observe(canvas);
-    return () => observer.disconnect();
-  }, [isGameActive]);
+    observer.observe(el);
+    observerRef.current = observer;
+  }, []);
 
   // 게임 round 변경 시 캔버스 초기화
   useEffect(() => {
@@ -700,7 +709,7 @@ export function DrawingPadCard({
     return (
       <div className="draw-body">
         <canvas
-          ref={canvasRef}
+          ref={attachCanvas}
           className={`draw-canvas draw-canvas--game${canvasLocked ? " draw-canvas--locked" : ""}`}
           onMouseDown={canvasLocked ? undefined : onMouseDown}
           onMouseMove={canvasLocked ? undefined : onMouseMove}
@@ -785,7 +794,7 @@ export function DrawingPadCard({
               <div className="draw-resize-handle" onMouseDown={onResizeMouseDown} onDoubleClick={() => setCanvasHeight(160)} />
               <div className="draw-canvas-wrapper" style={{ height: `${canvasHeight}px` }}>
                 <canvas
-                  ref={canvasRef}
+                  ref={attachCanvas}
                   className="draw-canvas"
                   onMouseDown={onMouseDown}
                   onMouseMove={onMouseMove}
