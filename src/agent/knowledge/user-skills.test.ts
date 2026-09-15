@@ -52,3 +52,50 @@ describe("사용자 스킬", () => {
     expect(() => buildKnowledgeSection("볼륨 줄여줘")).not.toThrow();
   });
 });
+
+describe("Claude 스킬 방식", () => {
+  it('"/이름" 으로 부르면 키워드가 없어도 붙는다', async () => {
+    load.mockResolvedValue([
+      { name: "deploy", description: "배포 절차", keywords: [], content: "1. 태그" },
+    ]);
+    await reloadUserSkills();
+    expect(buildKnowledgeSection("배포 어떻게 하지")).toBe("");
+    const out = buildKnowledgeSection("/deploy 지금 해줘");
+    expect(out).toContain("1. 태그");
+    expect(out).toContain("/deploy 으로 직접 불렀어");
+  });
+
+  it("많이 걸린 지식이 앞에 온다", async () => {
+    load.mockResolvedValue([
+      { name: "하나", description: "", keywords: ["볼륨"], content: "a" },
+      { name: "둘", description: "", keywords: ["볼륨", "밝기", "화면"], content: "b" },
+    ]);
+    await reloadUserSkills();
+    const out = buildKnowledgeSection("볼륨이랑 화면 밝기 같이 조절해줘");
+    expect(out.indexOf("### 둘")).toBeLessThan(out.indexOf("### 하나"));
+  });
+
+  it("예산이 차면 뒤쪽 지식은 버린다 — 첫 번째는 예외", async () => {
+    const huge = "가".repeat(4000); // ≈ 4000 토큰, 예산(3000) 초과
+    load.mockResolvedValue([
+      { name: "큰것", description: "", keywords: ["배포"], content: huge },
+      { name: "작은것", description: "", keywords: ["배포"], content: "작다" },
+    ]);
+    await reloadUserSkills();
+    const out = buildKnowledgeSection("배포");
+    expect(out).toContain("### 큰것");
+    expect(out).not.toContain("### 작은것");
+  });
+
+  it("스킬 목록은 이름과 한 줄 요약만 싣는다", async () => {
+    load.mockResolvedValue([
+      { name: "deploy", description: "배포 절차", keywords: [], content: "본문은 목록에 안 실림" },
+    ]);
+    await reloadUserSkills();
+    const { buildSkillIndex } = await import("./index");
+    const index = buildSkillIndex();
+    expect(index).toContain("- deploy: 배포 절차");
+    expect(index).toContain("- AppleScript/Music:");
+    expect(index).not.toContain("본문은 목록에");
+  });
+});

@@ -205,7 +205,8 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     description:
       "Python, Shell, AppleScript 를 로컬에서 실행하고 결과를 반환한다. " +
       'language 가 "applescript" 일 때 code 는 순수 AppleScript 문법만 쓴다 ' +
-      '(osascript -e 래퍼 금지. 예: tell application "Music" to get name of current track)',
+      '(osascript -e 래퍼 금지. 예: tell application "Music" to get name of current track). ' +
+      "Python 으로 만든 이미지는 /tmp/neko_output.png 에 저장하면 채팅에 표시된다 (plt.show() 금지).",
     params: {
       type: "object",
       properties: {

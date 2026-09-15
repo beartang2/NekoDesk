@@ -214,6 +214,8 @@ export interface ExecHistoryItem {
 /** 사용자가 직접 쓴 지식 파일 하나. 내장 knowledge 와 같은 자리에 합류한다. */
 export interface Skill {
   name: string;
+  /** 한 줄 요약. 프롬프트의 스킬 목록에 이름과 함께 실린다. */
+  description: string;
   keywords: string[];
   content: string;
 }

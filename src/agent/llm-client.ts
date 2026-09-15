@@ -11,7 +11,7 @@ import type {
 import { getMcpTools } from "./mcp-registry";
 import { buildToolSchemas, describeToolsForPrompt } from "./tool-schemas";
 import { ToolCallAccumulator, fromWireToolCalls } from "./tool-calls";
-import { buildKnowledgeSection } from "./knowledge";
+import { buildKnowledgeSection, buildSkillIndex } from "./knowledge";
 import { createJsonStringFieldStreamer } from "./json-stream";
 import {
   shouldUseNativeTools,
@@ -88,10 +88,7 @@ const BEHAVIOR_RULES = `규칙:
 15. Messages·이메일·SNS 등 외부로 메시지를 보내기 직전에는 반드시 user.ask 로 수신자와 내용을 확인받아.
 
 코드 실행:
-16. code.exec 에서 사용자의 한국어 키워드(검색어·아티스트명·앱 이름·플레이리스트명)는 영어/로마자로 바꿔서 먼저 실행하고, 실패하면 원문 한국어로 재시도해. (예: "요루시카" → 먼저 "Yorushika")
-17. Python·Shell 로 AppleScript 코드를 생성·조합하지 마. AppleScript 작업은 단일 code.exec(language: "applescript") 호출로 끝내. 날짜 같은 동적 값은 AppleScript 안에서 do shell script 로 처리해 (예: set dateStr to do shell script "date '+%Y-%m-%d'"). 곡명·플레이리스트명은 네가 직접 판단해서 문자열로 써 넣어.
-18. Messages 앱으로 보낼 때는 AppleScript 코드 안 send 문자열 끝에 "\\n\\nsent by Neko 🐱"를 붙여. 네 답변이 아니라 코드 속 문자열에만 적용해.
-19. Python 으로 이미지를 만들 때는 반드시 "/tmp/neko_output.png" 에 저장해. 그래야 채팅창에 자동으로 표시돼. plt.show() 나 tkinter mainloop() 는 쓰지 마.
+17. AppleScript 는 Python·Shell 로 생성·조합하지 말고 단일 code.exec(language: "applescript") 로 끝내. 동적 값은 그 안에서 do shell script 로 얻어.
 20. 툴 결과에 오류가 보이면(exit_code != 0, stderr 에 에러, "error" 필드 등):
     a. 오류에서 개인정보(파일 경로, 사용자명, API키, 호스트명)를 제거한다.
     b. 오류 핵심("command not found: ffmpeg", "permission denied" 등)만으로 web.search 해 해결책을 찾는다.
@@ -99,10 +96,7 @@ const BEHAVIOR_RULES = `규칙:
 
 해석:
 21. "너가", "네가", "추천해줘", "골라줘", "어떻게 생각해", "뭐가 좋아" 처럼 네가 주어인 요청은 네가 직접 의견·추천·선택을 내라는 뜻이야. "사용자가 뭔가를 조회하고 싶어 한다"는 뜻이 절대 아니야. 취향·조건이 불명확하면 user.ask 로 먼저 묻고, 정보가 충분하면 툴 없이 바로 답해.
-22. 한국어 약어는 아래대로 매핑해. 비슷한 영어 단어로 오해하지 마.
-    - 플리 = 플레이리스트 (Music 앱 재생목록, 절대 "Fly" 앱이 아님)
-    - 뮤직 = Music 앱 / 캘린더 = Calendar 앱 / 메모 = Notes 앱
-    앱 이름이 불명확하면 macOS 기본 앱 맥락에서 먼저 해석해. 새 소프트웨어를 설치하거나 CLI 도구를 실행하는 쪽으로 해석하지 마.`;
+22. 앱 이름이 불명확하면 macOS 기본 앱(Music·Calendar·Notes) 맥락에서 먼저 해석해. 새 소프트웨어를 설치하거나 CLI 도구를 실행하는 쪽으로 해석하지 마.`;
 
 /** 말투·정직성. 두 모드 공통 — 최종 답변 전체에 적용된다. */
 const STYLE_RULES = `⚠️ 말투 규칙 (답변 전체에 적용, 예외 없음):
@@ -168,7 +162,11 @@ function buildAgentSystemPrompt(native: boolean): string {
   const toolsSection = native ? "" : `\n\n사용 가능한 툴:\n${describeToolsForPrompt()}`;
   const modeSection = native ? "" : `\n\n${JSON_MODE_RULES}`;
 
-  return `너는 NekoDesk 고양이 어시스턴트야. 사용자를 돕기 위해 툴을 사용해.${profileSection}${customSection}${toolsSection}
+  // Claude Code 의 스킬 목록과 같은 자리다. 목록은 가벼워 늘 싣고, 본문은 관련
+  // 요청일 때만 user 메시지 앞에 붙는다(buildAgentContextPrefix).
+  const skillsSection = `\n\n참고 지식 (관련 요청이면 본문이 자동으로 붙어. 사용자가 "/이름" 으로 직접 부를 수도 있어):\n${buildSkillIndex()}`;
+
+  return `너는 NekoDesk 고양이 어시스턴트야. 사용자를 돕기 위해 툴을 사용해.${profileSection}${customSection}${toolsSection}${skillsSection}
 
 ${BEHAVIOR_RULES}${modeSection}
 
