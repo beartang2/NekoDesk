@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { pickPrompts, isCorrectGuess, guessDrawing, type EmojiPrompt } from "../agent/drawing-game";
+import { pickPrompts, guessDrawing, type EmojiPrompt } from "../agent/drawing-game";
 import type { CatEmotion } from "../agent/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -139,27 +139,29 @@ export function useDrawingGame(
     setSpeechBoth("그림 보는 중...");
     onEmotionChange("curious", 999999);
 
-    let guess = "모르겠어";
+    let picked: EmojiPrompt | null = null;
     try {
-      guess = await guessDrawing(dataUrl);
+      picked = await guessDrawing(dataUrl);
     } catch {
-      guess = "모르겠어";
+      picked = null;
     }
 
     const prompt = prompts[round - 1];
-    const correct = prompt ? isCorrectGuess(guess, prompt) : false;
-    const answer = prompt ? `${prompt.emoji} ${prompt.names[0]}` : "";
+    // 둘 다 같은 표에서 고른 이모지다. 판정은 그게 같은지 보는 것으로 끝난다.
+    const correct = !!prompt && picked?.emoji === prompt.emoji;
+    const answer = prompt ? `${prompt.emoji} ${prompt.name}` : "";
+    const guess = picked ? `${picked.emoji} ${picked.name}` : "모르겠어";
 
     setGuessResult(guess);
     setIsCorrect(correct);
 
     if (correct) {
       setScore((s) => s + 1);
-      setSpeechBoth(`맞아요! "${guess}" 정답! 🎉`);
+      setSpeechBoth(`맞아요! ${answer} 정답! 🎉`);
       onEmotionChange("happy", 999999);
       onCorrect?.();
     } else {
-      setSpeechBoth(`음... "${guess}"? 정답은 ${answer} 였어요!`);
+      setSpeechBoth(`음... ${guess}? 정답은 ${answer} 였어요!`);
       onEmotionChange("sad", 999999);
     }
 
@@ -218,7 +220,7 @@ export function useDrawingGame(
     phase,
     config,
     currentEmoji: prompts[round - 1]?.emoji ?? "",
-    currentWord: prompts[round - 1]?.names[0] ?? "",
+    currentWord: prompts[round - 1]?.name ?? "",
     timeLeft,
     round,
     totalRounds: config.rounds,
