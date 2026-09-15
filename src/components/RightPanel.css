@@ -535,10 +535,41 @@
   background: #fff;
 }
 
-/* 게임에는 높이 조절 핸들이 없으니 비율로 크기를 정한다. */
+/* 게임 캔버스는 패널에 남은 자리를 차지한다.
+   예전엔 aspect-ratio 로 제 높이를 스스로 정했는데, 그 높이가 패널보다 커지면
+   도구 막대와 아래 카드들을 패널 밖으로 밀어냈다. 이제 캔버스가 마지막에 남은
+   자리를 받으므로 창을 키운 만큼만 커진다. 비율이 그때그때 달라지지만 비트맵이
+   박스를 따라가므로(RightPanel 의 ref 콜백) 그림은 늘어나지 않고, 저장도 보이는
+   그대로 나간다. flex-basis 를 0 으로 두는 건 캔버스의 고유 크기(=비트맵 크기)가
+   남은 자리 계산에 끼어들지 않게 하려는 것이다. */
 .draw-canvas--game {
+  flex: 1 1 0;
   height: auto;
-  aspect-ratio: 5 / 6;
+  min-height: 180px;
+}
+
+/* 게임 중 카드가 패널의 남은 높이를 받아 캔버스에 넘겨주는 사슬. */
+.panel-card--game {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-card--game .acc-wrap--open {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.panel-card--game .acc-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.panel-card--game .draw-body {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .draw-colors {

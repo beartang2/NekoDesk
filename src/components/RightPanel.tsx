@@ -763,8 +763,13 @@ export function DrawingPadCard({
 
   // ── Normal mode (no game) ──────────────────────────────────────────────────
 
+  // 캔버스가 떠 있는 동안에만 카드가 패널 높이를 차지한다. 설정 화면까지 늘리면
+  // 버튼 몇 개짜리 폼이 빈 카드 안에 덩그러니 남는다.
+  const canvasOnScreen =
+    !!gameMode && (gameMode.phase === "playing" || gameMode.phase === "guessing" || gameMode.phase === "round_result");
+
   return (
-    <div className="panel-card">
+    <div className={`panel-card${canvasOnScreen ? " panel-card--game" : ""}`}>
       <button
         className="panel-card__header pomo-header"
         onClick={() => !isGameActive && setOpen((v) => !v)}
