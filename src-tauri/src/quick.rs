@@ -35,10 +35,43 @@ pub fn toggle(app: &AppHandle) {
     }
 
     let ctx = read_context();
-    let _ = win.center();
+    if place_on_cursor_monitor(app, &win).is_none() {
+        let _ = win.center();
+    }
     let _ = win.show();
     let _ = win.set_focus();
     let _ = app.emit_to("quick", "quick-context", ctx);
+}
+
+/// 마우스가 있는 모니터의 가운데로 옮긴다.
+///
+/// `center()` 는 창이 **지금 걸쳐 있는** 모니터 기준이라, 모니터가 여럿이면 마지막에
+/// 떴던 화면에 계속 뜬다. 사용자가 보고 있는 곳은 커서가 있는 화면이다.
+/// 뭐 하나라도 못 얻으면 None — 호출자가 `center()` 로 물러선다.
+fn place_on_cursor_monitor(app: &AppHandle, win: &tauri::WebviewWindow) -> Option<()> {
+    let cursor = app.cursor_position().ok()?;
+    let monitor = app.monitor_from_point(cursor.x, cursor.y).ok()??;
+    // 창의 물리 크기는 지금 있는 모니터의 배율을 따른다. 배율이 다른 모니터로 옮기면
+    // 달라지므로, 논리 크기에 **옮겨 갈** 모니터의 배율을 곱해 계산한다.
+    let logical = win.outer_size().ok()?.to_logical::<f64>(win.scale_factor().ok()?);
+    let area = monitor.work_area();
+    let (x, y) = centered_in(
+        (area.position.x, area.position.y),
+        (area.size.width, area.size.height),
+        (logical.width, logical.height),
+        monitor.scale_factor(),
+    );
+    win.set_position(tauri::PhysicalPosition::new(x, y)).ok()
+}
+
+/// 작업 영역(메뉴 막대·Dock 을 뺀 곳) 안에서 가운데 좌표.
+fn centered_in(area_pos: (i32, i32), area_size: (u32, u32), win_logical: (f64, f64), scale: f64) -> (i32, i32) {
+    let w = (win_logical.0 * scale).round() as i32;
+    let h = (win_logical.1 * scale).round() as i32;
+    (
+        area_pos.0 + (area_size.0 as i32 - w) / 2,
+        area_pos.1 + (area_size.1 as i32 - h) / 2,
+    )
 }
 
 fn clip(s: String) -> Option<String> {
@@ -166,6 +199,19 @@ mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn centers_inside_the_target_monitor_work_area() {
+        // 오른쪽 외장 모니터(배율 1, 왼쪽 끝 x=2940, 메뉴 막대 25px 아래부터).
+        assert_eq!(centered_in((2940, 25), (1920, 1055), (640.0, 128.0), 1.0), (2940 + 640, 25 + 463));
+    }
+
+    #[test]
+    fn uses_the_target_monitor_scale_not_the_current_one() {
+        // 레티나(배율 2)로 옮기면 640 논리폭은 1280 물리폭이다. 지금 모니터 배율로
+        // 계산하면 가운데에서 320px 어긋난다.
+        assert_eq!(centered_in((0, 50), (2940, 1812), (640.0, 128.0), 2.0), (830, 50 + 778));
+    }
 
     #[test]
     fn blank_context_is_dropped() {
