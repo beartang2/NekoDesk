@@ -1,10 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
-vi.mock("@tauri-apps/plugin-notification", () => ({
-  isPermissionGranted: vi.fn(),
-  requestPermission: vi.fn(),
-  sendNotification: vi.fn(),
-}));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 import { toNotificationBody } from "./notify";
 

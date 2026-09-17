@@ -552,6 +552,41 @@ mod commands {
         Ok(count)
     }
 
+    /// macOS 알림.
+    ///
+    /// dev 실행(`tauri dev`)에서는 앱 번들이 없어 알림 플러그인이 "터미널" 이름으로
+    /// 보낸다. 터미널이 알림 권한을 받은 적이 없으면 macOS 가 **조용히** 버린다 —
+    /// 실제로 이 맥에서 그래서 개발 중엔 알림이 한 번도 안 왔다. dev 에서만
+    /// osascript 로 보낸다(스크립트 편집기 이름으로 뜬다). 빌드한 앱은 제 번들 ID 로
+    /// 플러그인이 보낸다.
+    #[tauri::command(async)]
+    pub fn notify_user(app: tauri::AppHandle, title: String, body: String) -> Result<(), AppError> {
+        if tauri::is_dev() {
+            // 본문은 모델이 쓴 글이다. 스크립트 문자열에 이어 붙이면 따옴표 하나로
+            // 임의 AppleScript 가 실행된다. 코드는 고정하고 글은 argv 로만 넘긴다.
+            Command::new("osascript")
+                .args([
+                    "-e", "on run argv",
+                    "-e", "display notification (item 2 of argv) with title (item 1 of argv)",
+                    "-e", "end run",
+                ])
+                .arg(&title)
+                .arg(&body)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| AppError::msg(format!("알림 실패: {e}")))?;
+            return Ok(());
+        }
+        use tauri_plugin_notification::NotificationExt;
+        app.notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show()
+            .map_err(|e| AppError::msg(format!("알림 실패: {e}")))
+    }
+
     // ── 실행 이력 ─────────────────────────────────────────────────────────────
     // ExecHistoryItem 은 db::models 로 이동(상단 재노출).
 
@@ -709,6 +744,7 @@ pub fn run() {
             commands::fs_grep,
             commands::fs_check,
             commands::airdrop_send,
+            commands::notify_user,
             commands::skills_load,
             commands::memory_save,
             commands::memory_search,
