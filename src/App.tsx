@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Sun, Moon, Settings, Paperclip, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Sun, Moon, Settings, Paperclip, ArrowUp, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
@@ -126,7 +126,7 @@ function TitleBar({
   onToggleRightPanel: () => void;
 }) {
   return (
-    <header className="titlebar">
+    <header className="titlebar" data-tauri-drag-region>
       <span className="titlebar__name">NekoDesk</span>
       <span className="titlebar__sep">/</span>
       <span className="titlebar__session">{sessionTitle}</span>
@@ -594,8 +594,9 @@ function Composer({
             className="composer__send"
             onClick={submit}
             disabled={!value.trim() && files.length === 0}
+            title="보내기"
           >
-            전송
+            <ArrowUp size={16} strokeWidth={2.5} />
           </button>
         )}
       </div>
