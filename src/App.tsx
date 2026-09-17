@@ -126,7 +126,7 @@ function TitleBar({
   onToggleRightPanel: () => void;
 }) {
   return (
-    <header className="titlebar" data-tauri-drag-region>
+    <header className="titlebar" data-tauri-drag-region="deep">
       <span className="titlebar__name">NekoDesk</span>
       <span className="titlebar__sep">/</span>
       <span className="titlebar__session">{sessionTitle}</span>

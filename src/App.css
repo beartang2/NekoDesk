@@ -161,12 +161,13 @@ html, body, #root {
   align-items: center;
   gap: 8px;
   /* 왼쪽 78px 은 macOS 신호등(닫기·최소화·확대) 자리다. 창 제목 표시줄을
-     숨기고 이 헤더가 그 자리를 겸한다 — 헤더가 두 겹이면 곧바로 웹으로 보인다. */
+     숨기고 이 헤더가 그 자리를 겸한다 — 헤더가 두 겹이면 곧바로 웹으로 보인다.
+     창 끌기는 CSS(-webkit-app-region, Electron 전용)가 아니라 헤더의
+     data-tauri-drag-region="deep" 과 capabilities 의 start-dragging 권한이 한다. */
   padding: 0 12px 0 78px;
   background: var(--bg-surface);
   border-bottom: var(--hairline);
   user-select: none;
-  -webkit-app-region: drag;
 }
 
 .titlebar__name {
