@@ -809,7 +809,13 @@ export default function App() {
         steps: [],
         isStreaming: false,
       }));
-      setAllMessages((prev) => ({ ...prev, [sessionId]: chatMessages }));
+      setAllMessages((prev) => {
+        // DB 를 읽는 사이에 이 대화로 질문이 나갔으면, 화면에는 진행 중인 답(생각·도구
+        // 로그)이 있고 DB 에는 방금 저장된 질문만 있다. 여기서 덮어쓰면 그 답 칸이
+        // 사라져 끝난 답이 갈 곳이 없어진다 — ⌃⇧N 으로 물었을 때 실제로 그랬다.
+        if (prev[sessionId]?.some((m) => m.isStreaming)) return prev;
+        return { ...prev, [sessionId]: chatMessages };
+      });
     } catch {
       // ignore — DB may be empty for this session
     }
@@ -1222,7 +1228,7 @@ export default function App() {
   // 대화를 새로 만들지 않고 한 곳에 쌓는다. 매번 새로 만들면 사이드바가 금방 "빠른 질문"
   // 으로 도배되고, 지금 보던 대화에 섞으면 상관없는 맥락이 모델에 들어간다.
   useEffect(() => {
-    const unlisten = listen<QuickAskPayload>(QUICK_ASK_EVENT, ({ payload }) => {
+    const unlisten = listen<QuickAskPayload>(QUICK_ASK_EVENT, async ({ payload }) => {
       const { sessions: current } = useSessionStore.getState();
       let quickId = localStorage.getItem(QUICK_SESSION_KEY);
       if (!quickId || !current.some((s) => s.id === quickId)) {
@@ -1232,6 +1238,9 @@ export default function App() {
         setSessions((prev) => [session, ...prev]);
         setAllMessages((prev) => ({ ...prev, [session.id]: makeInitialMessages() }));
       }
+      // 예전 빠른 질문 기록을 **먼저** 불러온다. 대화를 전환하면 불러오기가 도는데,
+      // 그게 질문을 보낸 뒤에 끝나면 순서가 뒤엉킨다. 여기서 끝내 두면 전환 쪽은 할 일이 없다.
+      await loadSessionMessages(quickId);
       // 창을 열었을 때 답이 바로 보이게. 사용자는 지금 다른 앱에 있다.
       setActiveId(quickId);
       const { userText, displayText } = buildQuickPrompt(payload);
