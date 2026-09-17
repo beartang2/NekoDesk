@@ -51,6 +51,8 @@ textarea {
 
   --sidebar-w:     220px;
   --right-panel-w: 210px;
+  /* tauri.conf.json 의 trafficLightPosition.y 가 이 값의 절반이어야 신호등이
+     헤더 세로 가운데에 온다. 둘 중 하나를 바꾸면 다른 쪽도 같이 바꿀 것. */
   --titlebar-h:    40px;
   --cat-panel-h:   150px;
 
