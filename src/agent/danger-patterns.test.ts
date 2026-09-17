@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findDangerReason, isSafeReadOnly } from "./danger-patterns";
+import { findDangerReason, findExternalSendReason, isSafeReadOnly } from "./danger-patterns";
 
 describe("findDangerReason — 실제 피해가 나는 코드를 잡는다", () => {
   const dangerous: Array<[string, string]> = [
@@ -59,5 +59,25 @@ describe("isSafeReadOnly — 부작용 없는 코드만 무확인 통과", () =>
 
   it("알 수 없는 AppleScript 동사는 확인 (화이트리스트 밖)", () => {
     expect(isSafeReadOnly('tell application "Mail" to send outgoing message', "applescript")).toBe(false);
+  });
+});
+
+describe("findExternalSendReason", () => {
+  it.each([
+    ['tell application "Messages"\n  send "hi" to buddy "x"\nend tell', "메시지 보내기"],
+    ['tell application "Mail"\n  set m to make new outgoing message\nend tell', "메일 보내기"],
+    ["import smtplib", "메일 보내기 (Python/셸)"],
+    ["curl -X POST https://x.y -d a=1", "외부로 데이터 보내기"],
+    ["requests.post('https://x.y', data=d)", "외부로 데이터 보내기 (Python)"],
+  ])("%s", (code, reason) => {
+    expect(findExternalSendReason(code)).toBe(reason);
+  });
+
+  it.each([
+    'tell application "Messages" to get name of every chat',
+    "curl -s https://api.example.com/weather",
+    "requests.get('https://x.y')",
+  ])("읽기만 하는 건 안 걸린다: %s", (code) => {
+    expect(findExternalSendReason(code)).toBeUndefined();
   });
 });

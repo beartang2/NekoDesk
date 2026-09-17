@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { AgentTurn, FsDecision, LoopEvent } from "./types";
 
 /**
@@ -284,5 +284,72 @@ describe("code.exec 승인 표시", () => {
 
     expect(asked, "__approved 로 확인 창을 건너뛰었다").toBe(true);
     expect(invoked.find((i) => i.cmd === "code_exec"), "거부했는데 실행됐다").toBeUndefined();
+  });
+});
+
+describe("오토모드", () => {
+  const execTurn = (code: string, language = "shell"): AgentTurn => ({
+    text: "",
+    toolCalls: [{ id: "c1", name: "code.exec", params: { code, language } }],
+  });
+
+  beforeEach(async () => {
+    const { setAutoApprove } = await import("./permissions");
+    setAutoApprove(true);
+  });
+
+  afterEach(async () => {
+    const { setAutoApprove } = await import("./permissions");
+    setAutoApprove(false);
+  });
+
+  it("확인 창 없이 실행하고, 백엔드에는 승인 절차를 거친 것으로 넘긴다", async () => {
+    scriptedTurns = [execTurn("rm ./x"), { text: "끝", toolCalls: [] }];
+    let asked = false;
+    await drain("지워줘", () => { asked = true; });
+
+    expect(asked).toBe(false);
+    expect(invoked.find((i) => i.cmd === "code_exec")?.args.approved).toBe(true);
+  });
+
+  it("파일 쓰기도 확인 없이 간다", async () => {
+    scriptedTurns = [writeTurn, { text: "썼어", toolCalls: [] }];
+    let asked = false;
+    await drain("파일 써줘", () => { asked = true; });
+
+    expect(asked).toBe(false);
+    expect(calls).toEqual(["write(/tmp/neko/a.txt, approved=true)"]);
+  });
+
+  it("위험 패턴은 오토모드여도 묻는다", async () => {
+    scriptedTurns = [execTurn("rm -rf ./build"), { text: "끝", toolCalls: [] }];
+    let asked = false;
+    await drain("지워줘", (ev) => { asked = true; ev.resolve("deny"); });
+
+    expect(asked).toBe(true);
+    expect(invoked.find((i) => i.cmd === "code_exec")).toBeUndefined();
+  });
+
+  it("밖으로 내보내는 코드는 오토모드여도 묻는다", async () => {
+    // 웹페이지에 숨은 지시로 모델이 메시지를 보내게 만드는 경로. 한 번 나가면 못 되돌린다.
+    const send = 'tell application "Messages"\nsend "hi" to buddy "+821000000000" of service 1\nend tell';
+    scriptedTurns = [execTurn(send, "applescript"), { text: "끝", toolCalls: [] }];
+    let asked = false;
+    await drain("문자 보내줘", (ev) => { asked = true; ev.resolve("deny"); });
+
+    expect(asked).toBe(true);
+    expect(invoked.find((i) => i.cmd === "code_exec")).toBeUndefined();
+  });
+
+  it("하드 차단된 경로는 오토모드와 상관없이 막힌다", async () => {
+    fsApi.check.mockImplementation(async (path: string): Promise<FsDecision> => ({
+      kind: "deny",
+      path,
+      reason: "자격증명 경로",
+    }));
+    scriptedTurns = [writeTurn, { text: "끝", toolCalls: [] }];
+    await drain("파일 써줘", () => {});
+
+    expect(calls).toEqual([]);
   });
 });

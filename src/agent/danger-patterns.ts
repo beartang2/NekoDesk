@@ -43,6 +43,23 @@ export const DANGER_PATTERNS: Array<[RegExp, string]> = [
   [/tell application "System Events"[^\n]*\bkeystroke\b/, "키 입력 자동화 (키로깅 가능)"],
 ];
 
+/**
+ * 밖으로 내보내는 동작. 확인 창 기본값에서는 어차피 묻지만, **오토모드에서도**
+ * 건너뛰지 않는다. 한 번 나간 메시지·메일은 되돌릴 수 없고, 보내라는 지시가
+ * 사용자가 아니라 모델이 읽은 웹페이지에서 왔을 수 있다.
+ */
+export const EXTERNAL_SEND_PATTERNS: Array<[RegExp, string]> = [
+  [/tell application "Messages"[\s\S]*\bsend\b/i, "메시지 보내기"],
+  [/tell application "Mail"[\s\S]*\b(send|outgoing message)\b/i, "메일 보내기"],
+  [/\bsmtplib\b|\bsendmail\b/, "메일 보내기 (Python/셸)"],
+  [/\bcurl\b[^\n]*\s(-X\s*POST|-d\b|--data|-F\b|--upload-file|-T\b)/, "외부로 데이터 보내기"],
+  [/\brequests\.(post|put)\s*\(/, "외부로 데이터 보내기 (Python)"],
+];
+
+export function findExternalSendReason(code: string): string | undefined {
+  return EXTERNAL_SEND_PATTERNS.find(([pattern]) => pattern.test(code))?.[1];
+}
+
 /** 걸린 패턴의 사유를 돌려준다. 안 걸리면 undefined. */
 export function findDangerReason(code: string): string | undefined {
   return DANGER_PATTERNS.find(([pattern]) => pattern.test(code))?.[1];

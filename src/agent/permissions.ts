@@ -69,6 +69,25 @@ export function clearSessionRules(): void {
   sessionRules.clear();
 }
 
+/**
+ * 오토모드 — 확인 창 없이 실행한다.
+ *
+ * 그래도 건너뛰지 않는 것: 위험 패턴(`danger-patterns.ts`)과 밖으로 내보내는 동작
+ * (메시지·메일 전송 등). 웹페이지에 숨은 지시에 모델이 조종당해도 되돌릴 수 없는
+ * 일은 일어나지 않게 하려는 것이다. 자격증명 경로는 백엔드가 막으니 여기와 무관하다.
+ *
+ * 저장하지 않는다. 앱을 끄면 꺼진다 — 켜둔 걸 잊는 게 가장 위험해서.
+ */
+let autoApprove = false;
+
+export function isAutoApprove(): boolean {
+  return autoApprove;
+}
+
+export function setAutoApprove(on: boolean): void {
+  autoApprove = on;
+}
+
 // ── 규칙 키 ───────────────────────────────────────────────────────────────────
 
 /**

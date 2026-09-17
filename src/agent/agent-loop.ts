@@ -7,6 +7,7 @@ import {
   addWriteRoot,
   execRuleKey,
   isAllowed,
+  isAutoApprove,
   parentDir,
   remember,
   writeRuleKey,
@@ -14,7 +15,7 @@ import {
 import { fsApi, memoryApi } from "../api/tauri";
 import { isMcpTool, executeMcpTool } from "./mcp-registry";
 import { AgentContext, type ExecutedCall } from "./agent-context";
-import { findDangerReason, isSafeReadOnly } from "./danger-patterns";
+import { findDangerReason, findExternalSendReason, isSafeReadOnly } from "./danger-patterns";
 import { shouldUseNativeTools } from "../stores/settingsStore";
 import type {
   AgentStep,
@@ -509,7 +510,11 @@ export async function* runAgentLoop(
       if (gate) {
         // 위험 패턴에 걸린 코드는 저장된 규칙이 있어도 매번 묻는다. 규칙을 만든
         // 주체가 사용자가 아니라 프롬프트 인젝션일 수 있다.
-        if (!gate.isDangerous && isAllowed(gate.ruleKey)) {
+        // 오토모드도 같은 선을 넘지 않는다. 위험 패턴과 밖으로 내보내는 코드는 여전히 묻는다.
+        const autoOk =
+          isAutoApprove() &&
+          !(call.name === "code.exec" && findExternalSendReason(gate.preview));
+        if (!gate.isDangerous && (isAllowed(gate.ruleKey) || autoOk)) {
           approved = true;
         } else {
           // 방금 거부한 것을 또 들고 왔다 — "다른 방법" 이 아니다. 다시 묻지 않고 끝낸다.

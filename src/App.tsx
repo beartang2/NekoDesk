@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Sun, Moon, Settings, Paperclip, ArrowUp, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Sun, Moon, Settings, Paperclip, ArrowUp, Zap, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
@@ -23,7 +23,7 @@ import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
-import { loadPermissionRules } from "./agent/permissions";
+import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
 import { reloadUserSkills } from "./agent/knowledge";
 import { detectGameIntent } from "./lib/game-intent";
 import { roParticle } from "./lib/hangul";
@@ -485,6 +485,7 @@ function Composer({
 }) {
   const [value, setValue] = useState("");
   const [files, setFiles] = useState<AttachedFile[]>([]);
+  const [autoMode, setAutoMode] = useState(isAutoApprove);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -581,6 +582,20 @@ function Composer({
           style={{ display: "none" }}
           onChange={handleFileChange}
         />
+        {/* 켜져 있는 동안은 글자까지 보인다. 확인 없이 실행 중이라는 걸 잊으면 안 된다. */}
+        <button
+          className={`composer__auto ${autoMode ? "composer__auto--on" : ""}`}
+          onClick={() => { setAutoApprove(!autoMode); setAutoMode(!autoMode); }}
+          aria-pressed={autoMode}
+          title={
+            autoMode
+              ? "오토모드 켜짐 — 확인 없이 실행해. 위험한 명령과 메시지·메일 보내기는 그래도 물어봐. 앱을 끄면 꺼져."
+              : "오토모드 — 코드 실행·파일 쓰기를 확인 없이 해"
+          }
+        >
+          <Zap size={13} strokeWidth={2.25} />
+          {autoMode && <span>자동</span>}
+        </button>
         <button
           className="composer__attach"
           onClick={() => fileInputRef.current?.click()}
