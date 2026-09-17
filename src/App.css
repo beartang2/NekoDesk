@@ -162,11 +162,13 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 8px;
-  /* 왼쪽 78px 은 macOS 신호등(닫기·최소화·확대) 자리다. 창 제목 표시줄을
+  /* 왼쪽 96px 은 macOS 신호등(닫기·최소화·확대) 자리다. 신호등은 x=14 에서
+     시작해 버전에 따라 68~76px 에서 끝난다. 78px 만 비웠더니 제목이 버튼에
+     붙어 보였다 — 네이티브 앱처럼 끝에서 20px 쯤 띄운다. 창 제목 표시줄을
      숨기고 이 헤더가 그 자리를 겸한다 — 헤더가 두 겹이면 곧바로 웹으로 보인다.
      창 끌기는 CSS(-webkit-app-region, Electron 전용)가 아니라 헤더의
      data-tauri-drag-region="deep" 과 capabilities 의 start-dragging 권한이 한다. */
-  padding: 0 12px 0 78px;
+  padding: 0 12px 0 96px;
   background: var(--bg-surface);
   border-bottom: var(--hairline);
   user-select: none;
