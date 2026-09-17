@@ -10,6 +10,11 @@ html.quick-window #root {
 
 .quick {
   height: 100%;
+  /* 창 레이어도 16px 로 잘린다(quick.rs 의 QUICK_CORNER_RADIUS). 같은 값이어야
+     안쪽 색과 가장자리 선이 창 모서리와 딱 맞는다. */
+  border-radius: 16px;
+  /* 밝은 배경 위에서도 창 경계가 보이게 — macOS 패널의 안쪽 헤어라인. */
+  box-shadow: inset 0 0 0 0.5px color-mix(in oklab, var(--text-primary) 14%, transparent);
   display: flex;
   flex-direction: column;
   justify-content: center;

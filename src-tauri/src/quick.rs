@@ -207,8 +207,36 @@ mod macos {
         let _: () = msg_send![window, setLevel: STATUS_WINDOW_LEVEL];
         // 패널은 기본으로 앱이 비활성화되면 숨는다. 이 앱은 애초에 활성화하지 않는다.
         let _: () = msg_send![window, setHidesOnDeactivate: Bool::NO];
+        round_corners(window);
         true
     }
+
+    /// 모서리를 둥글게.
+    ///
+    /// 테두리 없는 창은 네모다. CSS 로만 둥글게 하면 뒤의 블러 재질과 창 그림자는
+    /// 여전히 네모로 남는다. 창 내용 레이어를 잘라 블러·웹뷰를 함께 둥글게 하고,
+    /// 그림자는 잘린 모양을 다시 읽게 한다.
+    unsafe fn round_corners(window: *mut AnyObject) {
+        let view: *mut AnyObject = msg_send![window, contentView];
+        if view.is_null() {
+            return;
+        }
+        let _: () = msg_send![view, setWantsLayer: Bool::YES];
+        let layer: *mut AnyObject = msg_send![view, layer];
+        if layer.is_null() {
+            return;
+        }
+        let _: () = msg_send![layer, setCornerRadius: QUICK_CORNER_RADIUS];
+        let _: () = msg_send![layer, setMasksToBounds: Bool::YES];
+        // macOS 창·Spotlight 와 같은 "연속" 곡선. 원호보다 모서리가 부드럽게 이어진다.
+        if let Some(curve) = std::ptr::NonNull::new(ns_string(c"continuous")) {
+            let _: () = msg_send![layer, setCornerCurve: curve.as_ptr()];
+        }
+        let _: () = msg_send![window, invalidateShadow];
+    }
+
+    /// CSS(QuickAsk.css 의 .quick)와 같은 값이어야 가장자리가 어긋나지 않는다.
+    const QUICK_CORNER_RADIUS: f64 = 16.0;
 
     /// 마우스가 있는 화면 가운데에 띄우고 키 입력을 받게 한다. 앱은 활성화하지 않는다.
     pub unsafe fn present_on_cursor_screen(window: *mut AnyObject) {
@@ -241,6 +269,8 @@ mod macos {
 
         let _: () = msg_send![window, orderFrontRegardless];
         let _: () = msg_send![window, makeKeyWindow];
+        // 숨겨진 채 계산된 그림자는 네모로 남을 수 있다. 보인 뒤에 다시 읽힌다.
+        let _: () = msg_send![window, invalidateShadow];
     }
 
     /// NSString 은 CFString 과 같은 객체다(toll-free bridge). AX 속성 이름으로 그대로 쓴다.
