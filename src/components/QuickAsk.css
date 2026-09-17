@@ -1,0 +1,151 @@
+/* ── ⌃⇧N 빠른 질문 창 ──────────────────────────────────────────────────────
+   창 자체가 투명하고 macOS popover 재질(블러)이 깔려 있다. 웹뷰 배경을 칠하면
+   그 재질이 가려져 그냥 회색 상자가 된다 — 그래서 바탕은 비우고 색은 옅게만 얹는다. */
+html.quick-window,
+html.quick-window body,
+html.quick-window #root {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+.quick {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 16px 0 18px;
+  background: color-mix(in oklab, var(--bg-surface) 55%, transparent);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  user-select: none;
+}
+
+.quick__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.quick__cat {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.quick__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  user-select: text;
+}
+
+/* 전역 포커스 링이 입력창 테두리에 걸리면 Spotlight 같은 한 장짜리 모양이 깨진다. */
+.quick__input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.quick__input::placeholder {
+  color: var(--text-muted);
+}
+
+.quick__send {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg-base);
+  transition: opacity var(--dur-micro), scale var(--dur-control) var(--ease-standard);
+}
+
+.quick__send:disabled {
+  opacity: 0.3;
+}
+
+.quick__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-left: 34px;
+  min-height: 24px;
+}
+
+.quick__chips {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.quick__chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 320px;
+  padding: 3px 9px 3px 7px;
+  border: 1px dashed color-mix(in oklab, var(--text-primary) 22%, transparent);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  transition: background var(--dur-micro), color var(--dur-micro), border-color var(--dur-micro);
+}
+
+/* 켜진 칩은 실선 + 색. 꺼진 칩은 점선 — "눌러서 넣을 수 있다" 로 읽힌다. */
+.quick__chip--on {
+  border-style: solid;
+  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+  background: var(--layer-selected);
+  color: var(--text-primary);
+}
+
+.quick__chip-label {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.quick__chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.quick__hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.quick__keys {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.quick__keys kbd {
+  display: inline-block;
+  min-width: 18px;
+  margin: 0 3px 0 8px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--layer-hover);
+  font-family: inherit;
+  font-size: 10px;
+  text-align: center;
+}

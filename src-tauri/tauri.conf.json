@@ -22,14 +22,41 @@
         "decorations": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 14, "y": 20 },
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 20
+        },
         "theme": "Dark",
-        "backgroundColor": "#0f0f11"
+        "backgroundColor": "#0f0f11",
+        "label": "main"
+      },
+      {
+        "label": "quick",
+        "title": "네코에게 묻기",
+        "url": "index.html",
+        "width": 640,
+        "height": 128,
+        "resizable": false,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": true,
+        "shadow": true,
+        "windowEffects": {
+          "effects": [
+            "popover"
+          ],
+          "state": "active",
+          "radius": 16
+        }
       }
     ],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,

@@ -13,6 +13,7 @@ mod airdrop;
 mod exec;
 mod llama;
 mod skills;
+mod quick;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
 pub use error::AppError;
@@ -611,8 +612,26 @@ fn percent_decode(s: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // 빠른 질문 창은 늘 화면 가운데서 뜬다. 지난 위치·크기를 기억하면 안 된다.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_denylist(&["quick"])
+                .build(),
+        )
         .plugin(tauri_plugin_notification::init())
+        .on_window_event(|window, event| match (window.label(), event) {
+            // 메인 창을 닫아도 앱은 남는다. ⌃⇧N 으로 물어본 답이 도착할 곳이 있어야
+            // 하고, 알림도 이 창의 웹뷰가 보낸다. 완전히 끝내려면 ⌘Q.
+            ("main", tauri::WindowEvent::CloseRequested { api, .. }) => {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            // 빠른 질문 창은 다른 곳을 누르면 사라진다(Spotlight 처럼).
+            ("quick", tauri::WindowEvent::Focused(false)) => {
+                let _ = window.hide();
+            }
+            _ => {}
+        })
         .setup(|app| {
             // 앱 데이터 디렉토리 기준으로 DB 경로 결정
             // dev: ~/Library/Application Support/nekodesk
@@ -624,6 +643,29 @@ pub fn run() {
             app.manage(DbState(Mutex::new(conn)));
             app.manage(LlamaServerState(Mutex::new(LlamaProc::default())));
             app.manage(crate::mcp::McpRegistry::new());
+
+            // ⌃⇧N — 어느 앱에서든 빠른 질문 창. 다른 앱이 이미 쓰고 있으면 등록이
+            // 실패하는데, 그렇다고 앱이 안 뜨면 안 된다.
+            {
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+                app.handle().plugin(
+                    tauri_plugin_global_shortcut::Builder::new()
+                        .with_handler(|app, shortcut, event| {
+                            if event.state() == ShortcutState::Pressed
+                                && shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyN)
+                            {
+                                quick::toggle(app);
+                            }
+                        })
+                        .build(),
+                )?;
+                if let Err(e) = app
+                    .global_shortcut()
+                    .register(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyN))
+                {
+                    log::warn!("⌃⇧N 단축키 등록 실패: {e}");
+                }
+            }
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -684,6 +726,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
+            // Dock 아이콘을 누르면 숨겨둔 메인 창을 다시 보인다.
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Some(win) = app_handle.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            }
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<LlamaServerState>() {
                     let mut guard = state.0.lock().unwrap_or_else(|e| e.into_inner());

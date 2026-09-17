@@ -39,6 +39,10 @@ import type {
 } from "./agent/types";
 import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
 import { activateProfile, loadProfiles, probe, profileUrl } from "./stores/modelProfiles";
+import { listen } from "@tauri-apps/api/event";
+import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
+
+const QUICK_SESSION_KEY = "nekodesk_quick_session";
 import "./App.css";
 
 // ── Session types ─────────────────────────────────────────────────────────────
@@ -1198,6 +1202,29 @@ export default function App() {
   useEffect(() => { loadPermissionRules(); }, []);
   // 사용자가 ~/.nekodesk/skills/ 에 넣어둔 지식을 읽어둔다.
   useEffect(() => { reloadUserSkills(); }, []);
+
+  // ⌃⇧N 빠른 질문 — 입력은 빠른 질문 창이 받고, 여기서 전용 대화로 보낸다.
+  // 대화를 새로 만들지 않고 한 곳에 쌓는다. 매번 새로 만들면 사이드바가 금방 "빠른 질문"
+  // 으로 도배되고, 지금 보던 대화에 섞으면 상관없는 맥락이 모델에 들어간다.
+  useEffect(() => {
+    const unlisten = listen<QuickAskPayload>(QUICK_ASK_EVENT, ({ payload }) => {
+      const { sessions: current } = useSessionStore.getState();
+      let quickId = localStorage.getItem(QUICK_SESSION_KEY);
+      if (!quickId || !current.some((s) => s.id === quickId)) {
+        const session = { ...makeSession(), title: "⚡ 빠른 질문" };
+        quickId = session.id;
+        localStorage.setItem(QUICK_SESSION_KEY, quickId);
+        setSessions((prev) => [session, ...prev]);
+        setAllMessages((prev) => ({ ...prev, [session.id]: makeInitialMessages() }));
+      }
+      // 창을 열었을 때 답이 바로 보이게. 사용자는 지금 다른 앱에 있다.
+      setActiveId(quickId);
+      const { userText, displayText } = buildQuickPrompt(payload);
+      void pool.sendMessage(quickId, userText, [], displayText);
+    });
+    return () => { unlisten.then((f) => f()); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool]);
 
   // 앱을 켜면 마지막에 쓰던 프로필로 되돌아간다. 로컬 모델이면 서버를 띄우고,
   // 외부 서버면 주소를 맞춘 뒤 살아 있는지 확인한다 — 꺼져 있다는 걸 첫 질문을
