@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { conversationApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
+import { notifyIfAway, toNotificationBody } from "../lib/notify";
 import { useMessageStore } from "../stores/messageStore";
 import { runAgentLoop } from "../agent/agent-loop";
 import type {
@@ -275,6 +276,8 @@ export function useAgentPool() {
             break;
 
           case "confirm_needed":
+            // 딴 데 가 있으면 확인 창이 떠도 모른다. 대답할 때까지 루프가 멈춰 있다.
+            void notifyIfAway("네코가 확인을 기다려", toNotificationBody(event.code, 120));
             setPendingConfirm({
               sessionId,
               language: event.language,
@@ -287,6 +290,7 @@ export function useAgentPool() {
             break;
 
           case "clarify_needed":
+            void notifyIfAway("네코가 물어볼 게 있어", toNotificationBody(event.question, 120));
             setPendingClarify({
               sessionId,
               question: event.question,
@@ -331,6 +335,7 @@ export function useAgentPool() {
             );
             conversationApi.save(sessionId, "assistant", clean).catch(() => {});
             appEvents.emit("agentDone");
+            void notifyIfAway("네코", toNotificationBody(clean));
             break;
           }
 

@@ -612,6 +612,7 @@ fn percent_decode(s: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             // 앱 데이터 디렉토리 기준으로 DB 경로 결정
             // dev: ~/Library/Application Support/nekodesk
