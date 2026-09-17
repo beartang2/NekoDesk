@@ -35,43 +35,55 @@ pub fn toggle(app: &AppHandle) {
     }
 
     let ctx = read_context();
-    if place_on_cursor_monitor(app, &win).is_none() {
-        let _ = win.center();
-    }
-    let _ = win.show();
-    let _ = win.set_focus();
+    present(&win);
     let _ = app.emit_to("quick", "quick-context", ctx);
 }
 
-/// 마우스가 있는 모니터의 가운데로 옮긴다.
+/// 창을 띄운다.
 ///
-/// `center()` 는 창이 **지금 걸쳐 있는** 모니터 기준이라, 모니터가 여럿이면 마지막에
-/// 떴던 화면에 계속 뜬다. 사용자가 보고 있는 곳은 커서가 있는 화면이다.
-/// 뭐 하나라도 못 얻으면 None — 호출자가 `center()` 로 물러선다.
-fn place_on_cursor_monitor(app: &AppHandle, win: &tauri::WebviewWindow) -> Option<()> {
-    let cursor = app.cursor_position().ok()?;
-    let monitor = app.monitor_from_point(cursor.x, cursor.y).ok()??;
-    // 창의 물리 크기는 지금 있는 모니터의 배율을 따른다. 배율이 다른 모니터로 옮기면
-    // 달라지므로, 논리 크기에 **옮겨 갈** 모니터의 배율을 곱해 계산한다.
-    let logical = win.outer_size().ok()?.to_logical::<f64>(win.scale_factor().ok()?);
-    let area = monitor.work_area();
-    let (x, y) = centered_in(
-        (area.position.x, area.position.y),
-        (area.size.width, area.size.height),
-        (logical.width, logical.height),
-        monitor.scale_factor(),
-    );
-    win.set_position(tauri::PhysicalPosition::new(x, y)).ok()
+/// `show()` + `set_focus()` 는 **앱 전체를 활성화**한다. 그러면 메인 창이 앞으로
+/// 끌려오고, 전체화면 앱 위에서 부르면 네코가 있는 데스크톱으로 화면이 넘어간다.
+/// macOS 에선 활성화 없이 키 입력을 받는 패널로 띄운다(Spotlight 식).
+#[cfg(target_os = "macos")]
+fn present(win: &tauri::WebviewWindow) {
+    match win.ns_window() {
+        Ok(ptr) => unsafe { macos::present_on_cursor_screen(ptr.cast()) },
+        Err(_) => {
+            let _ = win.center();
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+    }
 }
 
-/// 작업 영역(메뉴 막대·Dock 을 뺀 곳) 안에서 가운데 좌표.
-fn centered_in(area_pos: (i32, i32), area_size: (u32, u32), win_logical: (f64, f64), scale: f64) -> (i32, i32) {
-    let w = (win_logical.0 * scale).round() as i32;
-    let h = (win_logical.1 * scale).round() as i32;
-    (
-        area_pos.0 + (area_size.0 as i32 - w) / 2,
-        area_pos.1 + (area_size.1 as i32 - h) / 2,
-    )
+#[cfg(not(target_os = "macos"))]
+fn present(win: &tauri::WebviewWindow) {
+    let _ = win.center();
+    let _ = win.show();
+    let _ = win.set_focus();
+}
+
+/// 앱 시작 때 한 번. 빠른 질문 창을 비활성 패널로 바꾼다.
+#[cfg(target_os = "macos")]
+pub fn install_panel(win: &tauri::WebviewWindow) {
+    if let Ok(ptr) = win.ns_window() {
+        if !unsafe { macos::make_panel(ptr.cast()) } {
+            log::warn!("빠른 질문 창을 패널로 못 바꿨어 — 일반 창으로 뜬다");
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn install_panel(_win: &tauri::WebviewWindow) {}
+
+/// 화면(메뉴 막대·Dock 을 뺀 영역) 안에서 창을 가운데 둘 원점.
+///
+/// 전부 AppKit 의 **포인트** 좌표(왼쪽 아래가 원점)다. 예전엔 tao 의 cursor_position
+/// 을 썼는데, 그건 주 모니터 배율을 곱한 물리 픽셀을 주고 monitor_from_point 는
+/// 포인트를 받는다. 레티나에선 좌표가 두 배로 어긋나 다른 모니터를 못 찾았다.
+fn centered_origin(visible: (f64, f64, f64, f64), win_size: (f64, f64)) -> (f64, f64) {
+    let (x, y, w, h) = visible;
+    ((x + (w - win_size.0) / 2.0).round(), (y + (h - win_size.1) / 2.0).round())
 }
 
 fn clip(s: String) -> Option<String> {
@@ -120,6 +132,115 @@ mod macos {
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
         fn CFRelease(cf: CFTypeRef);
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGPoint { x: f64, y: f64 }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGSize { width: f64, height: f64 }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGRect { origin: CGPoint, size: CGSize }
+
+    unsafe impl objc2::Encode for CGPoint {
+        const ENCODING: objc2::Encoding = objc2::Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl objc2::Encode for CGSize {
+        const ENCODING: objc2::Encoding = objc2::Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl objc2::Encode for CGRect {
+        const ENCODING: objc2::Encoding = objc2::Encoding::Struct("CGRect", &[CGPoint::ENCODING, CGSize::ENCODING]);
+    }
+
+    const NS_NONACTIVATING_PANEL: usize = 1 << 7;
+    const CAN_JOIN_ALL_SPACES: usize = 1 << 0;
+    const FULL_SCREEN_AUXILIARY: usize = 1 << 8;
+    /// NSStatusWindowLevel. 전체화면 앱과 일반 떠 있는 창 위.
+    const STATUS_WINDOW_LEVEL: isize = 25;
+
+    extern "C-unwind" fn yes(_: &AnyObject, _: objc2::runtime::Sel) -> Bool { Bool::YES }
+    extern "C-unwind" fn no(_: &AnyObject, _: objc2::runtime::Sel) -> Bool { Bool::NO }
+
+    /// tao 가 만든 창(TaoWindow)을 NSPanel 하위 클래스로 바꾼다.
+    ///
+    /// 앱을 활성화하지 않고도 키 입력을 받으려면 `nonactivatingPanel` 스타일이
+    /// 필요한데, 그건 NSPanel 에만 있다. 창을 새로 만들면 웹뷰를 다시 붙여야 해서
+    /// 클래스만 바꾼다(tauri-nspanel 과 같은 방법).
+    ///
+    /// 객체 메모리는 TaoWindow 크기로 잡혀 있다. NSPanel 이 NSWindow 보다 크면 바꾼
+    /// 뒤 남의 메모리를 읽게 되므로, 크기가 같을 때만 바꾸고 아니면 false.
+    /// TaoWindow 의 `focusable` 변수도 같은 자리에 둔다 — tao 가 그 이름으로 읽는다.
+    pub unsafe fn make_panel(window: *mut AnyObject) -> bool {
+        use objc2::runtime::ClassBuilder;
+        use objc2::sel;
+
+        let (Some(panel_cls), Some(window_cls)) = (AnyClass::get(c"NSPanel"), AnyClass::get(c"NSWindow")) else {
+            return false;
+        };
+        if panel_cls.instance_size() != window_cls.instance_size() || window.is_null() {
+            return false;
+        }
+
+        let cls = match AnyClass::get(c"NekoQuickPanel") {
+            Some(c) => c,
+            None => {
+                let Some(mut b) = ClassBuilder::new(c"NekoQuickPanel", panel_cls) else { return false };
+                b.add_ivar::<Bool>(c"focusable");
+                // 테두리 없는 창은 기본으로 키 윈도우가 못 된다 — 그러면 글자를 못 친다.
+                b.add_method(sel!(canBecomeKeyWindow), yes as extern "C-unwind" fn(_, _) -> _);
+                // 메인 창이 되면 앱의 메인 창 자리를 뺏는다.
+                b.add_method(sel!(canBecomeMainWindow), no as extern "C-unwind" fn(_, _) -> _);
+                b.register()
+            }
+        };
+        if cls.instance_size() != (*window).class().instance_size() {
+            return false;
+        }
+        objc2::ffi::object_setClass(window, cls);
+
+        let mask: usize = msg_send![window, styleMask];
+        let _: () = msg_send![window, setStyleMask: mask | NS_NONACTIVATING_PANEL];
+        // 모든 Space 에, 전체화면 앱 위에도.
+        let _: () = msg_send![window, setCollectionBehavior: CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY];
+        let _: () = msg_send![window, setLevel: STATUS_WINDOW_LEVEL];
+        // 패널은 기본으로 앱이 비활성화되면 숨는다. 이 앱은 애초에 활성화하지 않는다.
+        let _: () = msg_send![window, setHidesOnDeactivate: Bool::NO];
+        true
+    }
+
+    /// 마우스가 있는 화면 가운데에 띄우고 키 입력을 받게 한다. 앱은 활성화하지 않는다.
+    pub unsafe fn present_on_cursor_screen(window: *mut AnyObject) {
+        let (Some(event_cls), Some(screen_cls)) = (AnyClass::get(c"NSEvent"), AnyClass::get(c"NSScreen")) else {
+            return;
+        };
+        let mouse: CGPoint = msg_send![event_cls, mouseLocation];
+        let screens: *mut AnyObject = msg_send![screen_cls, screens];
+        let count: usize = msg_send![screens, count];
+
+        for i in 0..count {
+            let screen: *mut AnyObject = msg_send![screens, objectAtIndex: i];
+            let frame: CGRect = msg_send![screen, frame];
+            let inside = mouse.x >= frame.origin.x
+                && mouse.x < frame.origin.x + frame.size.width
+                && mouse.y >= frame.origin.y
+                && mouse.y < frame.origin.y + frame.size.height;
+            if !inside {
+                continue;
+            }
+            let visible: CGRect = msg_send![screen, visibleFrame];
+            let win_frame: CGRect = msg_send![window, frame];
+            let (x, y) = super::centered_origin(
+                (visible.origin.x, visible.origin.y, visible.size.width, visible.size.height),
+                (win_frame.size.width, win_frame.size.height),
+            );
+            let _: () = msg_send![window, setFrameOrigin: CGPoint { x, y }];
+            break;
+        }
+
+        let _: () = msg_send![window, orderFrontRegardless];
+        let _: () = msg_send![window, makeKeyWindow];
     }
 
     /// NSString 은 CFString 과 같은 객체다(toll-free bridge). AX 속성 이름으로 그대로 쓴다.
@@ -201,16 +322,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn centers_inside_the_target_monitor_work_area() {
-        // 오른쪽 외장 모니터(배율 1, 왼쪽 끝 x=2940, 메뉴 막대 25px 아래부터).
-        assert_eq!(centered_in((2940, 25), (1920, 1055), (640.0, 128.0), 1.0), (2940 + 640, 25 + 463));
+    fn centers_inside_the_visible_frame_of_the_screen() {
+        // 오른쪽 외장 모니터: 왼쪽 끝 x=1512, 아래 Dock 70pt 위부터 1010pt 높이(포인트).
+        assert_eq!(centered_origin((1512.0, 70.0, 1920.0, 1010.0), (640.0, 128.0)), (1512.0 + 640.0, 70.0 + 441.0));
     }
 
     #[test]
-    fn uses_the_target_monitor_scale_not_the_current_one() {
-        // 레티나(배율 2)로 옮기면 640 논리폭은 1280 물리폭이다. 지금 모니터 배율로
-        // 계산하면 가운데에서 320px 어긋난다.
-        assert_eq!(centered_in((0, 50), (2940, 1812), (640.0, 128.0), 2.0), (830, 50 + 778));
+    fn works_for_screens_left_of_or_below_the_primary() {
+        // 주 모니터 왼쪽에 둔 모니터는 x 가 음수다.
+        assert_eq!(centered_origin((-1920.0, -200.0, 1920.0, 1080.0), (640.0, 128.0)), (-1280.0, 276.0));
     }
 
     #[test]

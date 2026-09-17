@@ -694,6 +694,9 @@ pub fn run() {
                         })
                         .build(),
                 )?;
+                if let Some(win) = app.get_webview_window("quick") {
+                    quick::install_panel(&win);
+                }
                 if let Err(e) = app
                     .global_shortcut()
                     .register(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyN))
