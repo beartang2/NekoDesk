@@ -16,7 +16,15 @@ import { invoke } from "@tauri-apps/api/core";
 
 const RUB_SPEED_THRESHOLD = 6;   // 평활된 이동량(px). 이 이상이면 "문지르는 중"
 const PET_THROTTLE_MS = 320;     // 쓰다듬기 반응(하트·RPG) 최소 간격
-const HAPTIC_THROTTLE_MS = 90;   // 햅틱 최소 간격 (너무 잦으면 뭉갬)
+const HAPTIC_THROTTLE_MS = 75;   // 햅틱 최소 간격 (너무 잦으면 뭉갬)
+
+/**
+ * 촉감의 세기. macOS 는 세기를 숫자로 못 정하고 패턴 셋 중에 고르는 게 전부다.
+ * 약한 순서로 0=generic, 1=alignment(또렷한 탁), 2=levelChange(제일 묵직).
+ * 더 세게 하려면 여기를 올리고, 그래도 약하면 위의 간격을 줄인다 — 자주 울릴수록
+ * 손끝에서는 세게 느껴진다. 다만 너무 촘촘하면 진동이 이어져 뭉개진다.
+ */
+const HAPTIC_PATTERN = 2;
 
 export function useTrackpadPet(onRub: () => void) {
   const targetRef = useRef<HTMLElement | null>(null);
@@ -38,8 +46,7 @@ export function useTrackpadPet(onRub: () => void) {
     const now = performance.now();
     if (now - lastHapticRef.current > HAPTIC_THROTTLE_MS) {
       lastHapticRef.current = now;
-      // pattern 0 = generic (부드러운 촉감)
-      invoke("haptic_feedback", { pattern: 0 }).catch(() => {});
+      invoke("haptic_feedback", { pattern: HAPTIC_PATTERN }).catch(() => {});
     }
     if (now - lastPetRef.current > PET_THROTTLE_MS) {
       lastPetRef.current = now;
