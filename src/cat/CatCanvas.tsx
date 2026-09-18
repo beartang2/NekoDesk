@@ -5,7 +5,6 @@ import {
   DISPLAY_HEIGHT,
   DISPLAY_WIDTH,
   getAnimation,
-  getCatVariant,
 } from "./spriteData";
 import type { CatEmotion } from "../agent/types";
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
@@ -36,64 +35,6 @@ function getSpriteImage(src: string): HTMLImageElement {
   image.src = src;
   imageCache.set(src, image);
   return image;
-}
-
-function hexToRgb(hex: string) {
-  const normalized = hex.replace("#", "");
-  const value = parseInt(normalized, 16);
-  return {
-    r: (value >> 16) & 255,
-    g: (value >> 8) & 255,
-    b: value & 255,
-  };
-}
-
-function pickCoatTone(
-  luminance: number,
-  palette: { light: { r: number; g: number; b: number }; base: { r: number; g: number; b: number }; shadow: { r: number; g: number; b: number } }
-) {
-  if (luminance > 188) return palette.light;
-  if (luminance > 126) return palette.base;
-  return palette.shadow;
-}
-
-function recolorCoat(ctx: CanvasRenderingContext2D, variantId: string) {
-  const variant = getCatVariant(variantId);
-  const mainPalette = {
-    light: hexToRgb(variant.coat.light),
-    base: hexToRgb(variant.coat.base),
-    shadow: hexToRgb(variant.coat.shadow),
-  };
-  const imageData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-  const data = imageData.data;
-
-  for (let i = 0; i < data.length; i += 4) {
-    const alpha = data[i + 3];
-    if (alpha === 0) continue;
-
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const saturation = max === 0 ? 0 : (max - min) / max;
-    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    const pinkish = r > g + 20 && b > g - 10 && r > 120;
-    const darkOutline = luminance < 58;
-    const likelyCoat =
-      saturation < 0.38 ||
-      (r > g && g >= b && saturation < 0.62);
-
-    if (pinkish || darkOutline || !likelyCoat) continue;
-
-    const target = pickCoatTone(luminance, mainPalette);
-
-    data[i] = target.r;
-    data[i + 1] = target.g;
-    data[i + 2] = target.b;
-  }
-
-  ctx.putImageData(imageData, 0, 0);
 }
 
 // ── Canvas renderer ───────────────────────────────────────────────────────────
@@ -205,10 +146,6 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
         drawWidth,
         drawHeight
       );
-
-      if (anim.recolor) {
-        recolorCoat(ctx, variantId);
-      }
     };
 
     if (image.complete) {
