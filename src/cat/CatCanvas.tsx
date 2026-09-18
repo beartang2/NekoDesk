@@ -8,6 +8,13 @@ import "./CatCanvas.css";
 const HEARTS = ["♡", "♡", "♡", "✦", "˚"];
 const HAPPY_HEARTS = ["♡", "♡", "✦", "★", "✿", "˚", "♡"];
 const PET_DURATION_MS = 2000;
+/**
+ * 쓰다듬기가 끝나고 원래 감정으로 돌아가기 전에 잠깐 거치는 평소 모습.
+ *
+ * 곧장 넘어가면 하트를 띄우며 좋아하던 고양이가 다음 순간 상자에서 자고 있다.
+ * 사이에 한 박자를 두면 "기뻐함 → 진정 → 원래 하던 것" 으로 읽힌다.
+ */
+const PET_SETTLE_MS = 700;
 const PET_HAPPY_THRESHOLD = 5; // 이 횟수 이상 쓰다듬으면 happy 애니메이션
 const PET_RESET_MS = 3000;     // 마지막 쓰다듬기로부터 이 시간이 지나면 카운트 리셋
 
@@ -98,8 +105,11 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
     setPetEmotion(nextEmotion);
     if (petTimerRef.current) clearTimeout(petTimerRef.current);
     petTimerRef.current = setTimeout(() => {
-      setPetEmotion(null);
-      petTimerRef.current = null;
+      setPetEmotion("idle");
+      petTimerRef.current = setTimeout(() => {
+        setPetEmotion(null);
+        petTimerRef.current = null;
+      }, PET_SETTLE_MS);
     }, PET_DURATION_MS);
   }, [onPet]);
 
