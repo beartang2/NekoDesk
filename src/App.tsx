@@ -5,6 +5,7 @@ import { Sun, Moon, Settings, Paperclip, ArrowUp, Zap, PanelLeftClose, PanelLeft
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
+import { Attachments } from "./components/Attachments";
 import { PlanChecklist } from "./components/PlanChecklist";
 import { ChatEmptyState } from "./components/ChatEmptyState";
 import { CatCanvas } from "./cat/CatCanvas";
@@ -388,14 +389,7 @@ function ChatMessages({
                 </div>
               )}
               {m.attachments && m.attachments.length > 0 && (
-                <div className="message__attachments">
-                  {m.attachments.map((f, i) => (
-                    <span key={i} className="message__file-chip">
-                      <Paperclip size={10} style={{ flexShrink: 0 }} />
-                      {f.name}
-                    </span>
-                  ))}
-                </div>
+                <Attachments files={m.attachments} />
               )}
               {m.isStreaming && <span className="message__cursor" />}
             </div>
@@ -548,19 +542,7 @@ function Composer({
     <div className="composer">
       {files.length > 0 && (
         <div className="composer__files">
-          {files.map((f, i) => (
-            <div key={i} className="file-chip">
-              <Paperclip size={10} style={{ flexShrink: 0, color: "var(--accent)" }} />
-              <span className="file-chip__name">{f.name}</span>
-              <button
-                className="file-chip__remove"
-                onClick={() => removeAttachedFile(i)}
-                title="제거"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
+          <Attachments files={files} onRemove={removeAttachedFile} compact />
         </div>
       )}
       <div className="composer__row">

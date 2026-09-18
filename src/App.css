@@ -913,42 +913,6 @@ html, body, #root {
   gap: 6px;
 }
 
-.file-chip {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  background: var(--bg-raised);
-  border: 1px solid var(--accent-dim);
-  border-radius: 3px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  max-width: 180px;
-}
-
-.file-chip__name {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.file-chip__remove {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 10px;
-  padding: 0 1px;
-  line-height: 1;
-  flex-shrink: 0;
-  -webkit-app-region: no-drag;
-}
-
-.file-chip__remove:hover {
-  color: var(--error);
-}
-
 .composer__attach {
   background: none;
   border: none;
@@ -1021,29 +985,6 @@ html, body, #root {
   border-radius: 6px;
   border: 1px solid var(--border);
   object-fit: contain;
-}
-
-.message__attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 6px;
-}
-
-.message__file-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  padding: 2px 8px;
-  background: var(--bg-base);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  color: var(--text-muted);
-  max-width: min(240px, 100%);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .composer__input {
