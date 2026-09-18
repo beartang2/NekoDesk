@@ -67,6 +67,8 @@ pub struct ConversationMessage {
     pub role: String,
     pub content: String,
     pub created_at: String,
+    /// 첨부 파일 JSON. 없으면 None.
+    pub attachments: Option<String>,
 }
 
 impl TryFrom<&Row<'_>> for ConversationMessage {
@@ -78,6 +80,7 @@ impl TryFrom<&Row<'_>> for ConversationMessage {
             role: row.get("role")?,
             content: row.get("content")?,
             created_at: row.get("created_at")?,
+            attachments: row.get("attachments")?,
         })
     }
 }

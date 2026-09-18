@@ -235,6 +235,8 @@ export interface ConversationMessage {
   role: string;
   content: string;
   created_at: string;
+  /** 첨부 파일 JSON. 저장할 때 붙인 게 없으면 null. */
+  attachments?: string | null;
 }
 
 import type { PlanStep } from "./plan";

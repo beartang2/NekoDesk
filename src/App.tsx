@@ -438,6 +438,17 @@ function readFileAsText(file: File): Promise<string> {
   });
 }
 
+/** 저장해둔 첨부 JSON 을 되살린다. 깨져 있으면 첨부 없이 글만 보여준다. */
+function parseAttachments(raw: string | null | undefined): AttachedFile[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as AttachedFile[];
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function resizeImageForLlm(file: File, maxPx = 768): Promise<string> {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -784,6 +795,7 @@ export default function App() {
         id: crypto.randomUUID(),
         role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
         content: m.content,
+        attachments: parseAttachments(m.attachments),
         time: new Date(m.created_at).toLocaleTimeString("ko-KR", {
           hour: "2-digit",
           minute: "2-digit",

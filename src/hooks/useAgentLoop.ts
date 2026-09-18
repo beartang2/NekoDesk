@@ -75,6 +75,26 @@ function stripSpecialTokens(text: string): { clean: string; emotion: CatEmotion 
 }
 
 // Text-only representation (for DB storage and system prompt context)
+/**
+ * 대화와 함께 저장할 첨부. 이미지 미리보기가 껐다 켠 뒤에도 남게 한다.
+ *
+ * 글 내용(`content`)은 빼고 저장한다 — 텍스트 파일은 이미 메시지 본문에 통째로
+ * 들어가 있어 두 번 저장할 이유가 없다. 이미지 데이터는 크니까 한 메시지당 총량을
+ * 제한하고, 넘치면 미리보기 없이 파일 카드로만 남긴다.
+ */
+const MAX_STORED_ATTACHMENT_BYTES = 2_000_000;
+
+export function serializeAttachments(files: AttachedFile[]): string | undefined {
+  if (files.length === 0) return undefined;
+  let budget = MAX_STORED_ATTACHMENT_BYTES;
+  const stored = files.map((f) => {
+    const dataUrl = f.dataUrl && f.dataUrl.length <= budget ? f.dataUrl : undefined;
+    if (dataUrl) budget -= dataUrl.length;
+    return { name: f.name, type: f.type, size: f.size, content: "", ...(dataUrl ? { dataUrl } : {}) };
+  });
+  return JSON.stringify(stored);
+}
+
 function buildTextContent(text: string, files: AttachedFile[]): string {
   if (files.length === 0) return text;
   const fileParts = files.map((f) => {
@@ -202,7 +222,9 @@ export function useAgentPool() {
 
       const textContent = buildTextContent(userText, files);
       const llmContent = buildLlmContent(userText, files);
-      conversationApi.save(sessionId, "user", buildTextContent(visibleText, files)).catch(() => {});
+      conversationApi
+        .save(sessionId, "user", buildTextContent(visibleText, files), serializeAttachments(files))
+        .catch(() => {});
 
       const rawHistory = buildHistory(useMessageStore.getState().get(sessionId));
       const history: LlmMessage[] = summaryContext

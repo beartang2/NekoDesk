@@ -226,9 +226,10 @@ mod commands {
         session_id: String,
         role: String,
         content: String,
+        attachments: Option<String>,
     ) -> Result<(), AppError> {
         let conn = db.0.lock()?;
-        crate::db::conversations::save(&conn, &session_id, &role, &content)
+        crate::db::conversations::save(&conn, &session_id, &role, &content, attachments.as_deref())
     }
 
     #[tauri::command(async)]

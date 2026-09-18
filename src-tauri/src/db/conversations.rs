@@ -7,12 +7,19 @@ use rusqlite::{params, Connection};
 /// 세션당 보관할 최대 메시지 수. 초과분은 저장할 때마다 잘라낸다.
 const MAX_PER_SESSION: i64 = 40;
 
-const COLS: &str = "id, session_id, role, content, created_at";
+const COLS: &str = "id, session_id, role, content, created_at, attachments";
 
-pub fn save(conn: &Connection, session_id: &str, role: &str, content: &str) -> AppResult<()> {
+pub fn save(
+    conn: &Connection,
+    session_id: &str,
+    role: &str,
+    content: &str,
+    attachments: Option<&str>,
+) -> AppResult<()> {
     conn.execute(
-        "INSERT INTO conversation_messages (session_id, role, content) VALUES (?1, ?2, ?3)",
-        params![session_id, role, content],
+        "INSERT INTO conversation_messages (session_id, role, content, attachments)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![session_id, role, content, attachments],
     )?;
     // 세션당 최근 MAX_PER_SESSION 개만 남기고 오래된 것 삭제
     conn.execute(
@@ -55,8 +62,8 @@ mod tests {
     #[test]
     fn save_load_roundtrip_in_order() {
         let c = setup();
-        save(&c, "s1", "user", "안녕").unwrap();
-        save(&c, "s1", "assistant", "반가워 🐱").unwrap();
+        save(&c, "s1", "user", "안녕", None).unwrap();
+        save(&c, "s1", "assistant", "반가워 🐱", None).unwrap();
         let msgs = load(&c, "s1").unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].content, "안녕"); // id ASC
@@ -64,10 +71,23 @@ mod tests {
     }
 
     #[test]
+    fn keeps_attachments_with_the_message() {
+        // 껐다 켠 뒤에도 붙였던 이미지가 미리보기로 남아야 한다.
+        let c = setup();
+        let json = r#"[{"name":"cat.png","type":"image/png","size":1234,"dataUrl":"data:image/png;base64,AA"}]"#;
+        save(&c, "s1", "user", "이거 뭐야", Some(json)).unwrap();
+        save(&c, "s1", "assistant", "고양이야", None).unwrap();
+
+        let msgs = load(&c, "s1").unwrap();
+        assert_eq!(msgs[0].attachments.as_deref(), Some(json));
+        assert_eq!(msgs[1].attachments, None);
+    }
+
+    #[test]
     fn trims_to_max_per_session() {
         let c = setup();
         for i in 0..50 {
-            save(&c, "s1", "user", &format!("m{i}")).unwrap();
+            save(&c, "s1", "user", &format!("m{i}"), None).unwrap();
         }
         let msgs = load(&c, "s1").unwrap();
         assert_eq!(msgs.len(), MAX_PER_SESSION as usize);
@@ -77,8 +97,8 @@ mod tests {
     #[test]
     fn sessions_are_isolated() {
         let c = setup();
-        save(&c, "a", "user", "x").unwrap();
-        save(&c, "b", "user", "y").unwrap();
+        save(&c, "a", "user", "x", None).unwrap();
+        save(&c, "b", "user", "y", None).unwrap();
         delete(&c, "a").unwrap();
         assert!(load(&c, "a").unwrap().is_empty());
         assert_eq!(load(&c, "b").unwrap().len(), 1);

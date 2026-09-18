@@ -76,6 +76,12 @@ const MIGRATIONS: &[&str] = &[
             executed_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         ",
+    // 2 — 대화에 첨부 파일을 함께 보관한다.
+    //
+    // 예전엔 글만 저장해서, 앱을 껐다 켜면 붙였던 이미지가 본문에 남은 파일명
+    // 한 줄로만 남았다. 미리보기는 메모리에만 있었기 때문이다.
+    // JSON 배열({ name, type, size, dataUrl })을 그대로 담는다.
+    "ALTER TABLE conversation_messages ADD COLUMN attachments TEXT;",
 ];
 
 /// 스키마를 최신으로 올린다. 앱 시작 시 1회 호출.
