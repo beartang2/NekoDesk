@@ -410,48 +410,48 @@ html, body, #root {
   background: var(--bg-surface);
 }
 
-/* ── Game speech bubble (inside cat panel, top) ── */
+/* ── Game speech bubble (그림판과 고양이 사이) ──────────────────────────────────
+   예전엔 고양이 패널 **위에 겹쳐** 떠서 고양이와 게이지를 가렸다. 지금은 흐름 안에
+   제 자리를 차지하고, 게임 중 남는 높이를 받는 그림판이 그만큼 줄어든다.
+   꼬리 위치(--tail-x)는 고양이 좌표를 재서 GameSpeechBubble 이 채운다. */
 .cat-game-bubble {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  right: 8px;
+  position: relative;
+  flex-shrink: 0;
+  margin: 6px 10px 12px;
   background: var(--bg-surface);
   border: 1px solid var(--accent-dim);
   border-radius: 14px;
-  padding: 6px 10px;
+  padding: 7px 11px;
   font-size: 12px;
-  color: var(--text);
-  line-height: 1.4;
+  color: var(--text-primary);
+  line-height: 1.45;
   box-shadow: var(--shadow-md);
   animation: bubble-pop var(--dur-control) var(--ease-spring);
   z-index: 10;
 }
 
-.cat-game-bubble::before {
+/* 생각 풍선처럼 점 두 개로 꼬리를 만든다. 고양이 쪽으로 점점 작아진다. */
+.cat-game-bubble::before,
+.cat-game-bubble::after {
   content: "";
   position: absolute;
-  top: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: 7px;
-  height: 7px;
   border-radius: 50%;
   background: var(--bg-surface);
   border: 1px solid var(--accent-dim);
 }
 
+.cat-game-bubble::before {
+  top: calc(100% + 1px);
+  left: var(--tail-x, 40px);
+  width: 7px;
+  height: 7px;
+}
+
 .cat-game-bubble::after {
-  content: "";
-  position: absolute;
-  top: calc(100% + 14px);
-  left: 50%;
-  transform: translateX(-50%);
+  top: calc(100% + 10px);
+  left: calc(var(--tail-x, 40px) + 3px);
   width: 4px;
   height: 4px;
-  border-radius: 50%;
-  background: var(--bg-surface);
-  border: 1px solid var(--accent-dim);
 }
 
 @keyframes bubble-pop {

@@ -5,6 +5,7 @@ import { Sun, Moon, Settings, Paperclip, ArrowUp, Zap, PanelLeftClose, PanelLeft
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
+import { GameSpeechBubble } from "./components/GameSpeechBubble";
 import { Attachments } from "./components/Attachments";
 import { PlanChecklist } from "./components/PlanChecklist";
 import { ChatEmptyState } from "./components/ChatEmptyState";
@@ -223,10 +224,9 @@ function Sidebar({
 
       <DrawingPadCard gameMode={gameMode} />
 
+      {gameSpeech && <GameSpeechBubble text={gameSpeech} />}
+
       <div className="cat-panel" style={{ position: "relative" }}>
-        {gameSpeech && (
-          <div className="cat-game-bubble">{gameSpeech}</div>
-        )}
         <div className="cat-panel__ctx">{contextTokens.toLocaleString()} / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}</div>
         <CatCanvas emotion={emotion} onPet={rpg.onPet} />
         <CatStatusPanel
