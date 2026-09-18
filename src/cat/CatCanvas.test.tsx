@@ -25,8 +25,12 @@ describe("쓰다듬은 뒤 되돌아가기", () => {
     act(() => { vi.advanceTimersByTime(2000); });
     expect(shownEmotion(container)).toBe("idle");
 
-    // 한 박자 뒤에야 원래 하던 것으로 돌아간다.
-    act(() => { vi.advanceTimersByTime(1600); });
+    // 평소 동작을 몇 바퀴 돌 동안은 그대로 둔다.
+    act(() => { vi.advanceTimersByTime(2500); });
+    expect(shownEmotion(container)).toBe("idle");
+
+    // 그 뒤에야 원래 하던 것으로 돌아간다.
+    act(() => { vi.advanceTimersByTime(600); });
     expect(shownEmotion(container)).toBe("sleepy");
   });
 

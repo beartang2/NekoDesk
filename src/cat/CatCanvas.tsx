@@ -9,12 +9,21 @@ const HEARTS = ["♡", "♡", "♡", "✦", "˚"];
 const HAPPY_HEARTS = ["♡", "♡", "✦", "★", "✿", "˚", "♡"];
 const PET_DURATION_MS = 2000;
 /**
- * 쓰다듬기가 끝나고 원래 감정으로 돌아가기 전에 잠깐 거치는 평소 모습.
+ * 쓰다듬기가 끝나고 원래 감정으로 돌아가기 전에 거치는 평소 모습.
  *
  * 곧장 넘어가면 하트를 띄우며 좋아하던 고양이가 다음 순간 상자에서 자고 있다.
- * 사이에 한 박자를 두면 "기뻐함 → 진정 → 원래 하던 것" 으로 읽힌다.
+ * 사이를 두되, 초 단위로 못 박지 않고 **평소 동작 몇 바퀴**로 센다. 그래야 꼬리가
+ * 살랑이다 끊기지 않고 한 바퀴를 마친 자리에서 다음 상태로 넘어간다.
  */
-const PET_SETTLE_MS = 1600;
+const PET_SETTLE_CYCLES = 2.5;
+
+/**
+ * 그래도 이만큼은 머문다.
+ *
+ * 평소 동작의 한 바퀴 길이는 털색마다 다르다(치즈냥은 Idle 그림이 없어 3칸짜리
+ * 대용이라 한 바퀴가 0.6초뿐이다). 바퀴 수로만 세면 그 아이만 눈 깜짝할 새 지나간다.
+ */
+const PET_SETTLE_MIN_MS = 3000;
 const PET_HAPPY_THRESHOLD = 5; // 이 횟수 이상 쓰다듬으면 happy 애니메이션
 const PET_RESET_MS = 3000;     // 마지막 쓰다듬기로부터 이 시간이 지나면 카운트 리셋
 
@@ -69,6 +78,14 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
 
   const [scale] = useState(pixelScale);
   const displayEmotion = petEmotion ?? emotion;
+
+  // 평소 동작 한 바퀴 = 프레임 수 × 프레임 간격. 털색을 바꾸면 길이도 따라 바뀐다.
+  const idleAnim = getAnimation("idle", variantId);
+  const settleMsRef = useRef(PET_SETTLE_MIN_MS);
+  settleMsRef.current = Math.max(
+    idleAnim.frames.length * idleAnim.interval * PET_SETTLE_CYCLES,
+    PET_SETTLE_MIN_MS
+  );
   const anim = getAnimation(displayEmotion, variantId);
 
   const handlePet = useCallback(() => {
@@ -109,7 +126,7 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
       petTimerRef.current = setTimeout(() => {
         setPetEmotion(null);
         petTimerRef.current = null;
-      }, PET_SETTLE_MS);
+      }, settleMsRef.current);
     }, PET_DURATION_MS);
   }, [onPet]);
 
