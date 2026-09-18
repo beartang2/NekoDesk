@@ -22,9 +22,6 @@ export interface AnimDef {
   src: string;
   frames: SpriteFrame[];
   interval: number;
-  scale: number;
-  offsetX: number;
-  offsetY: number;
 }
 
 export interface CatVariant {
@@ -32,8 +29,13 @@ export interface CatVariant {
   name: string;
   /** 설정·빈 화면의 색 미리보기. 그림에서 가장 많이 쓰인 두 색이다. */
   swatchCss: string;
-  /** src/assets/cat/variants 아래 폴더 이름. 파일 이름의 앞머리이기도 하다. */
-  dir: string;
+  /**
+   * src/assets/cat/variants 아래 폴더 이름. 파일 이름의 앞머리이기도 하다.
+   * null 이면 variants 밖(src/assets/cat) 에 상태 이름 그대로 있는 기본 그림이다.
+   */
+  dir: string | null;
+  /** 그림이 없는 상태를 다른 그림으로 때운다. */
+  overrides?: Partial<Record<CatState, { state: CatState; frames: number[] }>>;
 }
 
 /** 그림에 있는 상태들. 감정(CatEmotion)보다 적어서 여럿이 한 그림을 나눠 쓴다. */
@@ -49,11 +51,19 @@ const FRAME_COUNT: Record<CatState, number> = {
   Sleep: 8,
 };
 
-export const CANVAS_WIDTH = 96;
-export const CANVAS_HEIGHT = 104;
-export const DISPLAY_WIDTH = 104;
-export const DISPLAY_HEIGHT = 112;
-export const DEFAULT_VARIANT_ID = "tabby";
+/** 프레임 한 칸의 픽셀 수. 캔버스 크기는 여기에 배율을 곱해 정한다. */
+export const SPRITE_FRAME_SIZE = FRAME_SIZE;
+
+/**
+ * 화면에서 원본 1픽셀을 몇 배로 키울지(CSS 기준).
+ *
+ * 실제로 그릴 때는 여기에 화면 배율(devicePixelRatio)을 곱해 **정수**로 반올림한다.
+ * 소수 배율로 키우면 원본 1픽셀이 어떤 자리에선 3칸, 어떤 자리에선 2칸으로 그려져
+ * 픽셀아트의 비율이 무너진다. 레티나(배율 2)에서는 2.5 × 2 = 5 칸으로 딱 떨어진다.
+ */
+export const SPRITE_SCALE = 2.5;
+
+export const DEFAULT_VARIANT_ID = "cheese";
 
 /**
  * 스트립 URL 을 빌드 타임에 모은다.
@@ -63,6 +73,7 @@ export const DEFAULT_VARIANT_ID = "tabby";
  */
 const STRIPS = import.meta.glob<string>(
   [
+    "../assets/cat/*.png",
     "../assets/cat/variants/*/*_*.png",
     // 한 장에 다 모아둔 참고용 시트는 코드가 안 쓴다. 빼지 않으면 빌드 결과에
     // 그대로 실린다(변형마다 한 장씩).
@@ -71,8 +82,10 @@ const STRIPS = import.meta.glob<string>(
   { eager: true, query: "?url", import: "default" }
 );
 
-function stripUrl(dir: string, state: CatState): string {
-  const path = `../assets/cat/variants/${dir}/${dir}_${state}.png`;
+function stripUrl(dir: string | null, state: CatState): string {
+  const path = dir
+    ? `../assets/cat/variants/${dir}/${dir}_${state}.png`
+    : `../assets/cat/${state}.png`;
   const url = STRIPS[path];
   if (!url) {
     // 그림이 없으면 고양이가 통째로 사라진다. 어느 파일인지 바로 알 수 있게 알린다.
@@ -81,13 +94,12 @@ function stripUrl(dir: string, state: CatState): string {
   return url ?? "";
 }
 
+function frameAt(index: number): SpriteFrame {
+  return { x: index * FRAME_SIZE, y: 0, w: FRAME_SIZE, h: FRAME_SIZE };
+}
+
 function stripFrames(count: number): SpriteFrame[] {
-  return Array.from({ length: count }, (_, index) => ({
-    x: index * FRAME_SIZE,
-    y: 0,
-    w: FRAME_SIZE,
-    h: FRAME_SIZE,
-  }));
+  return Array.from({ length: count }, (_, index) => frameAt(index));
 }
 
 /**
@@ -113,10 +125,17 @@ const ANIMATIONS: Record<CatEmotion, { state: CatState; interval: number }> = {
   cozy: { state: "Box", interval: 300 },
 };
 
-/** 32px 프레임을 96×104 캔버스에 채우는 배율. */
-const SCALE = 2.6;
-
 export const CAT_VARIANTS: CatVariant[] = [
+  {
+    id: "cheese",
+    name: "치즈",
+    swatchCss: "linear-gradient(135deg, #fef5e6 0%, #fef5e6 50%, #fdd5b5 50%, #fdd5b5 100%)",
+    // variants 폴더가 생기기 전부터 있던 기본 고양이. 파일이 상태 이름 그대로다.
+    dir: null,
+    // 이 아이만 Idle 그림이 없다. 쓰다듬기 그림에서 하트가 없는 칸(0·1·7)만 골라
+    // 꼬리만 살랑이는 평소 모습으로 쓴다. Idle.png 가 생기면 이 줄을 지우면 된다.
+    overrides: { Idle: { state: "Pet", frames: [0, 1, 7] } },
+  },
   {
     id: "tabby",
     name: "고등어",
@@ -156,14 +175,17 @@ export function getCatVariant(id: string): CatVariant {
 export function getAnimation(emotion: CatEmotion, variantId: string): AnimDef {
   const variant = getCatVariant(variantId);
   const { state, interval } = ANIMATIONS[emotion] ?? ANIMATIONS.idle;
+  const override = variant.overrides?.[state];
+  if (override) {
+    return {
+      src: stripUrl(variant.dir, override.state),
+      frames: override.frames.map(frameAt),
+      interval,
+    };
+  }
   return {
     src: stripUrl(variant.dir, state),
     frames: stripFrames(FRAME_COUNT[state]),
     interval,
-    scale: SCALE,
-    // CatCanvas 의 그리기 자리에 예전 그림에 맞춘 보정(+6, -6)이 박혀 있다.
-    // 지금 그림은 프레임 한가운데 있어 그 보정을 여기서 상쇄한다.
-    offsetX: -6,
-    offsetY: 6,
   };
 }

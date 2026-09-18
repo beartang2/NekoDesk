@@ -1,11 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
-import {
-  CANVAS_HEIGHT,
-  CANVAS_WIDTH,
-  DISPLAY_HEIGHT,
-  DISPLAY_WIDTH,
-  getAnimation,
-} from "./spriteData";
+import { SPRITE_FRAME_SIZE, SPRITE_SCALE, getAnimation } from "./spriteData";
 import type { CatEmotion } from "../agent/types";
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { useCatStore } from "../stores/catStore";
@@ -44,6 +38,18 @@ interface CatCanvasProps {
   onPet?: () => void;
 }
 
+/**
+ * 화면 배율에 맞춰 정수 확대율을 고른다.
+ *
+ * 레티나(배율 2)면 2.5 × 2 = 5 — 원본 1픽셀이 장치 픽셀 5칸 정사각형이 된다.
+ * 소수로 확대하면 어떤 픽셀은 3칸, 어떤 픽셀은 2칸이 되어 그림이 준 비율이 깨진다.
+ */
+function pixelScale(): { device: number; css: number } {
+  const dpr = window.devicePixelRatio || 1;
+  const device = Math.max(1, Math.round(SPRITE_SCALE * dpr));
+  return { device, css: device / dpr };
+}
+
 export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
   const variantId = useCatStore((s) => s.variantId);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -54,6 +60,7 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
   const petCountRef = useRef(0);
   const petResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [scale] = useState(pixelScale);
   const displayEmotion = petEmotion ?? emotion;
   const anim = getAnimation(displayEmotion, variantId);
 
@@ -127,25 +134,11 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
       const frame = anim.frames[frameIdx] ?? anim.frames[0];
       if (!frame) return;
 
+      // 캔버스가 프레임과 같은 크기라 여백 계산도, 자리 보정도 없다. 원본 1픽셀이
+      // 화면의 정사각 N칸으로 그대로 확대된다.
       ctx.imageSmoothingEnabled = false;
-      ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      const drawWidth = Math.round(frame.w * anim.scale);
-      const drawHeight = Math.round(frame.h * anim.scale);
-      const drawX = Math.floor((CANVAS_WIDTH - drawWidth) / 2) + anim.offsetX + 6;
-      const drawY = Math.floor(CANVAS_HEIGHT - drawHeight - 4) + anim.offsetY - 6;
-
-      ctx.drawImage(
-        image,
-        frame.x,
-        frame.y,
-        frame.w,
-        frame.h,
-        drawX,
-        drawY,
-        drawWidth,
-        drawHeight
-      );
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(image, frame.x, frame.y, frame.w, frame.h, 0, 0, canvas.width, canvas.height);
     };
 
     if (image.complete) {
@@ -169,13 +162,14 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
         >
           <canvas
             ref={canvasRef}
-            width={CANVAS_WIDTH}
-            height={CANVAS_HEIGHT}
+            width={SPRITE_FRAME_SIZE * scale.device}
+            height={SPRITE_FRAME_SIZE * scale.device}
             className="cat-canvas"
             style={{
-              imageRendering: "pixelated",
-              width: `${DISPLAY_WIDTH}px`,
-              height: `${DISPLAY_HEIGHT}px`,
+              // CSS 크기는 장치 픽셀 수를 화면 배율로 되돌린 값이다. 여기서 한 번 더
+              // 늘리면(예전엔 96 을 104 로 늘렸다) 정수 확대가 도로 무너진다.
+              width: `${SPRITE_FRAME_SIZE * scale.css}px`,
+              height: `${SPRITE_FRAME_SIZE * scale.css}px`,
             }}
           />
           {hearts.map((h) => (
