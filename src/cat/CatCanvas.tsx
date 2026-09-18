@@ -14,7 +14,7 @@ const PET_DURATION_MS = 2000;
  * 곧장 넘어가면 하트를 띄우며 좋아하던 고양이가 다음 순간 상자에서 자고 있다.
  * 사이에 한 박자를 두면 "기뻐함 → 진정 → 원래 하던 것" 으로 읽힌다.
  */
-const PET_SETTLE_MS = 700;
+const PET_SETTLE_MS = 1600;
 const PET_HAPPY_THRESHOLD = 5; // 이 횟수 이상 쓰다듬으면 happy 애니메이션
 const PET_RESET_MS = 3000;     // 마지막 쓰다듬기로부터 이 시간이 지나면 카운트 리셋
 

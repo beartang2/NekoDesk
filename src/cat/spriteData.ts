@@ -59,9 +59,12 @@ export const SPRITE_FRAME_SIZE = FRAME_SIZE;
  *
  * 실제로 그릴 때는 여기에 화면 배율(devicePixelRatio)을 곱해 **정수**로 반올림한다.
  * 소수 배율로 키우면 원본 1픽셀이 어떤 자리에선 3칸, 어떤 자리에선 2칸으로 그려져
- * 픽셀아트의 비율이 무너진다. 레티나(배율 2)에서는 2.5 × 2 = 5 칸으로 딱 떨어진다.
+ * 픽셀아트의 비율이 무너진다. 레티나(배율 2)에서는 2 × 2 = 4 칸으로 딱 떨어진다.
+ *
+ * 그래서 크기는 아무 값이나 못 고른다. 레티나 기준으로 2 → 64px, 2.5 → 80px 처럼
+ * 띄엄띄엄 간다. 그 사이 값은 픽셀이 어긋나서 쓰지 않는다.
  */
-export const SPRITE_SCALE = 2.5;
+export const SPRITE_SCALE = 2;
 
 export const DEFAULT_VARIANT_ID = "cheese";
 

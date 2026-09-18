@@ -42,7 +42,7 @@
   /* 꼬리가 오른쪽으로 뻗어 있어 가운데 정렬해도 왼쪽으로 쏠려 보인다. 눈에 보이는
      무게 중심을 맞추려고 몇 px 오른쪽으로 민다. 바닥도 그만큼 올린다.
      CSS 픽셀 정수라 확대한 픽셀 격자는 그대로다. */
-  transform: translate(4px, -6px);
+  transform: translate(10px, -6px);
 }
 
 /* ── Floating hearts ── */

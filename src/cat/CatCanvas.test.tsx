@@ -26,7 +26,7 @@ describe("쓰다듬은 뒤 되돌아가기", () => {
     expect(shownEmotion(container)).toBe("idle");
 
     // 한 박자 뒤에야 원래 하던 것으로 돌아간다.
-    act(() => { vi.advanceTimersByTime(700); });
+    act(() => { vi.advanceTimersByTime(1600); });
     expect(shownEmotion(container)).toBe("sleepy");
   });
 
