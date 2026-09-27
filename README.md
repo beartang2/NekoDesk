@@ -50,6 +50,9 @@
   `--parallel 1 --ctx-checkpoints 4 --cache-ram 1024`로 호스트 RAM 상한을 둡니다.
   Qwen3.5 같은 하이브리드 모델은 체크포인트 1개가 약 52.7MB라, 기본값이면 모델과 별개로 최대 ~10GB가 쌓일 수 있습니다.
 - 도구 호출 JSON은 GBNF 문법으로 강제해 파싱 실패를 원천 차단합니다.
+- **빠른 판단(기본 켜짐)**: 생각 문장을 쓰지 않고, 문법으로 도구 이름을 허용 목록 안에서만 고르게 한 뒤
+  그 토큰들의 확률로 확신도를 계산합니다. 확신도가 50% 미만이면 스트림을 끊고 예전 방식(생각 먼저)으로
+  다시 판단합니다. 확신도는 단계 펼침 목록에 표시되고, 설정 → "도구 선택 방식"에서 끌 수 있습니다.
 
 ## 기술 스택
 
@@ -98,6 +101,7 @@ npm run test:all    # 위 세 가지 전부
 npm run eval                               # 전체 (앱에서 모델을 켜둔 상태로)
 NEKO_EVAL_ONLY=음악 npm run eval           # 카테고리 또는 케이스 id로 골라서
 NEKO_EVAL_RUNS=3 npm run eval              # 케이스마다 3번씩 (답이 흔들리는지)
+NEKO_EVAL_DECISION=legacy npm run eval     # 예전 방식(생각 먼저)으로 재서 빠른 판단과 비교
 NEKO_EVAL_URL=http://127.0.0.1:8803        # 서버 주소 (기본값)
 NEKO_EVAL_PROFILE_FILE=profile.txt         # 앱의 "사용자 프로필"과 같은 내용 (선택)
 ```

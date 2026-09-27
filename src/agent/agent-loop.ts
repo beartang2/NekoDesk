@@ -163,6 +163,8 @@ export async function* runAgentLoop(
       result: null,
       summary: "",
       status: "running",
+      confidence: parsed.confidence,
+      decision: parsed.decision,
     };
 
     // ── user.ask: 선택지로 사용자에게 질문 ────────────────────────────────────

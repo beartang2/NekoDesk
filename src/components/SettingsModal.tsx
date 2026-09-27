@@ -576,6 +576,28 @@ function LlamaServerSection() {
 
 // ── Gen params section ────────────────────────────────────────────────────────
 
+function FastDecisionSection() {
+  const fastDecision = useSettingsStore((s) => s.fastDecision);
+  const setFastDecision = useSettingsStore((s) => s.setFastDecision);
+
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">도구 선택 방식</h3>
+      <div className="server-checkbox-row">
+        <label className="server-checkbox-row__item">
+          <input type="checkbox" checked={fastDecision}
+            onChange={(e) => setFastDecision(e.target.checked)} />
+          <span>빠른 판단 (생각 없이 확률로 선택)</span>
+        </label>
+      </div>
+      <p className="settings-section__desc">
+        켜면 생각 문장을 쓰지 않고 도구를 고른 확률로 판단해서 응답이 빨라져. 확신이 낮으면 자동으로
+        생각하는 방식으로 다시 판단해. 끄면 매 단계 생각을 먼저 쓰는 예전 방식이야.
+      </p>
+    </section>
+  );
+}
+
 function GenParamsSection() {
   const [params, setParams] = useState<GenParams>(loadGenParams);
   const [saved, setSaved] = useState(false);
@@ -879,6 +901,7 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
 
           {/* ── 생성 파라미터 ─────────────────────────────────────── */}
           <GenParamsSection />
+          <FastDecisionSection />
 
           {/* ── Brave Search API ─────────────────────────────────── */}
           <section className="settings-section">

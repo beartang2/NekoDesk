@@ -36,7 +36,6 @@ export interface ChatMessage {
   time: string;
   steps?: AgentStep[];
   isStreaming?: boolean;
-  thinking?: string; // 답변이 나오기 전 실시간으로 흐르는 "생각"(thought)
   attachments?: AttachedFile[];
   images?: string[];
 }
@@ -197,23 +196,16 @@ export function useAgentPool() {
 
       let finalSteps: AgentStep[] = [];
       let streamBuffer = "";
-      let thinkingBuffer = "";
 
       function handleEvent(event: LoopEvent) {
         switch (event.type) {
           case "step_start":
             setCatEmotion(sessionId, "curious");
-            thinkingBuffer = ""; // 새 스텝의 생각 시작
             break;
 
           case "thinking_token":
-            thinkingBuffer += event.token;
+            // 생각 문장은 화면에 보여주지 않는다(말풍선엔 고정 "생각 중…"). 고양이 표정만 바꾼다.
             setCatEmotion(sessionId, "working");
-            patchSessionMessages(sessionId, (prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, thinking: thinkingBuffer.trimStart() } : m
-              )
-            );
             break;
 
           case "step_done":
@@ -296,7 +288,7 @@ export function useAgentPool() {
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, content: clean, steps: finalSteps, isStreaming: false, thinking: undefined, images: images.length > 0 ? images : undefined }
+                  ? { ...m, content: clean, steps: finalSteps, isStreaming: false, images: images.length > 0 ? images : undefined }
                   : m
               )
             );

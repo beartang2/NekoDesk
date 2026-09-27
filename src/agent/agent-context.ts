@@ -30,8 +30,10 @@ export class AgentContext {
     for (const step of this.steps) {
       messages.push({
         role: "assistant",
+        // 확률로 고른 스텝은 생각이 없다. 빈 thought 를 넣으면 모델이 실제로 쓴
+        // {"tool":...} 형태와 달라져 다음 스텝의 형식이 흔들리므로 뺀다.
         content: JSON.stringify({
-          thought: step.thought,
+          ...(step.thought ? { thought: step.thought } : {}),
           tool: step.tool,
           params: step.params,
         }),

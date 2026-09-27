@@ -296,10 +296,13 @@ function ChatMessages({
               {m.role === "assistant" && m.content && !m.isStreaming && (
                 <CopyButton text={m.content.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
               )}
-              {m.isStreaming && m.thinking && !m.content && (
-                <div className="message__thinking">
+              {m.isStreaming && !m.content && (
+                <div className="message__thinking" role="status">
                   <span className="message__thinking-icon">💭</span>
-                  {m.thinking}
+                  생각 중
+                  <span className="message__thinking-dots" aria-hidden="true">
+                    <span>.</span><span>.</span><span>.</span>
+                  </span>
                 </div>
               )}
               {m.content && (
@@ -344,7 +347,7 @@ function ChatMessages({
                   ))}
                 </div>
               )}
-              {m.isStreaming && <span className="message__cursor" />}
+              {m.isStreaming && m.content && <span className="message__cursor" />}
             </div>
           )}
 

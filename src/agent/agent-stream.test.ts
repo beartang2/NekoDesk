@@ -39,12 +39,15 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.resetModules(); // 설정 스토어(빠른 판단 여부)가 테스트 사이에 새지 않게
   lastInit = undefined;
 });
 
 describe("agentStepStream", () => {
-  it("JSON 이 다 오기 전에 finalAnswer 를 토큰으로 흘린다", async () => {
+  it("JSON 이 다 오기 전에 finalAnswer 를 토큰으로 흘린다 (예전 방식: thought 도 흘린다)", async () => {
     const { agentStepStream } = await import("./llm-client");
+    const { useSettingsStore } = await import("../stores/settingsStore");
+    useSettingsStore.getState().setFastDecision(false);
 
     // 모델이 JSON 을 조각내어 뱉는 상황
     const pieces = [

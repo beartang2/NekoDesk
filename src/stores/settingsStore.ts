@@ -28,6 +28,7 @@ const K = {
   genParams: "nekodesk_gen_params",
   systemPrompt: "nekodesk_system_prompt",
   userProfile: "nekodesk_user_profile",
+  fastDecision: "nekodesk_fast_decision",
 } as const;
 
 function loadGen(): GenParams {
@@ -44,7 +45,10 @@ interface SettingsStore {
   genParams: GenParams;
   systemPrompt: string | null; // null = 읽는 쪽 기본값 사용
   userProfile: string | null;
+  /** 생각 없이 확률로 도구를 고른다(확신이 낮으면 생각하는 방식으로 다시). 기본 켜짐. */
+  fastDecision: boolean;
   setLlmUrl: (url: string) => void;
+  setFastDecision: (v: boolean) => void;
   setGenParams: (p: GenParams) => void;
   /** null 이면 삭제(기본값으로 복귀). */
   setSystemPrompt: (v: string | null) => void;
@@ -56,10 +60,15 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   genParams: loadGen(),
   systemPrompt: localStorage.getItem(K.systemPrompt),
   userProfile: localStorage.getItem(K.userProfile),
+  fastDecision: localStorage.getItem(K.fastDecision) !== "false",
 
   setLlmUrl: (url) => {
     localStorage.setItem(K.llmUrl, url);
     set({ llmUrl: url });
+  },
+  setFastDecision: (v) => {
+    localStorage.setItem(K.fastDecision, String(v));
+    set({ fastDecision: v });
   },
   setGenParams: (p) => {
     localStorage.setItem(K.genParams, JSON.stringify(p));

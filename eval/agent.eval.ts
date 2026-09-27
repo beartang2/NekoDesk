@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { agentStep, checkLlmHealth, warmUpModel } from "../src/agent/llm-client";
+import { agentStepStream, checkLlmHealth, warmUpModel } from "../src/agent/llm-client";
 import type { ParsedAgentStep } from "../src/agent/types";
 import { CASES } from "./cases";
 import { scoreStep, type CaseScore } from "./scoring";
@@ -12,6 +12,7 @@ import { scoreStep, type CaseScore } from "./scoring";
  *   npm run eval                                  전체
  *   NEKO_EVAL_ONLY=음악 npm run eval              카테고리 또는 id 로 골라서
  *   NEKO_EVAL_RUNS=3 npm run eval                 케이스마다 여러 번 (흔들림 확인)
+ *   NEKO_EVAL_DECISION=legacy npm run eval        예전 방식(생각 먼저)과 비교
  *
  * 결과는 eval/results/ 에 JSON(원본 응답 포함)과 요약 마크다운으로 남는다.
  */
@@ -52,11 +53,16 @@ describe("에이전트 첫 스텝", () => {
         const started = performance.now();
         let promptTokens: number | undefined;
         try {
-          const step = await agentStep(
+          // 앱과 같은 스트리밍 경로(빠른 판단 → 확신 낮으면 생각하는 방식)로 잰다.
+          let step: ParsedAgentStep | undefined;
+          for await (const ev of agentStepStream(
             [{ role: "user", content: testCase.input }],
             testCase.input,
             (n) => { promptTokens = n; }
-          );
+          )) {
+            if (ev.type === "parsed") step = ev.parsed;
+          }
+          if (!step) throw new Error("응답을 파싱하지 못함");
           runs.push({ ms: performance.now() - started, promptTokens, step, score: scoreStep(step, testCase) });
         } catch (err) {
           runs.push({ ms: performance.now() - started, error: err instanceof Error ? err.message : String(err) });
@@ -88,6 +94,12 @@ function describeRun(run?: RunRecord): string {
   return `선택: ${s.tool} ${JSON.stringify(s.params).slice(0, 300)}`;
 }
 
+function formatDecision(step?: ParsedAgentStep): string {
+  if (!step) return "오류";
+  const label = { fast: "빠름", fallback: "재판단", legacy: "예전" }[step.decision ?? "legacy"];
+  return step.confidence !== undefined ? `${label} ${Math.round(step.confidence * 100)}%` : label;
+}
+
 function median(xs: number[]): number {
   const sorted = [...xs].sort((a, b) => a - b);
   return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
@@ -112,6 +124,7 @@ function buildReport() {
         runs: runs.length,
         chosen: [...new Set(runs.map((r) => r.step?.tool ?? "오류"))].join(", "),
         medianMs: Math.round(median(runs.map((r) => r.ms))),
+        decision: runs.map((r) => formatDecision(r.step)).join(", "),
         failures,
         raw: runs,
       };
@@ -121,6 +134,10 @@ function buildReport() {
   const totalPass = rows.reduce((n, r) => n + r.passed, 0);
   const totalTool = rows.reduce((n, r) => n + r.toolOk, 0);
   const pct = (n: number) => `${Math.round((n / Math.max(1, totalRuns)) * 100)}%`;
+
+  const steps = rows.flatMap((r) => r.raw.map((x) => x.step).filter((x): x is ParsedAgentStep => Boolean(x)));
+  const count = (d: ParsedAgentStep["decision"]) => steps.filter((s) => s.decision === d).length;
+  const confidences = steps.map((s) => s.confidence).filter((c): c is number => c !== undefined);
 
   const categories = [...new Set(rows.map((r) => r.category))].map((cat) => {
     const rs = rows.filter((r) => r.category === cat);
@@ -135,15 +152,17 @@ function buildReport() {
     `- 통과: **${totalPass}/${totalRuns} (${pct(totalPass)})**`,
     `- 도구 선택 정확도: ${totalTool}/${totalRuns} (${pct(totalTool)})`,
     `- 케이스당 반복: ${RUNS}회`,
+    `- 판단 방식: 빠른 판단 ${count("fast")} · 확신 낮아 재판단 ${count("fallback")} · 예전 방식 ${count("legacy")}` +
+      (confidences.length ? ` (확신도 중앙값 ${Math.round(median(confidences) * 100)}%)` : ""),
     "",
     "| 카테고리 | 통과 | 응답 시간(중앙값) |",
     "| --- | --- | --- |",
     ...categories,
     "",
-    "| 케이스 | 통과 | 선택한 도구 | 응답 시간 | 실패 항목 |",
-    "| --- | --- | --- | --- | --- |",
+    "| 케이스 | 통과 | 선택한 도구 | 판단(확신도) | 응답 시간 | 실패 항목 |",
+    "| --- | --- | --- | --- | --- | --- |",
     ...rows.map((r) =>
-      `| ${r.id} | ${r.passed}/${r.runs} | ${r.chosen} | ${r.medianMs}ms | ${r.failures.join("; ").replace(/\|/g, "\\|") || "-"} |`
+      `| ${r.id} | ${r.passed}/${r.runs} | ${r.chosen} | ${r.decision} | ${r.medianMs}ms | ${r.failures.join("; ").replace(/\|/g, "\\|") || "-"} |`
     ),
   ].join("\n");
 

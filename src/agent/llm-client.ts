@@ -1,7 +1,16 @@
-import type { LlmMessage, LlmParams, LlmStreamChunk, ParsedAgentStep } from "./types";
+import type { LlmMessage, LlmParams, LlmStreamChunk, ParsedAgentStep, TokenLogprob } from "./types";
 import { getMcpTools } from "./mcp-registry";
 import { buildKnowledgeSection } from "./knowledge";
 import { createJsonStringFieldStreamer } from "./json-stream";
+import {
+  JSON_RULES,
+  DECISION_TOP_LOGPROBS,
+  FAST_DECISION_MIN_CONFIDENCE,
+  buildDecisionGrammar,
+  createDecisionTracker,
+  toolFromPrefix,
+  type Decision,
+} from "./decision";
 import { useSettingsStore, type GenParams } from "../stores/settingsStore";
 
 function getLlmUrl(): string {
@@ -14,13 +23,7 @@ function getLlmUrl(): string {
  * (표를 finalAnswer 에 넣을 때 특히). 문자열 이스케이프까지 문법이 강제한다.
  * (json_schema/response_format 은 이 llama.cpp 빌드의 sampler 에서 400 → grammar 사용)
  */
-const AGENT_JSON_GRAMMAR = `root   ::= object
-object ::= "{" ws ( string ":" ws value ("," ws string ":" ws value)* )? "}" ws
-value  ::= object | array | string | number | ("true"|"false"|"null") ws
-array  ::= "[" ws ( value ("," ws value)* )? "]" ws
-string ::= "\\"" ( [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" (["\\\\bfnrt/] | "u" [0-9a-fA-F]{4}) )* "\\"" ws
-number ::= ("-"? ([0-9] | [1-9][0-9]*)) ("." [0-9]+)? ([eE][-+]?[0-9]+)? ws
-ws     ::= [ \\t\\n]*`;
+export const AGENT_JSON_GRAMMAR = `root   ::= object\n${JSON_RULES}`;
 
 /**
  * 로컬 llama.cpp 는 느릴 수 있으니 넉넉하게 잡되, 무한 대기는 막는다.
@@ -248,6 +251,10 @@ export async function* fetchStream(
   };
   if (params.grammar) body.grammar = params.grammar;
   if (params.temperature !== undefined) body.temperature = params.temperature;
+  if (params.top_logprobs) {
+    body.logprobs = true;
+    body.top_logprobs = params.top_logprobs;
+  }
   const res = await fetch(`${getLlmUrl()}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -320,7 +327,11 @@ export async function* fetchStream(
         }
         try {
           const chunk = JSON.parse(payload) as {
-            choices: Array<{ delta: { content?: string }; finish_reason: string | null }>;
+            choices: Array<{
+              delta: { content?: string };
+              finish_reason: string | null;
+              logprobs?: { content?: TokenLogprob[] } | null;
+            }>;
             usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
           };
           if (chunk.usage?.prompt_tokens !== undefined) {
@@ -328,8 +339,9 @@ export async function* fetchStream(
           }
           const raw = chunk.choices[0]?.delta?.content ?? "";
           const finished = chunk.choices[0]?.finish_reason != null;
+          const logprobs = chunk.choices[0]?.logprobs?.content ?? undefined;
           const content = filterThink(raw);
-          if (content) yield { content, done: finished };
+          if (content || logprobs?.length) yield { content, done: finished, logprobs };
           else if (finished) yield { content: "", done: true };
           if (finished) return;
         } catch {
@@ -546,6 +558,95 @@ export async function* agentStepStream(
   signal?: AbortSignal
 ): AsyncGenerator<AgentStepEvent> {
   const allMessages = buildAgentMessages(messages, userInput);
+
+  let decision: ParsedAgentStep["decision"] = "legacy";
+  let rejectedConfidence: number | undefined;
+  if (useSettingsStore.getState().fastDecision) {
+    const fast = yield* fastAgentStepStream(allMessages, onUsage, signal);
+    if ("parsed" in fast) {
+      yield { type: "parsed", parsed: fast.parsed };
+      return;
+    }
+    decision = "fallback";
+    rejectedConfidence = fast.rejectedConfidence;
+  }
+
+  const legacy = yield* legacyAgentStepStream(messages, allMessages, userInput, onUsage, signal);
+  // 재판단한 스텝엔 "왜 다시 판단했나"를 알 수 있게 거절된 확신도를 남긴다.
+  yield { type: "parsed", parsed: { ...legacy, decision, confidence: rejectedConfidence } };
+}
+
+/** 빠른 판단에서 판단 대상으로 내놓는 도구 이름(none 포함). isValidTool 과 같은 집합이다. */
+function decisionToolNames(): string[] {
+  return [...STATIC_TOOL_NAMES, ...getMcpTools().map((e) => e.tool.name)];
+}
+
+/**
+ * 생각 없이 도구를 고른다. 도구 이름이 완성되는 순간 확신도를 계산해,
+ * 기준보다 낮으면 스트림을 끊고 rejected 를 돌려준다(호출 측이 생각하는 방식으로 다시 판단).
+ * 도구 이름은 finalAnswer 보다 먼저 나오므로, 끊는 시점엔 아직 사용자에게 보낸 게 없다.
+ */
+async function* fastAgentStepStream(
+  allMessages: LlmMessage[],
+  onUsage?: (promptTokens: number) => void,
+  signal?: AbortSignal
+): AsyncGenerator<AgentStepEvent, { parsed: ParsedAgentStep } | { rejectedConfidence?: number }> {
+  const p = loadGenParams();
+  const toolNames = decisionToolNames();
+  const tracker = createDecisionTracker(toolNames);
+  const answerStreamer = createJsonStringFieldStreamer("finalAnswer");
+
+  let raw = "";
+  let decided: Decision | null = null;
+  let emitted = 0;
+  try {
+    for await (const chunk of fetchStream(
+      allMessages,
+      {
+        temperature: 0.1,
+        max_tokens: p.max_tokens_agent,
+        grammar: buildDecisionGrammar(toolNames),
+        top_logprobs: DECISION_TOP_LOGPROBS,
+      },
+      onUsage,
+      signal
+    )) {
+      raw += chunk.content;
+
+      if (!decided) {
+        decided = chunk.logprobs ? tracker.push(chunk.logprobs) : null;
+        // 서버가 확률을 안 주거나 일부를 빠뜨려도, 이름이 완성됐으면 확신도 없이 진행한다.
+        const named = toolFromPrefix(raw);
+        if (!decided && named !== null) decided = { tool: named };
+        if (decided?.confidence !== undefined && decided.confidence < FAST_DECISION_MIN_CONFIDENCE) {
+          // for-await 를 벗어나면 fetchStream 의 finally 가 연결을 끊는다
+          return { rejectedConfidence: decided.confidence };
+        }
+      }
+
+      const delta = answerStreamer.push(chunk.content);
+      if (delta) {
+        emitted += delta.length;
+        yield { type: "delta", text: delta };
+      }
+    }
+  } catch (err) {
+    if (signal?.aborted || emitted > 0) throw err;
+    return {}; // 이미지 처리 실패 등은 기존 경로가 폴백까지 처리한다
+  }
+
+  const parsed = parseAgentResponse(raw);
+  return { parsed: { ...parsed, confidence: decided?.confidence, decision: "fast" } };
+}
+
+/** 예전 방식: 생각(thought)을 먼저 쓰고 도구를 고른다. */
+async function* legacyAgentStepStream(
+  messages: LlmMessage[],
+  allMessages: LlmMessage[],
+  userInput: string,
+  onUsage?: (promptTokens: number) => void,
+  signal?: AbortSignal
+): AsyncGenerator<AgentStepEvent, ParsedAgentStep> {
   const p = loadGenParams();
   // JSON 에서 thought 가 finalAnswer 보다 먼저 나온다. 둘 다 도착하는 대로 흘려
   // thought 는 "생각 중" 표시로, finalAnswer 는 답변으로 스트리밍한다.
@@ -575,11 +676,10 @@ export async function* agentStepStream(
     // 이미 답을 흘려보낸 뒤 끊겼다면 되돌릴 수 없다. 그대로 올린다.
     if (emitted > 0) throw err;
     // 아직 아무것도 안 보냈으면 비스트리밍 경로로 한 번 더(이미지 폴백 포함).
-    yield { type: "parsed", parsed: await agentStep(messages, userInput, onUsage, signal) };
-    return;
+    return await agentStep(messages, userInput, onUsage, signal);
   }
 
-  yield { type: "parsed", parsed: parseAgentResponse(raw) };
+  return parseAgentResponse(raw);
 }
 
 export async function agentStep(

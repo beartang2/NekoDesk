@@ -15,11 +15,21 @@ export interface LlmParams {
   stream?: boolean;
   /** llama.cpp GBNF grammar. 에이전트 JSON 출력을 강제해 파싱 실패를 뿌리에서 막는다. */
   grammar?: string;
+  /** 토큰별 확률(logprob)과 상위 후보를 같이 받는다. 판단 확신도 계산용. */
+  top_logprobs?: number;
+}
+
+/** 생성된 토큰 하나의 확률과, 그 자리에서 모델이 고려한 상위 후보들. */
+export interface TokenLogprob {
+  token: string;
+  logprob: number;
+  top_logprobs: Array<{ token: string; logprob: number }>;
 }
 
 export interface LlmStreamChunk {
   content: string;
   done: boolean;
+  logprobs?: TokenLogprob[];
 }
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
@@ -134,6 +144,9 @@ export interface AgentStep {
   status: StepStatus;
   errorMessage?: string;
   imageDataUrl?: string;
+  /** 빠른 판단의 도구 선택 확신도(0~1). 재판단한 스텝이면 기준에 못 미친 값이다. */
+  confidence?: number;
+  decision?: ParsedAgentStep["decision"];
 }
 
 /** Emitted during the loop so React can show live progress */
@@ -171,4 +184,14 @@ export interface ParsedAgentStep {
   needsConfirm?: boolean;
   isDangerous?: boolean;
   dangerReason?: string;
+  /**
+   * 빠른 판단의 도구 선택 확신도(0~1). 서버가 확률을 줬을 때만 있다.
+   * decision 이 fallback 이면 기준에 못 미쳐 거절된 값이다.
+   */
+  confidence?: number;
+  /**
+   * 이 스텝을 어떻게 골랐나.
+   * fast = 생각 없이 확률로 / fallback = 확률이 낮아 생각하는 방식으로 다시 / legacy = 처음부터 생각하는 방식
+   */
+  decision?: "fast" | "fallback" | "legacy";
 }

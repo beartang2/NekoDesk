@@ -63,6 +63,16 @@ function AgentStepItem({ step, isOpen, onToggle }: StepProps) {
             </section>
           )}
 
+          {step.confidence !== undefined && (
+            <section className="step-section">
+              <span className="step-section__label">🎯 도구 선택 확신도</span>
+              <p className="step-thought">
+                {Math.round(step.confidence * 100)}%
+                {step.decision === "fallback" && " — 확신이 낮아서 생각하는 방식으로 다시 판단했어"}
+              </p>
+            </section>
+          )}
+
           <section className="step-section">
             <span className="step-section__label">📤 Request</span>
             <CodeBlock
