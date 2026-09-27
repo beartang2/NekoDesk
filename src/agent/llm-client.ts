@@ -803,16 +803,30 @@ export async function wordChainReply(
 
 // ── Warm-up ───────────────────────────────────────────────────────────────────
 
-/** KV cache 초기화용 빈 요청. 첫 실제 대화 지연 제거. */
+/**
+ * 에이전트 시스템 프롬프트(~3000토큰)를 미리 처리시켜 llama.cpp 프롬프트 캐시에
+ * 올려둔다. 서버를 막 띄운 뒤의 첫 질문은 이 프리필을 통째로 기다려야 했다
+ * (4B 실측 cold 10.7s → warm 0.36s, fa813aa 참고).
+ *
+ * 캐시는 토큰 접두부가 같아야 맞으므로 실제 에이전트 요청(buildAgentMessages)과
+ * 같은 buildAgentSystemPrompt() 를 쓴다. llama-server 는 마지막 user 메시지
+ * 시작점에 컨텍스트 체크포인트를 만들기 때문에, 되감기가 안 되는 하이브리드
+ * (Gated DeltaNet) 모델도 다음 요청을 시스템 프롬프트 뒤부터 이어 처리한다.
+ */
 export async function warmUpModel(): Promise<boolean> {
   try {
     const res = await fetch(`${getLlmUrl()}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(30000),
+      // 9B 나 기본형 M칩이면 3000토큰 프리필에 수십 초가 걸릴 수 있다.
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       body: JSON.stringify({
-        messages: [{ role: "user", content: "hi" }],
+        messages: [
+          { role: "system", content: buildAgentSystemPrompt() },
+          { role: "user", content: "." },
+        ],
         max_tokens: 1,
+        temperature: 0,
         stream: false,
       }),
     });
@@ -820,4 +834,14 @@ export async function warmUpModel(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** 모델을 올리는 동안 llama-server 의 /health 는 503 을 준다. 200 이 될 때까지 기다린다. */
+export async function waitForLlmReady(timeoutMs = 120_000, intervalMs = 500): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await checkLlmHealth()) return true;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return false;
 }

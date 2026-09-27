@@ -7,6 +7,8 @@ import {
   DEFAULT_CHAT_SYSTEM_PROMPT,
   loadGenParams,
   saveGenParams,
+  waitForLlmReady,
+  warmUpModel,
   type GenParams,
 } from "../agent/llm-client";
 import { getStoredAccent, saveAccentHex, deriveAccent } from "../theme-colors";
@@ -347,6 +349,8 @@ function LlamaServerSection() {
     try {
       await invoke("llama_start", { config });
       setRunning(true);
+      // 새로 띄운 서버는 캐시가 비어 있다. 로딩이 끝나면 에이전트 프롬프트를 데워 둔다.
+      void waitForLlmReady().then((ready) => ready && warmUpModel());
     } catch (e) {
       setServerError(String(e));
     } finally {

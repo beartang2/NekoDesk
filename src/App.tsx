@@ -20,7 +20,7 @@ import { todosApi, scheduleApi, settingsApi, conversationApi } from "./api/tauri
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { useLayout } from "./hooks/useLayout";
-import { initMcpFromStorage } from "./agent/mcp-registry";
+import { bootstrapOnce } from "./lib/llama-bootstrap";
 import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
 import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
@@ -1071,23 +1071,9 @@ export default function App() {
     }
   }
 
-  // Init MCP servers on mount
-  useEffect(() => { initMcpFromStorage(); }, []);
-
-  // Auto-start llama server on mount if configured
-  useEffect(() => {
-    const autostart = localStorage.getItem("nekodesk_llama_autostart") === "true";
-    if (!autostart) return;
-    const raw = localStorage.getItem("nekodesk_llama_config");
-    if (!raw) return;
-    try {
-      const config = JSON.parse(raw) as Record<string, unknown>;
-      if (!config.model) return;
-      invoke("llama_start", { config }).catch(() => {/* 실패 시 무시 — 설정 페이지에서 수동 실행 가능 */});
-    } catch {
-      // config 파싱 실패 시 무시
-    }
-  }, []);
+  // MCP 로드 → llama-server 자동 기동 → 프롬프트 워밍업. StrictMode·Fast Refresh 가
+  // 이펙트를 다시 돌려도 서버를 재기동하지 않도록 모듈 쪽에서 한 번만 실행된다.
+  useEffect(() => { bootstrapOnce(); }, []);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [gameSpeech, setGameSpeech] = useState<string | null>(null);

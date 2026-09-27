@@ -558,6 +558,42 @@ mod commands {
         pub reasoning: String,
         pub reasoning_format: String,
         pub mtp_n_draft: Option<i32>,
+        /// 슬롯당 컨텍스트 체크포인트 상한. 없으면 DEFAULT_CTX_CHECKPOINTS.
+        pub ctx_checkpoints: Option<i32>,
+        /// 호스트 RAM 프롬프트 캐시 상한(MiB). 없으면 DEFAULT_CACHE_RAM_MIB.
+        pub cache_ram_mib: Option<i32>,
+    }
+
+    // llama-server 기본값은 여러 사용자를 동시에 받는 서버 기준이라 1인용 데스크톱
+    // 앱에는 과하다. 특히 Qwen3.5 같은 하이브리드(Gated DeltaNet) 모델은 되감을 수
+    // 없는 recurrent state 를 "컨텍스트 체크포인트"로 호스트 RAM 에 복사해 두는데,
+    // 4B 기준 한 개가 약 52.7MB(GDN 24층 × 2,195,456바이트)다. 기본값은 슬롯당 32개
+    // (~1.7GB)에 프롬프트 캐시 상한 8GiB 까지 더해져, 모델 가중치(~3GB)와 별개로
+    // 최대 ~10GB 가 조용히 쌓일 수 있다. 1인용 기준으로 상한을 명시한다.
+
+    /// 동시 요청 슬롯. 사용자가 한 명이라 1이면 된다. 지정하지 않으면 서버가
+    /// 슬롯 4개(auto)를 만들고, 슬롯마다 recurrent state 를 따로 잡는다.
+    const LLAMA_PARALLEL: i32 = 1;
+    /// 에이전트 루프는 매 요청이 직전 프롬프트를 이어 붙이는 구조라, 되감기에 필요한
+    /// 건 가장 최근 체크포인트 몇 개뿐이다. 4개면 ~211MB.
+    const DEFAULT_CTX_CHECKPOINTS: i32 = 4;
+    /// 에이전트 프롬프트(체크포인트 포함 ~300MB)와 제목 생성·게임 같은 짧은 프롬프트
+    /// 몇 개를 오가며 캐시할 만큼. 0 으로 끄면 프롬프트가 바뀔 때마다 시스템
+    /// 프롬프트(~3000토큰)를 처음부터 다시 처리한다.
+    const DEFAULT_CACHE_RAM_MIB: i32 = 1024;
+
+    /// 메모리 관련 llama-server 인자. 설정값이 범위를 벗어나면 기본값을 쓴다.
+    pub(crate) fn memory_args(ctx_checkpoints: Option<i32>, cache_ram_mib: Option<i32>) -> Vec<String> {
+        // 0 은 "체크포인트 끔"으로 유효하다(하이브리드 모델은 매번 전체 재처리).
+        let checkpoints = ctx_checkpoints.filter(|n| *n >= 0).unwrap_or(DEFAULT_CTX_CHECKPOINTS);
+        // -1 = 무제한, 0 = 끔. 서버는 모든 음수를 무제한으로 받아들이므로, -1 이 아닌
+        // 음수(오타일 가능성이 큼)가 조용히 무제한이 되지 않게 기본값으로 돌린다.
+        let cache_ram = cache_ram_mib.filter(|n| *n >= -1).unwrap_or(DEFAULT_CACHE_RAM_MIB);
+        vec![
+            "--parallel".to_string(), LLAMA_PARALLEL.to_string(),
+            "--ctx-checkpoints".to_string(), checkpoints.to_string(),
+            "--cache-ram".to_string(), cache_ram.to_string(),
+        ]
     }
 
     #[tauri::command]
@@ -629,6 +665,7 @@ mod commands {
             "--reasoning".to_string(), config.reasoning.clone(),
             "--reasoning-format".to_string(), config.reasoning_format.clone(),
         ];
+        args.extend(memory_args(config.ctx_checkpoints, config.cache_ram_mib));
 
         if config.flash_attn {
             args.push("-fa".to_string());
@@ -736,7 +773,40 @@ mod commands {
 
     #[cfg(test)]
     mod tests {
-        use super::{truncate_chars, hard_blocked};
+        use super::{truncate_chars, hard_blocked, memory_args};
+
+        fn flag(args: &[String], name: &str) -> Option<String> {
+            args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
+        }
+
+        /// 설정에 값이 없으면(기존 사용자 설정) 1인용 기본값으로 상한을 건다.
+        /// 서버 기본값(슬롯 4개, 체크포인트 32개, 캐시 8GiB)으로 새지 않아야 한다.
+        #[test]
+        fn memory_args_default_to_single_user_limits() {
+            let args = memory_args(None, None);
+            assert_eq!(flag(&args, "--parallel").as_deref(), Some("1"));
+            assert_eq!(flag(&args, "--ctx-checkpoints").as_deref(), Some("4"));
+            assert_eq!(flag(&args, "--cache-ram").as_deref(), Some("1024"));
+        }
+
+        #[test]
+        fn memory_args_respect_valid_overrides() {
+            let args = memory_args(Some(8), Some(2048));
+            assert_eq!(flag(&args, "--ctx-checkpoints").as_deref(), Some("8"));
+            assert_eq!(flag(&args, "--cache-ram").as_deref(), Some("2048"));
+
+            // 0 = 끔, -1 = 무제한 은 서버가 받아들이는 유효값이다.
+            let args = memory_args(Some(0), Some(-1));
+            assert_eq!(flag(&args, "--ctx-checkpoints").as_deref(), Some("0"));
+            assert_eq!(flag(&args, "--cache-ram").as_deref(), Some("-1"));
+        }
+
+        #[test]
+        fn memory_args_reject_out_of_range_values() {
+            let args = memory_args(Some(-3), Some(-5));
+            assert_eq!(flag(&args, "--ctx-checkpoints").as_deref(), Some("4"));
+            assert_eq!(flag(&args, "--cache-ram").as_deref(), Some("1024"));
+        }
 
         #[test]
         fn hard_block_stops_worst_commands() {
