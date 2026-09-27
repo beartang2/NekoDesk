@@ -89,6 +89,22 @@ npm run typecheck   # tsc --noEmit
 npm run test:all    # 위 세 가지 전부
 ```
 
+## 평가 (로컬 모델 성능 측정)
+
+실제 llama-server에 실제 에이전트 프롬프트를 보내고, 첫 스텝에서 **어떤 도구를 어떤 값으로
+부르려 했는지** 채점합니다. 도구는 실행하지 않으므로 음악 재생·파일 쓰기 같은 부작용이 없습니다.
+
+```bash
+npm run eval                               # 전체 (앱에서 모델을 켜둔 상태로)
+NEKO_EVAL_ONLY=음악 npm run eval           # 카테고리 또는 케이스 id로 골라서
+NEKO_EVAL_RUNS=3 npm run eval              # 케이스마다 3번씩 (답이 흔들리는지)
+NEKO_EVAL_URL=http://127.0.0.1:8803        # 서버 주소 (기본값)
+NEKO_EVAL_PROFILE_FILE=profile.txt         # 앱의 "사용자 프로필"과 같은 내용 (선택)
+```
+
+결과는 `eval/results/latest.md`(요약)와 타임스탬프 JSON(모델 응답 원본)으로 남습니다.
+케이스는 `eval/cases.ts`에 있고, 프롬프트나 설정을 바꾸기 전후로 돌려서 점수를 비교하면 됩니다.
+
 ## 문서
 
 | 문서 | 내용 |

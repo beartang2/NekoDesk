@@ -6,12 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p eval",
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rust": "cd src-tauri && cargo test --lib",
-    "test:all": "npm run typecheck && npm run test && npm run test:rust"
+    "test:all": "npm run typecheck && npm run test && npm run test:rust",
+    "eval": "vitest run --config vitest.eval.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
+    "@types/node": "^22.20.4",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
