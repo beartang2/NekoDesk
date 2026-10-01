@@ -423,8 +423,8 @@ html, body, #root {
   /* 오른쪽 위에서 비스듬히 들어오는 빛줄기 두 개 + 창가 쪽 번짐.
      blend mode 는 쓰지 않는다 — 밝은 배경에서 그냥 사라져 버린다. */
   background:
-    linear-gradient(203deg, transparent 20%, color-mix(in oklab, #966d1d 42%, transparent) 27%, transparent 36%),
-    linear-gradient(197deg, transparent 44%, color-mix(in oklab, #ffe3a6 34%, transparent) 50%, transparent 57%),
+    linear-gradient(203deg, transparent 20%, color-mix(in oklab, #fff4c5 42%, transparent) 27%, transparent 36%),
+    linear-gradient(197deg, transparent 44%, color-mix(in oklab, #ffd16e 34%, transparent) 50%, transparent 57%),
     radial-gradient(120% 80% at 88% -10%, color-mix(in oklab, #ffd88a 26%, transparent), transparent 60%);
   filter: blur(6px);
   opacity: 0.85;
@@ -438,8 +438,9 @@ html, body, #root {
 
 /* 먼지가 떠다니듯 아주 느리게 기운다. */
 @keyframes sunbeam-drift {
-  from { transform: translateX(0) rotate(0deg); }
-  to   { transform: translateX(-12px) rotate(-1.4deg); }
+  from { transform: translateX(0) rotate(0deg) scaleX(1); }
+  50%  { transform: translateX(-8px) rotate(-1deg) scaleX(1.03); }
+  to   { transform: translateX(-13px) rotate(-1.7deg) scaleX(1.05); }
 }
 
 /* 고양이와 게이지는 빛 위에 선다. */
@@ -543,21 +544,39 @@ html, body, #root {
     conic-gradient(from 176deg at 48% -14%, transparent 0 4deg, color-mix(in oklab, var(--accent) 26%, transparent) 7deg, transparent 11deg),
     conic-gradient(from 182deg at 56% -12%, transparent 0 3deg, color-mix(in oklab, var(--accent) 18%, transparent) 6deg, transparent 10deg),
     conic-gradient(from 170deg at 40% -16%, transparent 0 5deg, color-mix(in oklab, var(--accent) 14%, transparent) 8deg, transparent 13deg);
-  filter: blur(22px);
-  opacity: 0.26;
-  /* 아래로 갈수록 사라진다. 글이 놓이는 가운데에서는 거의 안 보여야 한다. */
-  mask-image: linear-gradient(to bottom, #000 0%, color-mix(in oklab, #000 45%, transparent) 30%, transparent 62%);
-  animation: chat-rays-breathe 14s ease-in-out infinite alternate;
+  filter: blur(14px);
+  opacity: 0.5;
+  mask-image: linear-gradient(to bottom, #000 0%, #000 35%, transparent 78%);
+  /* 위쪽을 축으로 부채처럼 기운다. 아래로 갈수록 폭이 커져 살랑이는 결이 된다. */
+  transform-origin: 50% -10%;
+  animation: ray-sway 15s ease-in-out infinite alternate;
+}
+
+/* 겹을 하나 더 얹되 주기를 어긋나게 둔다. 한 겹만 흔들면 판이 통째로 밀리는 것처럼
+   보이고, 둘이 서로 다른 속도로 스쳐야 물결처럼 살랑인다. */
+.chat-rays::after {
+  content: "";
+  position: absolute;
+  inset: -8% -18% 0;
+  transform-origin: 50% -10%;
+  background:
+    conic-gradient(from 169deg at 36% -16%, transparent 0 5deg, color-mix(in oklab, var(--accent) 16%, transparent) 8deg, transparent 13deg),
+    conic-gradient(from 189deg at 68% -18%, transparent 0 4deg, color-mix(in oklab, var(--accent) 12%, transparent) 7deg, transparent 12deg);
+  filter: blur(18px);
+  opacity: 0.55;
+  mask-image: linear-gradient(to bottom, #000 0%, #000 28%, transparent 66%);
+  animation: ray-sway 9.5s ease-in-out infinite alternate-reverse;
 }
 
 /* 다크에서는 같은 세기도 띠처럼 도드라진다. */
 :root:not(.light) .chat-rays {
-  opacity: 0.34;
+  opacity: 0.32;
 }
 
-@keyframes chat-rays-breathe {
-  from { transform: translateX(-7px) scaleY(0.98); }
-  to   { transform: translateX(7px) scaleY(1.02); }
+@keyframes ray-sway {
+  from { transform: rotate(-1.7deg) translateX(-10px) scaleX(0.97); }
+  50%  { transform: rotate(0.3deg) translateX(1px) scaleX(1.01); }
+  to   { transform: rotate(1.8deg) translateX(10px) scaleX(1.03); }
 }
 
 /* 메시지·입력창은 빛 위에 선다. */
@@ -567,7 +586,8 @@ html, body, #root {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chat-rays { animation: none; }
+  .chat-rays,
+  .chat-rays::after { animation: none; }
 }
 
 /* ── Compact summary tab (우상단 아코디언 탭) ── */
