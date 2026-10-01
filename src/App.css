@@ -602,7 +602,7 @@ html, body, #root {
   z-index: 0;
   pointer-events: none;
   /* 너무 흐리면 띠 아래 가장자리가 지워져 물결이 안 보인다. */
-  filter: blur(28px) saturate(1.2);
+  filter: blur(20px) saturate(1.2);
   opacity: 0.55;
   mask-image: linear-gradient(to bottom, #000 0%, color-mix(in oklab, #000 55%, transparent) 45%, transparent 85%);
 }
@@ -629,8 +629,10 @@ html, body, #root {
   animation: aurora-wave 3.7s ease-in-out infinite alternate-reverse;
 }
 
+/* 어두운 바탕은 같은 불투명도에서 색이 묻힌다. 라이트(0.55)보다 높여야 비슷하게 보인다.
+   ponytail: 눈대중 값이다. 아직 흐리거나 너무 세면 이 숫자 하나만 조정한다. */
 :root:not(.light) .chat-aurora {
-  opacity: 0.32;
+  opacity: 0.75;
 }
 
 /* 위를 축으로 커튼이 내려왔다 걷힌다. 짙어졌다 옅어지는 것도 함께. */
