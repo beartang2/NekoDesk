@@ -423,7 +423,7 @@ html, body, #root {
   /* 오른쪽 위에서 비스듬히 들어오는 빛줄기 두 개 + 창가 쪽 번짐.
      blend mode 는 쓰지 않는다 — 밝은 배경에서 그냥 사라져 버린다. */
   background:
-    linear-gradient(203deg, transparent 20%, color-mix(in oklab, #ffcf6e 42%, transparent) 27%, transparent 36%),
+    linear-gradient(203deg, transparent 20%, color-mix(in oklab, #966d1d 42%, transparent) 27%, transparent 36%),
     linear-gradient(197deg, transparent 44%, color-mix(in oklab, #ffe3a6 34%, transparent) 50%, transparent 57%),
     radial-gradient(120% 80% at 88% -10%, color-mix(in oklab, #ffd88a 26%, transparent), transparent 60%);
   filter: blur(6px);
@@ -527,6 +527,47 @@ html, body, #root {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* ── 채팅 빛줄기 ──────────────────────────────────────────────────────────────
+   reactbits 의 LightRays 는 ogl(WebGL) 셰이더로 위에서 퍼지는 광선을 그린다. 여기선
+   배경에 깔리는 기척 정도면 충분해서, 위쪽 한 점에서 퍼지는 원뿔 그라데이션 세 줄기로
+   대신했다. 글을 읽는 면 위에 깔리므로 세기는 아주 낮게 두고, 느리게 숨만 쉰다. */
+.chat-rays {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    conic-gradient(from 176deg at 48% -14%, transparent 0 4deg, color-mix(in oklab, var(--accent) 26%, transparent) 7deg, transparent 11deg),
+    conic-gradient(from 182deg at 56% -12%, transparent 0 3deg, color-mix(in oklab, var(--accent) 18%, transparent) 6deg, transparent 10deg),
+    conic-gradient(from 170deg at 40% -16%, transparent 0 5deg, color-mix(in oklab, var(--accent) 14%, transparent) 8deg, transparent 13deg);
+  filter: blur(22px);
+  opacity: 0.26;
+  /* 아래로 갈수록 사라진다. 글이 놓이는 가운데에서는 거의 안 보여야 한다. */
+  mask-image: linear-gradient(to bottom, #000 0%, color-mix(in oklab, #000 45%, transparent) 30%, transparent 62%);
+  animation: chat-rays-breathe 14s ease-in-out infinite alternate;
+}
+
+/* 다크에서는 같은 세기도 띠처럼 도드라진다. */
+:root:not(.light) .chat-rays {
+  opacity: 0.34;
+}
+
+@keyframes chat-rays-breathe {
+  from { transform: translateX(-7px) scaleY(0.98); }
+  to   { transform: translateX(7px) scaleY(1.02); }
+}
+
+/* 메시지·입력창은 빛 위에 선다. */
+.chat-area > *:not(.chat-rays) {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-rays { animation: none; }
 }
 
 /* ── Compact summary tab (우상단 아코디언 탭) ── */
