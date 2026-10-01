@@ -990,31 +990,6 @@ html, body, #root {
   text-decoration-thickness: 2px;
 }
 
-/* Copy button on assistant bubbles */
-.message--assistant .message__bubble .message__copy {
-  position: absolute;
-  top: 0;
-  right: 0;
-  display: none;
-  padding: 3px 7px;
-  font-size: 10px;
-  border-radius: 3px;
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  line-height: 1;
-}
-
-.message--assistant .message__bubble:hover .message__copy {
-  display: block;
-}
-
-.message--assistant .message__bubble .message__copy:hover {
-  color: var(--text-primary);
-  border-color: var(--accent);
-}
-
 /* 실시간 '생각' 표시 (thought 스트리밍). 답변이 오면 접히고, 눌러서 다시 편다. */
 .message__thinking {
   font-size: 12px;
@@ -1060,15 +1035,26 @@ html, body, #root {
 /* 시각은 대화를 읽는 데 거의 안 쓰인다. 매 메시지마다 박아두면 잡음만 된다.
    필요할 때(마우스를 올렸을 때)만 보여준다. */
 .message__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 10px;
   color: var(--text-muted);
-  opacity: 0;
-  transition: opacity var(--dur-micro) var(--ease-standard);
+  font-variant-numeric: tabular-nums;
 }
 
-.message:hover .message__meta,
-.message:focus-within .message__meta {
-  opacity: 1;
+/* 시간 옆 복사 아이콘. 메타 글자와 같은 무게로 두고, 올리면 포인트색. */
+.message__copy {
+  display: flex;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  transition: color var(--dur-micro);
+}
+.message__copy:hover {
+  color: var(--accent);
 }
 
 /* ── Composer ──────────────────────────────────────────────────────────────────

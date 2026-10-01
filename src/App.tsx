@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Sun, Moon, Settings, Paperclip, ArrowUp, Zap, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Sun, Moon, Settings, Paperclip, ArrowUp, Zap, Copy, Check, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { historyStep, type HistoryPos } from "./lib/input-history";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -370,9 +370,6 @@ function ChatMessages({
 
           {(m.content || m.isStreaming || (m.attachments && m.attachments.length > 0) || (m.images && m.images.length > 0)) && (
             <div className="message__bubble">
-              {m.role === "assistant" && m.content && !m.isStreaming && (
-                <CopyButton text={stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
-              )}
               {m.thinking && (
                 <details className="message__thinking" open={!!m.isStreaming && !m.content}>
                   <summary>
@@ -437,6 +434,9 @@ function ChatMessages({
           <span className="message__meta">
             {m.time}
             {m.tokensPerSecond !== undefined && ` | ${m.tokensPerSecond.toFixed(1)} tok/s`}
+            {m.role === "assistant" && m.content && !m.isStreaming && (
+              <CopyButton text={stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
+            )}
           </span>
         </div>
       ))}
@@ -456,8 +456,8 @@ function CopyButton({ text }: { text: string }) {
     });
   }
   return (
-    <button className="message__copy" onClick={copy}>
-      {copied ? "복사됨" : "복사"}
+    <button className="message__copy" onClick={copy} title={copied ? "복사됨" : "복사"} aria-label={copied ? "복사됨" : "복사"}>
+      {copied ? <Check size={12} /> : <Copy size={12} />}
     </button>
   );
 }
