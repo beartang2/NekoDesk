@@ -97,6 +97,66 @@ export function serializeAttachments(files: AttachedFile[]): string | undefined 
   return JSON.stringify(stored);
 }
 
+/** 저장할 때 도구 파라미터·결과 한 칸의 최대 길이. 웹 페이지를 긁은 결과는 몇백 KB 다. */
+const MAX_STORED_FIELD = 2000;
+
+function clipForStore(value: unknown, max = MAX_STORED_FIELD): unknown {
+  if (value === null || value === undefined) return value;
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  if (text.length <= max) return value;
+  return `${text.slice(0, max)}… (${text.length - max}자 생략)`;
+}
+
+/** 답변과 함께 저장하는 것들. 없으면 그 칸을 비운다. */
+export interface MessageMeta {
+  steps?: AgentStep[];
+  plan?: PlanStep[];
+  thinking?: string;
+  images?: string[];
+  tokensPerSecond?: number;
+}
+
+/**
+ * 답변에 딸린 도구 기록·계획·생각·이미지를 저장용 JSON 으로 만든다.
+ *
+ * 예전엔 본문만 저장해서 다시 열면 "도구 N개 사용" 패널이 통째로 사라졌다.
+ * 긴 칸은 잘라서 넣고, 이미지는 첨부와 같은 총량 안에서만 담는다.
+ */
+export function serializeMeta(meta: MessageMeta): string | undefined {
+  let budget = MAX_STORED_ATTACHMENT_BYTES;
+  const images = (meta.images ?? []).filter((url) => {
+    if (url.length > budget) return false;
+    budget -= url.length;
+    return true;
+  });
+  const steps = (meta.steps ?? []).map(({ imageDataUrl: _image, ...s }) => ({
+    ...s,
+    // 중단돼서 "실행 중" 으로 남은 스텝을 다시 열면 영원히 돈다.
+    ...(s.status === "running" ? { status: "error" as const, errorMessage: "중단됨" } : {}),
+    params: Object.fromEntries(Object.entries(s.params ?? {}).map(([k, v]) => [k, clipForStore(v)])),
+    result: clipForStore(s.result),
+    summary: clipForStore(s.summary) as string,
+  }));
+  const stored: MessageMeta = {
+    ...(steps.length ? { steps } : {}),
+    ...(meta.plan?.length ? { plan: meta.plan } : {}),
+    ...(meta.thinking ? { thinking: clipForStore(meta.thinking, 8000) as string } : {}),
+    ...(images.length ? { images } : {}),
+    ...(meta.tokensPerSecond !== undefined ? { tokensPerSecond: meta.tokensPerSecond } : {}),
+  };
+  return Object.keys(stored).length ? JSON.stringify(stored) : undefined;
+}
+
+export function parseMeta(raw: string | null | undefined): MessageMeta {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as MessageMeta;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function buildTextContent(text: string, files: AttachedFile[]): string {
   if (files.length === 0) return text;
   const fileParts = files.map((f) => {
@@ -237,6 +297,8 @@ export function useAgentPool() {
       let finalSteps: AgentStep[] = [];
       let streamBuffer = "";
       let thinkingBuffer = "";
+      // done·error 에서 저장했는가. 아니면(중단) 루프가 끝난 뒤 그때까지의 것이라도 남긴다.
+      let saved = false;
 
       function handleEvent(event: LoopEvent) {
         switch (event.type) {
@@ -361,13 +423,27 @@ export function useAgentPool() {
                   : m
               )
             );
-            conversationApi.save(sessionId, "assistant", clean).catch(() => {});
+            saved = true;
+            conversationApi
+              .save(sessionId, "assistant", clean, undefined, serializeMeta({
+                steps: finalSteps,
+                plan: event.plan,
+                thinking: thinkingBuffer.trimStart(),
+                images,
+                tokensPerSecond: event.tokensPerSecond,
+              }))
+              .catch(() => {});
             appEvents.emit("agentDone");
             void notifyIfAway("네코", toNotificationBody(clean));
             break;
           }
 
           case "error":
+            // 화면에 남는 것과 같게 저장한다. 안 하면 다시 열었을 때 질문만 덩그러니 남는다.
+            saved = true;
+            conversationApi
+              .save(sessionId, "assistant", `연결 실패: ${event.message}`, undefined, serializeMeta({ steps: finalSteps }))
+              .catch(() => {});
             setCatEmotion(sessionId, "error");
             setRunning(sessionId, false);
             setPendingConfirm(null);
@@ -388,6 +464,20 @@ export function useAgentPool() {
       for await (const event of generator) {
         if (controller.signal.aborted) break;
         handleEvent(event);
+      }
+
+      // 중단하면 done 이 안 온다. 예전엔 그래서 답이 통째로 안 남았다.
+      if (!saved) {
+        const partial = useMessageStore.getState().get(sessionId).find((m) => m.id === assistantId);
+        if (partial?.content || finalSteps.length > 0) {
+          conversationApi
+            .save(sessionId, "assistant", partial?.content ?? "", undefined, serializeMeta({
+              steps: finalSteps,
+              plan: partial?.plan,
+              thinking: thinkingBuffer.trimStart(),
+            }))
+            .catch(() => {});
+        }
       }
     },
     // patchSessionMessages / setRunning / setCatEmotion are defined in render scope

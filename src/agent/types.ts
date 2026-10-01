@@ -238,6 +238,8 @@ export interface ConversationMessage {
   created_at: string;
   /** 첨부 파일 JSON. 저장할 때 붙인 게 없으면 null. */
   attachments?: string | null;
+  /** 답변에 딸린 도구 기록·계획 등 JSON(serializeMeta). 없으면 null. */
+  meta?: string | null;
 }
 
 import type { PlanStep } from "./plan";

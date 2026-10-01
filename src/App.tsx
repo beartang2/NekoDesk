@@ -19,7 +19,7 @@ import { MenuModal } from "./components/MenuModal";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { useDrawingGame } from "./hooks/useDrawingGame";
 import { useWordChainGame } from "./hooks/useWordChainGame";
-import { useAgentPool, makeInitialMessages } from "./hooks/useAgentLoop";
+import { useAgentPool, makeInitialMessages, parseMeta } from "./hooks/useAgentLoop";
 import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useCatRpg } from "./hooks/useCatRpg";
@@ -871,18 +871,25 @@ export default function App() {
     try {
       const msgs = await conversationApi.load(sessionId);
       if (msgs.length === 0) return;
-      const chatMessages: ChatMessage[] = msgs.map((m) => ({
-        id: crypto.randomUUID(),
-        role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
-        content: m.content,
-        attachments: parseAttachments(m.attachments),
-        time: new Date(m.created_at).toLocaleTimeString("ko-KR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        steps: [],
-        isStreaming: false,
-      }));
+      const chatMessages: ChatMessage[] = msgs.map((m) => {
+        const meta = parseMeta(m.meta);
+        return {
+          id: crypto.randomUUID(),
+          role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+          content: m.content,
+          attachments: parseAttachments(m.attachments),
+          time: new Date(m.created_at).toLocaleTimeString("ko-KR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          steps: meta.steps ?? [],
+          plan: meta.plan,
+          thinking: meta.thinking,
+          images: meta.images,
+          tokensPerSecond: meta.tokensPerSecond,
+          isStreaming: false,
+        };
+      });
       setAllMessages((prev) => {
         // DB 를 읽는 사이에 이 대화로 질문이 나갔으면, 화면에는 진행 중인 답(생각·도구
         // 로그)이 있고 DB 에는 방금 저장된 질문만 있다. 여기서 덮어쓰면 그 답 칸이

@@ -8,7 +8,8 @@ vi.mock("../api/tauri", () => ({
 vi.mock("../agent/agent-loop", () => ({ runAgentLoop: vi.fn() }));
 vi.mock("../lib/notify", () => ({ notifyIfAway: vi.fn(), toNotificationBody: (s: string) => s }));
 
-import { serializeAttachments } from "./useAgentLoop";
+import { parseMeta, serializeAttachments, serializeMeta } from "./useAgentLoop";
+import type { AgentStep } from "../agent/types";
 import type { AttachedFile } from "./useAgentLoop";
 
 const image = (name: string, bytes: number): AttachedFile => ({
@@ -48,5 +49,43 @@ describe("serializeAttachments", () => {
     const parsed = JSON.parse(serializeAttachments([image("a.png", 1_500_000), image("b.png", 1_500_000)])!);
     expect(parsed[0].dataUrl).toBeTruthy();
     expect(parsed[1].dataUrl).toBeUndefined();
+  });
+});
+
+describe("serializeMeta", () => {
+  const step = (over: Partial<AgentStep> = {}): AgentStep => ({
+    id: 1,
+    thought: "찾아볼게",
+    tool: "web.search",
+    params: { query: "aula f87" },
+    result: [{ title: "AULA", url: "https://x", snippet: "드라이버" }],
+    summary: "- AULA (https://x): 드라이버",
+    status: "done",
+    ...over,
+  });
+
+  it("남길 게 없으면 저장하지 않는다", () => {
+    expect(serializeMeta({ steps: [] })).toBeUndefined();
+  });
+
+  it("도구 기록이 다시 열어도 그대로 돌아온다", () => {
+    const back = parseMeta(serializeMeta({ steps: [step()], tokensPerSecond: 24.5 }));
+    expect(back.steps?.[0]).toMatchObject({ tool: "web.search", params: { query: "aula f87" }, status: "done" });
+    expect(back.tokensPerSecond).toBe(24.5);
+  });
+
+  it("긴 결과는 잘라서 넣는다 — 긁은 웹 페이지를 통째로 담지 않는다", () => {
+    const back = parseMeta(serializeMeta({ steps: [step({ result: "가".repeat(50_000) })] }));
+    expect(String(back.steps?.[0].result).length).toBeLessThan(2100);
+  });
+
+  it("중단돼 실행 중으로 남은 스텝은 멈춘 것으로 저장한다 — 다시 열면 영원히 돈다", () => {
+    const back = parseMeta(serializeMeta({ steps: [step({ status: "running" })] }));
+    expect(back.steps?.[0]).toMatchObject({ status: "error", errorMessage: "중단됨" });
+  });
+
+  it("깨진 JSON 은 빈 값으로 읽는다", () => {
+    expect(parseMeta("{broken")).toEqual({});
+    expect(parseMeta(null)).toEqual({});
   });
 });

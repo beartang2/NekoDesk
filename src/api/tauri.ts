@@ -124,9 +124,12 @@ export const settingsApi = {
 export const conversationApi = {
   load: (sessionId: string) =>
     invoke<ConversationMessage[]>("conversation_load", { sessionId }),
-  /** `attachments` 는 AttachedFile 배열의 JSON. 껐다 켜도 미리보기가 남게 한다. */
-  save: (sessionId: string, role: string, content: string, attachments?: string) =>
-    invoke<void>("conversation_save", { sessionId, role, content, attachments }),
+  /**
+   * `attachments` 는 AttachedFile 배열의 JSON. 껐다 켜도 미리보기가 남게 한다.
+   * `meta` 는 답변의 도구 기록·계획 등(serializeMeta). 다시 열어도 패널이 남게 한다.
+   */
+  save: (sessionId: string, role: string, content: string, attachments?: string, meta?: string) =>
+    invoke<void>("conversation_save", { sessionId, role, content, attachments, meta }),
   delete: (sessionId: string) => invoke<void>("conversation_delete", { sessionId }),
 };
 

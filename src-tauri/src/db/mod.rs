@@ -82,6 +82,11 @@ const MIGRATIONS: &[&str] = &[
     // 한 줄로만 남았다. 미리보기는 메모리에만 있었기 때문이다.
     // JSON 배열({ name, type, size, dataUrl })을 그대로 담는다.
     "ALTER TABLE conversation_messages ADD COLUMN attachments TEXT;",
+    // 3 — 답변에 딸린 도구 기록·계획·생각·이미지를 함께 보관한다.
+    //
+    // 예전엔 본문만 저장해서, 다시 열면 "도구 N개 사용" 패널이 통째로 사라졌다.
+    // 프런트가 정한 JSON 한 덩이를 그대로 담는다 — 모양이 바뀌어도 스키마는 그대로다.
+    "ALTER TABLE conversation_messages ADD COLUMN meta TEXT;",
 ];
 
 /// 스키마를 최신으로 올린다. 앱 시작 시 1회 호출.

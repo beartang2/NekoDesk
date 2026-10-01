@@ -69,6 +69,8 @@ pub struct ConversationMessage {
     pub created_at: String,
     /// 첨부 파일 JSON. 없으면 None.
     pub attachments: Option<String>,
+    /// 답변의 도구 기록·계획 등 JSON. 없으면 None.
+    pub meta: Option<String>,
 }
 
 impl TryFrom<&Row<'_>> for ConversationMessage {
@@ -81,6 +83,7 @@ impl TryFrom<&Row<'_>> for ConversationMessage {
             content: row.get("content")?,
             created_at: row.get("created_at")?,
             attachments: row.get("attachments")?,
+            meta: row.get("meta")?,
         })
     }
 }
