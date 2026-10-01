@@ -211,7 +211,13 @@ function buildChatSystemPrompt(): string {
 
 // ── Core fetch ────────────────────────────────────────────────────────────────
 
-/** LLM 요청 본문 조립. 스트리밍/비스트리밍이 같은 규칙을 쓰도록 한 곳에 모은다. */
+/**
+ * LLM 요청 본문 조립. 스트리밍/비스트리밍이 같은 규칙을 쓰도록 한 곳에 모은다.
+ *
+ * temperature 는 넘겨받았을 때만 싣는다. 안 실으면 llama-server 의 `--temp`(모델 프로필
+ * 설정값)가 쓰인다. 예전엔 에이전트·채팅이 0.1·0.7 을 박아 보내 설정이 무시됐다 —
+ * 요약·게임처럼 용도가 분명한 호출만 직접 정한다.
+ */
 function buildRequestBody(
   messages: LlmMessage[],
   params: LlmParams,
@@ -715,7 +721,7 @@ export async function* agentStepStream(
   try {
     for await (const chunk of fetchStream(
       allMessages,
-      { temperature: 0.1, max_tokens: p.max_tokens_agent, grammar: AGENT_JSON_GRAMMAR },
+      { max_tokens: p.max_tokens_agent, grammar: AGENT_JSON_GRAMMAR },
       onUsage,
       signal
     )) {
@@ -756,7 +762,7 @@ export async function agentStep(
   try {
     const done = await fetchCompletionMessage(
       allMessages,
-      { temperature: 0.1, grammar: AGENT_JSON_GRAMMAR },
+      { grammar: AGENT_JSON_GRAMMAR },
       onUsage,
       signal
     );
@@ -773,7 +779,7 @@ export async function agentStep(
         }
         const retry = await fetchCompletionMessage(
           fallback,
-          { temperature: 0.1, grammar: AGENT_JSON_GRAMMAR },
+          { grammar: AGENT_JSON_GRAMMAR },
           onUsage,
           signal
         );
@@ -829,7 +835,7 @@ async function nativeTurn(
   signal?: AbortSignal
 ): Promise<AgentTurn> {
   const allMessages = buildAgentMessages(messages, userInput, true, memories);
-  const params: LlmParams = { temperature: 0.1, tools: buildToolSchemas() };
+  const params: LlmParams = { tools: buildToolSchemas() };
 
   const toTurn = ({ text, toolCalls }: LlmCompletion): AgentTurn => ({ text, toolCalls });
 
@@ -869,7 +875,7 @@ async function* nativeTurnStream(
   try {
     for await (const chunk of fetchStream(
       allMessages,
-      { temperature: 0.1, max_tokens: p.max_tokens_agent, tools: buildToolSchemas() },
+      { max_tokens: p.max_tokens_agent, tools: buildToolSchemas() },
       onUsage,
       signal
     )) {
@@ -950,7 +956,7 @@ export function chatStream(
     ...messages,
   ];
 
-  return fetchStream(allMessages, { temperature: 0.7, max_tokens: 512 }, onUsage, signal);
+  return fetchStream(allMessages, { max_tokens: 512 }, onUsage, signal);
 }
 
 
