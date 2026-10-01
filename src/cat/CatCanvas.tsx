@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
-import { SPRITE_FRAME_SIZE, SPRITE_SCALE, getAnimation } from "./spriteData";
+import { SPRITE_DISPLAY_SIZE, getAnimation } from "./spriteData";
 import type { CatEmotion } from "../agent/types";
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { useCatStore } from "../stores/catStore";
@@ -55,15 +55,14 @@ interface CatCanvasProps {
 }
 
 /**
- * 화면 배율에 맞춰 정수 확대율을 고른다.
+ * 캔버스 백킹 버퍼 크기(장치 픽셀).
  *
- * 레티나(배율 2)면 2.5 × 2 = 5 — 원본 1픽셀이 장치 픽셀 5칸 정사각형이 된다.
- * 소수로 확대하면 어떤 픽셀은 3칸, 어떤 픽셀은 2칸이 되어 그림이 준 비율이 깨진다.
+ * 화면 크기는 `SPRITE_DISPLAY_SIZE` 로 고정이다. 여기서 정하는 건 그 자리에 장치
+ * 픽셀을 몇 칸 채울지뿐 — 레티나면 두 배로 채워야 선명하다.
  */
-function pixelScale(): { device: number; css: number } {
+function backingSize(): number {
   const dpr = window.devicePixelRatio || 1;
-  const device = Math.max(1, Math.round(SPRITE_SCALE * dpr));
-  return { device, css: device / dpr };
+  return Math.max(1, Math.round(SPRITE_DISPLAY_SIZE * dpr));
 }
 
 export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
@@ -76,7 +75,7 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
   const petCountRef = useRef(0);
   const petResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [scale] = useState(pixelScale);
+  const [backing] = useState(backingSize);
   const displayEmotion = petEmotion ?? emotion;
 
   // 평소 동작 한 바퀴 = 프레임 수 × 프레임 간격. 털색을 바꾸면 길이도 따라 바뀐다.
@@ -189,14 +188,13 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
         >
           <canvas
             ref={canvasRef}
-            width={SPRITE_FRAME_SIZE * scale.device}
-            height={SPRITE_FRAME_SIZE * scale.device}
+            width={backing}
+            height={backing}
             className="cat-canvas"
             style={{
-              // CSS 크기는 장치 픽셀 수를 화면 배율로 되돌린 값이다. 여기서 한 번 더
-              // 늘리면(예전엔 96 을 104 로 늘렸다) 정수 확대가 도로 무너진다.
-              width: `${SPRITE_FRAME_SIZE * scale.css}px`,
-              height: `${SPRITE_FRAME_SIZE * scale.css}px`,
+              // 화면 크기는 모니터와 무관하게 이 값으로 고정이다. 백킹만 배율을 탄다.
+              width: `${SPRITE_DISPLAY_SIZE}px`,
+              height: `${SPRITE_DISPLAY_SIZE}px`,
             }}
           />
           {hearts.map((h) => (

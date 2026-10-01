@@ -70,10 +70,12 @@ async fn brave(query: &str, key: &str) -> Result<Vec<SearchResult>, AppError> {
         "https://api.search.brave.com/res/v1/web/search?q={}&count=5&search_lang=en",
         urlencode(query)
     );
+    // Accept-Encoding 을 손으로 붙이면 안 된다. reqwest 를 gzip feature 없이 쓰므로
+    // 압축된 바디를 풀지 못하고 .json() 이 "error decoding response body" 로 죽는다
+    // (그래서 DDG 가 막힌 동안 검색이 전부 실패했다). 헤더를 빼면 평문으로 온다.
     let resp: serde_json::Value = client()
         .get(&url)
         .header("Accept", "application/json")
-        .header("Accept-Encoding", "gzip")
         .header("X-Subscription-Token", key.trim())
         .send()
         .await?

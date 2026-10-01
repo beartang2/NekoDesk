@@ -203,11 +203,17 @@
   padding-bottom: 8px;
 }
 
+/* 행 위에 접힌 채로도 보인다. 툴 행과 한 묶음으로 읽히게 살짝만 들여쓴다. */
 .step-thought {
-  margin: 0;
+  margin: 0 0 2px;
+  padding-inline: 2px;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.5;
+}
+/* 두 번째 스텝부터는 앞 스텝과 벌려서 "생각 → 도구" 묶음이 갈린다. */
+.step-item + .step-item .step-thought {
+  margin-top: 6px;
 }
 
 /* 파라미터는 JSON 이 아니라 이름·값 두 칸. */

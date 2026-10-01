@@ -348,7 +348,6 @@ export function useAgentPool() {
                       content: clean,
                       steps: finalSteps,
                       isStreaming: false,
-                      thinking: undefined,
                       images: images.length > 0 ? images : undefined,
                       plan: event.plan?.length ? event.plan : undefined,
                     }

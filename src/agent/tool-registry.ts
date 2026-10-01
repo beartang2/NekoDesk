@@ -10,6 +10,7 @@ import {
 } from "../api/tauri";
 import { appEvents, requestWordchainFirstWord } from "../lib/events";
 import { getFile, getStoredFileNames } from "./file-store";
+import { buildSkillIndex, readKnowledge } from "./knowledge";
 import type {
   ToolName,
   JsonSchema,
@@ -200,13 +201,41 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
   },
 
+  "skill.read": {
+    name: "skill.read",
+    description:
+      "참고 지식 문서를 읽는다. 시스템 프롬프트의 '참고 지식 목록' 에 있는 이름을 그대로 넣어라. " +
+      "목록에 해당하는 작업(그림 그리기, AppleScript 로 macOS 조작 등)이면 코드를 쓰기 전에 먼저 읽어라. " +
+      "문서에 그 작업의 규칙과 예시가 들어 있어서, 안 읽고 시작하면 결과가 나빠진다.",
+    params: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: '지식 이름. 예: "그림그리기"' },
+      },
+      required: ["name"],
+    },
+    readOnly: true,
+    execute: async (p) => {
+      const found = readKnowledge(p["name"] as string);
+      // 이름을 틀렸을 때 목록을 같이 돌려준다. 모델이 한 번 더 추측하지 않고 고른다.
+      return found ?? { error: `"${p["name"]}" 라는 지식은 없어. 있는 것:\n${buildSkillIndex()}` };
+    },
+    resultLimit: 1,
+    summarize: (r) => {
+      const v = r as { name?: string; content?: string; error?: string };
+      return v.error ?? `### ${v.name}\n${v.content}`;
+    },
+  },
+
   "code.exec": {
     name: "code.exec",
     description:
       "Python, Shell, AppleScript 를 로컬에서 실행하고 결과를 반환한다. " +
       'language 가 "applescript" 일 때 code 는 순수 AppleScript 문법만 쓴다 ' +
       '(osascript -e 래퍼 금지. 예: tell application "Music" to get name of current track). ' +
-      "Python 으로 만든 이미지는 /tmp/neko_output.png 에 저장하면 채팅에 표시된다 (plt.show() 금지).",
+      "파일·이미지는 상대 경로로 저장해라. work_dir 을 안 주면 네코 출력 폴더(~/.nekodesk/output)에서 실행되니 거기 모인다. " +
+      "이미지는 저장만 하면 파일명과 무관하게 채팅에 표시된다 (plt.show() 금지). " +
+      "그림을 새로 그릴 때는 PIL 도형 조합 대신 .svg 파일로 저장해라 — 그대로 렌더된다.",
     params: {
       type: "object",
       properties: {

@@ -107,6 +107,9 @@ function AgentStepItem({ step, isOpen, onToggle }: StepProps) {
 
   return (
     <div className={`step-item step-item--${step.status} ${isOpen ? "step-item--open" : ""}`}>
+      {/* 최종 답변 스텝의 생각은 바로 아래 말풍선과 같은 말이라 빼둔다. */}
+      {step.thought && step.tool !== "none" && <p className="step-thought">{step.thought}</p>}
+
       <button className="step-row" onClick={onToggle} aria-expanded={isOpen}>
         <span className="step-row__icon"><Icon size={12} strokeWidth={2} /></span>
         <span className="step-row__text">
@@ -123,8 +126,6 @@ function AgentStepItem({ step, isOpen, onToggle }: StepProps) {
 
       <div className={`step-body ${isOpen ? "step-body--open" : ""}`}>
         <div className="step-body__inner">
-          {step.thought && <p className="step-thought">{step.thought}</p>}
-
           {paramEntries.length > 0 && (
             <dl className="step-params">
               {paramEntries.map(([key, value]) => (

@@ -69,6 +69,7 @@ export type ToolName =
   | "fs.list"
   | "fs.glob"
   | "fs.grep"
+  | "skill.read"
   /** 루프가 직접 처리하는 가상 툴 (execute 없음). */
   | "user.ask"
   | "plan.set"

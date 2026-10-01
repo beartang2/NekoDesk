@@ -818,16 +818,24 @@ html, body, #root {
   border-color: var(--accent);
 }
 
-/* 답변 전 실시간 '생각' 표시 (thought 스트리밍) */
+/* 실시간 '생각' 표시 (thought 스트리밍). 답변이 오면 접히고, 눌러서 다시 편다. */
 .message__thinking {
-  display: flex;
-  gap: 6px;
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-secondary);
   font-style: italic;
   opacity: 0.85;
   animation: msg-in var(--dur-control) var(--ease-out-quint);
+}
+.message__thinking > summary {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+.message__thinking > summary::-webkit-details-marker {
+  display: none;
 }
 .message__thinking-icon {
   font-style: normal;
@@ -895,8 +903,9 @@ html, body, #root {
   align-items: flex-end;
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 4px 4px 4px 6px;
+  border-radius: 14px;
+  /* 안쪽 컨트롤은 모두 높이 30px, 아래 여백 5px 로 한 줄에 맞춘다. */
+  padding: 5px 5px 5px 8px;
   transition:
     border-color var(--dur-control) var(--ease-standard),
     box-shadow var(--dur-control) var(--ease-standard);
@@ -916,11 +925,11 @@ html, body, #root {
 .composer__attach {
   background: none;
   border: none;
-  border-radius: var(--r-md);
+  border-radius: var(--r-sm);
   color: var(--text-muted);
   cursor: pointer;
   padding: 0 9px;
-  height: 34px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -935,12 +944,10 @@ html, body, #root {
   align-items: center;
   gap: 4px;
   height: 30px;
-  align-self: flex-end;
-  margin-bottom: 2px;
   padding: 0 9px;
   flex-shrink: 0;
   border: none;
-  border-radius: 15px;
+  border-radius: 9px;
   background: none;
   color: var(--text-muted);
   font-family: inherit;
@@ -991,13 +998,13 @@ html, body, #root {
   flex: 1;
   background: none;
   border: none;
-  padding: 8px 6px;
+  padding: 5px 4px;
   color: var(--text-primary);
   font-family: inherit;
   font-size: 13.5px;
   resize: none;
   outline: none;
-  min-height: 34px;
+  min-height: 30px;
   max-height: 180px;
   line-height: 1.55;
   -webkit-app-region: no-drag;
@@ -1021,7 +1028,7 @@ html, body, #root {
 .composer__send {
   background: var(--accent);
   border: none;
-  border-radius: 50%;
+  border-radius: 9px;
   color: var(--bg-base);
   width: 30px;
   height: 30px;
@@ -1030,8 +1037,6 @@ html, body, #root {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  align-self: flex-end;
-  margin-bottom: 2px;
   -webkit-app-region: no-drag;
   transition: filter var(--dur-micro), scale var(--dur-control) var(--ease-standard);
 }
@@ -1048,14 +1053,12 @@ html, body, #root {
 .composer__stop {
   background: color-mix(in oklab, var(--error) 15%, transparent);
   border: 1px solid var(--error);
-  border-radius: 15px;
+  border-radius: 9px;
   color: var(--error);
   font-family: inherit;
   font-size: 12px;
   padding: 0 12px;
   height: 30px;
-  align-self: flex-end;
-  margin-bottom: 2px;
   -webkit-app-region: no-drag;
   transition: background 0.1s, scale var(--dur-control) var(--ease-standard);
   white-space: nowrap;

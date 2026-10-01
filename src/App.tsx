@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from "react"
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Sun, Moon, Settings, Paperclip, ArrowUp, Zap, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { historyStep, type HistoryPos } from "./lib/input-history";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
@@ -29,6 +30,17 @@ import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/perm
 import { reloadUserSkills } from "./agent/knowledge";
 import { detectGameIntent } from "./lib/game-intent";
 import { roParticle } from "./lib/hangul";
+
+/**
+ * 모델의 `<think>` 블록을 본문에서 걷어낸다.
+ *
+ * 닫힌 블록만 지우면 스트리밍 중에는 `</think>` 가 아직 안 와서 사고 과정이
+ * 통째로 답변처럼 화면에 찍히다가, 태그가 닫히는 순간 사라진다. 안 닫힌 꼬리도
+ * 같이 지워야 그 깜빡임이 없다.
+ */
+function stripThink(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<think>[\s\S]*$/i, "").trim();
+}
 import { storeFile, removeFile } from "./agent/file-store";
 import { applyThemeColors } from "./theme-colors";
 import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
@@ -348,13 +360,16 @@ function ChatMessages({
           {(m.content || m.isStreaming || (m.attachments && m.attachments.length > 0) || (m.images && m.images.length > 0)) && (
             <div className="message__bubble">
               {m.role === "assistant" && m.content && !m.isStreaming && (
-                <CopyButton text={m.content.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
+                <CopyButton text={stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
               )}
-              {m.isStreaming && m.thinking && !m.content && (
-                <div className="message__thinking">
-                  <span className="message__thinking-icon">💭</span>
+              {m.thinking && (
+                <details className="message__thinking" open={!!m.isStreaming && !m.content}>
+                  <summary>
+                    <span className="message__thinking-icon">💭</span>
+                    생각 과정
+                  </summary>
                   {m.thinking}
-                </div>
+                </details>
               )}
               {m.content && (
                 <ReactMarkdown
@@ -378,7 +393,7 @@ function ChatMessages({
                     ),
                   }}
                 >
-                  {m.content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()}
+                  {stripThink(m.content)}
                 </ReactMarkdown>
               )}
               {m.images && m.images.length > 0 && (
@@ -482,17 +497,23 @@ function Composer({
   onStop,
   onActivity,
   isRunning,
+  history,
 }: {
   onSend: (text: string, files: AttachedFile[]) => void;
   onStop: () => void;
   onActivity: () => void;
   isRunning: boolean;
+  /** 이 세션에서 보냈던 메시지, 오래된 것부터. ↑ 로 되살린다. */
+  history: string[];
 }) {
   const [value, setValue] = useState("");
   const [files, setFiles] = useState<AttachedFile[]>([]);
   const [autoMode, setAutoMode] = useState(isAutoApprove);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // ↑/↓ 로 보던 기록의 위치와, 그전에 쓰고 있던 초안.
+  const [histPos, setHistPos] = useState<HistoryPos>(null);
+  const draftRef = useRef("");
 
   function submit() {
     const text = value.trim();
@@ -501,16 +522,56 @@ function Composer({
     onSend(text, files);
     setValue("");
     setFiles([]);
+    setHistPos(null);
+    draftRef.current = "";
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
+  /**
+   * 코드로 값을 바꾼다. 높이와 캐럿은 React 가 DOM 에 반영한 뒤에 잡아야 해서
+   * 다음 프레임에 손본다. 캐럿을 끝으로 옮기지 않으면 되살린 문장 한가운데에
+   * 커서가 남아 다음 ↓ 가 안 먹는다.
+   */
+  function replaceValue(next: string) {
+    setValue(next);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+      el.selectionStart = el.selectionEnd = el.value.length;
+    });
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
+      return;
     }
+
+    // 터미널처럼 ↑/↓ 로 보냈던 메시지를 되살린다. 다만 여러 줄을 쓸 때 커서
+    // 이동까지 뺏으면 안 되므로, ↑ 는 캐럿 앞에 줄바꿈이 없을 때(첫 줄)만,
+    // ↓ 는 뒤에 없을 때(마지막 줄)만 가로챈다.
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    if (e.shiftKey || e.metaKey || e.altKey || e.ctrlKey) return;
+    const el = e.currentTarget;
+    const dir = e.key === "ArrowUp" ? -1 : 1;
+    const inWay =
+      dir === -1
+        ? el.value.slice(0, el.selectionStart).includes("\n")
+        : el.value.slice(el.selectionEnd).includes("\n");
+    if (inWay) return;
+
+    const step = historyStep(history, histPos, dir, draftRef.current);
+    if (!step) return; // 되살릴 게 없다 — 평소대로 커서가 움직인다
+    // 기록을 처음 열 때만 초안을 넣어둔다(뒤지는 중엔 덮어쓰면 안 된다).
+    if (histPos === null) draftRef.current = value;
+    e.preventDefault();
+    setHistPos(step.pos);
+    replaceValue(step.text);
   }
 
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -727,7 +788,7 @@ function CompactSummaryBar({
         <div className="compact-tab__panel">
           <div className="compact-tab__panel-inner">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {summary.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()}
+              {stripThink(summary)}
             </ReactMarkdown>
           </div>
         </div>
@@ -922,6 +983,13 @@ export default function App() {
 
   // Active session's messages
   const activeMessages = allMessages[activeId] ?? [];
+
+  // ↑ 로 되살릴 입력 기록. 따로 저장하지 않는다 — 보낸 메시지가 이미 기록이고,
+  // 세션을 바꾸면 그 세션의 기록으로 같이 바뀐다.
+  const userHistory = useMemo(
+    () => activeMessages.filter((m) => m.role === "user" && m.content).map((m) => m.content),
+    [activeMessages]
+  );
 
   // ── Agent pool (parallel per-session processing) ──────────────────────
   const pool = useAgentPool();
@@ -1523,6 +1591,7 @@ export default function App() {
           onStop={() => pool.stop(activeId)}
           onActivity={markUserActivity}
           isRunning={isRunning || wordChain.phase === "cat_turn"}
+          history={userHistory}
         />
       </main>
 
