@@ -332,6 +332,22 @@ async function recallMemories(userInput: string): Promise<string> {
 }
 
 /** 최종 답변으로 쓸 텍스트. 모델이 아무 말도 안 했으면 알려준다. */
+/**
+ * 답이 같은 조각을 끝없이 되풀이하는 중인가. 맞으면 되풀이가 시작된 자리까지의 길이.
+ *
+ * 작은 모델은 낮은 온도에서 한 구절에 갇힌다("多少钱多少钱…"). 서버는 max_tokens 까지
+ * 멈추지 않아서 2048 토큰을 다 쓰는 동안(4B 에서 약 2분) 사용자가 끼어들 수도 없었다.
+ *
+ * ponytail: 1~30자 조각이 8번 넘게 이어져 80자를 넘으면 반복으로 본다. 코드 속
+ * `0, 0, 0, …` 같은 긴 배열도 걸릴 수 있다 — 그런 답이 실제로 잘리면 기준을 올린다.
+ */
+export function degenerateAt(text: string): number | null {
+  const tail = text.slice(-600);
+  const m = /(.{1,30}?)\1{7,}$/s.exec(tail);
+  if (!m || m[0].length < 80) return null;
+  return text.length - tail.length + m.index + m[1].length;
+}
+
 function finalAnswerOf(text: string): string {
   const trimmed = text.trim();
   if (trimmed) return trimmed;
@@ -354,7 +370,13 @@ export async function* runAgentLoop(
    * 시킨다. 결과를 툴 인자로 받아야 하는 요청(끝말잇기 판정)에 쓴다 — 문장 속
    * 표시로 받으면 작은 모델이 "내가 졌어" 만 쓰고 표시를 빼먹었다.
    */
-  requireTool?: ToolName
+  requireTool?: ToolName,
+  /**
+   * 사용자가 보낸 말이 대기 중인가(꺼내지 않고 보기만 한다). 답이 흘러나오는 중에
+   * 대기 말이 생기면 그 자리에서 답을 끊는다. 도구 사이에는 takeInterjections 로
+   * 끼워 넣을 자리가 있지만, 답 도중에는 그런 자리가 없어 끝날 때까지 기다렸다.
+   */
+  hasInterjections?: () => boolean
 ): AsyncGenerator<LoopEvent> {
   // 모드는 루프 시작 시 한 번 고정한다. 중간에 강등되면 이미 쌓인 컨텍스트의
   // 메시지 형식과 어긋나므로, 강등은 다음 사용자 메시지부터 반영된다.
@@ -401,6 +423,9 @@ export async function* runAgentLoop(
     // 답변 텍스트는 턴이 확정되기 전에 토큰 단위로 흘러나온다.
     let turn: AgentTurn | undefined;
     let streamedAnswer = "";
+    // 생성 도중 끊은 이유. for-await 를 빠져나가면 스트림의 finally 가 연결을 닫아
+    // llama.cpp 도 생성을 멈춘다.
+    let cut: "interjected" | "repetition" | null = null;
     try {
       for await (const ev of agentTurnStream(context.toMessages(), userInput, i, memories, trackUsage, signal)) {
         if (ev.type === "thinking") {
@@ -411,6 +436,9 @@ export async function* runAgentLoop(
         } else {
           turn = ev.turn;
         }
+        if (turn) continue;
+        if (hasInterjections?.()) { cut = "interjected"; break; }
+        if (ev.type === "delta" && degenerateAt(streamedAnswer) !== null) { cut = "repetition"; break; }
       }
     } catch (err) {
       if (isAbort(err)) return;
@@ -420,6 +448,15 @@ export async function* runAgentLoop(
       }
       const errMsg = err instanceof Error ? err.message : String(err);
       yield { type: "error", message: `LLM 연결 실패: ${errMsg}` };
+      return;
+    }
+    if (cut) {
+      // 끊긴 답도 답이다. 대기 중인 말은 부르는 쪽이 다음 요청으로 보낸다.
+      const at = cut === "repetition" ? degenerateAt(streamedAnswer) : null;
+      const kept = (at === null ? streamedAnswer : streamedAnswer.slice(0, at)).trim();
+      const note = cut === "repetition" ? "(같은 말이 반복돼서 끊었어)" : "(말을 걸어서 여기서 멈췄어)";
+      const answer = kept ? `${kept}\n\n${note}` : note;
+      yield { type: "done", answer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
       return;
     }
     if (!turn) {

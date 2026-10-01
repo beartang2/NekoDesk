@@ -340,7 +340,8 @@ export function useAgentPool() {
         if (interjected.length > 0) setQueue(sessionId, []);
         return interjected.map((q) => buildLlmContent(q.userText, q.files));
       };
-      const generator = runAgentLoop(textContent, history, llmContent, controller.signal, takeInterjections, requireTool);
+      const hasInterjections = () => (queueRef.current[sessionId]?.length ?? 0) > 0;
+      const generator = runAgentLoop(textContent, history, llmContent, controller.signal, takeInterjections, requireTool, hasInterjections);
 
       // 지금 답 칸의 스텝. 끼어들기로 닫힌 칸의 스텝은 stepOffset 만큼 앞에 있다.
       let stepOffset = 0;
