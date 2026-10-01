@@ -286,7 +286,8 @@
 /* 행 위에 접힌 채로도 보인다. 툴 행과 한 묶음으로 읽히게 살짝만 들여쓴다. */
 .step-thought {
   margin: 0 0 2px;
-  padding-inline: 2px;
+  /* 머리줄·도구 행의 안쪽 여백(8px)과 같은 선에서 시작한다. */
+  padding-inline: 8px;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.5;

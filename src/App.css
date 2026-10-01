@@ -474,7 +474,7 @@ html, body, #root {
     color-mix(in oklab, #fff4c5 46%, transparent) 117deg,
     transparent 126deg,
     transparent 131deg,
-    color-mix(in oklab, #ffc23d 34%, transparent) 140deg,
+    color-mix(in oklab, #ffce66 34%, transparent) 140deg,
     transparent 151deg);
   transform-origin: 0 0;
   /* 줄기 가장자리가 남을 만큼만 흐린다. 10px 넘게 흐리면 줄기가 한 덩어리 안개가
@@ -598,7 +598,7 @@ html, body, #root {
 .chat-aurora {
   position: absolute;
   inset: -20% -10% auto;
-  height: 62%;
+  height: 50%;
   z-index: 0;
   pointer-events: none;
   /* 너무 흐리면 띠 아래 가장자리가 지워져 물결이 안 보인다. */
