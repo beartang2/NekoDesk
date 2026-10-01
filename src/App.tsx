@@ -1400,6 +1400,16 @@ export default function App() {
     pick.launch();
   }
 
+  // 타이머가 끝나면 네코가 말풍선으로 알린다(소리 나는 macOS 알림은 카드가 띄운다).
+  useEffect(() => {
+    return appEvents.on("timerDone", (text) => {
+      setGameSpeech(text);
+      triggerActionEmotion("happy", 6000);
+      // 그사이 그림 게임이 말풍선을 바꿨으면 그건 지우지 않는다.
+      setTimeout(() => setGameSpeech((cur) => (cur === text ? null : cur)), 6000);
+    });
+  }, [triggerActionEmotion]);
+
   // game.start 도구 이벤트 처리 (MINI_GAMES 정의 이후에 위치)
   useEffect(() => {
     return appEvents.on("startGame", (payload) => {

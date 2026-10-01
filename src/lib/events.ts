@@ -19,6 +19,8 @@ interface EventMap {
   agentDone: void;
   wordchainGameover: void;
   startGame: StartGamePayload;
+  /** 포모도로·커스텀 타이머가 끝났다. 네코가 할 말. */
+  timerDone: string;
 }
 
 type Handler<T> = (payload: T) => void;

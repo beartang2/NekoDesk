@@ -270,13 +270,16 @@ function CalendarCard() {
 
 // ── Pomodoro Card ─────────────────────────────────────────────────────────────
 
-type PomodoroMode = "focus" | "break" | "long-break";
+type PomodoroMode = "focus" | "break" | "long-break" | "custom";
 
-const POMODORO_DURATIONS: Record<PomodoroMode, number> = {
+const POMODORO_DURATIONS: Record<Exclude<PomodoroMode, "custom">, number> = {
   focus: 25 * 60,
   break: 5 * 60,
   "long-break": 15 * 60,
 };
+
+/** ⇄ 로 도는 순서. 긴 휴식은 자동으로만 들어오고, 거기서 누르면 집중으로 간다. */
+const MODE_CYCLE: PomodoroMode[] = ["focus", "break", "custom"];
 
 function formatTime(secs: number) {
   const m = Math.floor(secs / 60).toString().padStart(2, "0");
@@ -284,64 +287,84 @@ function formatTime(secs: number) {
   return `${m}:${s}`;
 }
 
-function PomodoroCard() {
+/** 타이머가 끝나면 네코가 알린다 — 소리 나는 macOS 알림과 고양이 말풍선. */
+function notifyTimerDone(body: string) {
+  // notifyIfAway 가 아니라 늘 띄운다. 창을 보고 있어도 타이머 끝은 놓치면 안 된다.
+  invoke("notify_send", { title: "네코", body }).catch(() => {});
+  appEvents.emit("timerDone", body);
+}
+
+export function PomodoroCard() {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<PomodoroMode>("focus");
   const [secondsLeft, setSecondsLeft] = useState(POMODORO_DURATIONS.focus);
   const [isRunning, setIsRunning] = useState(false);
   const [sessionCount, setSessionCount] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [customMinutes, setCustomMinutes] = useState("10");
+  const [customSecs, setCustomSecs] = useState(10 * 60);
+  const durationOf = (m: PomodoroMode) => (m === "custom" ? customSecs : POMODORO_DURATIONS[m]);
 
+  // 1초마다 하나씩 깎으면 창이 뒤로 가 타이머가 느려질 때 같이 늦는다.
+  // 끝나는 시각을 정해두고 매번 남은 시간을 다시 잰다.
   useEffect(() => {
-    if (!isRunning) {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      return;
-    }
-    intervalRef.current = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(intervalRef.current!);
-          setIsRunning(false);
-          handleComplete();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    if (!isRunning) return;
+    const endsAt = Date.now() + secondsLeft * 1000;
+    const id = setInterval(() => {
+      const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+      setSecondsLeft(left);
+      if (left === 0) {
+        clearInterval(id);
+        setIsRunning(false);
+        handleComplete();
+      }
+    }, 250);
+    return () => clearInterval(id);
+    // 도는 동안 mode·남은 시간이 바뀌는 길은 모두 먼저 멈춘다 — 시작 시점 값이면 된다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning]);
 
   function handleComplete() {
-    setSessionCount((prev) => {
-      const next = mode === "focus" ? prev + 1 : prev;
-      const nextMode: PomodoroMode =
-        mode === "focus"
-          ? next % 4 === 0 ? "long-break" : "break"
-          : "focus";
-      const msg =
-        mode === "focus"
-          ? `집중 완료! ${nextMode === "long-break" ? "☕ 긴 휴식 시간이에요." : "🍵 잠깐 쉬어가요."}`
-          : "휴식 끝! 🐱 다시 집중해볼까요?";
-      invoke("notify_send", {
-        title: "NekoDesk 포모도로",
-        body: msg,
-      }).catch(() => {});
-      setMode(nextMode);
-      setSecondsLeft(POMODORO_DURATIONS[nextMode]);
-      return next;
-    });
+    if (mode === "custom") {
+      notifyTimerDone(`⏰ ${customSecs / 60}분 타이머 끝! 시간 다 됐어요.`);
+      setSecondsLeft(customSecs);
+      return;
+    }
+    const next = mode === "focus" ? sessionCount + 1 : sessionCount;
+    const nextMode: PomodoroMode =
+      mode === "focus" ? (next % 4 === 0 ? "long-break" : "break") : "focus";
+    notifyTimerDone(
+      mode === "focus"
+        ? `집중 완료! ${nextMode === "long-break" ? "☕ 긴 휴식 시간이에요." : "🍵 잠깐 쉬어가요."}`
+        : "휴식 끝! 🐱 다시 집중해볼까요?"
+    );
+    setSessionCount(next);
+    setMode(nextMode);
+    setSecondsLeft(POMODORO_DURATIONS[nextMode]);
   }
 
-  function reset() {
-    if (intervalRef.current) clearInterval(intervalRef.current);
+  function switchTo(next: PomodoroMode, secs = durationOf(next)) {
     setIsRunning(false);
-    setSecondsLeft(POMODORO_DURATIONS[mode]);
+    setMode(next);
+    setSecondsLeft(secs);
   }
 
-  const total = POMODORO_DURATIONS[mode];
+  function editCustomMinutes(raw: string) {
+    setCustomMinutes(raw);
+    const minutes = Math.round(Number(raw));
+    if (minutes >= 1 && minutes <= 999) {
+      setCustomSecs(minutes * 60);
+      setSecondsLeft(minutes * 60);
+    }
+  }
+
+  // 커스텀이고 아직 시작 전이면 시간 자리에서 바로 분을 고친다.
+  const editingCustom = mode === "custom" && !isRunning && secondsLeft === customSecs;
+
+  const total = durationOf(mode);
   const progress = (total - secondsLeft) / total;
   const circumference = 2 * Math.PI * 28;
-  const modeLabel = mode === "focus" ? "집중" : mode === "break" ? "휴식" : "긴 휴식";
+  const modeLabel =
+    mode === "focus" ? "집중" : mode === "break" ? "휴식" : mode === "long-break" ? "긴 휴식" : "타이머";
 
   return (
     <div className="panel-card">
@@ -366,23 +389,33 @@ function PomodoroCard() {
                   strokeDashoffset={circumference * (1 - progress)}
                 />
               </svg>
-              <div className="pomo-time">{formatTime(secondsLeft)}</div>
+              {editingCustom ? (
+                <label className="pomo-time pomo-time--edit">
+                  <input
+                    type="number"
+                    min={1}
+                    max={999}
+                    value={customMinutes}
+                    onChange={(e) => editCustomMinutes(e.target.value)}
+                    onBlur={() => setCustomMinutes(String(customSecs / 60))}
+                    onKeyDown={(e) => { if (e.key === "Enter") setIsRunning(true); }}
+                    aria-label="타이머 분"
+                  />
+                  분
+                </label>
+              ) : (
+                <div className="pomo-time">{formatTime(secondsLeft)}</div>
+              )}
             </div>
             <div className="pomo-mode-label">{modeLabel}</div>
             <div className="pomo-controls">
-              <button className="pomo-btn" onClick={reset} title="리셋">↺</button>
+              <button className="pomo-btn" onClick={() => switchTo(mode)} title="리셋">↺</button>
               <button className="pomo-btn pomo-btn--primary" onClick={() => setIsRunning((v) => !v)}>
                 {isRunning ? "⏸" : "▶"}
               </button>
               <button
                 className="pomo-btn"
-                onClick={() => {
-                  if (intervalRef.current) clearInterval(intervalRef.current);
-                  setIsRunning(false);
-                  const nextMode: PomodoroMode = mode === "focus" ? "break" : "focus";
-                  setMode(nextMode);
-                  setSecondsLeft(POMODORO_DURATIONS[nextMode]);
-                }}
+                onClick={() => switchTo(MODE_CYCLE[(MODE_CYCLE.indexOf(mode) + 1) % MODE_CYCLE.length])}
                 title="모드 전환"
               >
                 ⇄

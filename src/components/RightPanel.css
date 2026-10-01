@@ -417,6 +417,7 @@
 .pomo-ring__fill--focus    { stroke: var(--accent, #7df); }
 .pomo-ring__fill--break    { stroke: var(--success, #5d5); }
 .pomo-ring__fill--long-break { stroke: #a77; }
+.pomo-ring__fill--custom   { stroke: var(--accent, #7df); }
 
 .pomo-time {
   position: absolute;
@@ -490,6 +491,42 @@
 
 .pomo-dot--filled {
   background: var(--accent, #7df);
+}
+
+/* 커스텀 모드의 시간 자리. 평소 시간과 같은 글자로 두고 밑줄로만 고칠 수 있음을 알린다. */
+.pomo-time--edit {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  font-size: 11px;
+  cursor: text;
+}
+
+.pomo-time--edit input {
+  width: 2.4em;
+  padding: 0;
+  border: none;
+  border-bottom: 1px dashed var(--text-muted);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.pomo-time--edit input::-webkit-inner-spin-button,
+.pomo-time--edit input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.pomo-time--edit input:focus-visible {
+  outline: none;
+  border-bottom: 1px solid var(--accent);
 }
 
 /* ── Drawing Pad ───────────────────────────────────────────────────────────── */
