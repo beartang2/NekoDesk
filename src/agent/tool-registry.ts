@@ -38,7 +38,7 @@ function summarizeTodos(todos: Todo[]): string {
 
 function summarizeEvents(events: ScheduleEvent[]): string {
   if (events.length === 0) return "일정 없음";
-  return events.map((e) => `- [id:${e.id}] ${e.title} (${e.start_at})`).join("\n");
+  return events.map((e) => `- [id:${e.id}] ${e.title} (${e.start_at}${e.end_at ? ` ~ ${e.end_at}` : ""})`).join("\n");
 }
 
 function summarizeSearch(results: SearchResult[]): string {
@@ -163,7 +163,9 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
 
   "schedule.add": {
     name: "schedule.add",
-    description: "일정을 추가한다 (하루 단위, 여러 날짜는 각각 호출)",
+    description:
+      "일정을 추가한다. 여러 날에 걸친 일정(여행·출장)은 end_at 을 넣어 한 번에 추가한다 — 날마다 따로 부르지 마라. " +
+      "날짜가 서로 떨어진 별개 일정 여러 개는 한 턴에 여러 번 호출한다",
     params: {
       type: "object",
       properties: {
@@ -172,12 +174,16 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
           type: "string",
           description: 'ISO 8601 (예: "2026-05-22" 또는 "2026-05-22T14:00:00")',
         },
+        end_at: {
+          type: "string",
+          description: '끝나는 날짜나 시각. 여러 날이면 마지막 날(예: "2026-05-24"). 하루짜리면 생략',
+        },
       },
       required: ["title", "start_at"],
     },
     readOnly: false,
     execute: async (p) =>
-      scheduleApi.add(p["title"] as string, p["start_at"] as string),
+      scheduleApi.add(p["title"] as string, p["start_at"] as string, (p["end_at"] as string | undefined) || null),
     resultLimit: 1,
     summarize: (r) => `일정 추가됨: ${(r as ScheduleEvent).title}`,
   },

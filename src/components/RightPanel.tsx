@@ -24,6 +24,14 @@ export function parseEventDate(s: string): Date {
   return new Date(s);
 }
 
+/** 일정이 걸친 첫날과 마지막 날(자정 기준). end_at 이 없으면 시작한 하루다. */
+export function eventDaySpan(e: { start_at: string; end_at: string | null }): [Date, Date] {
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const start = day(parseEventDate(e.start_at));
+  const end = e.end_at ? day(parseEventDate(e.end_at)) : start;
+  return [start, end < start ? start : end];
+}
+
 // ── TODO Card ─────────────────────────────────────────────────────────────────
 
 function TodoCard() {
@@ -166,13 +174,18 @@ function CalendarCard() {
     setSelectedDay(null);
   }
 
-  // Events for the displayed month
+  // 여러 날 일정은 시작한 날만이 아니라 걸친 날마다 보여야 한다.
+  const covers = (e: ScheduleEvent, day: number) => {
+    const [start, end] = eventDaySpan(e);
+    const d = new Date(year, month, day);
+    return d >= start && d <= end;
+  };
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 0);
   const monthEvents = events.filter((e) => {
-    const d = parseEventDate(e.start_at);
-    return !isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() === month;
+    const [start, end] = eventDaySpan(e);
+    return !isNaN(start.getTime()) && start <= monthEnd && end >= monthStart;
   });
-
-  const eventDays = new Set(monthEvents.map((e) => parseEventDate(e.start_at).getDate()));
 
   // Calendar grid (Sun-first)
   const firstDayOfWeek = new Date(year, month, 1).getDay(); // 0=Sun
@@ -186,7 +199,7 @@ function CalendarCard() {
   while (cells.length % 7 !== 0) cells.push(null);
 
   const selectedEvents = selectedDay
-    ? monthEvents.filter((e) => parseEventDate(e.start_at).getDate() === selectedDay)
+    ? monthEvents.filter((e) => covers(e, selectedDay))
     : [];
 
   const isCurrentMonthView =
@@ -211,7 +224,7 @@ function CalendarCard() {
             {cells.map((day, i) => {
               if (!day) return <div key={`_${i}`} className="cal-cell" />;
               const isToday = isCurrentMonthView && day === today.getDate();
-              const hasEvent = eventDays.has(day);
+              const hasEvent = monthEvents.some((e) => covers(e, day));
               const isSelected = day === selectedDay;
               return (
                 <div
@@ -251,6 +264,8 @@ function CalendarCard() {
                     <span className="cal-event__time">
                       {e.all_day
                         ? "종일"
+                        : eventDaySpan(e)[1] > eventDaySpan(e)[0]
+                        ? eventDaySpan(e).map((d) => `${d.getMonth() + 1}/${d.getDate()}`).join("~")
                         : parseEventDate(e.start_at).toLocaleTimeString("ko-KR", {
                             hour: "2-digit",
                             minute: "2-digit",

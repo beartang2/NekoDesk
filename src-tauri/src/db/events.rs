@@ -23,15 +23,21 @@ impl Range {
     }
 }
 
+/// 여러 날에 걸친 일정(`end_at` 이 있는 것)은 시작한 날이 아니라 걸친 기간으로 본다.
+/// 월~수 여행이면 화요일의 "오늘 일정" 에도 나와야 한다.
 pub fn list(conn: &Connection, range: Range) -> AppResult<Vec<ScheduleEvent>> {
     let sql = match range {
         Range::Today => format!(
-            "SELECT {COLS} FROM events WHERE date(start_at) = date('now')
+            "SELECT {COLS} FROM events
+             WHERE date(start_at) <= date('now') AND date(COALESCE(end_at, start_at)) >= date('now')
              ORDER BY start_at ASC LIMIT 20"
         ),
+        // 하루짜리는 예전처럼 아직 안 지난 것만. 여러 날짜는 마지막 날이 안 지났으면 진행 중이다.
         Range::Week => format!(
-            "SELECT {COLS} FROM events WHERE start_at >= datetime('now')
-               AND date(start_at) BETWEEN date('now') AND date('now', '+7 days')
+            "SELECT {COLS} FROM events
+             WHERE (CASE WHEN end_at IS NULL THEN start_at >= datetime('now')
+                         ELSE date(end_at) >= date('now') END)
+               AND date(start_at) <= date('now', '+7 days')
              ORDER BY start_at ASC LIMIT 20"
         ),
         Range::All => format!("SELECT {COLS} FROM events ORDER BY start_at ASC LIMIT 200"),
@@ -106,6 +112,23 @@ mod tests {
         let rest = list(&c, Range::All).unwrap();
         assert_eq!(rest.len(), 1);
         assert_eq!(rest[0].title, "C");
+    }
+
+    #[test]
+    fn multi_day_event_shows_on_every_day_it_covers() {
+        let c = setup();
+        let day = |offset: &str| -> String {
+            c.query_row(&format!("SELECT date('now', '{offset}')"), [], |r| r.get(0)).unwrap()
+        };
+        // 어제 시작해 내일 끝나는 여행 — 오늘은 둘째 날이다.
+        add(&c, "여행", &day("-1 day"), Some(&day("+1 day"))).unwrap();
+        // 어제로 끝난 하루짜리는 오늘 목록에 없어야 한다.
+        add(&c, "어제 회의", &day("-1 day"), None).unwrap();
+
+        let today = list(&c, Range::Today).unwrap();
+        assert_eq!(today.iter().map(|e| e.title.as_str()).collect::<Vec<_>>(), ["여행"]);
+        let week = list(&c, Range::Week).unwrap();
+        assert_eq!(week.iter().map(|e| e.title.as_str()).collect::<Vec<_>>(), ["여행"]);
     }
 
     #[test]
