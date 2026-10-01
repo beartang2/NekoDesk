@@ -3,6 +3,7 @@ import { execHistoryApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { X } from "lucide-react";
 import { SettingsModal } from "./SettingsModal";
+import { ErrorBoundary } from "./ErrorBoundary";
 import type { ExecHistoryItem } from "../agent/types";
 import "./MenuModal.css";
 
@@ -106,9 +107,12 @@ interface MenuModalProps {
   onClose: () => void;
   isDark: boolean;
   initialTab?: MenuTab;
+  /** 닫히는 중. 퇴장 애니메이션을 틀고, 끝나면 onClosed 로 알린다. */
+  leaving?: boolean;
+  onClosed?: () => void;
 }
 
-export function MenuModal({ onClose, isDark, initialTab = "settings" }: MenuModalProps) {
+export function MenuModal({ onClose, isDark, initialTab = "settings", leaving, onClosed }: MenuModalProps) {
   const [tab, setTab] = useState<MenuTab>(initialTab);
 
   function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
@@ -116,8 +120,12 @@ export function MenuModal({ onClose, isDark, initialTab = "settings" }: MenuModa
   }
 
   return (
-    <div className="menu-backdrop" onClick={handleBackdrop}>
-      <div className="menu-modal">
+    <div className="menu-backdrop" data-leaving={leaving ? "" : undefined} onClick={handleBackdrop}>
+      <div
+        className="menu-modal"
+        // 안쪽 요소의 애니메이션도 여기로 올라온다. 퇴장 애니메이션일 때만 뗀다.
+        onAnimationEnd={(e) => { if (e.animationName === "menu-slide-out") onClosed?.(); }}
+      >
         <div className="menu-modal__header">
           <div className="menu-modal__tabs">
             <button
@@ -136,15 +144,19 @@ export function MenuModal({ onClose, isDark, initialTab = "settings" }: MenuModa
           <button className="menu-modal__close" onClick={onClose}><X size={13} /></button>
         </div>
 
+        {/* 경계를 본문에만 둔다. 패널 전체를 감싸면 오류 화면이 퇴장 애니메이션 없이 떠서
+            닫아도 animationend 가 안 와 화면에 남는다. 여기면 틀·닫기 버튼이 살아 있다. */}
         <div className="menu-modal__body">
-          {tab === "history" && <ExecHistoryPanel />}
-          {tab === "settings" && (
-            <SettingsModal
-              asTab
-              onClose={onClose}
-              isDark={isDark}
-            />
-          )}
+          <ErrorBoundary label="설정" key={tab}>
+            {tab === "history" && <ExecHistoryPanel />}
+            {tab === "settings" && (
+              <SettingsModal
+                asTab
+                onClose={onClose}
+                isDark={isDark}
+              />
+            )}
+          </ErrorBoundary>
         </div>
       </div>
     </div>

@@ -1397,6 +1397,9 @@ export default function App() {
   }, []);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  // 닫혀도 퇴장 애니메이션이 끝날 때까지 붙여둔다.
+  const [menuMounted, setMenuMounted] = useState(false);
+  if (menuOpen && !menuMounted) setMenuMounted(true);
   const [gameSpeech, setGameSpeech] = useState<string | null>(null);
   const game = useDrawingGame(triggerActionEmotion, setGameSpeech, () => reward(10));
 
@@ -1578,10 +1581,13 @@ export default function App() {
         rightPanelVisible={rightPanelVisible}
         onToggleRightPanel={() => setRightPanelVisible((v) => !v)}
       />
-      {menuOpen && (
-        <ErrorBoundary label="설정">
-          <MenuModal onClose={() => setMenuOpen(false)} isDark={isDark} />
-        </ErrorBoundary>
+      {menuMounted && (
+        <MenuModal
+          onClose={() => setMenuOpen(false)}
+          isDark={isDark}
+          leaving={!menuOpen}
+          onClosed={() => setMenuMounted(false)}
+        />
       )}
       <CommandPalette
         open={paletteOpen}

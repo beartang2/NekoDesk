@@ -30,6 +30,26 @@
   to   { opacity: 1; transform: translateX(0); }
 }
 
+/* 닫힐 때는 들어온 길로 나간다. 나가는 건 들어오는 것보다 짧고 끝으로 갈수록 빨라야
+   "치웠다" 로 읽힌다. 끝나면 App 이 animationend 를 듣고 뗀다 — 움직임 줄이기에선
+   전역 규칙이 길이를 줄여 바로 끝나므로 animation: none 으로 바꾸면 안 떨어진다. */
+.menu-backdrop[data-leaving] {
+  animation: menu-fade-out var(--dur-control) ease-in both;
+  pointer-events: none;
+}
+.menu-backdrop[data-leaving] .menu-modal {
+  animation: menu-slide-out var(--dur-control) ease-in both;
+}
+
+@keyframes menu-slide-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(16px); }
+}
+
+@keyframes menu-fade-out {
+  to { opacity: 0; }
+}
+
 /* ── Header + Tabs ── */
 .menu-modal__header {
   display: flex;
