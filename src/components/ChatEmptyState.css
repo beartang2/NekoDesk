@@ -69,8 +69,11 @@
   text-align: left;
   -webkit-app-region: no-drag;
   rotate: var(--tilt, 0deg);
-  scale: 0;
-  animation: empty-bubble-pop 520ms var(--ease-playful) var(--pop-delay, 0ms) forwards;
+  /* 기본값은 제자리(1). 등장은 keyframes 의 from 에서만 0 으로 쪼그라든다.
+     forwards 로 붙잡아 두면 끝난 뒤에도 애니메이션 값이 선언값을 계속 덮어써서,
+     hover 의 scale 이 안 먹고 마우스를 뗄 때 한 번 깜빡인다. */
+  scale: 1;
+  animation: empty-bubble-pop 520ms var(--ease-playful) var(--pop-delay, 0ms) backwards;
   transition:
     background var(--dur-control) var(--ease-standard),
     color var(--dur-control) var(--ease-standard),
@@ -114,8 +117,7 @@
 
 /* 글자는 버블이 자리를 잡은 뒤에 올라온다. */
 .empty-state__chip-label {
-  opacity: 0;
-  animation: bubble-label-rise 380ms var(--ease-standard) calc(var(--pop-delay, 0ms) + 160ms) forwards;
+  animation: bubble-label-rise 380ms var(--ease-standard) calc(var(--pop-delay, 0ms) + 160ms) backwards;
 }
 
 @keyframes bubble-label-rise {
@@ -140,14 +142,11 @@
 
 /* 애니메이션을 끈 사용자에게는 칩이 아예 안 보이면 안 된다. */
 @media (prefers-reduced-motion: reduce) {
-  /* 애니메이션을 끄면 scale: 0 인 채로 남아 버블이 아예 안 보인다. */
   .empty-state__chip {
-    scale: 1;
     rotate: 0deg;
     animation: none;
   }
   .empty-state__chip-label {
-    opacity: 1;
     animation: none;
   }
   .empty-state__cat {
