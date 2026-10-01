@@ -1090,7 +1090,7 @@ html, body, #root {
 
 .composer__row {
   display: flex;
-  gap: 6px;
+  gap: 2px;
   align-items: flex-end;
   background: var(--bg-raised);
   border: 1px solid var(--border);
@@ -1113,55 +1113,32 @@ html, body, #root {
   gap: 6px;
 }
 
-.composer__attach {
+/* 첨부·오토모드는 아이콘만 둔다. 상자를 그리면 보내기 버튼과 무게를 다툰다. */
+.composer__attach,
+.composer__auto {
   background: none;
   border: none;
-  border-radius: var(--r-sm);
   color: var(--text-muted);
   cursor: pointer;
-  padding: 0 9px;
+  padding: 0 4px;
   height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   -webkit-app-region: no-drag;
-  transition: background var(--dur-micro), color var(--dur-micro), scale var(--dur-control) var(--ease-standard);
+  transition: color var(--dur-micro), scale var(--dur-control) var(--ease-standard);
 }
 
-/* 오토모드 토글. 꺼져 있으면 첨부 버튼과 같은 무게, 켜지면 글자와 색으로 늘 보인다. */
-.composer__auto {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 30px;
-  padding: 0 9px;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 9px;
-  background: none;
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  -webkit-app-region: no-drag;
-  transition: background var(--dur-micro), color var(--dur-micro), scale var(--dur-control) var(--ease-standard);
-}
-
+.composer__attach:hover:not(:disabled),
 .composer__auto:hover {
-  background: var(--layer-hover);
-  color: var(--text-primary);
-}
-
-.composer__auto--on,
-.composer__auto--on:hover {
-  background: color-mix(in oklab, var(--accent) 18%, transparent);
   color: var(--accent);
 }
 
-.composer__attach:hover {
-  background: var(--layer-hover);
-  color: var(--text-primary);
+/* 켜지면 색과 채운 번개로 늘 보인다. 확인 없이 실행 중이라는 걸 잊으면 안 된다. */
+.composer__auto--on,
+.composer__auto--on:hover {
+  color: var(--accent);
 }
 
 .composer__attach:disabled {

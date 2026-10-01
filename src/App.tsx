@@ -663,7 +663,7 @@ function Composer({
           style={{ display: "none" }}
           onChange={handleFileChange}
         />
-        {/* 켜져 있는 동안은 글자까지 보인다. 확인 없이 실행 중이라는 걸 잊으면 안 된다. */}
+        {/* 켜져 있는 동안은 번개를 채운다. 색만으로 구분하면 놓친다. */}
         <button
           className={`composer__auto ${autoMode ? "composer__auto--on" : ""}`}
           onClick={() => { setAutoApprove(!autoMode); setAutoMode(!autoMode); }}
@@ -674,8 +674,7 @@ function Composer({
               : "오토모드 — 코드 실행·파일 쓰기를 확인 없이 해"
           }
         >
-          <Zap size={13} strokeWidth={2.25} />
-          {autoMode && <span>자동</span>}
+          <Zap size={14} strokeWidth={2.25} fill={autoMode ? "currentColor" : "none"} />
         </button>
         <button
           className="composer__attach"
