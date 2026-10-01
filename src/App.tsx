@@ -1568,7 +1568,6 @@ export default function App() {
         <div className="chat-area">
           {/* 위에서 비껴 드는 빛. reactbits 의 LightRays 를 WebGL 없이 옮긴 것. */}
           <div className="chat-aurora" aria-hidden="true" />
-          <div className="chat-rays" aria-hidden="true" />
           {compactSummaries[activeId] && (
             <CompactSummaryBar
               summary={compactSummaries[activeId]}

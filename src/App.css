@@ -452,16 +452,36 @@ html, body, #root {
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
-  /* 오른쪽 위에서 비스듬히 들어오는 빛줄기 두 개 + 창가 쪽 번짐.
+  /* 창가 쪽 번짐. 움직이지 않는다 — 빛줄기만 흔들린다.
      blend mode 는 쓰지 않는다 — 밝은 배경에서 그냥 사라져 버린다. */
-  background:
-    linear-gradient(203deg, transparent 12%, color-mix(in oklab, #fff4c5 42%, transparent) 28%, transparent 46%),
-    linear-gradient(197deg, transparent 36%, color-mix(in oklab, #ffd16e 34%, transparent) 52%, transparent 68%),
-    radial-gradient(150% 110% at 88% -14%, color-mix(in oklab, #ffd88a 30%, transparent), transparent 70%);
-  /* 더 퍼지게 — 줄기가 선명하면 띠처럼 보이고, 번져야 빛으로 읽힌다. */
-  filter: blur(16px);
+  background: radial-gradient(150% 110% at 88% -14%, color-mix(in oklab, #befaff 30%, transparent), transparent 70%);
   opacity: 0.85;
-  animation: sunbeam-drift 11s ease-in-out infinite alternate;
+}
+
+/* 빛줄기. 해는 왼쪽 위 바깥 한 점에 있고, 줄기는 거기서 고양이 쪽으로 부채꼴로 퍼진다.
+   이 상자의 왼쪽 위 모서리가 곧 해다 — 그라데이션의 중심도, 회전축도 같은 점이라
+   해는 제자리에 있고 줄기의 방향만 바뀐다. 상자를 오른쪽 아래로 크게 잡아 두어
+   기울어도 가장자리가 드러나지 않는다. */
+.cat-panel__sun::before {
+  content: "";
+  position: absolute;
+  left: -6%;
+  top: -18%;
+  width: 260%;
+  height: 260%;
+  background: conic-gradient(at 0 0,
+    transparent 108deg,
+    color-mix(in oklab, #fff4c5 46%, transparent) 117deg,
+    transparent 126deg,
+    transparent 131deg,
+    color-mix(in oklab, #ffc23d 34%, transparent) 140deg,
+    transparent 151deg);
+  transform-origin: 0 0;
+  /* 줄기 가장자리가 남을 만큼만 흐린다. 10px 넘게 흐리면 줄기가 한 덩어리 안개가
+     되고, 안개는 어떻게 움직여도 같은 그림이라 멈춘 것처럼 읽힌다. 번짐은 keyframes 에서
+     함께 숨 쉰다. */
+  filter: blur(5px);
+  animation: sunbeam-drift 3s ease-in-out infinite alternate;
 }
 
 /* 다크에서는 같은 빛도 눈을 찌른다. 번지는 느낌만 남긴다. */
@@ -469,11 +489,11 @@ html, body, #root {
   opacity: 0.3;
 }
 
-/* 먼지가 떠다니듯 아주 느리게 기운다. */
+/* 해를 축으로 줄기 방향만 바뀐다. 옮기거나 늘이면 해가 따라 움직여 버린다. */
 @keyframes sunbeam-drift {
-  from { transform: translateX(0) rotate(0deg) scaleX(1); }
-  50%  { transform: translateX(-8px) rotate(-1deg) scaleX(1.03); }
-  to   { transform: translateX(-13px) rotate(-1.7deg) scaleX(1.05); }
+  from { transform: rotate(5deg); filter: blur(3px); }
+  50%  { transform: rotate(-1deg); filter: blur(8px); }
+  to   { transform: rotate(-6deg); filter: blur(4px); }
 }
 
 /* 고양이와 게이지는 빛 위에 선다.
@@ -489,7 +509,7 @@ html, body, #root {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cat-panel__sun { animation: none; }
+  .cat-panel__sun::before { animation: none; }
 }
 
 /* ── Game speech bubble (그림판과 고양이 사이) ──────────────────────────────────
@@ -570,98 +590,64 @@ html, body, #root {
 }
 
 /* ── 채팅 오로라 ──────────────────────────────────────────────────────────────
-   reactbits 의 Aurora 는 simplex noise 셰이더로 위쪽에 색 띠를 흘린다. 여기서는 큰
-   타원 그라데이션 세 개를 서로 다른 속도로 흘려 같은 결을 낸다. 빛줄기 아래에 깔려
-   색만 번지고, 글이 놓이는 가운데에서는 마스크로 사라진다. */
+   reactbits 의 Aurora 는 simplex noise 셰이더로 위쪽에 색 띠를 일렁이게 한다. 여기서는
+   큰 타원 그라데이션 세 개를 제자리에 두고, 위를 축으로 커튼처럼 늘었다 줄게 한다.
+   양 끝과 가운데가 엇박으로 늘어나 띠 아래 가장자리가 물결친다. 좌우로 옮기지는
+   않는다 — 흘러가면 일렁임이 아니라 미끄러짐으로 읽힌다. 글이 놓이는 가운데에서는
+   마스크로 사라진다. */
 .chat-aurora {
   position: absolute;
   inset: -20% -10% auto;
   height: 62%;
   z-index: 0;
   pointer-events: none;
-  background:
-    radial-gradient(60% 70% at 22% 30%, color-mix(in oklab, var(--accent) 34%, transparent), transparent 70%),
-    radial-gradient(55% 65% at 58% 18%, color-mix(in oklab, var(--success) 26%, transparent), transparent 72%),
-    radial-gradient(65% 75% at 84% 34%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 70%);
-  filter: blur(42px) saturate(1.2);
-  opacity: 0.3;
+  /* 너무 흐리면 띠 아래 가장자리가 지워져 물결이 안 보인다. */
+  filter: blur(28px) saturate(1.2);
+  opacity: 0.55;
   mask-image: linear-gradient(to bottom, #000 0%, color-mix(in oklab, #000 55%, transparent) 45%, transparent 85%);
-  animation: aurora-flow 24s ease-in-out infinite alternate;
+}
+
+.chat-aurora::before,
+.chat-aurora::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 0;
+}
+
+/* 양 끝 두 덩어리 */
+.chat-aurora::before {
+  background:
+    radial-gradient(60% 70% at 22% 30%, color-mix(in oklab, var(--accent) 58%, transparent), transparent 70%),
+    radial-gradient(65% 75% at 84% 34%, color-mix(in oklab, var(--accent) 42%, transparent), transparent 70%);
+  animation: aurora-wave 5s ease-in-out infinite alternate;
+}
+
+/* 가운데 덩어리 — 주기를 어긋나게 둬서 매번 다른 물결이 된다. */
+.chat-aurora::after {
+  background: radial-gradient(55% 65% at 58% 18%, color-mix(in oklab, var(--success) 46%, transparent), transparent 72%);
+  animation: aurora-wave 3.7s ease-in-out infinite alternate-reverse;
 }
 
 :root:not(.light) .chat-aurora {
-  opacity: 0.22;
-}
-
-/* 색 띠가 좌우로 느리게 흐르며 폭이 숨 쉰다. */
-@keyframes aurora-flow {
-  from { transform: translateX(-5%) scaleY(0.94); }
-  50%  { transform: translateX(1%) scaleY(1.04); }
-  to   { transform: translateX(5%) scaleY(0.98); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chat-aurora { animation: none; }
-}
-
-/* ── 채팅 빛줄기 ──────────────────────────────────────────────────────────────
-   reactbits 의 LightRays 는 ogl(WebGL) 셰이더로 위에서 퍼지는 광선을 그린다. 여기선
-   배경에 깔리는 기척 정도면 충분해서, 위쪽 한 점에서 퍼지는 원뿔 그라데이션 세 줄기로
-   대신했다. 글을 읽는 면 위에 깔리므로 세기는 아주 낮게 두고, 느리게 숨만 쉰다. */
-.chat-rays {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  overflow: hidden;
-  background:
-    conic-gradient(from 174deg at 48% -16%, transparent 0 3deg, color-mix(in oklab, var(--accent) 26%, transparent) 9deg, transparent 17deg),
-    conic-gradient(from 183deg at 58% -14%, transparent 0 2deg, color-mix(in oklab, var(--accent) 18%, transparent) 8deg, transparent 16deg),
-    conic-gradient(from 167deg at 38% -18%, transparent 0 4deg, color-mix(in oklab, var(--accent) 14%, transparent) 11deg, transparent 20deg);
-  filter: blur(26px);
-  opacity: 0.5;
-  mask-image: linear-gradient(to bottom, #000 0%, #000 35%, transparent 78%);
-  /* 위쪽을 축으로 부채처럼 기운다. 아래로 갈수록 폭이 커져 살랑이는 결이 된다. */
-  transform-origin: 50% -10%;
-  animation: ray-sway 15s ease-in-out infinite alternate;
-}
-
-/* 겹을 하나 더 얹되 주기를 어긋나게 둔다. 한 겹만 흔들면 판이 통째로 밀리는 것처럼
-   보이고, 둘이 서로 다른 속도로 스쳐야 물결처럼 살랑인다. */
-.chat-rays::after {
-  content: "";
-  position: absolute;
-  inset: -8% -18% 0;
-  transform-origin: 50% -10%;
-  background:
-    conic-gradient(from 166deg at 34% -18%, transparent 0 4deg, color-mix(in oklab, var(--accent) 16%, transparent) 11deg, transparent 20deg),
-    conic-gradient(from 191deg at 70% -20%, transparent 0 3deg, color-mix(in oklab, var(--accent) 12%, transparent) 10deg, transparent 19deg);
-  filter: blur(30px);
-  opacity: 0.55;
-  mask-image: linear-gradient(to bottom, #000 0%, #000 28%, transparent 66%);
-  animation: ray-sway 9.5s ease-in-out infinite alternate-reverse;
-}
-
-/* 다크에서는 같은 세기도 띠처럼 도드라진다. */
-:root:not(.light) .chat-rays {
   opacity: 0.32;
 }
 
-@keyframes ray-sway {
-  from { transform: rotate(-1.7deg) translateX(-10px) scaleX(0.97); }
-  50%  { transform: rotate(0.3deg) translateX(1px) scaleX(1.01); }
-  to   { transform: rotate(1.8deg) translateX(10px) scaleX(1.03); }
-}
-
-/* 메시지·입력창은 빛 위에 선다. */
-.chat-area > *:not(.chat-rays):not(.chat-aurora) {
-  position: relative;
-  z-index: 1;
+/* 위를 축으로 커튼이 내려왔다 걷힌다. 짙어졌다 옅어지는 것도 함께. */
+@keyframes aurora-wave {
+  from { transform: scaleY(0.72); opacity: 0.7; }
+  to   { transform: scaleY(1.28); opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chat-rays,
-  .chat-rays::after { animation: none; }
+  .chat-aurora::before,
+  .chat-aurora::after { animation: none; }
+}
+
+/* 메시지·입력창은 오로라 위에 선다. */
+.chat-area > *:not(.chat-aurora) {
+  position: relative;
+  z-index: 1;
 }
 
 /* ── Compact summary tab (우상단 아코디언 탭) ── */
