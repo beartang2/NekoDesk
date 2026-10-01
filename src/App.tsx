@@ -672,7 +672,7 @@ function Composer({
         <textarea
           ref={textareaRef}
           className="composer__input"
-          placeholder={isRunning ? "덧붙일 말이 있으면 보내 — 네코가 중간에 읽어" : "메시지 입력… (Shift+Enter로 줄바꿈)"}
+          placeholder={isRunning ? "덧붙일 말 입력…" : "메시지 입력… (Shift+Enter로 줄바꿈)"}
           value={value}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
