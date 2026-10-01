@@ -1515,6 +1515,24 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ESC: 설정 창이 열려 있으면 닫고, 아니면 일하는 중인 네코를 멈춘다.
+  // 명령 팔레트처럼 ESC 를 직접 처리하는 곳은 preventDefault 를 하므로 여기서 건너뛴다.
+  // 한글 조합 중의 ESC 는 조합 취소라 건드리지 않는다.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      if (menuOpen) {
+        e.preventDefault();
+        setMenuOpen(false);
+      } else if (isRunning) {
+        e.preventDefault();
+        pool.stop(activeId);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen, isRunning, activeId, pool]);
+
   const paletteCommands = useMemo<Command[]>(() => {
     const base: Command[] = [
       { id: "new", icon: "✍️", label: "새 대화", hint: "⌘N", keywords: "new chat 새대화", run: handleNew },
