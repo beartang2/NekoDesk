@@ -18,7 +18,7 @@ vi.mock("../lib/events", () => ({ appEvents: { emit: vi.fn() }, requestWordchain
 vi.mock("./file-store", () => ({ getFile: vi.fn(), getStoredFileNames: vi.fn(() => []) }));
 
 /** web.search 가 항상 같은 오류로 실패하게 만든다. */
-const searchFails = vi.fn(async () => {
+const searchFails = vi.fn(async (): Promise<unknown> => {
   throw new Error("네트워크 오류");
 });
 vi.mock("@tauri-apps/api/core", () => ({
@@ -83,8 +83,8 @@ describe("루프 반복 상한", () => {
     const events = await run();
     const done = events.find((e) => e.type === "done");
     expect(done).toMatchObject({ answer: "정리했어" });
-    // 반복 40회 / 툴 호출 60회 중 먼저 걸리는 쪽에서 멈춘다.
-    expect(events.filter((e) => e.type === "step_done").length).toBeLessThanOrEqual(60);
+    // 반복 100회 / 툴 호출 100회 중 먼저 걸리는 쪽에서 멈춘다.
+    expect(events.filter((e) => e.type === "step_done").length).toBeLessThanOrEqual(100);
     expect(events.filter((e) => e.type === "step_done").length).toBeGreaterThan(10);
   });
 });
@@ -124,5 +124,21 @@ describe("실패 사다리", () => {
     const done = events.find((e) => e.type === "done");
     expect(done?.answer).toContain("같은 오류가 반복돼서 멈췄어");
     expect(done?.answer).toContain("web.search");
+  });
+});
+
+describe("같은 웹 조회 반복", () => {
+  it("성공한 검색을 또 부르면 실행하지 않고, 두 번 반복하면 모은 결과로 답한다", async () => {
+    // 첫 검색만 성공. 모델은 같은 검색만 계속 낸다 — 4B 모델에서 실제로 본 루프.
+    searchFails.mockResolvedValueOnce([]);
+    nextTurn = (i) => searchTurn(`c${i}`);
+
+    const events = await run();
+    expect(searchFails).toHaveBeenCalledTimes(1);
+    const repeats = events.filter(
+      (e) => e.type === "step_done" && e.step.summary.includes("이미 똑같이 조회했어")
+    );
+    expect(repeats).toHaveLength(2);
+    expect(events.find((e) => e.type === "done")).toMatchObject({ answer: "정리했어" });
   });
 });

@@ -37,9 +37,9 @@ import type {
  * 함께 본다. 셋 중 먼저 걸리는 것이 이긴다.
  */
 const LIMITS = {
-  iterations: 40,
+  iterations: 100,
   wallClockMs: 10 * 60_000,
-  toolCalls: 60,
+  toolCalls: 100,
 };
 
 /** 사용자가 stop 을 눌렀다. 스스로 멈춘 것이니 에러 말풍선을 띄우지 않는다. */
@@ -118,6 +118,22 @@ function summarizeMcpResult(text: string): string {
 }
 
 // 위험 패턴 목록은 danger-patterns.ts 로 분리(테스트 대상). findDangerReason 사용.
+
+/**
+ * 성공한 웹 조회를 똑같이 또 부르면 실행하지 않는다. 작은 모델은 결과를 보고도
+ * "다른 방법을 찾아볼게" 하며 같은 검색을 되풀이해 답을 끝내 못 낸다. 실패 사다리는
+ * 에러만 세므로 이 루프를 못 잡는다.
+ * 웹만 대상이다 — 할 일·파일 목록 같은 조회는 중간에 바뀌어 다시 볼 이유가 있다.
+ */
+const DEDUPE_TOOLS = new Set(["web.search", "web.scrape"]);
+const REPEAT_NOTE =
+  "이미 똑같이 조회했어 — 결과는 앞에 있어. 같은 걸 다시 부르지 말고, 지금까지 찾은 정보로 답해.";
+/** 반복이 이만큼 쌓이면 모델에게 더 맡기지 않고 모은 결과로 답을 만든다. */
+const MAX_REPEATS = 2;
+
+function callKey(call: ToolCall): string {
+  return `${call.name}|${JSON.stringify(call.params).toLowerCase().replace(/\s+/g, " ")}`;
+}
 
 function newStep(id: number, call: ToolCall, thought: string): AgentStep {
   return {
@@ -325,6 +341,8 @@ export async function* runAgentLoop(
   // 찾게 하되(Claude Code 방식), 같은 걸 또 들고 오면 그때는 끝낸다.
   const deniedThisTurn = new Set<string>();
   const deniedSteps = new Set<AgentStep>();
+  const seenCalls = new Set<string>();
+  let repeats = 0;
 
   // 관련 기억은 요청 시작 때 한 번만 떠올린다. 사용자 입력은 요청 안에서 안 바뀌므로
   // 턴마다 다시 검색할 이유가 없다(턴당 IPC 왕복 하나를 아낀다).
@@ -384,9 +402,19 @@ export async function* runAgentLoop(
 
     // ── Execute tool calls ───────────────────────────────────────────────────
     const lockedSteps: ExecutedCall[] = [];
+    // 반복 조회는 실패 사다리 밖에 둔다. 성공으로 세면 잠긴 툴이 풀려버린다.
+    const repeated: ExecutedCall[] = [];
     // 반복 실패로 잠긴 툴은 실행하지 않는다. 조용히 무시하면 모델은 아무 일도
     // 안 일어난 줄 알고 또 부르므로, 잠갔다는 사실을 결과로 돌려준다.
     const calls = turn.toolCalls.filter((c) => {
+      if (seenCalls.has(callKey(c))) {
+        const step = newStep(++stepId, c, turn!.text);
+        step.status = "done";
+        step.summary = REPEAT_NOTE;
+        repeated.push({ call: c, step });
+        repeats++;
+        return false;
+      }
       if (!failures.isLocked(c.name)) return true;
       const step = newStep(++stepId, c, turn!.text);
       step.status = "error";
@@ -398,6 +426,7 @@ export async function* runAgentLoop(
     const executed: ExecutedCall[] = [...lockedSteps];
     toolCallCount += calls.length;
     for (const locked of lockedSteps) yield { type: "step_error", step: locked.step };
+    for (const r of repeated) yield { type: "step_done", step: r.step };
 
     // 부작용 없는 조회는 동시에 돌린다. 나머지는 원래 순서대로 하나씩 —
     // 확인 다이얼로그·사용자 질문이 끼어들고, 앞 호출의 부작용에 의존할 수 있다.
@@ -574,9 +603,10 @@ export async function* runAgentLoop(
     // 같은 실패가 쌓이면 힌트 → 툴 잠금 → 중단 순으로 조인다. 힌트는 스텝 요약에
     // 붙어 컨텍스트로 들어가므로, 모델이 다음 턴에 "이미 뭘 시도했는지" 를 본다.
     let shouldStop = false;
-    for (const { step } of executed) {
+    for (const { call, step } of executed) {
       if (step.status !== "error") {
         failures.recordSuccess(step.tool);
+        if (DEDUPE_TOOLS.has(call.name)) seenCalls.add(callKey(call));
         continue;
       }
       // 거부는 실패가 아니다. 사다리에 올리면 "검색해서 해결책을 찾아라" 같은
@@ -587,7 +617,8 @@ export async function* runAgentLoop(
       if (advice.stop) shouldStop = true;
     }
 
-    context.addTurn({ text: turn.text, calls: executed });
+    // native 모드는 tool_call 마다 결과 메시지가 짝으로 있어야 하므로 반복분도 싣는다.
+    context.addTurn({ text: turn.text, calls: [...executed, ...repeated] });
 
     if (shouldStop) {
       const msg = `같은 오류가 반복돼서 멈췄어. 지금까지 시도한 것:\n\n${failures.summary()}`;
@@ -595,9 +626,10 @@ export async function* runAgentLoop(
       yield { type: "done", answer: msg, steps: context.steps, promptTokens: latestPromptTokens, plan: plan.snapshot() };
       return;
     }
+    if (repeats >= MAX_REPEATS) break;
   }
 
-  // ── Max iterations reached: generate final answer with chat stream ────────
+  // ── 상한 도달 또는 반복 조회: 모은 결과로 최종 답변을 만든다 ────────────────
   const toolContext = context.buildToolContext();
   const finalMessages: LlmMessage[] = [
     ...chatHistory.slice(-6),

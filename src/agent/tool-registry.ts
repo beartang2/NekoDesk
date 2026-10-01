@@ -43,7 +43,8 @@ function summarizeEvents(events: ScheduleEvent[]): string {
 
 function summarizeSearch(results: SearchResult[]): string {
   if (results.length === 0) return "검색 결과 없음";
-  return results.map((r) => `- ${r.title}: ${r.snippet}`).join("\n");
+  // URL 을 빼면 모델이 web.scrape 할 주소를 지어낸다(404 → 재검색 루프).
+  return results.map((r) => `- ${r.title} (${r.url}): ${r.snippet}`).join("\n");
 }
 
 function summarizeGrep(hits: FsGrepHit[]): string {
