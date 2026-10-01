@@ -102,23 +102,6 @@ describe("끝말잇기 흐름", () => {
     expect(result.current.phase).toBe("done");
   });
 
-  it("고양이가 없는 단어라고 하면 유저 단어를 되돌린다", async () => {
-    catReply.mockResolvedValueOnce("안녕").mockResolvedValueOnce("INVALID");
-    const { result } = setup();
-    await act(async () => { await result.current.startGame(); });
-
-    let outcome;
-    await act(async () => { outcome = await result.current.submitWord("영어어"); });
-
-    expect(outcome).toMatchObject({ type: "user_invalid", word: "영어어" });
-    expect(result.current.usedWords).toEqual(["안녕"]);
-    // 무효가 된 턴은 세지 않는다 — 예전에는 turnCount 만 안 되돌아가 승패 메시지에
-    // 실제보다 한 턴 많게 찍혔다.
-    expect(result.current.turnCount).toBe(1);
-    expect(result.current.currentWord).toBe("안녕");
-    expect(result.current.phase).toBe("done");
-  });
-
   it("reset 하면 처음 상태로 돌아간다", async () => {
     catReply.mockResolvedValueOnce("안녕");
     const { result } = setup();

@@ -9,7 +9,6 @@ export type WordChainResult =
   | { type: "invalid_word"; error: string }
   | { type: "invalid_start"; error: string }
   | { type: "duplicate"; error: string }
-  | { type: "user_invalid"; word: string }
   | { type: "cat_word"; catWord: string }
   | { type: "cat_failed"; neededChar: string }
   | { type: "error" };
@@ -95,15 +94,7 @@ export function useWordChainGame(
     onEmotionChange("working", 15000);
 
     try {
-      const catWord = await wordChainReply(userLastChar, newUsed, cleaned);
-      if (catWord === "INVALID") {
-        setUsedWords(usedWords); // 유저 단어 취소
-        setCurrentWord(usedWords[usedWords.length - 1] ?? "");
-        setTurnCount((t) => t - 1); // 무효 처리된 턴은 세지 않는다
-        setPhase("done");
-        onEmotionChange("proud", 8000);
-        return { type: "user_invalid", word: cleaned };
-      }
+      const catWord = await wordChainReply(userLastChar, newUsed);
       if (!catWord || !matchesStartChar(catWord, userLastChar) || newUsed.includes(catWord)) {
         setPhase("done");
         onEmotionChange("sad", 8000);

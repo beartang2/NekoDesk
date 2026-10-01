@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 // 끌어올 이유가 없다.
 vi.mock("./llm-client", () => ({ fetchCompletion: vi.fn() }));
 
-import { pickChainWord } from "./word-chain";
+import { chainWordGrammar, pickChainWord } from "./word-chain";
 
 describe("pickChainWord", () => {
   it("깔끔한 단어 하나면 그대로 쓴다", () => {
@@ -52,9 +52,24 @@ describe("pickChainWord", () => {
     const long = "영" + "어".repeat(30);
     expect(pickChainWord(long, "녕", [])).toHaveLength(10);
   });
+});
 
-  it("INVALID 와 단어가 같이 오면 단어를 택한다", () => {
-    // "INVALID 아니고 여행" 을 패배로 처리하면 안 된다.
-    expect(pickChainWord("INVALID 아니고 영어", "녕", [])).toBe("영어");
+describe("chainWordGrammar", () => {
+  it("이어받을 글자로 시작하고 두~다섯 음절만 허용한다", () => {
+    expect(chainWordGrammar("비")).toBe('root ::= "비" [가-힣] [가-힣]? [가-힣]? [가-힣]?');
+  });
+
+  it("두음법칙으로 바꿀 수 있으면 바꾼 글자로 박는다", () => {
+    // 원래 글자를 열어두면 "료료" 같은 없는 말을 지어냈다.
+    expect(chainWordGrammar("료")).toContain('"요"');
+    expect(chainWordGrammar("녀")).toContain('"여"');
+    expect(chainWordGrammar("라")).toContain('"나"');
+    // 박은 글자로 시작한 단어는 선택기를 반드시 통과해야 한다 — 문법과 판정이 어긋나면
+    // 문법이 강제한 단어를 선택기가 버려서 고양이가 항복한다.
+    expect(pickChainWord("요리", "료", [])).toBe("요리");
+  });
+
+  it("첫 수는 아무 음절로나 시작하되 한 글자는 안 된다", () => {
+    expect(chainWordGrammar("")).toBe("root ::= [가-힣] [가-힣] [가-힣]? [가-힣]? [가-힣]?");
   });
 });

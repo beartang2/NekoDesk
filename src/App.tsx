@@ -1224,8 +1224,6 @@ export default function App() {
           result.type === "duplicate"
         ) {
           injectMessage("assistant", `앗! ${result.error} 😸`);
-        } else if (result.type === "user_invalid") {
-          injectMessage("assistant", `"${result.word}"는 사전에 없는 단어야! 속이려 했지? 😾 고양이 승리! (${wordChain.turnCount}턴)`);
         } else if (result.type === "cat_failed") {
           injectMessage("assistant", `"${result.neededChar}"${roParticle(result.neededChar)} 시작하는 단어가 생각이 안 나... 항복! 유저 승리 🏆 (${wordChain.turnCount}턴)`);
           reward(Math.min(20, Math.floor(wordChain.turnCount / 2)));
