@@ -168,9 +168,11 @@ interface StepProps {
   step: AgentStep;
   isOpen: boolean;
   onToggle: () => void;
+  /** 같은 턴에서 툴을 여러 개 부르면 스텝마다 같은 생각이 붙는다. 그 묶음의 첫 스텝만 보여준다. */
+  showThought: boolean;
 }
 
-function AgentStepItem({ step, isOpen, onToggle }: StepProps) {
+function AgentStepItem({ step, isOpen, onToggle, showThought }: StepProps) {
   const rowRef = useRef<HTMLButtonElement>(null);
   const fillRef = useRef<HTMLSpanElement>(null);
   const elapsed = useElapsed(step.status);
@@ -220,7 +222,7 @@ function AgentStepItem({ step, isOpen, onToggle }: StepProps) {
   return (
     <div className={`step-item step-item--${step.status} ${isOpen ? "step-item--open" : ""}`}>
       {/* 최종 답변 스텝의 생각은 바로 아래 말풍선과 같은 말이라 빼둔다. */}
-      {step.thought && step.tool !== "none" && <p className="step-thought">{step.thought}</p>}
+      {showThought && step.thought && step.tool !== "none" && <p className="step-thought">{step.thought}</p>}
 
       <button
         ref={rowRef}
@@ -310,12 +312,13 @@ export function AgentStepAccordion({ steps, isRunning }: AgentStepAccordionProps
       </div>
 
       <div className="step-accordion__list">
-        {steps.map((step) => (
+        {steps.map((step, i) => (
           <AgentStepItem
             key={step.id}
             step={step}
             isOpen={openIds.has(step.id)}
             onToggle={() => handleToggle(step.id)}
+            showThought={i === 0 || steps[i - 1].thought !== step.thought}
           />
         ))}
       </div>
