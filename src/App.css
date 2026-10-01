@@ -329,11 +329,43 @@ html, body, #root {
   color: var(--text-muted);
 }
 
+/* 목록이 잘려 있으면 그만큼만 가장자리를 흐린다(reactbits AnimatedList).
+   --edge-top/bottom 은 useScrollEdges 가 스크롤 위치를 보고 적어 넣는다.
+   맨 위·맨 아래에서는 0 이라 첫 줄·끝 줄이 또렷하다. */
 .sidebar__list {
   flex: 1;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 calc(22px * var(--edge-top, 0)),
+    #000 calc(100% - 22px * var(--edge-bottom, 0)),
+    transparent 100%
+  );
+}
+
+/* 화면 밖에 있는 줄은 조금 작고 옅다. 스크롤해 들어오면 제자리로 올라온다. */
+.sidebar__list > .session-item {
+  opacity: 0.35;
+  scale: 0.94;
+  transition:
+    opacity var(--dur-control) var(--ease-standard),
+    scale var(--dur-control) var(--ease-standard),
+    background var(--dur-micro);
+}
+
+.sidebar__list > .session-item[data-in] {
+  opacity: 1;
+  scale: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar__list > .session-item {
+    opacity: 1;
+    scale: 1;
+  }
 }
 
 /* 행 선택은 가장자리까지 채우지 않는다. 좌우 8px 안쪽에 둥근 선택 면 —

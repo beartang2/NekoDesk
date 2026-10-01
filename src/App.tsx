@@ -7,6 +7,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { GameSpeechBubble } from "./components/GameSpeechBubble";
+import { useRevealChildren, useScrollEdges } from "./hooks/useScrollReveal";
 import { Attachments } from "./components/Attachments";
 import { PlanChecklist } from "./components/PlanChecklist";
 import { ChatEmptyState } from "./components/ChatEmptyState";
@@ -204,6 +205,10 @@ function Sidebar({
   const sessions = useSessionStore((s) => s.sessions);
   const activeId = useSessionStore((s) => s.activeId);
   const onSelect = useSessionStore((s) => s.setActiveId);
+  // 목록 가장자리 페이드 + 화면에 들어온 줄만 올라오기(reactbits AnimatedList).
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollEdges(listRef);
+  useRevealChildren(listRef);
   return (
     <aside className="sidebar">
       <button className="sidebar__new-btn" onClick={onNew}>
@@ -211,7 +216,7 @@ function Sidebar({
       </button>
 
       <span className="sidebar__section-label">최근</span>
-      <div className="sidebar__list">
+      <div className="sidebar__list" ref={listRef}>
         {sessions.map((s) => (
           <div
             key={s.id}
