@@ -26,21 +26,6 @@
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* ── 글자별 블러 등장 ────────────────────────────────────────────────────────
-   한 글자씩 흐릿한 채로 내려와 또렷해진다. 첫 화면에서 한 번만 돈다. */
-.blur-char {
-  display: inline-block;
-  white-space: pre;
-  opacity: 0;
-  animation: blur-char-in 520ms var(--ease-standard) forwards;
-}
-
-@keyframes blur-char-in {
-  from { opacity: 0; filter: blur(8px); translate: 0 -14px; }
-  60%  { opacity: 1; filter: blur(1.5px); translate: 0 2px; }
-  to   { opacity: 1; filter: blur(0); translate: 0 0; }
-}
-
 .empty-state__title {
   font-size: 19px;
   font-weight: 600;
@@ -57,73 +42,55 @@
   max-width: 380px;
 }
 
-/* 두 칸씩 놓아 길이가 들쭉날쭉한 문장이 줄을 맞춘다. 창이 좁아지면 한 줄로 내려간다. */
+/* 버블은 길이가 제각각이라 격자 대신 흐르게 둔다. 가운데로 모이며 두 줄이 된다. */
 .empty-state__chips {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 8px;
-  width: 100%;
-  max-width: 460px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 9px;
+  max-width: 480px;
 }
 
-/* ── 제안 칩 ──────────────────────────────────────────────────────────────────
-   테두리 친 버튼 네 개가 나란히 있으면 설정 화면처럼 보인다. 테두리를 빼고 옅은
-   면으로 두되, 가리키면 떠오르면서 화살표가 따라 나와 "눌러서 보내는 것" 으로
-   읽히게 한다. */
+/* ── 제안 버블 (reactbits BubbleMenu) ────────────────────────────────────────
+   테두리 친 버튼 네 개가 나란히 있으면 설정 화면처럼 보인다. 알약 모양으로 바꾸고
+   저마다 조금씩 기울여 손으로 흩어 놓은 것처럼 둔다. 가리키면 똑바로 서면서
+   강조색으로 채워지고 화살표가 따라 나온다. */
 .empty-state__chip {
-  position: relative;
-  overflow: hidden;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 9px 14px;
   border: none;
-  border-radius: var(--r-md);
+  border-radius: 999px;
   background: var(--layer-hover);
   color: var(--text-secondary);
   font-family: inherit;
   font-size: 12.5px;
   text-align: left;
   -webkit-app-region: no-drag;
-  opacity: 0;
-  animation: chip-in 420ms var(--ease-playful) forwards;
+  rotate: var(--tilt, 0deg);
+  scale: 0;
+  animation: empty-bubble-pop 520ms var(--ease-playful) var(--pop-delay, 0ms) forwards;
   transition:
     background var(--dur-control) var(--ease-standard),
     color var(--dur-control) var(--ease-standard),
-    translate var(--dur-control) var(--ease-standard),
+    rotate var(--dur-control) var(--ease-playful),
+    scale var(--dur-control) var(--ease-playful),
     box-shadow var(--dur-control) var(--ease-standard);
 }
 
-/* 흐릿하게 아래에서 떠오른다. 네 개가 조금씩 늦게 와 하나씩 놓이는 결이 된다. */
-@keyframes chip-in {
-  from { opacity: 0; translate: 0 10px; filter: blur(3px); }
-  to   { opacity: 1; translate: 0 0; filter: blur(0); }
-}
-
-/* 커서가 있는 자리에 옅은 빛. 좌표는 JS 가 --mouse-x/y 로 넣는다. */
-.empty-state__chip::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0;
-  background: radial-gradient(
-    140px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
-    color-mix(in oklab, var(--accent) 22%, transparent),
-    transparent 70%
-  );
-  transition: opacity var(--dur-sheet) var(--ease-standard);
-}
-
-.empty-state__chip:hover::before,
-.empty-state__chip:focus-visible::before {
-  opacity: 1;
+/* 0 에서 튀어나와 제자리에 앉는다(gsap 의 back.out 과 같은 결). */
+@keyframes empty-bubble-pop {
+  from { scale: 0; }
+  to   { scale: 1; }
 }
 
 .empty-state__chip:hover {
-  background: var(--layer-active);
+  background: color-mix(in oklab, var(--accent) 16%, var(--layer-hover));
   color: var(--text-primary);
-  translate: 0 -2px;
+  /* 가리키면 똑바로 서고 조금 커진다 — 고를 수 있는 것이라는 신호. */
+  rotate: 0deg;
+  scale: 1.04;
   box-shadow: var(--shadow-md);
 }
 
@@ -131,23 +98,29 @@
 .empty-state__chip-icon {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
-  border-radius: var(--r-sm);
+  border-radius: 50%;
   background: var(--bg-raised);
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1;
   transition: scale var(--dur-control) var(--ease-playful);
 }
 
 .empty-state__chip:hover .empty-state__chip-icon {
-  scale: 1.12;
+  scale: 1.1;
 }
 
+/* 글자는 버블이 자리를 잡은 뒤에 올라온다. */
 .empty-state__chip-label {
-  flex: 1;
-  min-width: 0;
+  opacity: 0;
+  animation: bubble-label-rise 380ms var(--ease-standard) calc(var(--pop-delay, 0ms) + 160ms) forwards;
+}
+
+@keyframes bubble-label-rise {
+  from { opacity: 0; translate: 0 10px; }
+  to   { opacity: 1; translate: 0 0; }
 }
 
 /* 평소엔 자리만 차지하고 숨어 있다가, 가리키면 밀려 나온다. */
@@ -167,16 +140,17 @@
 
 /* 애니메이션을 끈 사용자에게는 칩이 아예 안 보이면 안 된다. */
 @media (prefers-reduced-motion: reduce) {
+  /* 애니메이션을 끄면 scale: 0 인 채로 남아 버블이 아예 안 보인다. */
   .empty-state__chip {
+    scale: 1;
+    rotate: 0deg;
+    animation: none;
+  }
+  .empty-state__chip-label {
     opacity: 1;
     animation: none;
   }
   .empty-state__cat {
-    animation: none;
-  }
-  .blur-char {
-    opacity: 1;
-    filter: none;
     animation: none;
   }
 }

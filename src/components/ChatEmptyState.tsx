@@ -20,33 +20,6 @@ const SUGGESTIONS = [
   { icon: "🎮", label: "끝말잇기 하자" },
 ];
 
-/**
- * 글자가 하나씩 흐릿한 채 내려앉는 제목(reactbits 의 BlurText 와 같은 결).
- *
- * 공백은 쪼개지 않고 그대로 둔다 — 나눠 놓으면 줄바꿈 자리가 어긋난다.
- */
-function BlurText({ text, className, delay = 45, start = 0 }: {
-  text: string;
-  className?: string;
-  delay?: number;
-  start?: number;
-}) {
-  return (
-    <span className={className} aria-label={text}>
-      {[...text].map((ch, i) => (
-        <span
-          key={i}
-          className="blur-char"
-          style={{ animationDelay: `${start + i * delay}ms` }}
-          aria-hidden="true"
-        >
-          {ch === " " ? "\u00a0" : ch}
-        </span>
-      ))}
-    </span>
-  );
-}
-
 /** 첫 화면의 고양이. 사이드바의 그 아이가 그대로 앉아서 꼬리를 흔든다. */
 const MARK_SIZE = 32 * 2;
 
@@ -92,26 +65,16 @@ function EmptyStateCat() {
   );
 }
 
-/** 커서가 있는 자리에 옅은 빛이 따라다닌다(reactbits 의 SpotlightCard 와 같은 방식). */
-function trackSpotlight(e: React.MouseEvent<HTMLElement>) {
-  const box = e.currentTarget.getBoundingClientRect();
-  e.currentTarget.style.setProperty("--mouse-x", `${e.clientX - box.left}px`);
-  e.currentTarget.style.setProperty("--mouse-y", `${e.clientY - box.top}px`);
-}
+/** 버블마다 조금씩 다른 기울기. 네 개가 손으로 흩어 놓은 것처럼 보인다. */
+const TILT = [-4, 3, -3, 4];
 
 export function ChatEmptyState({ onPick }: { onPick: (text: string) => void }) {
   return (
     <div className="empty-state">
       <EmptyStateCat />
-      <h2 className="empty-state__title">
-        <BlurText text="뭐 도와줄까?" start={120} />
-      </h2>
+      <h2 className="empty-state__title">뭐 도와줄까?</h2>
       <p className="empty-state__sub">
-        <BlurText
-          text="할 일·일정 정리, 웹 검색, 파일 다루기, 맥 조작까지 부탁할 수 있어."
-          delay={12}
-          start={320}
-        />
+        할 일·일정 정리, 웹 검색, 파일 다루기, 맥 조작까지 부탁할 수 있어.
       </p>
 
       <div className="empty-state__chips">
@@ -119,10 +82,12 @@ export function ChatEmptyState({ onPick }: { onPick: (text: string) => void }) {
           <button
             key={s.label}
             className="empty-state__chip"
-            /* 칩이 하나씩 들어오면 목록이 "생겨나는" 느낌이 된다. 첫 화면에서
-               한 번만 도는 애니메이션이라 매일 쓰기에 부담되지 않는다. */
-            style={{ animationDelay: `${560 + i * 80}ms` }}
-            onMouseMove={trackSpotlight}
+            /* 버블이 하나씩 튀어 들어온다(reactbits 의 BubbleMenu). 기울기는 저마다
+               다르고, 글자는 버블보다 한 박자 늦게 올라온다. */
+            style={{
+              "--tilt": `${TILT[i % TILT.length]}deg`,
+              "--pop-delay": `${120 + i * 110}ms`,
+            } as React.CSSProperties}
             onClick={() => onPick(s.label)}
           >
             <span className="empty-state__chip-icon" aria-hidden="true">{s.icon}</span>

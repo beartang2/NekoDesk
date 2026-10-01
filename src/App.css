@@ -410,6 +410,48 @@ html, body, #root {
   background: var(--bg-surface);
 }
 
+/* ── 창가 햇빛 ────────────────────────────────────────────────────────────────
+   reactbits 의 SideRays 는 WebGL(ogl) 로 광선을 그린다. 여기서 필요한 건 고양이에게
+   드는 빛 한 줄기뿐이라, 기울인 그라데이션 두 장을 흐리게 깔고 천천히 숨 쉬게 했다.
+   고양이보다 뒤에 깔려 UI 를 덮지 않는다. */
+.cat-panel__sun {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  /* 오른쪽 위에서 비스듬히 들어오는 빛줄기 두 개 + 창가 쪽 번짐.
+     blend mode 는 쓰지 않는다 — 밝은 배경에서 그냥 사라져 버린다. */
+  background:
+    linear-gradient(203deg, transparent 20%, color-mix(in oklab, #ffcf6e 42%, transparent) 27%, transparent 36%),
+    linear-gradient(197deg, transparent 44%, color-mix(in oklab, #ffe3a6 34%, transparent) 50%, transparent 57%),
+    radial-gradient(120% 80% at 88% -10%, color-mix(in oklab, #ffd88a 26%, transparent), transparent 60%);
+  filter: blur(6px);
+  opacity: 0.85;
+  animation: sunbeam-drift 11s ease-in-out infinite alternate;
+}
+
+/* 다크에서는 같은 빛도 눈을 찌른다. 번지는 느낌만 남긴다. */
+:root:not(.light) .cat-panel__sun {
+  opacity: 0.3;
+}
+
+/* 먼지가 떠다니듯 아주 느리게 기운다. */
+@keyframes sunbeam-drift {
+  from { transform: translateX(0) rotate(0deg); }
+  to   { transform: translateX(-12px) rotate(-1.4deg); }
+}
+
+/* 고양이와 게이지는 빛 위에 선다. */
+.cat-panel > *:not(.cat-panel__sun) {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cat-panel__sun { animation: none; }
+}
+
 /* ── Game speech bubble (그림판과 고양이 사이) ──────────────────────────────────
    예전엔 고양이 패널 **위에 겹쳐** 떠서 고양이와 게이지를 가렸다. 지금은 흐름 안에
    제 자리를 차지하고, 게임 중 남는 높이를 받는 그림판이 그만큼 줄어든다.
@@ -840,7 +882,60 @@ html, body, #root {
 .message__thinking-icon {
   font-style: normal;
   flex-shrink: 0;
-  animation: caret-pulse 1.4s var(--ease-out-quint) infinite;
+}
+
+/* 생각 중에는 아이콘이 숨 쉬듯 커졌다 줄고, 끝나면 멈춘다. */
+.message__thinking[data-working] .message__thinking-icon {
+  animation: thinking-breath 1.9s var(--ease-standard) infinite;
+}
+
+@keyframes thinking-breath {
+  0%, 100% { opacity: 0.55; scale: 0.94; }
+  50%      { opacity: 1;    scale: 1.06; }
+}
+
+/* ── 생각 줄 (reactbits ThoughtLine) ──────────────────────────────────────────
+   생각하는 동안 글자 위로 빛이 한 번씩 훑고 지나간다. 점 세 개가 깜빡이는 것보다
+   조용하면서 "아직 돌고 있다" 가 분명하다. 끝나면 평범한 글자로 가라앉는다. */
+.message__thinking[data-working] .message__thinking-label {
+  background: linear-gradient(
+    100deg,
+    color-mix(in oklab, var(--text-secondary) 45%, transparent) 30%,
+    var(--text-primary) 50%,
+    color-mix(in oklab, var(--text-secondary) 45%, transparent) 70%
+  );
+  background-size: 250% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: thinking-shimmer 1.8s linear infinite;
+}
+
+@keyframes thinking-shimmer {
+  from { background-position: 125% 0; }
+  to   { background-position: -25% 0; }
+}
+
+/* 생각이 끝나 라벨이 바뀔 때 흐릿하게 가라앉는다. */
+.message__thinking:not([data-working]) .message__thinking-label {
+  animation: thinking-settle 350ms var(--ease-standard);
+}
+
+@keyframes thinking-settle {
+  from { opacity: 0; filter: blur(2px); }
+  to   { opacity: 1; filter: blur(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message__thinking[data-working] .message__thinking-icon,
+  .message__thinking[data-working] .message__thinking-label,
+  .message__thinking:not([data-working]) .message__thinking-label {
+    animation: none;
+  }
+  .message__thinking[data-working] .message__thinking-label {
+    color: var(--text-secondary);
+    -webkit-text-fill-color: currentColor;
+  }
 }
 
 /* Blinking cursor for streaming */

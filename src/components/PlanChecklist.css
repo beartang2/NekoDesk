@@ -31,22 +31,86 @@
   color: var(--text-primary);
 }
 
-.plan-checklist__mark {
-  color: var(--text-secondary);
+/* ── 체크 상자 (reactbits SpringCheck) ───────────────────────────────────────
+   끝나면 면이 가운데에서 차오르며 살짝 부풀고, 그 위에 체크가 그려진다. */
+.plan-check {
+  position: relative;
   flex-shrink: 0;
-  width: 12px;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border-radius: 4px;
 }
+
+.plan-check__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
+  opacity: 0.45;
+  transition: opacity 120ms linear;
+}
+
+.plan-check__fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transform: scale(0);
+  /* 되돌아올 때 튕기면 산만하다. 채울 때만 살짝 넘겼다 앉는다. */
+  transition: transform 260ms var(--ease-playful);
+}
+
+.plan-check__tick {
+  position: absolute;
+  inset: 2px;
+  fill: none;
+  stroke: var(--bg-base);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 220ms var(--ease-standard) 90ms;
+}
+
+.plan-checklist__item--done .plan-check__ring { opacity: 0; }
+.plan-checklist__item--done .plan-check__fill { transform: scale(1); }
+.plan-checklist__item--done .plan-check__tick { stroke-dashoffset: 0; }
 
 /* 끝난 단계는 남은 단계보다 눈에 덜 띄어야 한다 — 읽을 곳은 아직 안 한 쪽이다. */
 .plan-checklist__item--done {
   color: var(--text-secondary);
 }
 
-.plan-checklist__item--done .plan-checklist__mark {
-  color: var(--accent);
+/* 취소선은 text-decoration 대신 직접 그어서 왼쪽에서 자라게 한다. 체크보다 한 박자
+   늦게 출발해 "체크 → 줄" 순서로 읽힌다. */
+.plan-checklist__text {
+  position: relative;
 }
 
-.plan-checklist__item--done .plan-checklist__text {
-  text-decoration: line-through;
-  text-decoration-color: var(--border);
+.plan-checklist__rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 52%;
+  height: 1.5px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.5;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 280ms var(--ease-standard) 160ms;
+}
+
+.plan-checklist__item--done .plan-checklist__rule {
+  transform: scaleX(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan-check__fill,
+  .plan-check__tick,
+  .plan-checklist__rule {
+    transition: none;
+  }
 }

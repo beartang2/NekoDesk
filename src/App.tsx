@@ -239,6 +239,8 @@ function Sidebar({
       {gameSpeech && <GameSpeechBubble text={gameSpeech} />}
 
       <div className="cat-panel" style={{ position: "relative" }}>
+        {/* 창가에 든 햇빛. reactbits 의 SideRays 를 WebGL 없이 기울인 그라데이션으로. */}
+        <div className="cat-panel__sun" aria-hidden="true" />
         <div className="cat-panel__ctx">{contextTokens.toLocaleString()} / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}</div>
         <CatCanvas emotion={emotion} onPet={rpg.onPet} />
         <CatStatusPanel
@@ -363,10 +365,16 @@ function ChatMessages({
                 <CopyButton text={stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
               )}
               {m.thinking && (
-                <details className="message__thinking" open={!!m.isStreaming && !m.content}>
+                <details
+                  className="message__thinking"
+                  data-working={m.isStreaming && !m.content ? "" : undefined}
+                  open={!!m.isStreaming && !m.content}
+                >
                   <summary>
                     <span className="message__thinking-icon">💭</span>
-                    생각 과정
+                    <span className="message__thinking-label">
+                      {m.isStreaming && !m.content ? "생각하는 중" : "생각 과정"}
+                    </span>
                   </summary>
                   {m.thinking}
                 </details>
