@@ -359,6 +359,33 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
   },
 
+  "game.judge": {
+    name: "game.judge",
+    description:
+      "끝말잇기 이의 제기에 판정을 내린다. 사용자가 고양이 단어에 이의를 걸면, web.search 로 그 단어가 " +
+      "국어사전에 실린 말인지 확인한 뒤 반드시 이걸 불러 결과를 정해라. 게임을 끝낼지는 이 판정이 정한다 — " +
+      "말로만 '내가 졌어' 라고 하면 게임은 안 끝난다.",
+    params: {
+      type: "object",
+      properties: {
+        exists: { type: "boolean", description: "사전에 실린 단어면 true(게임 계속), 없는 말이면 false(고양이 패배)" },
+      },
+      required: ["exists"],
+    },
+    readOnly: false,
+    execute: async (p) => {
+      const exists = p["exists"] === true;
+      appEvents.emit("wordchainVerdict", { exists });
+      return { exists };
+    },
+    resultLimit: 1,
+    // 모델이 판정 뒤에 할 말이 앱 상태와 어긋나지 않게, 무엇이 반영됐는지 그대로 알려준다.
+    summarize: (r) =>
+      (r as { exists: boolean }).exists
+        ? "판정 반영됨: 있는 단어. 게임은 계속되고, 사용자가 이어서 단어를 낼 차례다."
+        : "판정 반영됨: 없는 단어. 고양이 패배로 게임이 끝났다.",
+  },
+
   "file.upload": {
     name: "file.upload",
     description:

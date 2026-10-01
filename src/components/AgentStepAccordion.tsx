@@ -44,6 +44,7 @@ const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   "web.scrape": { label: "페이지 읽기", icon: Globe },
   "weather.get": { label: "날씨 확인", icon: CloudSun },
   "game.start": { label: "게임 시작", icon: Gamepad2 },
+  "game.judge": { label: "판정", icon: Gamepad2 },
   "file.upload": { label: "파일 업로드", icon: Upload },
   "fs.read": { label: "파일 읽기", icon: FileText },
   "fs.write": { label: "파일 쓰기", icon: PencilLine },

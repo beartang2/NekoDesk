@@ -11,6 +11,7 @@ import type {
   LlmMessage,
   LoopEvent,
   PermissionDecision,
+  ToolName,
 } from "../agent/types";
 import type { PlanStep } from "../agent/plan";
 
@@ -65,15 +66,11 @@ function nowTime(): string {
   });
 }
 
-function stripSpecialTokens(text: string): { clean: string; emotion: CatEmotion | null; gameOver: boolean } {
+function stripSpecialTokens(text: string): { clean: string; emotion: CatEmotion | null } {
   const match = text.match(/\[\[PET_STATE:(\w+)\]\]/);
   const emotion = match ? (match[1] as CatEmotion) : null;
-  const gameOver = text.includes("[[GAME_OVER]]");
-  const clean = text
-    .replace(/\[\[PET_STATE:\w+\]\]/g, "")
-    .replace(/\[\[GAME_OVER\]\]/g, "")
-    .trim();
-  return { clean, emotion, gameOver };
+  const clean = text.replace(/\[\[PET_STATE:\w+\]\]/g, "").trim();
+  return { clean, emotion };
 }
 
 // Text-only representation (for DB storage and system prompt context)
@@ -104,6 +101,7 @@ export interface QueuedMessage {
   files: AttachedFile[];
   displayText?: string;
   summaryContext?: string;
+  requireTool?: ToolName;
 }
 
 /** 저장할 때 도구 파라미터·결과 한 칸의 최대 길이. 웹 페이지를 긁은 결과는 몇백 KB 다. */
@@ -275,13 +273,20 @@ export function useAgentPool() {
   ) => useMessageStore.getState().patch(sessionId, action);
 
   const sendMessage = useCallback(
-    async (sessionId: string, userText: string, files: AttachedFile[] = [], displayText?: string, summaryContext?: string) => {
+    async (
+      sessionId: string,
+      userText: string,
+      files: AttachedFile[] = [],
+      displayText?: string,
+      summaryContext?: string,
+      requireTool?: ToolName
+    ) => {
       // 일하는 중이면 버리지 않고 줄 세운다. 도구 사이에 끼워 넣거나(user_interjected),
       // 끼울 틈 없이 답이 끝나면 다음 요청으로 보낸다(아래 맨 끝).
       if (runningSetRef.current.has(sessionId)) {
         setQueue(sessionId, [
           ...(queueRef.current[sessionId] ?? []),
-          { id: crypto.randomUUID(), userText, files, displayText, summaryContext },
+          { id: crypto.randomUUID(), userText, files, displayText, summaryContext, requireTool },
         ]);
         return;
       }
@@ -335,7 +340,7 @@ export function useAgentPool() {
         if (interjected.length > 0) setQueue(sessionId, []);
         return interjected.map((q) => buildLlmContent(q.userText, q.files));
       };
-      const generator = runAgentLoop(textContent, history, llmContent, controller.signal, takeInterjections);
+      const generator = runAgentLoop(textContent, history, llmContent, controller.signal, takeInterjections, requireTool);
 
       // 지금 답 칸의 스텝. 끼어들기로 닫힌 칸의 스텝은 stepOffset 만큼 앞에 있다.
       let stepOffset = 0;
@@ -453,10 +458,7 @@ export function useAgentPool() {
                 m.id === assistantId
                   ? {
                       ...m,
-                      content: streamBuffer
-                        .replace(/\[\[PET_STATE:\w+\]\]/g, "")
-                        .replace(/\[\[GAME_OVER\]\]/g, "")
-                        .trimStart(),
+                      content: streamBuffer.replace(/\[\[PET_STATE:\w+\]\]/g, "").trimStart(),
                     }
                   : m
               )
@@ -495,10 +497,7 @@ export function useAgentPool() {
                 [sessionId]: Math.max(prev[sessionId] ?? 0, event.promptTokens!),
               }));
             }
-            const { clean, emotion, gameOver } = stripSpecialTokens(event.answer);
-            if (gameOver) {
-              appEvents.emit("wordchainGameover");
-            }
+            const { clean, emotion } = stripSpecialTokens(event.answer);
             const images = finalSteps
               .map((s) => s.imageDataUrl)
               .filter((url): url is string => !!url);
@@ -584,7 +583,7 @@ export function useAgentPool() {
       const [waiting, ...rest] = queueRef.current[sessionId] ?? [];
       if (waiting) {
         setQueue(sessionId, rest);
-        void sendMessage(sessionId, waiting.userText, waiting.files, waiting.displayText, waiting.summaryContext);
+        void sendMessage(sessionId, waiting.userText, waiting.files, waiting.displayText, waiting.summaryContext, waiting.requireTool);
       }
     },
     // patchSessionMessages / setRunning / setCatEmotion are defined in render scope

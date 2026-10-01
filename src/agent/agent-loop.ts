@@ -348,7 +348,13 @@ export async function* runAgentLoop(
    * 끝날 때마다 물어서, 있으면 다음 모델 호출에 싣는다. 답변이 흘러나오는 중에는
    * 끼울 자리가 없다 — 그건 부르는 쪽이 다음 요청으로 보낸다.
    */
-  takeInterjections?: () => (string | ContentPart[])[]
+  takeInterjections?: () => (string | ContentPart[])[],
+  /**
+   * 이 요청이 끝나기 전에 반드시 불려야 하는 툴. 부르지 않고 답하려 하면 한 번 더
+   * 시킨다. 결과를 툴 인자로 받아야 하는 요청(끝말잇기 판정)에 쓴다 — 문장 속
+   * 표시로 받으면 작은 모델이 "내가 졌어" 만 쓰고 표시를 빼먹었다.
+   */
+  requireTool?: ToolName
 ): AsyncGenerator<LoopEvent> {
   // 모드는 루프 시작 시 한 번 고정한다. 중간에 강등되면 이미 쌓인 컨텍스트의
   // 메시지 형식과 어긋나므로, 강등은 다음 사용자 메시지부터 반영된다.
@@ -367,6 +373,8 @@ export async function* runAgentLoop(
   const deniedSteps = new Set<AgentStep>();
   const seenCalls = new Set<string>();
   let repeats = 0;
+  let requiredCalled = false;
+  let nudges = 0;
   // 끼어든 말의 글자 부분. 상한에 걸려 마지막 답을 따로 만들 때 질문에 붙인다.
   const interjectedTexts: string[] = [];
 
@@ -420,6 +428,17 @@ export async function* runAgentLoop(
     }
 
     // ── Terminal condition: 툴 호출이 없으면 이번 턴의 텍스트가 최종 답변 ──────
+    // ponytail: 재촉은 두 번까지. 그래도 안 부르면 그냥 끝낸다 — 무한히 붙잡는 것보다
+    // 판정 없이 게임이 이어지는 쪽이 낫다.
+    if (turn.toolCalls.length === 0 && requireTool && !requiredCalled && nudges < 2) {
+      nudges++;
+      context.addTurn({
+        text: turn.text,
+        calls: [],
+        followUps: [`아직 ${requireTool} 를 안 불렀어. 말로만 하면 반영이 안 돼. 지금 ${requireTool} 를 불러서 결과를 정해.`],
+      });
+      continue;
+    }
     if (turn.toolCalls.length === 0) {
       const answer = finalAnswerOf(turn.text);
       // 스트리밍이 답의 앞부분만 흘렸다면 나머지만 이어붙인다.
@@ -430,6 +449,8 @@ export async function* runAgentLoop(
       yield { type: "done", answer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
       return;
     }
+
+    if (turn.toolCalls.some((c) => c.name === requireTool)) requiredCalled = true;
 
     // ── Execute tool calls ───────────────────────────────────────────────────
     const lockedSteps: ExecutedCall[] = [];

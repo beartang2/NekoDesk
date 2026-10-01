@@ -17,7 +17,8 @@ export type StartGamePayload =
 interface EventMap {
   coderun: CodeExecResult;
   agentDone: void;
-  wordchainGameover: void;
+  /** 이의 제기 판정. 고양이가 game.judge 로 낸다 — 문장 속 표시가 아니라 툴 인자라 빠뜨릴 수 없다. */
+  wordchainVerdict: { exists: boolean };
   startGame: StartGamePayload;
   /** 포모도로·커스텀 타이머가 끝났다. 네코가 할 말. */
   timerDone: string;

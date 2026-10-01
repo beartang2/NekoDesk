@@ -1194,7 +1194,9 @@ export default function App() {
   const wordChain = useWordChainGame(triggerActionEmotion);
 
   useEffect(() => {
-    return appEvents.on("wordchainGameover", () => {
+    return appEvents.on("wordchainVerdict", ({ exists }) => {
+      // 있는 단어면 이의가 기각된 것뿐이라 게임은 그대로 이어진다.
+      if (exists) return;
       reward(Math.min(20, Math.floor(wordChain.turnCount / 2)));
       wordChain.endGame();
     });
@@ -1627,7 +1629,7 @@ export default function App() {
               <button
                 className="wordchain-banner__dispute"
                 onClick={() => {
-                  void pool.sendMessage(activeId, wordChain.disputeContext(), [], "이의 제기!");
+                  void pool.sendMessage(activeId, wordChain.disputeContext(), [], "이의 제기!", undefined, "game.judge");
                 }}
                 title="방금 나온 단어 검증 요청"
               >이의 제기</button>

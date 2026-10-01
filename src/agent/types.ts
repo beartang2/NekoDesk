@@ -63,6 +63,7 @@ export type ToolName =
   | "file.upload"
   | "weather.get"
   | "game.start"
+  | "game.judge"
   | "fs.read"
   | "fs.write"
   | "fs.edit"

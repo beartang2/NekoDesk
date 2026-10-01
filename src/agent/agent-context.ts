@@ -100,7 +100,14 @@ export class AgentContext {
     let elidedTurns = 0;
     for (let i = this.turns.length - 1; i >= 0; i--) {
       const turn = this.turns[i];
-      if (turn.calls.length === 0) continue;
+      if (turn.calls.length === 0) {
+        // 툴 없이 끝내려던 턴. 루프가 "아직 할 게 남았어" 를 붙였을 때만 남는다 —
+        // 모델이 한 말과 그 재촉을 같이 보여줘야 같은 답을 되풀이하지 않는다.
+        if (turn.followUps?.length) {
+          turnBlocks.unshift([{ role: "assistant", content: turn.text }, ...followUpsOf(turn)]);
+        }
+        continue;
+      }
       const verbatim = this.turns.length - 1 - i < VERBATIM_TURNS;
       const block = this.turnMessages(turn, verbatim);
       const cost = estimateMessagesTokens(block);

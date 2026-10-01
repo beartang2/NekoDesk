@@ -127,7 +127,7 @@ export function useWordChainGame(
   }, []);
 
   const disputeContext = useCallback((): string => {
-    return `[끝말잇기 게임 중 | 지금까지 나온 단어: ${usedWords.join(" → ")} | 마지막 단어: "${currentWord}"] 유저가 방금 나온 단어에 이의를 제기했어. web search로 "${currentWord}"가 실제 한국어 단어(표준국어대사전)인지 확인해줘. 있으면 게임 계속이라고 하고, 없으면 내가 졌다고 하고 응답 끝에 [[GAME_OVER]]를 포함해줘.`;
+    return `[끝말잇기 게임 중 | 지금까지 나온 단어: ${usedWords.join(" → ")} | 마지막 단어: "${currentWord}"] 유저가 방금 나온 단어 "${currentWord}"에 이의를 제기했어. web.search 로 국어사전에 실린 말인지 확인하고, 그 결과로 game.judge 를 불러 판정해. 판정은 검색 결과에 근거해야 해 — 뜻풀이를 찾았으면 있는 말, 못 찾았으면 없는 말. 판정한 뒤엔 무엇을 찾았는지 한두 문장으로 말해. 검색 결과에 없는 뜻이나 출처를 지어내지 마.`;
   }, [usedWords, currentWord]);
 
   return { phase, lastChar, usedWords, turnCount, currentWord, startGame, submitWord, reset, endGame, disputeContext };
