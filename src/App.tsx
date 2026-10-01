@@ -9,6 +9,7 @@ import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { GameSpeechBubble } from "./components/GameSpeechBubble";
 import { useRevealChildren, useScrollEdges } from "./hooks/useScrollReveal";
 import { Counter } from "./components/Counter";
+import LatticeLoader from "./components/LatticeLoader";
 import { Attachments } from "./components/Attachments";
 import { PlanChecklist } from "./components/PlanChecklist";
 import { ChatEmptyState } from "./components/ChatEmptyState";
@@ -373,16 +374,19 @@ function ChatMessages({
                 <CopyButton text={stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
               )}
               {m.thinking && (
-                <details
-                  className="message__thinking"
-                  data-working={m.isStreaming && !m.content ? "" : undefined}
-                  open={!!m.isStreaming && !m.content}
-                >
+                <details className="message__thinking" open={!!m.isStreaming && !m.content}>
                   <summary>
-                    <span className="message__thinking-icon">💭</span>
-                    <span className="message__thinking-label">
-                      {m.isStreaming && !m.content ? "생각하는 중" : "생각 과정"}
-                    </span>
+                    {/* 타이머는 생각하는 동안만. 다시 마운트되면(대화 전환) 0.0s 로 돌아가서다. */}
+                    <LatticeLoader
+                      label="생각하는 중"
+                      doneLabel="생각 과정"
+                      status={m.isStreaming && !m.content ? "working" : "done"}
+                      showTimer={!!m.isStreaming && !m.content}
+                      fontSize={12}
+                      cellSize={3}
+                      gap={1}
+                      doneColor="var(--accent)"
+                    />
                   </summary>
                   {m.thinking}
                 </details>
@@ -422,7 +426,11 @@ function ChatMessages({
               {m.attachments && m.attachments.length > 0 && (
                 <Attachments files={m.attachments} />
               )}
-              {m.isStreaming && <span className="message__cursor" />}
+              {/* 생각 토큰을 안 내는 모델도 있다. 그땐 첫 글자가 올 때까지 로더만 띄운다. */}
+              {m.isStreaming && !m.content && !m.thinking && (
+                <LatticeLoader label="생각하는 중" fontSize={12} cellSize={3} gap={1} color="var(--text-secondary)" />
+              )}
+              {m.isStreaming && m.content && <span className="message__cursor" />}
             </div>
           )}
 

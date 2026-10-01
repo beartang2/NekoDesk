@@ -1000,63 +1000,9 @@ html, body, #root {
 .message__thinking > summary::-webkit-details-marker {
   display: none;
 }
-.message__thinking-icon {
+/* LatticeLoader 자체 굵기(500)·정체는 기울임과 안 맞는다. 생각 본문만 기울인다. */
+.message__thinking .lattice-loader {
   font-style: normal;
-  flex-shrink: 0;
-}
-
-/* 생각 중에는 아이콘이 숨 쉬듯 커졌다 줄고, 끝나면 멈춘다. */
-.message__thinking[data-working] .message__thinking-icon {
-  animation: thinking-breath 1.9s var(--ease-standard) infinite;
-}
-
-@keyframes thinking-breath {
-  0%, 100% { opacity: 0.55; scale: 0.94; }
-  50%      { opacity: 1;    scale: 1.06; }
-}
-
-/* ── 생각 줄 (reactbits ThoughtLine) ──────────────────────────────────────────
-   생각하는 동안 글자 위로 빛이 한 번씩 훑고 지나간다. 점 세 개가 깜빡이는 것보다
-   조용하면서 "아직 돌고 있다" 가 분명하다. 끝나면 평범한 글자로 가라앉는다. */
-.message__thinking[data-working] .message__thinking-label {
-  background: linear-gradient(
-    100deg,
-    color-mix(in oklab, var(--text-secondary) 45%, transparent) 30%,
-    var(--text-primary) 50%,
-    color-mix(in oklab, var(--text-secondary) 45%, transparent) 70%
-  );
-  background-size: 250% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  animation: thinking-shimmer 1.8s linear infinite;
-}
-
-@keyframes thinking-shimmer {
-  from { background-position: 125% 0; }
-  to   { background-position: -25% 0; }
-}
-
-/* 생각이 끝나 라벨이 바뀔 때 흐릿하게 가라앉는다. */
-.message__thinking:not([data-working]) .message__thinking-label {
-  animation: thinking-settle 350ms var(--ease-standard);
-}
-
-@keyframes thinking-settle {
-  from { opacity: 0; filter: blur(2px); }
-  to   { opacity: 1; filter: blur(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .message__thinking[data-working] .message__thinking-icon,
-  .message__thinking[data-working] .message__thinking-label,
-  .message__thinking:not([data-working]) .message__thinking-label {
-    animation: none;
-  }
-  .message__thinking[data-working] .message__thinking-label {
-    color: var(--text-secondary);
-    -webkit-text-fill-color: currentColor;
-  }
 }
 
 /* Blinking cursor for streaming */
