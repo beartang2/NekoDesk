@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { GameSpeechBubble } from "./components/GameSpeechBubble";
 import { useRevealChildren, useScrollEdges } from "./hooks/useScrollReveal";
+import { Counter } from "./components/Counter";
 import { Attachments } from "./components/Attachments";
 import { PlanChecklist } from "./components/PlanChecklist";
 import { ChatEmptyState } from "./components/ChatEmptyState";
@@ -246,7 +247,9 @@ function Sidebar({
       <div className="cat-panel" style={{ position: "relative" }}>
         {/* 창가에 든 햇빛. reactbits 의 SideRays 를 WebGL 없이 기울인 그라데이션으로. */}
         <div className="cat-panel__sun" aria-hidden="true" />
-        <div className="cat-panel__ctx">{contextTokens.toLocaleString()} / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}</div>
+        <div className="cat-panel__ctx">
+          <Counter value={contextTokens} /> / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}
+        </div>
         <CatCanvas emotion={emotion} onPet={rpg.onPet} />
         <CatStatusPanel
           dayCount={rpg.dayCount}
@@ -1564,6 +1567,7 @@ export default function App() {
 
         <div className="chat-area">
           {/* 위에서 비껴 드는 빛. reactbits 의 LightRays 를 WebGL 없이 옮긴 것. */}
+          <div className="chat-aurora" aria-hidden="true" />
           <div className="chat-rays" aria-hidden="true" />
           {compactSummaries[activeId] && (
             <CompactSummaryBar

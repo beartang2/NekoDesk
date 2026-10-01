@@ -1,0 +1,40 @@
+/* ── 굴러가는 숫자 (reactbits Counter) ────────────────────────────────────────
+   0~9 를 세로로 쌓아 두고 지금 숫자만큼 밀어 올린다. 창(digit)은 한 칸 높이라
+   그 숫자만 보인다. */
+.counter {
+  display: inline-flex;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+
+.counter__digit {
+  display: inline-block;
+  overflow: hidden;
+  width: 1ch;
+  height: 1em;
+  line-height: 1;
+}
+
+.counter__column {
+  display: flex;
+  flex-direction: column;
+  /* 살짝 넘겼다 앉는다 — 숫자판이 돌아가 멈추는 결. */
+  transition: transform 420ms var(--ease-playful);
+}
+
+.counter__cell {
+  height: 1em;
+  line-height: 1;
+  text-align: center;
+}
+
+.counter__sep {
+  display: inline-block;
+  line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .counter__column {
+    transition: none;
+  }
+}
