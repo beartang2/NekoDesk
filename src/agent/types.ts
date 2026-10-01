@@ -278,6 +278,8 @@ export type LoopEvent =
   | { type: "thinking_token"; token: string }
   | { type: "streaming_token"; token: string }
   | { type: "plan_updated"; steps: PlanStep[] }
+  /** 작업 중에 사용자가 덧붙인 말을 컨텍스트에 넣었다. `stepCount` 는 그때까지의 스텝 수. */
+  | { type: "user_interjected"; stepCount: number }
   | { type: "done"; answer: string; steps: AgentStep[]; promptTokens?: number; tokensPerSecond?: number; plan?: PlanStep[] }
   | { type: "error"; message: string }
   | {

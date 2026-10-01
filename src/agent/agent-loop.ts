@@ -135,6 +135,24 @@ function callKey(call: ToolCall): string {
   return `${call.name}|${JSON.stringify(call.params).toLowerCase().replace(/\s+/g, " ")}`;
 }
 
+/**
+ * 작업 중에 끼어든 말임을 모델에게 알린다. 그냥 user 메시지로만 넣으면 작은 모델은
+ * 하던 일을 잊고 이 말에만 답한다. 시스템 프롬프트는 토큰 상한에 붙어 있어 여기에 싣는다.
+ */
+const INTERJECTION_NOTE =
+  "[작업 중에 사용자가 덧붙인 말이야. 하던 일에 반영해. 별개의 요청이면 하던 일을 마친 뒤 함께 답해.]";
+
+function asInterjection(content: string | ContentPart[]): string | ContentPart[] {
+  return typeof content === "string"
+    ? `${INTERJECTION_NOTE}\n${content}`
+    : [{ type: "text", text: INTERJECTION_NOTE }, ...content];
+}
+
+function contentText(content: string | ContentPart[]): string {
+  if (typeof content === "string") return content;
+  return content.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n");
+}
+
 function newStep(id: number, call: ToolCall, thought: string): AgentStep {
   return {
     id,
@@ -324,7 +342,13 @@ export async function* runAgentLoop(
   userInput: string,
   chatHistory: LlmMessage[],
   userContent?: string | ContentPart[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /**
+   * 일하는 사이 사용자가 보낸 말을 꺼내 온다(꺼내면 대기열에서 빠진다). 도구 실행이
+   * 끝날 때마다 물어서, 있으면 다음 모델 호출에 싣는다. 답변이 흘러나오는 중에는
+   * 끼울 자리가 없다 — 그건 부르는 쪽이 다음 요청으로 보낸다.
+   */
+  takeInterjections?: () => (string | ContentPart[])[]
 ): AsyncGenerator<LoopEvent> {
   // 모드는 루프 시작 시 한 번 고정한다. 중간에 강등되면 이미 쌓인 컨텍스트의
   // 메시지 형식과 어긋나므로, 강등은 다음 사용자 메시지부터 반영된다.
@@ -343,6 +367,8 @@ export async function* runAgentLoop(
   const deniedSteps = new Set<AgentStep>();
   const seenCalls = new Set<string>();
   let repeats = 0;
+  // 끼어든 말의 글자 부분. 상한에 걸려 마지막 답을 따로 만들 때 질문에 붙인다.
+  const interjectedTexts: string[] = [];
 
   // 관련 기억은 요청 시작 때 한 번만 떠올린다. 사용자 입력은 요청 안에서 안 바뀌므로
   // 턴마다 다시 검색할 이유가 없다(턴당 IPC 왕복 하나를 아낀다).
@@ -632,13 +658,25 @@ export async function* runAgentLoop(
       return;
     }
     if (repeats >= MAX_REPEATS) break;
+
+    // ── 끼어든 말 ────────────────────────────────────────────────────────────
+    // 도구 결과 바로 뒤가 유일하게 안전한 자리다. native 모드는 tool_call 과 결과가
+    // 붙어 있어야 해서 그 사이에는 못 넣는다.
+    const interjections = takeInterjections?.() ?? [];
+    if (interjections.length > 0) {
+      for (const content of interjections) {
+        context.addFollowUp(asInterjection(content));
+        interjectedTexts.push(contentText(content));
+      }
+      yield { type: "user_interjected", stepCount: context.steps.length };
+    }
   }
 
   // ── 상한 도달 또는 반복 조회: 모은 결과로 최종 답변을 만든다 ────────────────
   const toolContext = context.buildToolContext();
   const finalMessages: LlmMessage[] = [
     ...chatHistory.slice(-6),
-    { role: "user", content: userInput },
+    { role: "user", content: [userInput, ...interjectedTexts].join("\n\n") },
   ];
 
   let finalAnswer = "";

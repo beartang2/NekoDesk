@@ -80,6 +80,28 @@ describe("AgentContext 예산", () => {
     expect(notice).toBeDefined();
   });
 
+  it("작업 중에 덧붙인 말은 그 턴의 도구 결과 바로 뒤에 실린다", () => {
+    const ctx = new AgentContext([], "질문", true, 32768);
+    ctx.addTurn(turn("web.search", "결과 1", "a"));
+    ctx.addFollowUp("아 그리고 가격도 봐줘");
+    ctx.addTurn(turn("web.search", "결과 2", "b"));
+
+    const roles = ctx.toMessages().map((m) => m.role);
+    expect(roles).toEqual(["user", "assistant", "tool", "user", "assistant", "tool"]);
+    expect(ctx.toMessages()[3].content).toBe("아 그리고 가격도 봐줘");
+  });
+
+  it("덧붙인 말은 그 턴이 예산에 밀려 접혀도 남는다", () => {
+    const ctx = new AgentContext([], "질문", true, 2048);
+    ctx.addTurn(turn("web.search", "결과 ".repeat(300), "first"));
+    ctx.addFollowUp("이건 잊으면 안 돼");
+    for (let i = 0; i < 30; i++) ctx.addTurn(turn("web.search", "결과 ".repeat(300), `c${i}`));
+
+    const messages = ctx.toMessages();
+    expect(messages.some((m) => m.role === "tool" && m.tool_call_id === "first")).toBe(false);
+    expect(messages.some((m) => m.content === "이건 잊으면 안 돼")).toBe(true);
+  });
+
   it("native 모드는 tool_call_id 로 결과를 짝짓는다", () => {
     const ctx = new AgentContext([], "질문", true, 32768);
     ctx.addTurn({

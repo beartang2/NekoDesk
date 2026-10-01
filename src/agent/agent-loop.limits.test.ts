@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { AgentTurn, LoopEvent } from "./types";
+import type { AgentTurn, ContentPart, LlmMessage, LoopEvent } from "./types";
 
 /**
  * 루프 상한과 실패 사다리를 모델 없이 확인한다.
@@ -30,9 +30,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 let nextTurn: (i: number) => AgentTurn = () => ({ text: "끝", toolCalls: [] });
 let turnIndex = 0;
+/** 모델 호출마다 보낸 메시지. */
+let sent: LlmMessage[][] = [];
 vi.mock("./llm-client", () => ({
   getModelContextLength: () => 8192,
-  agentTurnStream: async function* () {
+  agentTurnStream: async function* (messages: LlmMessage[]) {
+    sent.push(messages);
     yield { type: "turn" as const, turn: nextTurn(turnIndex++) };
   },
   chatStream: async function* () {
@@ -40,10 +43,13 @@ vi.mock("./llm-client", () => ({
   },
 }));
 
-async function run(input = "해줘"): Promise<LoopEvent[]> {
+async function run(
+  input = "해줘",
+  takeInterjections?: () => (string | ContentPart[])[]
+): Promise<LoopEvent[]> {
   const { runAgentLoop } = await import("./agent-loop");
   const events: LoopEvent[] = [];
-  for await (const ev of runAgentLoop(input, [])) events.push(ev);
+  for await (const ev of runAgentLoop(input, [], undefined, undefined, takeInterjections)) events.push(ev);
   return events;
 }
 
@@ -54,6 +60,7 @@ const searchTurn = (id: string): AgentTurn => ({
 
 beforeEach(() => {
   turnIndex = 0;
+  sent = [];
   vi.clearAllMocks();
   const store = new Map<string, string>();
   vi.stubGlobal("localStorage", {
@@ -140,5 +147,41 @@ describe("같은 웹 조회 반복", () => {
     );
     expect(repeats).toHaveLength(2);
     expect(events.find((e) => e.type === "done")).toMatchObject({ answer: "정리했어" });
+  });
+});
+
+describe("작업 중에 끼어든 말", () => {
+  const listTurn = (i: number): AgentTurn =>
+    i >= 2
+      ? { text: "다 했어", toolCalls: [] }
+      : { text: "", toolCalls: [{ id: `c${i}`, name: "todo.list", params: {} }] };
+
+  it("도구가 끝난 뒤 다음 모델 호출에 실리고, 실었다고 알린다", async () => {
+    nextTurn = listTurn;
+    // 첫 도구가 도는 사이 한 번 들어온 말.
+    const waiting = ["일정도 같이 봐줘"];
+    const events = await run("할 일 보여줘", () => waiting.splice(0));
+
+    const lastOf = (messages: LlmMessage[]) => messages[messages.length - 1];
+    expect(sent).toHaveLength(3);
+    // 첫 호출엔 없다. 둘째 호출의 마지막 메시지가 그 말이다 — 도구 결과 뒤.
+    expect(JSON.stringify(sent[0])).not.toContain("일정도 같이 봐줘");
+    expect(lastOf(sent[1])).toMatchObject({ role: "user" });
+    expect(lastOf(sent[1]).content).toContain("일정도 같이 봐줘");
+    // 셋째 호출에도 남아 있다(한 번 싣고 잊지 않는다).
+    expect(JSON.stringify(sent[2])).toContain("일정도 같이 봐줘");
+
+    const types = events.map((e) => e.type);
+    expect(events.filter((e) => e.type === "user_interjected")).toEqual([
+      { type: "user_interjected", stepCount: 1 },
+    ]);
+    expect(types.indexOf("user_interjected")).toBeGreaterThan(types.indexOf("step_done"));
+    expect(events.find((e) => e.type === "done")).toMatchObject({ answer: "다 했어" });
+  });
+
+  it("들어온 말이 없으면 아무 일도 없다", async () => {
+    nextTurn = listTurn;
+    const events = await run("할 일 보여줘", () => []);
+    expect(events.some((e) => e.type === "user_interjected")).toBe(false);
   });
 });

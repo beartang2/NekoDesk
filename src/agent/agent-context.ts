@@ -31,6 +31,8 @@ export interface ExecutedCall {
 export interface ContextTurn {
   text: string;
   calls: ExecutedCall[];
+  /** 이 턴의 도구가 도는 사이 사용자가 덧붙인 말. 도구 결과 뒤에 user 메시지로 실린다. */
+  followUps?: (string | ContentPart[])[];
 }
 
 /**
@@ -63,6 +65,13 @@ export class AgentContext {
     this.turns.push(turn);
   }
 
+  /** 작업 중에 사용자가 덧붙인 말을 방금 끝난 턴 뒤에 싣는다. */
+  addFollowUp(content: string | ContentPart[]): void {
+    const last = this.turns[this.turns.length - 1];
+    if (!last) return;
+    (last.followUps ??= []).push(content);
+  }
+
   /** UI 표시·최종 이벤트용 평평한 스텝 목록. 실행 순서를 보존한다. */
   get steps(): AgentStep[] {
     return this.turns.flatMap((t) => t.calls.map((c) => c.step));
@@ -81,6 +90,10 @@ export class AgentContext {
     // 실제 문구로 재서 어림수를 쓰다 1토큰씩 새는 것을 막는다(턴 수는 자릿수만큼만 는다).
     const noticeReserve = estimateMessagesTokens([elidedNotice(this.turns.length)]);
     let remaining = this.budget - estimateMessagesTokens([current]) - noticeReserve;
+    // 덧붙인 말은 이번 요청의 일부다. 턴이 예산에 밀려 접혀도 이것만은 남긴다.
+    const followUpsOf = (turn: ContextTurn): LlmMessage[] =>
+      (turn.followUps ?? []).map((content): LlmMessage => ({ role: "user", content }));
+    remaining -= estimateMessagesTokens(this.turns.flatMap(followUpsOf));
 
     // 1) 턴 메시지 — 최근 것부터, 오래된 것은 요약본으로.
     const turnBlocks: LlmMessage[][] = [];
@@ -93,10 +106,11 @@ export class AgentContext {
       const cost = estimateMessagesTokens(block);
       if (cost > remaining) {
         elidedTurns++;
+        turnBlocks.unshift(followUpsOf(turn));
         continue;
       }
       remaining -= cost;
-      turnBlocks.unshift(block);
+      turnBlocks.unshift([...block, ...followUpsOf(turn)]);
     }
 
     // 2) 남은 예산으로 대화 이력을 최근부터 채운다.

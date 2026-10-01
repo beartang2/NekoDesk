@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Sun, Moon, Settings, Paperclip, ArrowUp, Zap, Copy, Check, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Sun, Moon, Settings, Paperclip, ArrowUp, Zap, Copy, Check, X, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { historyStep, type HistoryPos } from "./lib/input-history";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -20,7 +20,7 @@ import { MenuModal } from "./components/MenuModal";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { useDrawingGame } from "./hooks/useDrawingGame";
 import { useWordChainGame } from "./hooks/useWordChainGame";
-import { useAgentPool, makeInitialMessages, parseMeta } from "./hooks/useAgentLoop";
+import { useAgentPool, makeInitialMessages, parseMeta, type QueuedMessage } from "./hooks/useAgentLoop";
 import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useCatRpg } from "./hooks/useCatRpg";
@@ -524,12 +524,21 @@ function Composer({
   onStop,
   onActivity,
   isRunning,
+  locked,
+  queued,
+  onCancelQueued,
   history,
 }: {
   onSend: (text: string, files: AttachedFile[]) => void;
   onStop: () => void;
   onActivity: () => void;
+  /** 네코가 일하는 중. 입력은 받는다 — 보낸 말은 줄 서 있다가 도구 사이에 읽힌다. */
   isRunning: boolean;
+  /** 입력 자체를 막는다(끝말잇기에서 고양이 차례). */
+  locked: boolean;
+  /** 일하는 사이 보낸, 아직 네코가 못 읽은 말. */
+  queued: QueuedMessage[];
+  onCancelQueued: (id: string) => void;
   /** 이 세션에서 보냈던 메시지, 오래된 것부터. ↑ 로 되살린다. */
   history: string[];
 }) {
@@ -544,7 +553,7 @@ function Composer({
 
   function submit() {
     const text = value.trim();
-    if ((!text && files.length === 0) || isRunning) return;
+    if ((!text && files.length === 0) || locked) return;
     onActivity();
     onSend(text, files);
     setValue("");
@@ -639,6 +648,21 @@ function Composer({
 
   return (
     <div className="composer">
+      {queued.length > 0 && (
+        <ul className="composer__queue">
+          {queued.map((q) => (
+            <li key={q.id} className="composer__queued">
+              <span className="composer__queued-label">대기 중</span>
+              <span className="composer__queued-text">
+                {(q.displayText ?? q.userText) || `파일 ${q.files.length}개`}
+              </span>
+              <button onClick={() => onCancelQueued(q.id)} title="보내지 않기" aria-label="보내지 않기">
+                <X size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {files.length > 0 && (
         <div className="composer__files">
           <Attachments files={files} onRemove={removeAttachedFile} compact />
@@ -648,13 +672,13 @@ function Composer({
         <textarea
           ref={textareaRef}
           className="composer__input"
-          placeholder="메시지 입력… (Shift+Enter로 줄바꿈)"
+          placeholder={isRunning ? "덧붙일 말이 있으면 보내 — 네코가 중간에 읽어" : "메시지 입력… (Shift+Enter로 줄바꿈)"}
           value={value}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
           onFocus={onActivity}
           rows={1}
-          disabled={isRunning}
+          disabled={locked}
         />
         <input
           ref={fileInputRef}
@@ -679,12 +703,13 @@ function Composer({
         <button
           className="composer__attach"
           onClick={() => fileInputRef.current?.click()}
-          disabled={isRunning}
+          disabled={locked}
           title="파일 첨부"
         >
           <Paperclip size={14} />
         </button>
-        {isRunning ? (
+        {/* 일하는 중에도 쓴 글이 있으면 보내기가 먼저다. 비어 있을 때만 중단을 보인다. */}
+        {locked || (isRunning && !value.trim() && files.length === 0) ? (
           <button className="composer__stop" onClick={onStop}>
             ■ 중단
           </button>
@@ -1190,6 +1215,13 @@ export default function App() {
   const handleSend = useCallback(async (text: string, files: AttachedFile[]) => {
     markUserActivity();
 
+    // 네코가 일하는 중이면 줄 세운다(pool 이 한다). 게임 시작 같은 지름길은 건너뛴다 —
+    // 답하는 도중에 게임이 열리면 안 된다.
+    if (pool.isRunning(activeId)) {
+      void pool.sendMessage(activeId, text, files, undefined, compactSummaries[activeId] || undefined);
+      return;
+    }
+
     // 게임 시작은 모델을 거치지 않는다.
     //
     // game.start 툴이 있는데도 작은 모델은 채팅으로 게임을 흉내내는 쪽으로 샜고,
@@ -1651,7 +1683,10 @@ export default function App() {
             onSend={handleSend}
             onStop={() => pool.stop(activeId)}
             onActivity={markUserActivity}
-            isRunning={isRunning || wordChain.phase === "cat_turn"}
+            isRunning={isRunning}
+            locked={wordChain.phase === "cat_turn"}
+            queued={pool.queued(activeId)}
+            onCancelQueued={(id) => pool.cancelQueued(activeId, id)}
             history={userHistory}
           />
         </div>

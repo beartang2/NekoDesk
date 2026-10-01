@@ -97,6 +97,15 @@ export function serializeAttachments(files: AttachedFile[]): string | undefined 
   return JSON.stringify(stored);
 }
 
+/** 네코가 일하는 사이 사용자가 보낸 말. 끼워 넣거나 다음 요청으로 보낼 때까지 기다린다. */
+export interface QueuedMessage {
+  id: string;
+  userText: string;
+  files: AttachedFile[];
+  displayText?: string;
+  summaryContext?: string;
+}
+
 /** 저장할 때 도구 파라미터·결과 한 칸의 최대 길이. 웹 페이지를 긁은 결과는 몇백 KB 다. */
 const MAX_STORED_FIELD = 2000;
 
@@ -202,8 +211,17 @@ function buildHistory(messages: ChatMessage[]): LlmMessage[] {
       role: m.role === "user" ? "user" : ("assistant" as const),
       content: m.attachments?.length
         ? buildLlmContent(m.content, m.attachments)
-        : m.content,
+        : m.content || toolsOnlyNote(m),
     }));
+}
+
+/**
+ * 사용자가 중간에 끼어들면 그때까지의 답 칸은 글 없이 도구 기록만 남기고 닫힌다.
+ * 빈 assistant 메시지를 그대로 보내면 템플릿에 따라 거부되므로 한 줄로 적어 준다.
+ */
+function toolsOnlyNote(m: ChatMessage): string {
+  if (m.role !== "assistant" || !m.steps?.length) return m.content;
+  return `(도구 사용: ${[...new Set(m.steps.map((s) => s.tool))].join(", ")})`;
 }
 
 function deriveFinalEmotion(steps: AgentStep[]): CatEmotion {
@@ -232,6 +250,14 @@ export function useAgentPool() {
   const abortRefs = useRef<Record<string, AbortController | undefined>>({});
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [pendingClarify, setPendingClarify] = useState<PendingClarify | null>(null);
+  // 일하는 사이 들어온 말. 루프가 도구 사이에 읽어 가므로 ref 가 원본이고 state 는 화면용이다.
+  const queueRef = useRef<Record<string, QueuedMessage[]>>({});
+  const [queues, setQueues] = useState<Record<string, QueuedMessage[]>>({});
+
+  function setQueue(id: string, next: QueuedMessage[]) {
+    queueRef.current[id] = next;
+    setQueues({ ...queueRef.current });
+  }
 
   function setRunning(id: string, on: boolean) {
     if (on) runningSetRef.current.add(id);
@@ -250,7 +276,15 @@ export function useAgentPool() {
 
   const sendMessage = useCallback(
     async (sessionId: string, userText: string, files: AttachedFile[] = [], displayText?: string, summaryContext?: string) => {
-      if (runningSetRef.current.has(sessionId)) return;
+      // 일하는 중이면 버리지 않고 줄 세운다. 도구 사이에 끼워 넣거나(user_interjected),
+      // 끼울 틈 없이 답이 끝나면 다음 요청으로 보낸다(아래 맨 끝).
+      if (runningSetRef.current.has(sessionId)) {
+        setQueue(sessionId, [
+          ...(queueRef.current[sessionId] ?? []),
+          { id: crypto.randomUUID(), userText, files, displayText, summaryContext },
+        ]);
+        return;
+      }
 
       abortRefs.current[sessionId]?.abort();
       const controller = new AbortController();
@@ -270,7 +304,8 @@ export function useAgentPool() {
         time: nowTime(),
         attachments: files.length > 0 ? files : undefined,
       };
-      const assistantId = crypto.randomUUID();
+      // 사용자가 끼어들면 답 칸을 새로 연다. 그때 바뀐다.
+      let assistantId = crypto.randomUUID();
       const placeholder: ChatMessage = {
         id: assistantId,
         role: "assistant",
@@ -292,8 +327,18 @@ export function useAgentPool() {
       const history: LlmMessage[] = summaryContext
         ? [{ role: "user", content: `[이전 대화 요약]\n${summaryContext}` }, { role: "assistant", content: "알겠어, 이전 내용 참고할게." }, ...rawHistory]
         : rawHistory;
-      const generator = runAgentLoop(textContent, history, llmContent, controller.signal);
+      // 루프가 도구 사이에 대기열을 비워 간다. 무엇을 가져갔는지는 곧이어 오는
+      // user_interjected 에서 말풍선으로 옮긴다.
+      let interjected: QueuedMessage[] = [];
+      const takeInterjections = () => {
+        interjected = queueRef.current[sessionId] ?? [];
+        if (interjected.length > 0) setQueue(sessionId, []);
+        return interjected.map((q) => buildLlmContent(q.userText, q.files));
+      };
+      const generator = runAgentLoop(textContent, history, llmContent, controller.signal, takeInterjections);
 
+      // 지금 답 칸의 스텝. 끼어들기로 닫힌 칸의 스텝은 stepOffset 만큼 앞에 있다.
+      let stepOffset = 0;
       let finalSteps: AgentStep[] = [];
       let streamBuffer = "";
       let thinkingBuffer = "";
@@ -347,6 +392,59 @@ export function useAgentPool() {
             );
             break;
 
+          case "user_interjected": {
+            // 지금까지의 도구 기록으로 답 칸을 닫고, 끼어든 말 뒤에 새 답 칸을 연다.
+            // 한 칸에 이어 쓰면 답이 질문보다 위에 놓인다.
+            const closedId = assistantId;
+            const closed = useMessageStore.getState().get(sessionId).find((m) => m.id === closedId);
+            const userMsgs = interjected.map((q): ChatMessage => ({
+              id: crypto.randomUUID(),
+              role: "user",
+              content: q.displayText ?? q.userText,
+              time: nowTime(),
+              attachments: q.files.length > 0 ? q.files : undefined,
+            }));
+            assistantId = crypto.randomUUID();
+            const next: ChatMessage = {
+              id: assistantId,
+              role: "assistant",
+              content: "",
+              time: nowTime(),
+              steps: [],
+              isStreaming: true,
+            };
+            patchSessionMessages(sessionId, (prev) => [
+              ...prev.map((m) => (m.id === closedId ? { ...m, isStreaming: false } : m)),
+              ...userMsgs,
+              next,
+            ]);
+
+            // 저장 순서가 곧 다시 열었을 때의 순서다. 명령이 스레드 풀에서 돌아 한꺼번에
+            // 던지면 뒤바뀔 수 있으니 하나씩 잇는다.
+            let chain = conversationApi.save(sessionId, "assistant", "", undefined, serializeMeta({
+              steps: finalSteps,
+              plan: closed?.plan,
+              thinking: closed?.thinking,
+            }));
+            for (const q of interjected) {
+              chain = chain.then(() =>
+                conversationApi.save(
+                  sessionId,
+                  "user",
+                  buildTextContent(q.displayText ?? q.userText, q.files),
+                  serializeAttachments(q.files)
+                )
+              );
+            }
+            chain.catch(() => {});
+
+            stepOffset = event.stepCount;
+            finalSteps = [];
+            streamBuffer = "";
+            thinkingBuffer = "";
+            break;
+          }
+
           case "streaming_token":
             streamBuffer += event.token;
             setCatEmotion(sessionId, "working");
@@ -390,7 +488,7 @@ export function useAgentPool() {
             break;
 
           case "done": {
-            finalSteps = event.steps;
+            finalSteps = event.steps.slice(stepOffset);
             if (event.promptTokens !== undefined) {
               setSessionTokens((prev) => ({
                 ...prev,
@@ -479,6 +577,15 @@ export function useAgentPool() {
             .catch(() => {});
         }
       }
+
+      // 끼울 틈 없이 끝났으면(답만 한 요청, 중단) 기다리던 말을 다음 요청으로 보낸다.
+      // ponytail: 연결 오류로 끝나도 보낸다 — 줄 선 만큼 같은 오류가 이어진다.
+      // 거슬리면 오류일 땐 대기열을 남겨 두고 사용자가 다시 보내게 한다.
+      const [waiting, ...rest] = queueRef.current[sessionId] ?? [];
+      if (waiting) {
+        setQueue(sessionId, rest);
+        void sendMessage(sessionId, waiting.userText, waiting.files, waiting.displayText, waiting.summaryContext);
+      }
     },
     // patchSessionMessages / setRunning / setCatEmotion are defined in render scope
     // but don't capture stale state — they use functional setters or refs
@@ -519,6 +626,10 @@ export function useAgentPool() {
       setSessionTokens((prev) => { const next = { ...prev }; delete next[sessionId]; return next; }),
     sendMessage,
     stop,
+    /** 일하는 사이 보낸, 아직 네코가 못 읽은 말. */
+    queued: (sessionId: string): QueuedMessage[] => queues[sessionId] ?? [],
+    cancelQueued: (sessionId: string, id: string) =>
+      setQueue(sessionId, (queueRef.current[sessionId] ?? []).filter((q) => q.id !== id)),
     pendingConfirm,
     confirmResolve: (decision: PermissionDecision) => {
       pendingConfirm?.resolve(decision);
