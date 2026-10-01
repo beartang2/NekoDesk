@@ -55,6 +55,8 @@
 
 /* ── 행 ── */
 .step-row {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   display: flex;
   align-items: center;
@@ -119,16 +121,95 @@
   font-size: 11px;
 }
 
-.step-mark {
-  flex-shrink: 0;
+/* ── 진행 채움 (reactbits CallChip) ──────────────────────────────────────────
+   실행 중에는 예상 시간에 걸쳐 90% 까지 밀고 거기서 멈춰 기다린다. 끝나면 100% 로
+   채운 뒤 위로 걷히고, 실패하면 멈춘 자리에 붉게 남는다. */
+.step-row__fill {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(0);
+  transform-origin: left center;
+  pointer-events: none;
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
 }
 
-.step-mark--done {
+.step-item--running .step-row__fill {
+  transition: transform var(--step-expected, 1500ms) linear;
+}
+
+.step-item--done .step-row__fill {
+  background: color-mix(in oklab, var(--success) 12%, transparent);
+  clip-path: inset(100% 0 0 0);
+  transition:
+    transform 200ms var(--ease-standard),
+    background-color 120ms linear,
+    clip-path 420ms var(--ease-standard) 200ms;
+}
+
+.step-item--error .step-row__fill {
+  background: color-mix(in oklab, var(--error) 12%, transparent);
+  transition: background-color 200ms linear;
+}
+
+/* ── 상태 글리프 ── */
+.step-slot {
+  position: relative;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  overflow: hidden;
+}
+
+.step-glyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transform: translateY(70%);
+  filter: blur(3px);
+  color: var(--text-muted);
+}
+
+.step-glyph[data-state="in"] {
+  opacity: 1;
+  transform: none;
+  filter: blur(0);
+  transition:
+    opacity 240ms var(--ease-standard),
+    transform 240ms var(--ease-standard),
+    filter 240ms var(--ease-standard);
+}
+
+/* 나가는 글리프는 위로. 들어오는 것과 반대 방향이라 "굴러간다" 로 읽힌다. */
+.step-glyph[data-state="out"] {
+  transform: translateY(-70%);
+  transition:
+    opacity 160ms var(--ease-standard),
+    transform 160ms var(--ease-standard),
+    filter 160ms var(--ease-standard);
+}
+
+.step-glyph--done {
   color: var(--success);
 }
 
-.step-mark--error {
+.step-glyph--error {
   color: var(--error);
+}
+
+/* 걸린 시간. 끝난 뒤에만 뜨고, 자릿수가 바뀌어도 자리가 흔들리지 않는다. */
+.step-row__time {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  animation: step-time-in 240ms var(--ease-standard);
+}
+
+@keyframes step-time-in {
+  from { opacity: 0; translate: 0 3px; }
+  to   { opacity: 1; translate: 0 0; }
 }
 
 /* 모래시계 이모지 대신 가는 링. 깜빡임보다 회전이 "진행 중" 으로 읽힌다. */
@@ -136,7 +217,6 @@
   width: 11px;
   height: 11px;
   flex-shrink: 0;
-  margin: 1px;
   border-radius: 50%;
   border: 1.5px solid color-mix(in oklab, var(--accent) 25%, transparent);
   border-top-color: var(--accent);
@@ -257,4 +337,10 @@
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 채움이 아예 안 보이면 진행 중인지 알 수 없다. 움직임만 없앤다. */
+  .step-item--done .step-row__fill { clip-path: inset(0 0 0 0); }
+  .step-glyph { transform: none !important; filter: none !important; }
 }

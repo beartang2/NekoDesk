@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Brain,
   CalendarDays,
@@ -79,12 +79,86 @@ function formatValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
-// ── Status ────────────────────────────────────────────────────────────────────
+// ── 상태 표시 ─────────────────────────────────────────────────────────────────
+// reactbits 의 CallChip 에서 가져온 방식: 상태가 바뀌면 글리프가 위로 굴러 나가고
+// 다음 글리프가 흐릿하게 올라온다. 셋을 겹쳐 두고 둘만 움직인다.
+
+type Glyph = "spin" | "check" | "cross";
+
+function glyphOf(status: AgentStep["status"]): Glyph {
+  return status === "done" ? "check" : status === "error" ? "cross" : "spin";
+}
 
 function StatusMark({ status }: { status: AgentStep["status"] }) {
-  if (status === "running") return <span className="step-spinner" aria-label="실행 중" />;
-  if (status === "done") return <Check className="step-mark step-mark--done" size={13} strokeWidth={2.5} aria-label="완료" />;
-  return <X className="step-mark step-mark--error" size={13} strokeWidth={2.5} aria-label="실패" />;
+  const roll = useRef<{ cur: Glyph; prev: Glyph | null }>({ cur: glyphOf(status), prev: null });
+  const next = glyphOf(status);
+  if (next !== roll.current.cur) roll.current = { cur: next, prev: roll.current.cur };
+
+  // 지금 글리프는 들어오고, 직전 것만 나간다. 나머지는 자리만 지킨다.
+  const state = (g: Glyph) =>
+    g === roll.current.cur ? "in" : g === roll.current.prev ? "out" : undefined;
+
+  const label = status === "running" ? "실행 중" : status === "done" ? "완료" : "실패";
+
+  return (
+    <span className="step-slot" role="img" aria-label={label}>
+      <span className="step-glyph" data-state={state("spin")}>
+        <span className="step-spinner" />
+      </span>
+      <span className="step-glyph step-glyph--done" data-state={state("check")}>
+        <Check size={13} strokeWidth={2.5} />
+      </span>
+      <span className="step-glyph step-glyph--error" data-state={state("cross")}>
+        <X size={13} strokeWidth={2.5} />
+      </span>
+    </span>
+  );
+}
+
+/**
+ * 툴마다 대략 이만큼 걸린다고 보고 진행 막대를 민다.
+ *
+ * 진짜 진행률을 알 방법은 없다(툴은 끝났는지만 알려준다). 그래서 CallChip 처럼
+ * 90% 에서 멈춰 서서 기다리다가, 끝나면 100% 로 채우고 사라진다.
+ */
+const EXPECTED_MS: Record<string, number> = {
+  "web.search": 4000,
+  "web.scrape": 6000,
+  "code.exec": 3000,
+  "agent.delegate": 10000,
+  "fs.grep": 2500,
+  "fs.glob": 2000,
+};
+const DEFAULT_EXPECTED_MS = 1500;
+/** 끝날 때까지 밀어붙일 최대치. 100% 로 두면 "끝났는데 안 끝났다" 로 보인다. */
+const HOLD_AT = 0.9;
+const SHAKE = [0, -1, 1, -0.66, 0.66, -0.33, 0];
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
+/** 이 행이 실행 중이던 시간. 지난 대화를 불러온 행처럼 처음부터 끝나 있으면 null. */
+function useElapsed(status: AgentStep["status"]): number | null {
+  const startRef = useRef<number | null>(status === "running" ? performance.now() : null);
+  const [elapsed, setElapsed] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (status === "running") {
+      startRef.current ??= performance.now();
+      return;
+    }
+    if (startRef.current !== null) {
+      setElapsed(performance.now() - startRef.current);
+      startRef.current = null;
+    }
+  }, [status]);
+
+  return elapsed;
+}
+
+function formatElapsed(ms: number): string {
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
 // ── Single step ───────────────────────────────────────────────────────────────
@@ -96,6 +170,43 @@ interface StepProps {
 }
 
 function AgentStepItem({ step, isOpen, onToggle }: StepProps) {
+  const rowRef = useRef<HTMLButtonElement>(null);
+  const fillRef = useRef<HTMLSpanElement>(null);
+  const elapsed = useElapsed(step.status);
+
+  // 진행 막대. 실행 중에는 예상 시간에 걸쳐 90% 까지 밀고, 끝나면 채운 뒤 걷힌다.
+  // 실패하면 그 자리에 멈춘다 — 어디까지 갔는지가 곧 정보다.
+  useLayoutEffect(() => {
+    const fill = fillRef.current;
+    if (!fill) return;
+    if (step.status === "running") {
+      fill.style.transition = "none";
+      fill.style.transform = "scaleX(0)";
+      void fill.getBoundingClientRect();
+      fill.style.transition = "";
+      fill.style.transform = `scaleX(${HOLD_AT})`;
+      return;
+    }
+    if (step.status === "done") {
+      fill.style.transform = "scaleX(1)";
+      return;
+    }
+    // 실패: 지금 그려진 자리에 그대로 멈춘다.
+    const live = new DOMMatrix(getComputedStyle(fill).transform).a;
+    fill.style.transition = "none";
+    fill.style.transform = `scaleX(${Math.min(1, Math.max(0, live))})`;
+  }, [step.status]);
+
+  // 실패는 한 번 흔들어 알린다. composite: "add" 라 다른 변형과 겹쳐도 안 싸운다.
+  useEffect(() => {
+    if (step.status !== "error" || !rowRef.current || prefersReducedMotion()) return;
+    const anim = rowRef.current.animate(
+      SHAKE.map((k) => ({ transform: `translateX(${k * 4}px)`, easing: "cubic-bezier(0.77, 0, 0.175, 1)" })),
+      { duration: 420, composite: "add" }
+    );
+    return () => anim.cancel();
+  }, [step.status]);
+
   const meta = TOOL_META[step.tool];
   const Icon = meta?.icon ?? Wrench;
   const label = step.tool === "none" ? "최종 답변" : meta?.label ?? step.tool;
@@ -110,12 +221,20 @@ function AgentStepItem({ step, isOpen, onToggle }: StepProps) {
       {/* 최종 답변 스텝의 생각은 바로 아래 말풍선과 같은 말이라 빼둔다. */}
       {step.thought && step.tool !== "none" && <p className="step-thought">{step.thought}</p>}
 
-      <button className="step-row" onClick={onToggle} aria-expanded={isOpen}>
+      <button
+        ref={rowRef}
+        className="step-row"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        style={{ "--step-expected": `${EXPECTED_MS[step.tool] ?? DEFAULT_EXPECTED_MS}ms` } as React.CSSProperties}
+      >
+        <span ref={fillRef} className="step-row__fill" aria-hidden="true" />
         <span className="step-row__icon"><Icon size={12} strokeWidth={2} /></span>
         <span className="step-row__text">
           <span className="step-row__label">{label}</span>
           {summary && <span className="step-row__summary">{summary}</span>}
         </span>
+        {elapsed !== null && <span className="step-row__time">{formatElapsed(elapsed)}</span>}
         <StatusMark status={step.status} />
         <ChevronRight className="step-row__chevron" size={13} strokeWidth={2} />
       </button>
