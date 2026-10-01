@@ -264,9 +264,12 @@ export function useAgentPool() {
           case "step_done":
             finalSteps = [...finalSteps, event.step];
             setCatEmotion(sessionId, "working");
+            // 툴을 불렀으니 이번 턴 텍스트는 답이 아니라 중얼거림이다. 아코디언에
+            // step.thought 로 이미 보인다. 안 비우면 턴마다 버블에 쌓인다.
+            streamBuffer = "";
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
-                m.id === assistantId ? { ...m, steps: [...finalSteps] } : m
+                m.id === assistantId ? { ...m, steps: [...finalSteps], content: "" } : m
               )
             );
             break;
@@ -274,9 +277,10 @@ export function useAgentPool() {
           case "step_error":
             finalSteps = [...finalSteps, event.step];
             setCatEmotion(sessionId, "error");
+            streamBuffer = "";
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
-                m.id === assistantId ? { ...m, steps: [...finalSteps] } : m
+                m.id === assistantId ? { ...m, steps: [...finalSteps], content: "" } : m
               )
             );
             break;
