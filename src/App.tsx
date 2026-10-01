@@ -1431,7 +1431,21 @@ export default function App() {
   }, []);
 
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  // 사라지는 애니메이션을 보여주려고 퇴장이 끝날 때까지 붙여둔다.
+  const [scrollBtnMounted, setScrollBtnMounted] = useState(false);
+  if (showScrollBtn && !scrollBtnMounted) setScrollBtnMounted(true);
   const scrollToBottomRef = useRef<() => void>(() => {});
+  /**
+   * 입력창(과 확인 배너)은 메시지 위에 떠서 뒤를 흐리게 비춘다. 줄바꿈·첨부로 높이가
+   * 바뀌므로 재서 `--dock-h` 로 넘긴다 — 메시지 아래 여백과 스크롤 버튼 위치가 쓴다.
+   */
+  const dockRef = useCallback((dock: HTMLDivElement | null) => {
+    const main = dock?.parentElement;
+    if (!dock || !main) return;
+    const ro = new ResizeObserver(() => main.style.setProperty("--dock-h", `${dock.offsetHeight}px`));
+    ro.observe(dock);
+    return () => ro.disconnect();
+  }, []);
   const handleScrollChange = useCallback((show: boolean, scrollFn: () => void) => {
     setShowScrollBtn(show);
     scrollToBottomRef.current = scrollFn;
@@ -1612,33 +1626,38 @@ export default function App() {
               onPickSuggestion={(text) => handleSend(text, [])}
             />
           </ErrorBoundary>
+
+          {/* 메시지 위에 떠 있어야 뒤가 비쳐 블러가 보인다. */}
+          {scrollBtnMounted && (
+            <button
+              className="chat-scroll-btn"
+              data-leaving={showScrollBtn ? undefined : ""}
+              onAnimationEnd={() => { if (!showScrollBtn) setScrollBtnMounted(false); }}
+              onClick={() => scrollToBottomRef.current()}
+              title="맨 아래로"
+            >
+              ↓
+            </button>
+          )}
         </div>
 
-        {pool.pendingConfirm && pool.pendingConfirm.sessionId === activeId && (
-          <ConfirmBanner confirm={pool.pendingConfirm} onResolve={pool.confirmResolve} />
-        )}
+        <div className="chat-dock" ref={dockRef}>
+          {pool.pendingConfirm && pool.pendingConfirm.sessionId === activeId && (
+            <ConfirmBanner confirm={pool.pendingConfirm} onResolve={pool.confirmResolve} />
+          )}
 
-        {pool.pendingClarify && pool.pendingClarify.sessionId === activeId && (
-          <ClarifyBanner clarify={pool.pendingClarify} onAnswer={pool.clarifyResolve} />
-        )}
+          {pool.pendingClarify && pool.pendingClarify.sessionId === activeId && (
+            <ClarifyBanner clarify={pool.pendingClarify} onAnswer={pool.clarifyResolve} />
+          )}
 
-        {showScrollBtn && (
-          <button
-            className="chat-scroll-btn"
-            onClick={() => scrollToBottomRef.current()}
-            title="맨 아래로"
-          >
-            ↓
-          </button>
-        )}
-
-        <Composer
-          onSend={handleSend}
-          onStop={() => pool.stop(activeId)}
-          onActivity={markUserActivity}
-          isRunning={isRunning || wordChain.phase === "cat_turn"}
-          history={userHistory}
-        />
+          <Composer
+            onSend={handleSend}
+            onStop={() => pool.stop(activeId)}
+            onActivity={markUserActivity}
+            isRunning={isRunning || wordChain.phase === "cat_turn"}
+            history={userHistory}
+          />
+        </div>
       </main>
 
       <ErrorBoundary label="패널">

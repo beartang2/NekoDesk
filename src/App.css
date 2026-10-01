@@ -767,8 +767,9 @@ html, body, #root {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  /* 아래 여백을 넉넉히 — 마지막 메시지가 입력창에 딱 붙으면 답답하다. */
-  padding: 20px 24px 28px;
+  /* 아래 여백을 넉넉히 — 마지막 메시지가 입력창에 딱 붙으면 답답하다.
+     입력창이 메시지 위에 떠 있으니 그 높이(--dock-h)만큼 더 비운다. */
+  padding: 20px 24px calc(28px + var(--dock-h, 0px));
   position: relative;
   display: flex;
   flex-direction: column;
@@ -787,27 +788,60 @@ html, body, #root {
   margin-top: 12px;
 }
 
+/* 메시지 위에 떠서 뒤를 흐리게 비춘다. 가운데 정렬을 transform 대신 margin 으로 하는
+   건 등장 애니메이션이 translate 를 쓰기 때문이다. */
 .chat-scroll-btn {
+  position: absolute;
+  bottom: calc(10px + var(--dock-h, 0px));
+  inset-inline: 0;
+  margin-inline: auto;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 36px;
   height: 22px;
   border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  background: color-mix(in oklab, var(--bg-surface) 55%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+  backdrop-filter: blur(12px) saturate(1.6);
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
   transition: background 0.15s, color 0.15s, border-color 0.15s, scale var(--dur-control) var(--ease-standard);
-  align-self: center;
-  margin-bottom: 4px;
+  /* backwards: 끝나면 애니메이션 값을 놓아준다. 계속 쥐고 있으면 눌림 효과(scale)를 막는다.
+     filter 는 쓰지 않는다 — filter 가 걸린 동안 backdrop-filter 가 뒤를 못 본다. */
+  animation: scroll-btn-in 560ms backwards;
 }
 .chat-scroll-btn:hover {
-  background: var(--accent-dim);
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
   color: var(--accent);
   border-color: var(--accent);
+}
+/* 사라지는 중. 끝나면 App 이 animationend 를 듣고 뗀다. 움직임 줄이기에선 전역 규칙이
+   길이를 0.01ms 로 줄여 바로 끝난다 — animation: none 으로 바꾸면 버튼이 안 떨어진다. */
+.chat-scroll-btn[data-leaving] {
+  animation: scroll-btn-out 340ms both;
+  pointer-events: none;
+}
+
+/* 떡처럼: 솟으며 세로로 늘어났다가, 내려앉으며 옆으로 퍼지고, 몇 번 출렁이다 멈춘다. */
+@keyframes scroll-btn-in {
+  0%   { opacity: 0; translate: 0 14px; scale: 0.4 0.4; animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1); }
+  38%  { opacity: 1; translate: 0 -4px; scale: 0.88 1.18; animation-timing-function: ease-in-out; }
+  58%  { translate: 0 0; scale: 1.16 0.86; animation-timing-function: ease-in-out; }
+  74%  { scale: 0.95 1.06; animation-timing-function: ease-in-out; }
+  88%  { scale: 1.03 0.98; animation-timing-function: ease-in-out; }
+  100% { opacity: 1; translate: 0 0; scale: 1 1; }
+}
+
+/* 꾹 눌려 납작해졌다가 아래로 쏙 빨려 들어간다. */
+@keyframes scroll-btn-out {
+  0%   { scale: 1 1; animation-timing-function: ease-out; }
+  30%  { translate: 0 2px; scale: 1.14 0.84; animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0); }
+  100% { opacity: 0; translate: 0 12px; scale: 0.4 0.55; }
 }
 
 /**
@@ -1041,14 +1075,23 @@ html, body, #root {
    예전에는 입력창·첨부·전송이 각자 테두리를 가진 세 개의 상자였다. 셋이 한 동작을
    이루는데 셋으로 보이면 시선이 흩어진다. 이제 바깥 한 겹만 테두리를 갖고,
    안쪽 요소는 테두리 없이 그 안에 산다. 포커스 링도 바깥 한 겹에만 걸린다. */
+/* 입력창·확인 배너 묶음. 메시지 위에 떠 있다(높이는 App 이 재서 --dock-h 로 준다). */
+.chat-dock {
+  position: absolute;
+  bottom: 0;
+  inset-inline: 0;
+  z-index: 3;
+}
+
 .composer {
   border-top: var(--hairline);
   padding: 14px 24px 18px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--bg-surface);
-  flex-shrink: 0;
+  background: color-mix(in oklab, var(--bg-surface) 62%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: blur(16px) saturate(1.6);
 }
 
 /* 메시지와 같은 폭에 맞춘다. 안 맞추면 입력한 글이 답변과 다른 줄에서 시작한다. */
