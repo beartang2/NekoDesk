@@ -276,7 +276,7 @@ export type LoopEvent =
   | { type: "thinking_token"; token: string }
   | { type: "streaming_token"; token: string }
   | { type: "plan_updated"; steps: PlanStep[] }
-  | { type: "done"; answer: string; steps: AgentStep[]; promptTokens?: number; plan?: PlanStep[] }
+  | { type: "done"; answer: string; steps: AgentStep[]; promptTokens?: number; tokensPerSecond?: number; plan?: PlanStep[] }
   | { type: "error"; message: string }
   | {
       type: "confirm_needed";

@@ -54,6 +54,8 @@ export interface ChatMessage {
   images?: string[];
   /** 에이전트가 세운 작업 계획. 없으면 계획을 안 세운 요청이다. */
   plan?: PlanStep[];
+  /** 답변 생성 속도(tok/s). 저장하지 않아 불러온 대화엔 없다. */
+  tokensPerSecond?: number;
 }
 
 function nowTime(): string {
@@ -350,6 +352,7 @@ export function useAgentPool() {
                       isStreaming: false,
                       images: images.length > 0 ? images : undefined,
                       plan: event.plan?.length ? event.plan : undefined,
+                      tokensPerSecond: event.tokensPerSecond,
                     }
                   : m
               )

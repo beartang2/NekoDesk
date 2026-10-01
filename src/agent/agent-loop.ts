@@ -352,7 +352,12 @@ export async function* runAgentLoop(
   let stepId = 0;
   let toolCallCount = 0;
   let latestPromptTokens: number | undefined;
-  const trackUsage = (pts: number) => { latestPromptTokens = pts; };
+  // 답변 아래 표시할 생성 속도. 마지막 호출(최종 답변을 만든 호출) 값을 쓴다.
+  let latestTps: number | undefined;
+  const trackUsage = (pts: number, tps?: number) => {
+    latestPromptTokens = pts;
+    if (tps) latestTps = tps;
+  };
 
   for (let i = 0; i < LIMITS.iterations; i++) {
     if (Date.now() - startedAt > LIMITS.wallClockMs || toolCallCount >= LIMITS.toolCalls) break;
@@ -396,7 +401,7 @@ export async function* runAgentLoop(
       if (answer.startsWith(streamedAnswer) && answer.length > streamedAnswer.length) {
         yield { type: "streaming_token", token: answer.slice(streamedAnswer.length) };
       }
-      yield { type: "done", answer, steps: context.steps, promptTokens: latestPromptTokens, plan: plan.snapshot() };
+      yield { type: "done", answer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
       return;
     }
 
@@ -551,7 +556,7 @@ export async function* runAgentLoop(
             context.addTurn({ text: turn.text, calls: executed });
             const cancelMsg = "실행을 취소했어.";
             yield { type: "streaming_token", token: cancelMsg };
-            yield { type: "done", answer: cancelMsg, steps: context.steps, promptTokens: latestPromptTokens, plan: plan.snapshot() };
+            yield { type: "done", answer: cancelMsg, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
             return;
           }
           let resolveConfirm!: (decision: PermissionDecision) => void;
@@ -623,7 +628,7 @@ export async function* runAgentLoop(
     if (shouldStop) {
       const msg = `같은 오류가 반복돼서 멈췄어. 지금까지 시도한 것:\n\n${failures.summary()}`;
       yield { type: "streaming_token", token: msg };
-      yield { type: "done", answer: msg, steps: context.steps, promptTokens: latestPromptTokens, plan: plan.snapshot() };
+      yield { type: "done", answer: msg, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
       return;
     }
     if (repeats >= MAX_REPEATS) break;
@@ -651,7 +656,7 @@ export async function* runAgentLoop(
     yield { type: "streaming_token", token: finalAnswer };
   }
 
-  yield { type: "done", answer: finalAnswer, steps: context.steps, promptTokens: latestPromptTokens, plan: plan.snapshot() };
+  yield { type: "done", answer: finalAnswer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
 }
 
 /**
@@ -668,9 +673,10 @@ export async function* runDirectChat(
   ];
 
   let directPromptTokens: number | undefined;
+  let directTps: number | undefined;
   let answer = "";
   try {
-    for await (const chunk of chatStream(messages, "", (pts) => { directPromptTokens = pts; }, signal)) {
+    for await (const chunk of chatStream(messages, "", (pts, tps) => { directPromptTokens = pts; directTps = tps; }, signal)) {
       if (chunk.content) {
         answer += chunk.content;
         yield { type: "streaming_token", token: chunk.content };
@@ -684,5 +690,5 @@ export async function* runDirectChat(
     return;
   }
 
-  yield { type: "done", answer, steps: [], promptTokens: directPromptTokens };
+  yield { type: "done", answer, steps: [], promptTokens: directPromptTokens, tokensPerSecond: directTps };
 }

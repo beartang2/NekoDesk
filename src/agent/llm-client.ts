@@ -240,11 +240,17 @@ export interface LlmCompletion {
   toolCalls: ToolCall[];
 }
 
+/**
+ * 호출이 끝날 때 서버가 알려준 사용량. `tokensPerSecond` 는 llama.cpp 의 `timings`
+ * 에서 온다 — OpenAI 규격엔 없는 필드라 다른 서버면 비어 있다.
+ */
+export type UsageCallback = (promptTokens: number, tokensPerSecond?: number) => void;
+
 /** 비스트리밍 호출. 텍스트·사고 과정·툴 호출을 함께 돌려준다. */
 export async function fetchCompletionMessage(
   messages: LlmMessage[],
   params: LlmParams = {},
-  onUsage?: (promptTokens: number) => void,
+  onUsage?: UsageCallback,
   signal?: AbortSignal
 ): Promise<LlmCompletion> {
   const p = loadGenParams();
@@ -269,9 +275,10 @@ export async function fetchCompletionMessage(
       finish_reason?: string;
     }>;
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    timings?: { predicted_per_second?: number };
   };
   if (data.usage?.prompt_tokens !== undefined) {
-    onUsage?.(data.usage.prompt_tokens);
+    onUsage?.(data.usage.prompt_tokens, data.timings?.predicted_per_second);
   }
   const message = data.choices[0]?.message;
   return {
@@ -284,7 +291,7 @@ export async function fetchCompletionMessage(
 export async function fetchCompletion(
   messages: LlmMessage[],
   params: LlmParams = {},
-  onUsage?: (promptTokens: number) => void,
+  onUsage?: UsageCallback,
   signal?: AbortSignal
 ): Promise<string> {
   return (await fetchCompletionMessage(messages, params, onUsage, signal)).text;
@@ -327,7 +334,7 @@ function mapToolCallDeltas(
 export async function* fetchStream(
   messages: LlmMessage[],
   params: LlmParams = {},
-  onUsage?: (promptTokens: number) => void,
+  onUsage?: UsageCallback,
   signal?: AbortSignal
 ): AsyncGenerator<LlmStreamChunk> {
   const p = loadGenParams();
@@ -427,9 +434,11 @@ export async function* fetchStream(
               finish_reason: string | null;
             }>;
             usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+            // llama.cpp 는 usage 와 같은 마지막 청크에 timings 를 싣는다.
+            timings?: { predicted_per_second?: number };
           };
           if (chunk.usage?.prompt_tokens !== undefined) {
-            onUsage?.(chunk.usage.prompt_tokens);
+            onUsage?.(chunk.usage.prompt_tokens, chunk.timings?.predicted_per_second);
           }
           // usage 전용 마지막 청크는 choices 가 비어 있다.
           const choice = chunk.choices[0];
@@ -687,7 +696,7 @@ export async function* agentStepStream(
   messages: LlmMessage[],
   userInput = "",
   memories = "",
-  onUsage?: (promptTokens: number) => void,
+  onUsage?: UsageCallback,
   signal?: AbortSignal
 ): AsyncGenerator<AgentStepEvent> {
   const allMessages = buildAgentMessages(messages, userInput, false, memories);
@@ -739,7 +748,7 @@ export async function agentStep(
   messages: LlmMessage[],
   userInput = "",
   memories = "",
-  onUsage?: (promptTokens: number) => void,
+  onUsage?: UsageCallback,
   signal?: AbortSignal
 ): Promise<ParsedAgentStep> {
   const allMessages = buildAgentMessages(messages, userInput, false, memories);
@@ -816,7 +825,7 @@ async function nativeTurn(
   messages: LlmMessage[],
   userInput: string,
   memories: string,
-  onUsage?: (promptTokens: number) => void,
+  onUsage?: UsageCallback,
   signal?: AbortSignal
 ): Promise<AgentTurn> {
   const allMessages = buildAgentMessages(messages, userInput, true, memories);
@@ -848,7 +857,7 @@ async function* nativeTurnStream(
   messages: LlmMessage[],
   userInput: string,
   memories: string,
-  onUsage?: (promptTokens: number) => void,
+  onUsage?: UsageCallback,
   signal?: AbortSignal
 ): AsyncGenerator<AgentTurnEvent> {
   const allMessages = buildAgentMessages(messages, userInput, true, memories);
@@ -898,7 +907,7 @@ export async function* agentTurnStream(
   userInput = "",
   turnSeq = 0,
   memories = "",
-  onUsage?: (promptTokens: number) => void,
+  onUsage?: UsageCallback,
   signal?: AbortSignal
 ): AsyncGenerator<AgentTurnEvent> {
   if (shouldUseNativeTools()) {
@@ -927,7 +936,7 @@ export async function* agentTurnStream(
 export function chatStream(
   messages: LlmMessage[],
   toolContext: string,
-  onUsage?: (promptTokens: number) => void,
+  onUsage?: UsageCallback,
   signal?: AbortSignal
 ): AsyncGenerator<LlmStreamChunk> {
   const systemMessage: LlmMessage = { role: "system", content: buildChatSystemPrompt() };

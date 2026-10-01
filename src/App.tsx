@@ -426,7 +426,10 @@ function ChatMessages({
             </div>
           )}
 
-          <span className="message__meta">{m.time}</span>
+          <span className="message__meta">
+            {m.time}
+            {m.tokensPerSecond !== undefined && ` | ${m.tokensPerSecond.toFixed(1)} tok/s`}
+          </span>
         </div>
       ))}
       <div ref={bottomRef} />
