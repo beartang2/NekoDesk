@@ -35,6 +35,8 @@ export interface LlamaConfig {
   reasoning: string;
   reasoning_format: string;
   mtp_n_draft: number;
+  /** 생각 토큰 상한(llama-server --reasoning-budget). -1 = 제한 없음. */
+  reasoning_budget: number;
 }
 
 export const DEFAULT_LLAMA_CONFIG: LlamaConfig = {
@@ -56,6 +58,7 @@ export const DEFAULT_LLAMA_CONFIG: LlamaConfig = {
   reasoning: "off",
   reasoning_format: "none",
   mtp_n_draft: 0,
+  reasoning_budget: -1,
 };
 
 export interface ModelProfile {

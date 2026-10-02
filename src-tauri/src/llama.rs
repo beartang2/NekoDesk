@@ -30,6 +30,8 @@ pub struct LlamaConfig {
     pub reasoning: String,
     pub reasoning_format: String,
     pub mtp_n_draft: Option<i32>,
+    /// 생각 토큰 상한. -1(또는 없음)이면 제한 없음, 0 이면 바로 끝, N 이면 N 토큰에서 끊는다.
+    pub reasoning_budget: Option<i32>,
 }
 
 pub fn scan_models() -> AppResult<Vec<String>> {
@@ -112,6 +114,10 @@ pub fn start(
     }
     if config.jinja {
         args.push("--jinja".to_string());
+    }
+    if let Some(n) = config.reasoning_budget.filter(|n| *n >= 0) {
+        args.push("--reasoning-budget".to_string());
+        args.push(n.to_string());
     }
     if let Some(n) = config.mtp_n_draft {
         if n > 0 {

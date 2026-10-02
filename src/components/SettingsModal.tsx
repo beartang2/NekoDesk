@@ -337,6 +337,13 @@ function LlamaConfigFields({
           </select>
         </label>
         <label className="gen-param">
+          <span className="gen-param__label">Reasoning Budget</span>
+          <input className="gen-param__input" type="number" step="64" min="-1"
+            title="생각 토큰 상한 (-1=제한 없음, 0=생각 안 함). 넘으면 생각을 끊고 바로 답한다. 생각이 길게 늘어지면 512 정도로."
+            value={config.reasoning_budget}
+            onChange={(e) => onChange({ reasoning_budget: Number.isNaN(parseInt(e.target.value, 10)) ? -1 : parseInt(e.target.value, 10) })} />
+        </label>
+        <label className="gen-param">
           <span className="gen-param__label">MTP Draft</span>
           <input className="gen-param__input" type="number" step="1" min="0" max="8"
             title="Multi-Token Prediction 드래프트 토큰 수 (0=비활성, 1~4 권장). Qwen3-MTP 등 MTP 모델에서 추론 속도 향상."
