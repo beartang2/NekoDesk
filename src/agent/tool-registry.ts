@@ -9,6 +9,7 @@ import {
   type ScheduleRange,
 } from "../api/tauri";
 import { appEvents, requestWordchainFirstWord } from "../lib/events";
+import { useSettingsStore } from "../stores/settingsStore";
 import { getFile, getStoredFileNames } from "./file-store";
 import { buildSkillIndex, readKnowledge } from "./knowledge";
 import type {
@@ -331,6 +332,26 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     execute: async (p) => invoke<string>("weather_get", { location: p["location"] as string }),
     resultLimit: 1,
     summarize: (r) => r as string,
+  },
+
+  "image.generate": {
+    name: "image.generate",
+    description: "설명대로 그림을 새로 그려 사용자 화면에 보여준다",
+    params: {
+      type: "object",
+      properties: { prompt: { type: "string", description: "그릴 장면 묘사. 영어로 자세히" } },
+      required: ["prompt"],
+    },
+    // 부작용은 없지만 호출마다 무료 한도·요금을 쓴다. 한 번에 하나씩.
+    readOnly: false,
+    execute: async (p) => {
+      const { provider, cfModel, googleModel } = useSettingsStore.getState().imageGen;
+      const model = provider === "google" ? googleModel : cfModel;
+      const url = await invoke<string>("image_generate", { provider, model, prompt: p["prompt"] as string });
+      return { image_data_url: url };
+    },
+    resultLimit: 1,
+    summarize: () => "그림 완성",
   },
 
   "game.start": {
@@ -736,7 +757,9 @@ export function getTool(name: ToolName): ToolEntry {
 }
 
 export function getAllTools(): ToolEntry[] {
-  return Object.values(REGISTRY);
+  // 꺼둔 기능은 스키마에서도 뺀다 — 못 쓰는 툴을 모델에게 보여주면 부르고 실패한다.
+  const imageOff = useSettingsStore.getState().imageGen.provider === "off";
+  return Object.values(REGISTRY).filter((t) => !(imageOff && t.name === "image.generate"));
 }
 
 export function isStaticTool(name: string): name is ToolName {

@@ -4,6 +4,7 @@
 //! sync 라 네트워크 I/O 가 Tauri 메인 스레드를 최대 수십 초 막았다(UI 프리즈).
 //! 여기서는 async 공용 클라이언트 하나를 재사용하고, 커맨드는 `async fn` 이다.
 
+pub mod image;
 pub mod search;
 pub mod scrape;
 pub mod weather;

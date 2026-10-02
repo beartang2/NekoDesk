@@ -17,7 +17,8 @@ import {
 import { getStoredAccent, saveAccentHex, deriveAccent } from "../theme-colors";
 import { CAT_VARIANTS } from "../cat/spriteData";
 import { useCatStore } from "../stores/catStore";
-import { useSettingsStore, type ToolMode } from "../stores/settingsStore";
+import { useSettingsStore, type ImageProvider, type ToolMode } from "../stores/settingsStore";
+import { getTool } from "../agent/tool-registry";
 import {
   DEFAULT_LLAMA_CONFIG,
   activateProfile,
@@ -832,16 +833,228 @@ function MemoriesSection() {
   );
 }
 
+// ── Image generation section ──────────────────────────────────────────────────
+
+const IMAGE_KEYS = ["cf_account_id", "cf_api_token", "google_api_key"] as const;
+type ImageKey = (typeof IMAGE_KEYS)[number];
+
+const CF_IMAGE_MODELS = [
+  "@cf/black-forest-labs/flux-1-schnell",
+  "@cf/bytedance/stable-diffusion-xl-lightning",
+  "@cf/lykon/dreamshaper-8-lcm",
+  "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+];
+const GOOGLE_IMAGE_MODELS = [
+  "gemini-3.1-flash-image",
+  "gemini-3.1-flash-lite-image",
+  "gemini-3-pro-image",
+  "gemini-2.5-flash-image",
+];
+
+/** 네코가 그림을 그릴 때 쓰는 서비스. 키는 DB 에만 두고 백엔드가 읽는다. */
+function ImageGenSection() {
+  const imageGen = useSettingsStore((s) => s.imageGen);
+  const setImageGen = useSettingsStore((s) => s.setImageGen);
+  const [keys, setKeys] = useState<Record<ImageKey, string>>({
+    cf_account_id: "",
+    cf_api_token: "",
+    google_api_key: "",
+  });
+  const [test, setTest] = useState<{ busy?: boolean; url?: string; error?: string }>({});
+
+  useEffect(() => {
+    Promise.all(IMAGE_KEYS.map((k) => settingsApi.get(k).catch(() => null))).then((vals) =>
+      setKeys(Object.fromEntries(IMAGE_KEYS.map((k, i) => [k, vals[i] ?? ""])) as Record<ImageKey, string>)
+    );
+  }, []);
+
+  function saveKey(k: ImageKey) {
+    return settingsApi.set(k, keys[k].trim());
+  }
+
+  async function runTest() {
+    setTest({ busy: true });
+    try {
+      // blur 저장과 경주하지 않게 지금 값을 먼저 써둔다.
+      await Promise.all(IMAGE_KEYS.map(saveKey));
+      // 에이전트가 쓰는 길을 그대로 탄다.
+      const res = await getTool("image.generate").execute({ prompt: "a cute pixel art cat sitting on a desk" });
+      setTest({ url: (res as { image_data_url: string }).image_data_url });
+    } catch (e) {
+      setTest({ error: String(e) });
+    }
+  }
+
+  const keyRow = (k: ImageKey, label: string, secret = true) => (
+    <div className="settings-row" style={{ alignItems: "center" }}>
+      <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>{label}</span>
+      <input className="settings-input" type={secret ? "password" : "text"} value={keys[k]}
+        onChange={(e) => setKeys({ ...keys, [k]: e.target.value })}
+        onBlur={() => saveKey(k).catch(console.warn)} />
+    </div>
+  );
+
+  const modelRow = (field: "cfModel" | "googleModel", options: string[]) => (
+    <div className="settings-row" style={{ alignItems: "center" }}>
+      <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>모델</span>
+      <input className="settings-input" list={`${field}-options`} value={imageGen[field]}
+        onChange={(e) => setImageGen({ ...imageGen, [field]: e.target.value })} />
+      <datalist id={`${field}-options`}>
+        {options.map((m) => <option key={m} value={m} />)}
+      </datalist>
+    </div>
+  );
+
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">이미지 생성</h3>
+      <p className="settings-section__desc">
+        네코가 그림을 그릴 때 쓰는 서비스예요. Cloudflare Workers AI 는 하루 10,000 뉴런까지 무료
+        (대시보드의 계정 ID + Workers AI 권한 토큰). Google 은 AI Studio 의 Gemini API 키를 쓰고
+        모델에 따라 요금이 나와요.
+      </p>
+      <div className="settings-row">
+        <select className="mcp-form__select" value={imageGen.provider}
+          onChange={(e) => { setImageGen({ ...imageGen, provider: e.target.value as ImageProvider }); setTest({}); }}>
+          <option value="off">끄기</option>
+          <option value="cloudflare">Cloudflare Workers AI</option>
+          <option value="google">Google Gemini</option>
+        </select>
+      </div>
+      {imageGen.provider === "cloudflare" && (
+        <>
+          {keyRow("cf_account_id", "계정 ID", false)}
+          {keyRow("cf_api_token", "API 토큰")}
+          {modelRow("cfModel", CF_IMAGE_MODELS)}
+        </>
+      )}
+      {imageGen.provider === "google" && (
+        <>
+          {keyRow("google_api_key", "API 키")}
+          {modelRow("googleModel", GOOGLE_IMAGE_MODELS)}
+        </>
+      )}
+      {imageGen.provider !== "off" && (
+        <div className="settings-row settings-row--right">
+          <button className="settings-btn" onClick={runTest} disabled={test.busy}>
+            {test.busy ? "그리는 중…" : "테스트"}
+          </button>
+        </div>
+      )}
+      {test.error && <div className="server-error" onClick={() => setTest({})}>{test.error}</div>}
+      {test.url && <img src={test.url} alt="테스트 그림" style={{ width: "100%", borderRadius: 4 }} />}
+    </section>
+  );
+}
+
+// ── MCP servers section ───────────────────────────────────────────────────────
+
+function McpSection() {
+  // 설정은 DB 에 있으므로 비동기로 읽어온다.
+  const [servers, setServers] = useState<McpServer[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [addingNew, setAddingNew] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    readMcpServerConfigs()
+      .then((list) => setServers(list as McpServer[]))
+      .catch(console.warn)
+      .finally(() => setLoaded(true));
+  }, []);
+
+  // 바꿀 때만 저장하고 다시 붙는다. 열 때마다 동기화하면 stdio 서버가 매번 재시작된다
+  // (앱 시작 시 로드는 initMcpFromStorage 가 한다).
+  function commit(next: McpServer[]) {
+    setServers(next);
+    writeMcpServerConfigs(next).catch(console.warn);
+    syncMcpRegistry(next).catch(console.warn);
+  }
+
+  function addServer(s: McpServer) {
+    commit([...servers, s]);
+    setAddingNew(false);
+  }
+
+  function updateServer(s: McpServer) {
+    commit(servers.map((x) => (x.id === s.id ? s : x)));
+    setEditingId(null);
+  }
+
+  function toggleServer(id: string) {
+    commit(servers.map((x) => (x.id === id ? { ...x, enabled: !x.enabled } : x)));
+  }
+
+  function deleteServer(id: string) {
+    commit(servers.filter((x) => x.id !== id));
+    if (editingId === id) setEditingId(null);
+  }
+
+  return (
+    <section className="settings-section">
+      <div className="settings-section__header">
+        <h3 className="settings-section__title">MCP 서버</h3>
+        <button
+          className="settings-add-btn"
+          onClick={() => { setAddingNew(true); setEditingId(null); }}
+          disabled={addingNew || !loaded}
+        >
+          + 추가
+        </button>
+      </div>
+      <p className="settings-section__desc">
+        Model Context Protocol 서버를 연결해 고양이의 도구를 확장하세요.
+      </p>
+
+      {addingNew && (
+        <McpServerForm
+          onSave={addServer}
+          onCancel={() => setAddingNew(false)}
+        />
+      )}
+
+      {servers.length === 0 && !addingNew && (
+        <div className="settings-empty">연결된 MCP 서버가 없습니다.</div>
+      )}
+
+      <div className="mcp-list">
+        {servers.map((s) =>
+          editingId === s.id ? (
+            <McpServerForm
+              key={s.id}
+              initial={s}
+              onSave={updateServer}
+              onCancel={() => setEditingId(null)}
+            />
+          ) : (
+            <McpRow
+              key={s.id}
+              server={s}
+              onToggle={() => toggleServer(s.id)}
+              onEdit={() => { setEditingId(s.id); setAddingNew(false); }}
+              onDelete={() => deleteServer(s.id)}
+            />
+          )
+        )}
+      </div>
+    </section>
+  );
+}
+
 // ── Settings modal ────────────────────────────────────────────────────────────
+
+export type SettingsTab = "neko" | "model" | "connect" | "perm";
 
 interface SettingsModalProps {
   onClose: () => void;
   isDark: boolean;
   /** true일 때 backdrop/헤더 없이 body 내용만 렌더링 (MenuModal 탭 내 임베딩용) */
   asTab?: boolean;
+  /** 보여줄 묶음. 탭 버튼은 MenuModal 이 그린다. */
+  tab?: SettingsTab;
 }
 
-export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
+export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: SettingsModalProps) {
   // 고양이 외형은 catStore 소유. prop 대신 스토어를 직접 읽고 바꾼다.
   const catVariantId = useCatStore((s) => s.variantId);
   const onCatVariantChange = useCatStore((s) => s.setVariant);
@@ -907,45 +1120,6 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
     setTimeout(() => setBraveSearchSaved(false), 1500);
   }
 
-  // MCP — 설정은 DB 에 있으므로 비동기로 읽어온다.
-  const [servers, setServers] = useState<McpServer[]>([]);
-  const [serversLoaded, setServersLoaded] = useState(false);
-  const [addingNew, setAddingNew] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-
-  useEffect(() => {
-    readMcpServerConfigs()
-      .then((loaded) => setServers(loaded as McpServer[]))
-      .catch(console.warn)
-      .finally(() => setServersLoaded(true));
-  }, []);
-
-  // Persist MCP servers on change and reload tool registry
-  useEffect(() => {
-    // 첫 렌더의 빈 배열로 저장된 설정을 덮어쓰면 안 된다.
-    if (!serversLoaded) return;
-    writeMcpServerConfigs(servers).catch(console.warn);
-    syncMcpRegistry(servers).catch(console.warn);
-  }, [servers, serversLoaded]);
-
-  function addServer(s: McpServer) {
-    setServers((prev) => [...prev, s]);
-    setAddingNew(false);
-  }
-
-  function updateServer(s: McpServer) {
-    setServers((prev) => prev.map((x) => (x.id === s.id ? s : x)));
-    setEditingId(null);
-  }
-
-  function toggleServer(id: string) {
-    setServers((prev) => prev.map((x) => x.id === id ? { ...x, enabled: !x.enabled } : x));
-  }
-
-  function deleteServer(id: string) {
-    setServers((prev) => prev.filter((x) => x.id !== id));
-    if (editingId === id) setEditingId(null);
-  }
 
   // Close on backdrop click
   function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
@@ -954,192 +1128,162 @@ export function SettingsModal({ onClose, isDark, asTab }: SettingsModalProps) {
 
   const body = (
         <div className="settings-modal__body">
-
-          {/* ── 포인트 색상 ──────────────────────────────────────── */}
-          <section className="settings-section">
-            <div className="settings-section__header">
-              <h3 className="settings-section__title">포인트 색상</h3>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div className="color-row__swatch"
-                  style={{ background: accentHex }}
-                  onClick={() => accentInputRef.current?.click()}
-                >
-                  <input
-                    ref={accentInputRef}
-                    type="color"
-                    value={accentHex}
-                    onChange={(e) => handleAccentChange(e.target.value)}
-                    className="color-row__input"
-                  />
+          {tab === "neko" && (
+            <>
+              {/* ── 포인트 색상 ──────────────────────────────────────── */}
+              <section className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">포인트 색상</h3>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div className="color-row__swatch"
+                      style={{ background: accentHex }}
+                      onClick={() => accentInputRef.current?.click()}
+                    >
+                      <input
+                        ref={accentInputRef}
+                        type="color"
+                        value={accentHex}
+                        onChange={(e) => handleAccentChange(e.target.value)}
+                        className="color-row__input"
+                      />
+                    </div>
+                    <button className="settings-btn settings-btn--ghost" onClick={resetAccent}>초기화</button>
+                  </div>
                 </div>
-                <button className="settings-btn settings-btn--ghost" onClick={resetAccent}>초기화</button>
-              </div>
-            </div>
-          </section>
+              </section>
 
-          {/* ── 고양이 색상 ──────────────────────────────────────── */}
-          <section className="settings-section">
-            <h3 className="settings-section__title">고양이 색상</h3>
-            <div className="cat-variant-grid">
-              {CAT_VARIANTS.map((v) => (
-                <button
-                  key={v.id}
-                  className={`cat-skin-option ${v.id === catVariantId ? "cat-skin-option--active" : ""}`}
-                  onClick={() => onCatVariantChange(v.id)}
-                >
-                  <span className="cat-skin-swatch" style={{ background: v.swatchCss }} />
-                  <span>{v.name}</span>
-                </button>
-              ))}
-            </div>
-          </section>
+              {/* ── 고양이 색상 ──────────────────────────────────────── */}
+              <section className="settings-section">
+                <h3 className="settings-section__title">고양이 색상</h3>
+                <div className="cat-variant-grid">
+                  {CAT_VARIANTS.map((v) => (
+                    <button
+                      key={v.id}
+                      className={`cat-skin-option ${v.id === catVariantId ? "cat-skin-option--active" : ""}`}
+                      onClick={() => onCatVariantChange(v.id)}
+                    >
+                      <span className="cat-skin-swatch" style={{ background: v.swatchCss }} />
+                      <span>{v.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
 
-          {/* ── 모델 프로필 ──────────────────────────────────────── */}
-          <ModelProfilesSection />
+              {/* ── 사용자 프로필 ────────────────────────────────────── */}
+              <UserProfileSection />
 
-          {/* ── 생성 파라미터 ─────────────────────────────────────── */}
-          <GenParamsSection />
+              {/* ── 시스템 프롬프트 ──────────────────────────────────── */}
+              <section className="settings-section">
+                <h3 className="settings-section__title">시스템 프롬프트</h3>
+                <p className="settings-section__desc">
+                  고양이의 성격과 말투를 직접 설정하세요.
+                </p>
+                <textarea
+                  className="settings-textarea"
+                  value={systemPrompt}
+                  onChange={(e) => setSystemPrompt(e.target.value)}
+                  rows={6}
+                  spellCheck={false}
+                />
+                <div className="settings-row settings-row--right">
+                  <button className="settings-btn settings-btn--ghost" onClick={resetSystemPrompt}>
+                    초기화
+                  </button>
+                  <button className="settings-btn" onClick={saveSystemPrompt}>
+                    {promptSaved ? "저장됨" : "저장"}
+                  </button>
+                </div>
+              </section>
 
-          {/* ── 툴 호출 방식 ──────────────────────────────────────── */}
-          <ToolModeSection />
+              {/* ── 기억 ──────────────────────────────────────────────── */}
+              <MemoriesSection />
+            </>
+          )}
+          {tab === "model" && (
+            <>
+              {/* ── 모델 프로필 ──────────────────────────────────────── */}
+              <ModelProfilesSection />
 
-          {/* ── 항상 허용한 작업 ──────────────────────────────────── */}
-          <ToolRulesSection />
+              {/* ── 생성 파라미터 ─────────────────────────────────────── */}
+              <GenParamsSection />
 
-          {/* ── 기억 ──────────────────────────────────────────────── */}
-          <MemoriesSection />
+              {/* ── 툴 호출 방식 ──────────────────────────────────────── */}
+              <ToolModeSection />
+            </>
+          )}
+          {tab === "connect" && (
+            <>
+              {/* ── 이미지 생성 ──────────────────────────────────────── */}
+              <ImageGenSection />
 
-          {/* ── Brave Search API ─────────────────────────────────── */}
-          <section className="settings-section">
-            <h3 className="settings-section__title">Brave Search API</h3>
-            <p className="settings-section__desc">
-              DuckDuckGo 결과가 없을 때 폴백으로 사용. api.search.brave.com에서 무료 발급 (2,000회/월).
-            </p>
-            <div className="settings-row">
-              <input
-                className="settings-input"
-                type="password"
-                value={braveSearchKey}
-                onChange={(e) => setBraveSearchKey(e.target.value)}
-                placeholder="BSA..."
-                onBlur={saveBraveSearchKey}
-              />
-              <button className="settings-btn" onClick={saveBraveSearchKey}>
-                {braveSearchSaved ? "저장됨" : "저장"}
-              </button>
-            </div>
-          </section>
-
-          {/* ── 사용자 프로필 ────────────────────────────────────── */}
-          <UserProfileSection />
-
-          {/* ── 시스템 프롬프트 ──────────────────────────────────── */}
-          <section className="settings-section">
-            <h3 className="settings-section__title">시스템 프롬프트</h3>
-            <p className="settings-section__desc">
-              고양이의 성격과 말투를 직접 설정하세요.
-            </p>
-            <textarea
-              className="settings-textarea"
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              rows={6}
-              spellCheck={false}
-            />
-            <div className="settings-row settings-row--right">
-              <button className="settings-btn settings-btn--ghost" onClick={resetSystemPrompt}>
-                초기화
-              </button>
-              <button className="settings-btn" onClick={saveSystemPrompt}>
-                {promptSaved ? "저장됨" : "저장"}
-              </button>
-            </div>
-          </section>
-
-          {/* ── MCP 서버 ─────────────────────────────────────────── */}
-          <section className="settings-section">
-            <h3 className="settings-section__title">권한 설정</h3>
-            <p className="settings-section__desc">
-              아래에서 권한을 설정해주세요.
-            </p>
-            <div className="perm-grid">
-              {[
-                {
-                  label: "손쉬운 사용",
-                  desc: "AppleScript로 다른 앱 제어",
-                  url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-                },
-                {
-                  label: "전체 디스크 접근",
-                  desc: "보호된 파일/폴더 읽기·쓰기",
-                  url: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
-                },
-                {
-                  label: "화면 녹화",
-                  desc: "스크린샷·화면 캡처 접근",
-                  url: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-                },
-              ].map(({ label, desc, url }) => (
-                <button
-                  key={label}
-                  className="perm-btn"
-                  onClick={() => invoke("open_url", { url })}
-                >
-                  <span className="perm-btn__label">{label}</span>
-                  <span className="perm-btn__desc">{desc}</span>
-                  <span className="perm-btn__arrow">↗</span>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="settings-section">
-            <div className="settings-section__header">
-              <h3 className="settings-section__title">MCP 서버</h3>
-              <button
-                className="settings-add-btn"
-                onClick={() => { setAddingNew(true); setEditingId(null); }}
-                disabled={addingNew}
-              >
-                + 추가
-              </button>
-            </div>
-            <p className="settings-section__desc">
-              Model Context Protocol 서버를 연결해 고양이의 도구를 확장하세요.
-            </p>
-
-            {addingNew && (
-              <McpServerForm
-                onSave={addServer}
-                onCancel={() => setAddingNew(false)}
-              />
-            )}
-
-            {servers.length === 0 && !addingNew && (
-              <div className="settings-empty">연결된 MCP 서버가 없습니다.</div>
-            )}
-
-            <div className="mcp-list">
-              {servers.map((s) =>
-                editingId === s.id ? (
-                  <McpServerForm
-                    key={s.id}
-                    initial={s}
-                    onSave={updateServer}
-                    onCancel={() => setEditingId(null)}
+              {/* ── Brave Search API ─────────────────────────────────── */}
+              <section className="settings-section">
+                <h3 className="settings-section__title">Brave Search API</h3>
+                <p className="settings-section__desc">
+                  DuckDuckGo 결과가 없을 때 폴백으로 사용. api.search.brave.com에서 무료 발급 (2,000회/월).
+                </p>
+                <div className="settings-row">
+                  <input
+                    className="settings-input"
+                    type="password"
+                    value={braveSearchKey}
+                    onChange={(e) => setBraveSearchKey(e.target.value)}
+                    placeholder="BSA..."
+                    onBlur={saveBraveSearchKey}
                   />
-                ) : (
-                  <McpRow
-                    key={s.id}
-                    server={s}
-                    onToggle={() => toggleServer(s.id)}
-                    onEdit={() => { setEditingId(s.id); setAddingNew(false); }}
-                    onDelete={() => deleteServer(s.id)}
-                  />
-                )
-              )}
-            </div>
-          </section>
+                  <button className="settings-btn" onClick={saveBraveSearchKey}>
+                    {braveSearchSaved ? "저장됨" : "저장"}
+                  </button>
+                </div>
+              </section>
+
+              {/* ── MCP 서버 ─────────────────────────────────────────── */}
+              <McpSection />
+            </>
+          )}
+          {tab === "perm" && (
+            <>
+              {/* ── 항상 허용한 작업 ──────────────────────────────────── */}
+              <ToolRulesSection />
+
+              {/* ── 권한 설정 ─────────────────────────────────────────── */}
+              <section className="settings-section">
+                <h3 className="settings-section__title">권한 설정</h3>
+                <p className="settings-section__desc">
+                  아래에서 권한을 설정해주세요.
+                </p>
+                <div className="perm-grid">
+                  {[
+                    {
+                      label: "손쉬운 사용",
+                      desc: "AppleScript로 다른 앱 제어",
+                      url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+                    },
+                    {
+                      label: "전체 디스크 접근",
+                      desc: "보호된 파일/폴더 읽기·쓰기",
+                      url: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+                    },
+                    {
+                      label: "화면 녹화",
+                      desc: "스크린샷·화면 캡처 접근",
+                      url: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+                    },
+                  ].map(({ label, desc, url }) => (
+                    <button
+                      key={label}
+                      className="perm-btn"
+                      onClick={() => invoke("open_url", { url })}
+                    >
+                      <span className="perm-btn__label">{label}</span>
+                      <span className="perm-btn__desc">{desc}</span>
+                      <span className="perm-btn__arrow">↗</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </>
+          )}
         </div>
   );
 

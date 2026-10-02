@@ -35,17 +35,40 @@ export const DEFAULT_GEN_PARAMS: GenParams = {
 export type ToolMode = "auto" | "native" | "json";
 export const DEFAULT_TOOL_MODE: ToolMode = "auto";
 
+/** 그림 그리기 서비스. 키는 비밀이라 여기 말고 DB settings 에 둔다(백엔드가 읽는다). */
+export type ImageProvider = "off" | "cloudflare" | "google";
+export interface ImageGenSettings {
+  provider: ImageProvider;
+  cfModel: string;
+  googleModel: string;
+}
+export const DEFAULT_IMAGE_GEN: ImageGenSettings = {
+  provider: "off",
+  cfModel: "@cf/black-forest-labs/flux-1-schnell",
+  googleModel: "gemini-3.1-flash-image",
+};
+
 const K = {
   llmUrl: "nekodesk_llm_url",
   genParams: "nekodesk_gen_params",
   systemPrompt: "nekodesk_system_prompt",
   userProfile: "nekodesk_user_profile",
   toolMode: "nekodesk_tool_mode",
+  imageGen: "nekodesk_image_gen",
 } as const;
 
 function loadToolMode(): ToolMode {
   const raw = localStorage.getItem(K.toolMode);
   return raw === "native" || raw === "json" || raw === "auto" ? raw : DEFAULT_TOOL_MODE;
+}
+
+function loadImageGen(): ImageGenSettings {
+  try {
+    const raw = localStorage.getItem(K.imageGen);
+    return raw ? { ...DEFAULT_IMAGE_GEN, ...JSON.parse(raw) } : { ...DEFAULT_IMAGE_GEN };
+  } catch {
+    return { ...DEFAULT_IMAGE_GEN };
+  }
 }
 
 function loadGen(): GenParams {
@@ -63,6 +86,7 @@ interface SettingsStore {
   systemPrompt: string | null; // null = 읽는 쪽 기본값 사용
   userProfile: string | null;
   toolMode: ToolMode;
+  imageGen: ImageGenSettings;
   /** auto 모드에서 서버가 `tools` 를 거부해 json 으로 내려앉았다. 영속화하지 않는다. */
   nativeToolsDegraded: boolean;
   setLlmUrl: (url: string) => void;
@@ -71,6 +95,7 @@ interface SettingsStore {
   setSystemPrompt: (v: string | null) => void;
   setUserProfile: (v: string | null) => void;
   setToolMode: (m: ToolMode) => void;
+  setImageGen: (p: ImageGenSettings) => void;
   setNativeToolsDegraded: (v: boolean) => void;
 }
 
@@ -80,6 +105,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   systemPrompt: localStorage.getItem(K.systemPrompt),
   userProfile: localStorage.getItem(K.userProfile),
   toolMode: loadToolMode(),
+  imageGen: loadImageGen(),
   nativeToolsDegraded: false,
 
   setLlmUrl: (url) => {
@@ -104,6 +130,10 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
     localStorage.setItem(K.toolMode, m);
     // 사용자가 직접 모드를 고르면 이전 강등 기록은 무효 — 새 설정으로 다시 시도한다.
     set({ toolMode: m, nativeToolsDegraded: false });
+  },
+  setImageGen: (p) => {
+    localStorage.setItem(K.imageGen, JSON.stringify(p));
+    set({ imageGen: p });
   },
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));

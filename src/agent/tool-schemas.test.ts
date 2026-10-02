@@ -1,8 +1,18 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import { buildToolSchemas, describeToolsForPrompt } from "./tool-schemas";
 import { getAllTools } from "./tool-registry";
+import { DEFAULT_IMAGE_GEN, useSettingsStore } from "../stores/settingsStore";
 
 describe("buildToolSchemas", () => {
+  it("이미지 생성을 꺼두면 image.generate 를 싣지 않는다", () => {
+    const names = () => buildToolSchemas().map((s) => s.function.name);
+    useSettingsStore.getState().setImageGen({ ...DEFAULT_IMAGE_GEN, provider: "off" });
+    expect(names()).not.toContain("image.generate");
+    useSettingsStore.getState().setImageGen({ ...DEFAULT_IMAGE_GEN, provider: "cloudflare" });
+    expect(names()).toContain("image.generate");
+  });
+
   it("registry 의 모든 툴을 빠짐없이 내보낸다", () => {
     const names = buildToolSchemas().map((s) => s.function.name);
     for (const tool of getAllTools()) {

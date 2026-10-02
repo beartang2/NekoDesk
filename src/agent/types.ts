@@ -62,6 +62,7 @@ export type ToolName =
   | "web.scrape"
   | "file.upload"
   | "weather.get"
+  | "image.generate"
   | "game.start"
   | "game.judge"
   | "fs.read"

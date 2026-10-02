@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { execHistoryApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { X } from "lucide-react";
-import { SettingsModal } from "./SettingsModal";
+import { SettingsModal, type SettingsTab } from "./SettingsModal";
 import { ErrorBoundary } from "./ErrorBoundary";
 import type { ExecHistoryItem } from "../agent/types";
 import "./MenuModal.css";
@@ -101,7 +101,15 @@ function ExecHistoryPanel() {
 
 // ── Menu Modal ────────────────────────────────────────────────────────────────
 
-type MenuTab = "settings" | "history";
+type MenuTab = SettingsTab | "history";
+
+const TABS: [MenuTab, string][] = [
+  ["neko", "네코"],
+  ["model", "모델"],
+  ["connect", "연동"],
+  ["perm", "권한"],
+  ["history", "실행 이력"],
+];
 
 interface MenuModalProps {
   onClose: () => void;
@@ -112,7 +120,7 @@ interface MenuModalProps {
   onClosed?: () => void;
 }
 
-export function MenuModal({ onClose, isDark, initialTab = "settings", leaving, onClosed }: MenuModalProps) {
+export function MenuModal({ onClose, isDark, initialTab = "neko", leaving, onClosed }: MenuModalProps) {
   const [tab, setTab] = useState<MenuTab>(initialTab);
 
   function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
@@ -128,18 +136,15 @@ export function MenuModal({ onClose, isDark, initialTab = "settings", leaving, o
       >
         <div className="menu-modal__header">
           <div className="menu-modal__tabs">
-            <button
-              className={`menu-tab ${tab === "settings" ? "menu-tab--active" : ""}`}
-              onClick={() => setTab("settings")}
-            >
-              설정
-            </button>
-            <button
-              className={`menu-tab ${tab === "history" ? "menu-tab--active" : ""}`}
-              onClick={() => setTab("history")}
-            >
-              실행 이력
-            </button>
+            {TABS.map(([id, label]) => (
+              <button
+                key={id}
+                className={`menu-tab ${tab === id ? "menu-tab--active" : ""}`}
+                onClick={() => setTab(id)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
           <button className="menu-modal__close" onClick={onClose}><X size={13} /></button>
         </div>
@@ -148,10 +153,12 @@ export function MenuModal({ onClose, isDark, initialTab = "settings", leaving, o
             닫아도 animationend 가 안 와 화면에 남는다. 여기면 틀·닫기 버튼이 살아 있다. */}
         <div className="menu-modal__body">
           <ErrorBoundary label="설정" key={tab}>
-            {tab === "history" && <ExecHistoryPanel />}
-            {tab === "settings" && (
+            {tab === "history" ? (
+              <ExecHistoryPanel />
+            ) : (
               <SettingsModal
                 asTab
+                tab={tab}
                 onClose={onClose}
                 isDark={isDark}
               />

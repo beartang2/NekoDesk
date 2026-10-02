@@ -221,13 +221,17 @@ async function runCall(call: ToolCall, step: AgentStep, approved = false): Promi
     step.summary = entry.summarize(result);
     step.status = "done";
 
+    // 이미지는 step 에 담고 summary 에선 뺀다 (base64 를 LLM 컨텍스트에 넣지 않는다).
+    // 결과 패널에도 base64 를 통째로 펼치지 않는다.
+    const image = (result as { image_data_url?: string | null } | null)?.image_data_url;
+    if (image) {
+      step.imageDataUrl = image;
+      step.result = { ...(result as object), image_data_url: "[이미지]" };
+      step.summary += "\n[이미지 생성됨]";
+    }
+
     if (call.name === "code.exec") {
       const exec = result as CodeExecResult;
-      // 이미지는 step 에 담고 summary 에선 뺀다 (base64 를 LLM 컨텍스트에 넣지 않는다).
-      if (exec.image_data_url) {
-        step.imageDataUrl = exec.image_data_url;
-        step.summary += "\n[이미지 생성됨]";
-      }
       step.summary = injectErrorSearchHint(
         step.summary,
         exec,

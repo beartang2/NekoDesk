@@ -203,6 +203,26 @@ mod commands {
         crate::http::search::run(&query, brave_key).await
     }
 
+    /// 설명대로 그림을 그려 data URL 로 돌려준다. 키는 DB 에서 꺼낸다.
+    #[tauri::command]
+    pub async fn image_generate(
+        db: State<'_, DbState>,
+        provider: String,
+        model: String,
+        prompt: String,
+    ) -> Result<String, AppError> {
+        let (cf_account, cf_token, google_key) = {
+            let conn = db.0.lock()?;
+            let get = |k: &str| crate::db::settings::get(&conn, k).map(Option::unwrap_or_default);
+            (get("cf_account_id")?, get("cf_api_token")?, get("google_api_key")?)
+        };
+        match provider.as_str() {
+            "cloudflare" => crate::http::image::cloudflare(&cf_account, &cf_token, &model, &prompt).await,
+            "google" => crate::http::image::google(&google_key, &model, &prompt).await,
+            _ => Err(AppError::msg("이미지 생성이 꺼져 있어. 설정 > 연동에서 켜줘.")),
+        }
+    }
+
     #[tauri::command]
     pub async fn web_scrape(url: String) -> Result<ScrapResult, AppError> {
         crate::http::scrape::run(&url).await
@@ -734,6 +754,7 @@ pub fn run() {
             commands::code_exec,
             commands::web_search,
             commands::web_scrape,
+            commands::image_generate,
             commands::settings_set,
             commands::settings_get,
             commands::conversation_save,
