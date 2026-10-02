@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { conversationApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { notifyIfAway, toNotificationBody } from "../lib/notify";
@@ -253,6 +253,18 @@ function deriveFinalEmotion(steps: AgentStep[]): CatEmotion {
  * Per-session agent pool — enables parallel processing across sessions.
  * Each session has its own isRunning / catEmotion / error / abortRef.
  */
+// 마지막으로 잰 프롬프트 크기. 메모리에만 두면 껐다 켰을 때 대화는 DB 에서 그대로
+// 돌아오는데 사용량만 0 으로 보였다. (지운 대화의 값이 남지만 숫자 하나라 둔다.)
+const CONTEXT_TOKENS_KEY = "nekodesk_context_tokens";
+
+function loadContextTokens(): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem(CONTEXT_TOKENS_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
 export function useAgentPool() {
   // 메시지 상태는 messageStore 소유. 비동기 루프는 getState() 로 최신값을 읽어
   // 예전 allMessagesRef 미러링 해킹이 필요 없다.
@@ -261,7 +273,10 @@ export function useAgentPool() {
   const [runningSet, setRunningSet] = useState<Set<string>>(new Set());
   const [catEmotions, setCatEmotions] = useState<Record<string, CatEmotion>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
-  const [sessionTokens, setSessionTokens] = useState<Record<string, number>>({});
+  const [sessionTokens, setSessionTokens] = useState<Record<string, number>>(loadContextTokens);
+  useEffect(() => {
+    localStorage.setItem(CONTEXT_TOKENS_KEY, JSON.stringify(sessionTokens));
+  }, [sessionTokens]);
   // 예전에는 boolean 플래그였다. 플래그는 소비 루프만 멈출 뿐 진행 중인
   // fetch 를 끊지 못해, stop 을 눌러도 llama.cpp 는 끝까지 GPU 를 물고 있었다.
   const abortRefs = useRef<Record<string, AbortController | undefined>>({});

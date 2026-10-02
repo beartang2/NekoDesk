@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import { buildToolSchemas, describeToolsForPrompt } from "./tool-schemas";
-import { getAllTools } from "./tool-registry";
+import { clipList, getAllTools } from "./tool-registry";
 import { DEFAULT_IMAGE_GEN, useSettingsStore } from "../stores/settingsStore";
 
 describe("buildToolSchemas", () => {
@@ -70,5 +70,13 @@ describe("describeToolsForPrompt", () => {
       .split("\n")
       .find((l) => l.startsWith("- schedule.list:"));
     expect(line).toContain('"range": "today" | "week" | "all" (필수)');
+  });
+});
+
+describe("clipList", () => {
+  it("잘라낸 개수를 적는다 — 말없이 자르면 모델은 뒤가 없는 줄 안다", () => {
+    const out = clipList([1, 2, 3], 2, (n) => `- ${n}`);
+    expect(out).toBe("- 1\n- 2\n…외 1개 더 있음");
+    expect(clipList([1], 2, (n) => `- ${n}`)).toBe("- 1");
   });
 });

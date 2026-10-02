@@ -30,16 +30,24 @@ import type {
 
 // ── Result summarizers ────────────────────────────────────────────────────────
 
-function summarizeTodos(todos: Todo[]): string {
-  if (todos.length === 0) return "할 일 없음";
-  return todos
-    .map((t) => `- [${t.status}] ${t.content}${t.due_at ? ` (마감: ${t.due_at})` : ""}`)
-    .join("\n");
+/**
+ * 목록을 잘라 보여줄 땐 잘랐다고 적는다. 말없이 자르면 모델은 뒤가 없는 줄 안다 —
+ * 일정이 앞 5개(9·10월)에서 잘려 11월 일정을 "없다" 고 답했다.
+ */
+export function clipList<T>(items: T[], max: number, line: (item: T) => string): string {
+  const lines = items.slice(0, max).map(line);
+  if (items.length > max) lines.push(`…외 ${items.length - max}개 더 있음`);
+  return lines.join("\n");
 }
 
-function summarizeEvents(events: ScheduleEvent[]): string {
+function summarizeTodos(todos: Todo[], max: number): string {
+  if (todos.length === 0) return "할 일 없음";
+  return clipList(todos, max, (t) => `- [${t.status}] ${t.content}${t.due_at ? ` (마감: ${t.due_at})` : ""}`);
+}
+
+function summarizeEvents(events: ScheduleEvent[], max: number): string {
   if (events.length === 0) return "일정 없음";
-  return events.map((e) => `- [id:${e.id}] ${e.title} (${e.start_at}${e.end_at ? ` ~ ${e.end_at}` : ""})`).join("\n");
+  return clipList(events, max, (e) => `- [id:${e.id}] ${e.title} (${e.start_at}${e.end_at ? ` ~ ${e.end_at}` : ""})`);
 }
 
 function summarizeSearch(results: SearchResult[]): string {
@@ -75,7 +83,6 @@ export interface ToolEntry {
    */
   readOnly: boolean;
   execute: (params: Record<string, unknown>) => Promise<unknown>;
-  resultLimit: number;
   summarize: (result: unknown) => string;
 }
 
@@ -96,8 +103,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     params: NO_PARAMS,
     readOnly: true,
     execute: async () => todosApi.list(),
-    resultLimit: 5,
-    summarize: (r) => summarizeTodos((r as Todo[]).slice(0, 5)),
+    summarize: (r) => summarizeTodos(r as Todo[], 20),
   },
 
   "todo.list_done": {
@@ -106,8 +112,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     params: NO_PARAMS,
     readOnly: true,
     execute: async () => todosApi.listDone(),
-    resultLimit: 10,
-    summarize: (r) => summarizeTodos((r as Todo[]).slice(0, 10)),
+    summarize: (r) => summarizeTodos(r as Todo[], 10),
   },
 
   "todo.add": {
@@ -127,7 +132,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
         p["content"] as string,
         (p["due_at"] as string | null | undefined) ?? null
       ),
-    resultLimit: 1,
     summarize: (r) => `할 일 추가됨: ${(r as Todo).id}`,
   },
 
@@ -141,7 +145,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: false,
     execute: async (p) => todosApi.complete(p["id"] as number),
-    resultLimit: 1,
     summarize: () => "완료 처리됨",
   },
 
@@ -158,8 +161,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     readOnly: true,
     execute: async (p) =>
       scheduleApi.list((p["range"] as ScheduleRange) ?? "all"),
-    resultLimit: 5,
-    summarize: (r) => summarizeEvents((r as ScheduleEvent[]).slice(0, 5)),
+    summarize: (r) => summarizeEvents(r as ScheduleEvent[], 30),
   },
 
   "schedule.add": {
@@ -185,7 +187,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     readOnly: false,
     execute: async (p) =>
       scheduleApi.add(p["title"] as string, p["start_at"] as string, (p["end_at"] as string | undefined) || null),
-    resultLimit: 1,
     summarize: (r) => `일정 추가됨: ${(r as ScheduleEvent).title}`,
   },
 
@@ -201,7 +202,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: false,
     execute: async (p) => scheduleApi.delete(p["ids"] as number[]),
-    resultLimit: 1,
     summarize: (r) => {
       const n = r as number;
       if (n === 0) return "일정 삭제 실패: 해당 ID의 일정이 존재하지 않음";
@@ -228,7 +228,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       // 이름을 틀렸을 때 목록을 같이 돌려준다. 모델이 한 번 더 추측하지 않고 고른다.
       return found ?? { error: `"${p["name"]}" 라는 지식은 없어. 있는 것:\n${buildSkillIndex()}` };
     },
-    resultLimit: 1,
     summarize: (r) => {
       const v = r as { name?: string; content?: string; error?: string };
       return v.error ?? `### ${v.name}\n${v.content}`;
@@ -277,7 +276,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       ).catch(() => {});
       return result;
     },
-    resultLimit: 1,
     summarize: (r) => {
       const res = r as CodeExecResult;
       const lines: string[] = [];
@@ -299,7 +297,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: true,
     execute: async (p) => invoke<SearchResult[]>("web_search", { query: p["query"] as string }),
-    resultLimit: 3,
     summarize: (r) => summarizeSearch((r as SearchResult[]).slice(0, 3)),
   },
 
@@ -313,7 +310,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: true,
     execute: async (p) => invoke<ScrapResult>("web_scrape", { url: p["url"] as string }),
-    resultLimit: 1,
     summarize: (r) => {
       const res = r as ScrapResult;
       return `[${res.title}]\n${res.content.slice(0, 500)}`;
@@ -330,7 +326,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: true,
     execute: async (p) => invoke<string>("weather_get", { location: p["location"] as string }),
-    resultLimit: 1,
     summarize: (r) => r as string,
   },
 
@@ -350,7 +345,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       const url = await invoke<string>("image_generate", { provider, model, prompt: p["prompt"] as string });
       return { image_data_url: url };
     },
-    resultLimit: 1,
     summarize: () => "그림 완성",
   },
 
@@ -372,7 +366,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       appEvents.emit("startGame", { type: "drawing" });
       return { started: type };
     },
-    resultLimit: 1,
     summarize: (r) => {
       const res = r as { started: string; firstWord?: string | null };
       if (res.started === "wordchain") {
@@ -405,7 +398,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       appEvents.emit("wordchainVerdict", { exists });
       return { exists };
     },
-    resultLimit: 1,
     // 모델이 판정 뒤에 할 말이 앱 상태와 어긋나지 않게, 무엇이 반영됐는지 그대로 알려준다.
     summarize: (r) =>
       (r as { exists: boolean }).exists
@@ -450,7 +442,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       }
       return (await res.json()) as unknown;
     },
-    resultLimit: 1,
     summarize: (r) => JSON.stringify(r).slice(0, 300),
   },
 
@@ -480,7 +471,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
         p["offset"] as number | undefined,
         p["limit"] as number | undefined
       ),
-    resultLimit: 1,
     summarize: (r) => {
       const res = r as FsReadResult;
       return res.truncated
@@ -504,7 +494,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     execute: async () => {
       throw new Error("fs.write 는 에이전트 루프가 확인을 받은 뒤 실행해야 하는 툴이야");
     },
-    resultLimit: 1,
     summarize: (r) => {
       const res = r as FsWriteResult;
       return `저장됨: ${res.path} (${res.lines}줄)\n${res.preview}`;
@@ -530,7 +519,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     execute: async () => {
       throw new Error("fs.edit 은 에이전트 루프가 확인을 받은 뒤 실행해야 하는 툴이야");
     },
-    resultLimit: 1,
     summarize: (r) => {
       const res = r as FsEditResult;
       return `${res.replaced}군데 수정됨\n${res.preview}`;
@@ -547,7 +535,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: true,
     execute: async (p) => fsApi.list(p["path"] as string),
-    resultLimit: 50,
     summarize: (r) => summarizeEntries((r as FsEntry[]).slice(0, 50)),
   },
 
@@ -565,7 +552,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: true,
     execute: async (p) => fsApi.glob(p["pattern"] as string, p["base"] as string | undefined),
-    resultLimit: 50,
     summarize: (r) => {
       const paths = r as string[];
       if (paths.length === 0) return "일치하는 파일 없음";
@@ -595,7 +581,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
         p["glob"] as string | undefined,
         p["max_results"] as number | undefined
       ),
-    resultLimit: 50,
     summarize: (r) => summarizeGrep((r as FsGrepHit[]).slice(0, 50)),
   },
 
@@ -623,7 +608,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     readOnly: false,
     execute: async (p) =>
       memoryApi.save(p["content"] as string, (p["kind"] as string | undefined) ?? "fact"),
-    resultLimit: 1,
     summarize: (r) => `기억했어: ${(r as Memory).content}`,
   },
 
@@ -637,7 +621,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: true,
     execute: async (p) => memoryApi.search(p["query"] as string),
-    resultLimit: 5,
     summarize: (r) => {
       const found = r as Memory[];
       if (found.length === 0) return "기억에 없음";
@@ -663,7 +646,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: false,
     execute: async (p) => airdropApi.send((p["paths"] as string[]) ?? []),
-    resultLimit: 1,
     summarize: (r) =>
       `AirDrop 시트를 열었어 (파일 ${r as number}개). 받을 기기는 시트에서 골라줘.`,
   },
@@ -689,7 +671,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     // 조사 자체는 부작용이 없지만 비싸다. 다른 호출과 같이 돌리지 않는다.
     readOnly: false,
     execute: virtual("agent.delegate"),
-    resultLimit: 1,
     summarize: (r) => String(r),
   },
 
@@ -712,7 +693,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: false,
     execute: virtual("plan.set"),
-    resultLimit: 1,
     summarize: (r) => String(r),
   },
 
@@ -726,7 +706,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: false,
     execute: virtual("plan.complete"),
-    resultLimit: 1,
     summarize: (r) => String(r),
   },
 
@@ -747,7 +726,6 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: false,
     execute: virtual("user.ask"),
-    resultLimit: 1,
     summarize: (r) => `사용자 답변: ${String(r)}`,
   },
 };

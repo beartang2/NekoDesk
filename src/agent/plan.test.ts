@@ -24,6 +24,13 @@ describe("Plan", () => {
     expect(p.remaining).toBe(1);
   });
 
+  it("뒤 단계를 완료하면 앞 단계도 끝난 것으로 본다", () => {
+    const p = new Plan();
+    p.set(["조회", "추가 1", "추가 2", "추가 3"]);
+    p.complete(4); // 단계마다 안 부르고 마지막에 한 번만 부르는 경우
+    expect(p.remaining).toBe(0);
+  });
+
   it("전부 끝나면 정리하라고 알린다", () => {
     const p = new Plan();
     p.set(["a"]);

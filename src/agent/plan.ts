@@ -54,7 +54,13 @@ export class Plan {
     return this.snapshot();
   }
 
-  /** 1-기반 번호로 완료 표시. 범위를 벗어나면 이유를 던진다. */
+  /**
+   * 1-기반 번호로 완료 표시. 범위를 벗어나면 이유를 던진다.
+   *
+   * 계획은 순서대로 가는 목록이라 N번을 끝냈으면 앞 단계도 끝난 것으로 본다.
+   * 모델이 단계마다 부르지 않고 마지막에 한 번만 부르는 일이 흔한데, 그러면
+   * 마지막 칸 하나만 체크된 채 "1/4" 로 끝났다.
+   */
   complete(index: number): PlanStep[] {
     if (this.steps.length === 0) {
       throw new Error("아직 계획이 없어. plan.set 을 먼저 불러.");
@@ -62,7 +68,7 @@ export class Plan {
     if (!Number.isInteger(index) || index < 1 || index > this.steps.length) {
       throw new Error(`${index}번 단계는 없어. 1~${this.steps.length} 중에서 골라.`);
     }
-    this.steps[index - 1].status = "done";
+    for (let i = 0; i < index; i++) this.steps[i].status = "done";
     return this.snapshot();
   }
 
