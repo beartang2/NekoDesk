@@ -337,6 +337,8 @@ html, body, #root {
    맨 위·맨 아래에서는 0 이라 첫 줄·끝 줄이 또렷하다. */
 .sidebar__list {
   flex: 1;
+  /* 그림판이 커져도 대화 목록이 통째로 사라지지 않게 두세 줄은 남긴다. */
+  min-height: 72px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;

@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Pencil, Terminal, X } from "lucide-react";
-import { todosApi, scheduleApi } from "../api/tauri";
+import { Pencil, StickyNote, X } from "lucide-react";
+import { todosApi, scheduleApi, settingsApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { syncCanvasToBox } from "../lib/canvas";
-import type { Todo, ScheduleEvent, CodeExecResult } from "../agent/types";
+import { useRevealChildren, useScrollEdges } from "../hooks/useScrollReveal";
+import type { Todo, ScheduleEvent } from "../agent/types";
 import type { DrawingGameState, DrawingGameActions } from "../hooks/useDrawingGame";
 import "./RightPanel.css";
 
@@ -24,6 +25,14 @@ export function parseEventDate(s: string): Date {
   return new Date(s);
 }
 
+/**
+ * 시간 없이 날짜만 적힌 일정("2026-11-13"). 자정으로 읽히는데, 그 시각을 그대로 찍으면
+ * "오전 12:00" 이 된다 — 종일로 보여야 한다.
+ */
+export function isDateOnly(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
 /** 일정이 걸친 첫날과 마지막 날(자정 기준). end_at 이 없으면 시작한 하루다. */
 export function eventDaySpan(e: { start_at: string; end_at: string | null }): [Date, Date] {
   const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -34,15 +43,110 @@ export function eventDaySpan(e: { start_at: string; end_at: string | null }): [D
 
 // ── TODO Card ─────────────────────────────────────────────────────────────────
 
+// ── Spring check (reactbits SpringCheck) ──────────────────────────────────────
+// 원본은 motion 의 스프링과 hugeicons 아이콘을 쓴다. 의존성 없이 같은 스프링
+// (visualDuration 0.2s, bounce 0.2)을 닫힌 식으로 풀어 --t 하나만 움직이고,
+// 채움·상자 부풂·체크 긋기·글자 흐려짐·줄긋기는 CSS 가 --t 에서 계산한다.
+
+const SPRING_OMEGA = (2 * Math.PI) / (0.2 * 1.2); // motion 이 visualDuration 에서 고르는 고유진동수
+const SPRING_ZETA = 0.456; // bounce 0.2 — 20% 넘쳤다가 돌아온다
+const SPRING_OMEGA_D = SPRING_OMEGA * Math.sqrt(1 - SPRING_ZETA * SPRING_ZETA);
+const SPRING_SETTLE_SEC = 0.5;
+
+/** 0 에서 1 로 가는 스프링의 sec 초 뒤 값. 1.2 까지 넘쳤다가 1 에 선다. */
+export function springAt(sec: number): number {
+  if (sec >= SPRING_SETTLE_SEC) return 1;
+  const decay = Math.exp(-SPRING_ZETA * SPRING_OMEGA * sec);
+  const k = (SPRING_ZETA * SPRING_OMEGA) / SPRING_OMEGA_D;
+  return 1 - decay * (Math.cos(SPRING_OMEGA_D * sec) + k * Math.sin(SPRING_OMEGA_D * sec));
+}
+
+function CheckRow({
+  label,
+  checked,
+  onCheck,
+  meta,
+  title,
+  className = "",
+  onAnimationEnd,
+}: {
+  label: string;
+  checked: boolean;
+  /** 없으면 보기만 한다(완료 목록). */
+  onCheck?: () => void;
+  meta?: string | null;
+  title?: string;
+  className?: string;
+  onAnimationEnd?: React.AnimationEventHandler<HTMLLIElement>;
+}) {
+  const ref = useRef<HTMLLIElement>(null);
+  const prev = useRef(checked);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const set = (t: number) => el.style.setProperty("--t", String(t));
+    // 스프링은 실제로 바뀌었을 때만. 처음 그릴 때와 움직임 줄이기에선 바로 그 자리.
+    const changed = prev.current !== checked;
+    prev.current = checked;
+    if (!changed || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      set(checked ? 1 : 0);
+      return;
+    }
+    const start = performance.now();
+    let raf = 0;
+    const step = (now: number) => {
+      const p = springAt((now - start) / 1000);
+      set(checked ? p : 1 - p);
+      if (p !== 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [checked]);
+
+  return (
+    <li ref={ref} className={`todo-item ${className}`} title={title} onAnimationEnd={onAnimationEnd}>
+      <button
+        className="spring-check"
+        role="checkbox"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={!onCheck || checked}
+        onClick={onCheck}
+      >
+        <span className="spring-check__fill" />
+        <svg className="spring-check__tick" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 12.5l4.5 4.5L19 7.5" pathLength={1} />
+        </svg>
+      </button>
+      <span className="todo-item__text">
+        <span className="todo-item__word">{label}</span>
+        <span className="todo-item__rule" aria-hidden="true" />
+      </span>
+      {meta && <span className="todo-item__due">{meta}</span>}
+    </li>
+  );
+}
+
+/** 대화 목록과 같은 결(reactbits AnimatedList): 가려진 가장자리는 흐리고, 보이는 줄만 올라온다. */
+function TodoList({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLUListElement>(null);
+  useScrollEdges(ref);
+  useRevealChildren(ref);
+  return <ul className="todo-list" ref={ref}>{children}</ul>;
+}
+
 function TodoCard() {
   const [todos, setTodos] = useState<Todo[]>([]);
+  // 완료한 줄은 바로 빼지 않고 스프링 체크·줄긋기를 보여준 뒤 접혀 나간다.
+  const [leaving, setLeaving] = useState<Set<number>>(new Set());
   const [doneTodos, setDoneTodos] = useState<Todo[]>([]);
   const [showDone, setShowDone] = useState(false);
 
   async function load() {
     try {
-      const result = await todosApi.list();
-      setTodos(result.slice(0, 8));
+      // 예전엔 8개에서 잘라 9번째부터 안 보였다. 목록 높이에 상한을 두고 다 보여준다.
+      setTodos(await todosApi.list());
     } catch {}
   }
 
@@ -62,12 +166,26 @@ function TodoCard() {
     if (showDone) loadDone();
   }, [showDone]);
 
-  async function complete(id: number) {
-    try {
-      await todosApi.complete(id);
-      setTodos((prev) => prev.filter((t) => t.id !== id));
-      if (showDone) loadDone();
-    } catch {}
+  function unmarkLeaving(id: number) {
+    setLeaving((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  // 누르는 순간 체크한다(응답을 기다리면 손맛이 죽는다). 저장이 실패하면 스프링이 되돌아간다.
+  function complete(id: number) {
+    setLeaving((prev) => new Set(prev).add(id));
+    todosApi
+      .complete(id)
+      .then(() => { if (showDone) loadDone(); })
+      .catch(() => unmarkLeaving(id));
+  }
+
+  function removeLeft(id: number) {
+    setTodos((prev) => prev.filter((t) => t.id !== id));
+    unmarkLeaving(id);
   }
 
   return (
@@ -87,46 +205,35 @@ function TodoCard() {
           doneTodos.length === 0 ? (
             <span className="panel-empty">완료된 할 일 없음</span>
           ) : (
-            <ul className="todo-list">
+            <TodoList>
               {doneTodos.map((t) => (
-                <li
+                <CheckRow
                   key={t.id}
-                  className="todo-item todo-item--done"
+                  label={t.content}
+                  checked
+                  meta={t.completed_at?.slice(5, 10)}
                   title={t.completed_at ? `완료: ${t.completed_at.slice(0, 10)}` : t.content}
-                >
-                  <span className="todo-item__check todo-item__check--done">✓</span>
-                  <span className="todo-item__text">{t.content}</span>
-                  {t.completed_at && (
-                    <span className="todo-item__due">{t.completed_at.slice(5, 10)}</span>
-                  )}
-                </li>
+                />
               ))}
-            </ul>
+            </TodoList>
           )
         ) : todos.length === 0 ? (
           <span className="panel-empty">할 일 없음</span>
         ) : (
-          <ul className="todo-list">
+          <TodoList>
             {todos.map((t) => (
-              <li
+              <CheckRow
                 key={t.id}
-                className="todo-item"
+                label={t.content}
+                checked={leaving.has(t.id)}
+                onCheck={() => complete(t.id)}
+                meta={t.due_at?.slice(5, 10)}
                 title={t.due_at ? `${t.content}\n기한: ${t.due_at.slice(0, 10)}` : t.content}
-              >
-                <button
-                  className="todo-item__check"
-                  onClick={() => complete(t.id)}
-                  title="완료로 표시"
-                >
-                  ○
-                </button>
-                <span className="todo-item__text">{t.content}</span>
-                {t.due_at && (
-                  <span className="todo-item__due">{t.due_at.slice(5, 10)}</span>
-                )}
-              </li>
+                className={leaving.has(t.id) ? "todo-item--leaving" : ""}
+                onAnimationEnd={(e) => { if (e.animationName === "todo-leave") removeLeft(t.id); }}
+              />
             ))}
-          </ul>
+          </TodoList>
         )}
       </div>
     </div>
@@ -255,17 +362,18 @@ function CalendarCard() {
                     className="cal-event"
                     title={[
                       e.title,
-                      e.end_at && !e.all_day
+                      e.end_at && !e.all_day && !isDateOnly(e.start_at)
                         ? `${parseEventDate(e.start_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} ~ ${parseEventDate(e.end_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`
                         : null,
                       e.notes,
                     ].filter(Boolean).join("\n")}
                   >
                     <span className="cal-event__time">
-                      {e.all_day
-                        ? "종일"
-                        : eventDaySpan(e)[1] > eventDaySpan(e)[0]
+                      {/* 여러 날이면 기간이 제일 많이 말해준다. 종일 일정이어도 기간을 보인다. */}
+                      {eventDaySpan(e)[1] > eventDaySpan(e)[0]
                         ? eventDaySpan(e).map((d) => `${d.getMonth() + 1}/${d.getDate()}`).join("~")
+                        : e.all_day || isDateOnly(e.start_at)
+                        ? "종일"
                         : parseEventDate(e.start_at).toLocaleTimeString("ko-KR", {
                             hour: "2-digit",
                             minute: "2-digit",
@@ -487,7 +595,10 @@ export function DrawingPadCard({
     e.preventDefault();
     e.stopPropagation();
     const startY = e.clientY;
-    const startH = canvasHeight;
+    // 자리가 모자라 캔버스가 줄어 있으면 상태값이 아니라 보이는 높이에서 시작한다.
+    // 안 그러면 내려도 한동안 그대로인 구간이 생긴다.
+    const wrapper = (e.currentTarget as HTMLElement).nextElementSibling as HTMLElement | null;
+    const startH = wrapper?.offsetHeight ?? canvasHeight;
     function onMouseMove(ev: MouseEvent) {
       const delta = startY - ev.clientY;
       setCanvasHeight(Math.max(80, Math.min(MAX_CANVAS_H, startH + delta)));
@@ -817,7 +928,7 @@ export function DrawingPadCard({
     !!gameMode && (gameMode.phase === "playing" || gameMode.phase === "guessing" || gameMode.phase === "round_result");
 
   return (
-    <div className={`panel-card${canvasOnScreen ? " panel-card--game" : ""}`}>
+    <div className={`panel-card ${canvasOnScreen ? "panel-card--game" : "panel-card--draw"}`}>
       <button
         className="panel-card__header pomo-header"
         onClick={() => !isGameActive && setOpen((v) => !v)}
@@ -898,37 +1009,52 @@ export function DrawingPadCard({
   );
 }
 
-// ── Code Run Card ─────────────────────────────────────────────────────────────
+// ── Memo Card ─────────────────────────────────────────────────────────────────
 
-function CodeRunCard() {
-  const [result, setResult] = useState<CodeExecResult | null>(null);
+const MEMO_KEY = "memo";
+
+/** 아무렇게나 적어두는 칸. 적는 대로 DB 에 저장한다. */
+function MemoCard() {
+  const [text, setText] = useState<string | null>(null); // null = 아직 못 읽음
+  const pending = useRef<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
-    return appEvents.on("coderun", (r) => setResult(r));
+    settingsApi.get(MEMO_KEY).then((v) => setText(v ?? "")).catch(() => setText(""));
   }, []);
 
+  // 타이핑이 멈추면, 포커스를 잃으면, 패널이 닫히면 쓴다. 마지막 몇 글자를 잃지 않게.
+  function flush() {
+    clearTimeout(timer.current);
+    if (pending.current === null) return;
+    settingsApi.set(MEMO_KEY, pending.current).catch(console.warn);
+    pending.current = null;
+  }
+
+  useEffect(() => flush, []);
+
+  function edit(v: string) {
+    setText(v);
+    pending.current = v;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(flush, 400);
+  }
+
   return (
-    <div className="panel-card panel-card--bottom">
-      <div className="panel-card__header"><Terminal size={10} strokeWidth={2} /> 코드 실행</div>
+    <div className="panel-card panel-card--memo">
+      <div className="panel-card__header">
+        <span className="draw-header-title"><StickyNote size={10} strokeWidth={2} /> 메모</span>
+      </div>
       <div className="panel-card__body">
-        {!result ? (
-          <span className="panel-empty">채팅에서 코드 실행을 요청하면<br />결과가 여기에 표시돼요</span>
-        ) : (
-          <div className="code-result">
-            <span className={`code-result__badge ${result.exit_code === 0 ? "code-result__badge--ok" : "code-result__badge--err"}`}>
-              exit {result.exit_code}
-            </span>
-            {result.stdout && (
-              <pre className="code-result__output">{result.stdout}</pre>
-            )}
-            {result.stderr && (
-              <pre className="code-result__output code-result__output--err">{result.stderr}</pre>
-            )}
-            {result.truncated && (
-              <span className="panel-empty">(출력 일부 잘림)</span>
-            )}
-          </div>
-        )}
+        <textarea
+          className="memo-input"
+          value={text ?? ""}
+          disabled={text === null}
+          onChange={(e) => edit(e.target.value)}
+          onBlur={flush}
+          placeholder="적어두고 싶은 걸 아무거나"
+          spellCheck={false}
+        />
       </div>
     </div>
   );
@@ -943,8 +1069,42 @@ export function RightPanel({
   onResizeStart?: (e: React.MouseEvent) => void;
   isResizing?: boolean;
 }) {
+  // 자리가 모자라면(메모가 정사각형을 못 지키면) 포모도로를 한 줄로 접는다. 펴는 건
+  // 메모 위 빈칸이 펼친 만큼 생겼을 때만 — 접고 펴는 기준이 같으면 경계에서 깜빡인다.
+  const ref = useRef<HTMLElement>(null);
+  const [tight, setTight] = useState(false);
+  const tightRef = useRef(false);
+  const fullPomoH = useRef(0);
+
+  useEffect(() => {
+    const panel = ref.current;
+    if (!panel) return;
+    const check = () => {
+      const memo = panel.querySelector<HTMLElement>(".panel-card--memo");
+      const pomo = panel.querySelector<HTMLElement>(".pomo-body");
+      if (!memo || !pomo) return;
+      const squeezed = memo.offsetHeight < memo.offsetWidth - 1 || panel.scrollHeight > panel.clientHeight;
+      let next: boolean;
+      if (!tightRef.current) {
+        fullPomoH.current = pomo.offsetHeight;
+        next = squeezed;
+      } else {
+        const prev = memo.previousElementSibling as HTMLElement;
+        const gap = memo.offsetTop - (prev.offsetTop + prev.offsetHeight);
+        next = squeezed || gap < fullPomoH.current - pomo.offsetHeight;
+      }
+      tightRef.current = next;
+      setTight(next);
+    };
+    // 카드 높이(할 일 추가, 아코디언, 일정)가 바뀌어도 다시 잰다.
+    const ro = new ResizeObserver(check);
+    ro.observe(panel);
+    Array.from(panel.children).forEach((c) => ro.observe(c));
+    return () => ro.disconnect();
+  }, []);
+
   return (
-    <aside className="right-panel">
+    <aside ref={ref} className={`right-panel ${tight ? "right-panel--tight" : ""}`}>
       {onResizeStart && (
         <div
           className={`right-panel__resize-handle ${isResizing ? "right-panel__resize-handle--dragging" : ""}`}
@@ -954,7 +1114,7 @@ export function RightPanel({
       <TodoCard />
       <CalendarCard />
       <PomodoroCard />
-      <CodeRunCard />
+      <MemoCard />
     </aside>
   );
 }
