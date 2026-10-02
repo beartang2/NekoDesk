@@ -338,14 +338,27 @@ async function recallMemories(userInput: string): Promise<string> {
  * 작은 모델은 낮은 온도에서 한 구절에 갇힌다("多少钱多少钱…"). 서버는 max_tokens 까지
  * 멈추지 않아서 2048 토큰을 다 쓰는 동안(4B 에서 약 2분) 사용자가 끼어들 수도 없었다.
  *
- * ponytail: 1~30자 조각이 8번 넘게 이어져 80자를 넘으면 반복으로 본다. 코드 속
- * `0, 0, 0, …` 같은 긴 배열도 걸릴 수 있다 — 그런 답이 실제로 잘리면 기준을 올린다.
+ * 두 가지 모양이 있다.
+ *  - 짧은 조각: 1~30자가 8번 넘게 이어져 80자를 넘는다("多少钱多少钱…").
+ *  - 긴 문단: 생각이 같은 문단(수백 자)을 통째로 되풀이한다. 마지막 60자가 꼬리
+ *    3000자 안에 4번 넘게 나오면 맴도는 것으로 본다.
+ *
+ * ponytail: 코드 속 `0, 0, 0, …` 같은 긴 배열이나 똑같은 줄 네 개도 걸릴 수 있다 —
+ * 그런 답이 실제로 잘리면 기준을 올린다.
  */
 export function degenerateAt(text: string): number | null {
   const tail = text.slice(-600);
   const m = /(.{1,30}?)\1{7,}$/s.exec(tail);
-  if (!m || m[0].length < 80) return null;
-  return text.length - tail.length + m.index + m[1].length;
+  if (m && m[0].length >= 80) return text.length - tail.length + m.index + m[1].length;
+
+  if (text.length < 240) return null;
+  const probe = text.slice(-60);
+  const hits: number[] = [];
+  for (let i = text.indexOf(probe, Math.max(0, text.length - 3000)); i !== -1; i = text.indexOf(probe, i + probe.length)) {
+    hits.push(i);
+  }
+  // 첫 번째 바퀴까지만 남긴다.
+  return hits.length >= 4 ? hits[0] + probe.length : null;
 }
 
 function finalAnswerOf(text: string): string {
@@ -372,9 +385,9 @@ export async function* runAgentLoop(
    */
   requireTool?: ToolName,
   /**
-   * 사용자가 보낸 말이 대기 중인가(꺼내지 않고 보기만 한다). 답이 흘러나오는 중에
-   * 대기 말이 생기면 그 자리에서 답을 끊는다. 도구 사이에는 takeInterjections 로
-   * 끼워 넣을 자리가 있지만, 답 도중에는 그런 자리가 없어 끝날 때까지 기다렸다.
+   * 사용자가 보낸 말이 대기 중인가(꺼내지 않고 보기만 한다). 생각·답이 흘러나오는
+   * 중에 대기 말이 생기면 그 생성을 버리고, 새 말을 실어 다시 생성한다. 도구 사이에는
+   * takeInterjections 로 끼울 자리가 있지만, 생성 도중에는 끝날 때까지 기다려야 했다.
    */
   hasInterjections?: () => boolean
 ): AsyncGenerator<LoopEvent> {
@@ -425,10 +438,12 @@ export async function* runAgentLoop(
     let streamedAnswer = "";
     // 생성 도중 끊은 이유. for-await 를 빠져나가면 스트림의 finally 가 연결을 닫아
     // llama.cpp 도 생성을 멈춘다.
-    let cut: "interjected" | "repetition" | null = null;
+    let cut: "interjected" | "repetition" | "thinking-loop" | null = null;
+    let streamedThinking = "";
     try {
       for await (const ev of agentTurnStream(context.toMessages(), userInput, i, memories, trackUsage, signal)) {
         if (ev.type === "thinking") {
+          streamedThinking += ev.text;
           yield { type: "thinking_token", token: ev.text };
         } else if (ev.type === "delta") {
           streamedAnswer += ev.text;
@@ -437,8 +452,10 @@ export async function* runAgentLoop(
           turn = ev.turn;
         }
         if (turn) continue;
-        if (hasInterjections?.()) { cut = "interjected"; break; }
+        if (takeInterjections && hasInterjections?.()) { cut = "interjected"; break; }
         if (ev.type === "delta" && degenerateAt(streamedAnswer) !== null) { cut = "repetition"; break; }
+        // 생각이 맴돌면 답은 끝내 안 나온다. max_tokens 까지 기다릴 이유가 없다.
+        if (ev.type === "thinking" && degenerateAt(streamedThinking) !== null) { cut = "thinking-loop"; break; }
       }
     } catch (err) {
       if (isAbort(err)) return;
@@ -450,13 +467,24 @@ export async function* runAgentLoop(
       yield { type: "error", message: `LLM 연결 실패: ${errMsg}` };
       return;
     }
+    if (cut === "interjected") {
+      // 하던 생각·답은 버리고 원래 질문과 새 말을 같이 보고 다시 생성한다. 예전엔 끊고
+      // 끝내서 처음 질문은 답을 못 받고 새 말만 다음 요청으로 갔다. 버린 조각은 싣지
+      // 않는다 — 실으면 모델이 처음 질문엔 이미 답한 줄 안다.
+      const interjections = takeInterjections!();
+      context.addTurn({ text: "", calls: [], followUps: interjections.map(asInterjection) });
+      for (const content of interjections) interjectedTexts.push(contentText(content));
+      yield { type: "user_interjected", stepCount: context.steps.length };
+      continue;
+    }
     if (cut) {
-      // 끊긴 답도 답이다. 대기 중인 말은 부르는 쪽이 다음 요청으로 보낸다.
+      // 끊은 사실은 답에 섞지 않고 notice 로 따로 보낸다. 예전엔 "(…끊었어)" 를 답 끝에
+      // 붙였더니 대화 기록으로 모델에게 돌아가, 모델이 모든 답을 "(검색했어)" 같은 괄호
+      // 한 줄로 시작하게 됐다 — 도구를 안 불렀는데도.
       const at = cut === "repetition" ? degenerateAt(streamedAnswer) : null;
-      const kept = (at === null ? streamedAnswer : streamedAnswer.slice(0, at)).trim();
-      const note = cut === "repetition" ? "(같은 말이 반복돼서 끊었어)" : "(말을 걸어서 여기서 멈췄어)";
-      const answer = kept ? `${kept}\n\n${note}` : note;
-      yield { type: "done", answer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
+      const answer = (at === null ? streamedAnswer : streamedAnswer.slice(0, at)).trim();
+      const notice = cut === "repetition" ? "같은 말이 반복돼서 끊었어" : "생각이 같은 자리를 맴돌아서 끊었어. 다시 물어봐줘";
+      yield { type: "done", answer, notice, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
       return;
     }
     if (!turn) {

@@ -371,10 +371,13 @@ function ChatMessages({
           {(m.content || m.isStreaming || (m.attachments && m.attachments.length > 0) || (m.images && m.images.length > 0)) && (
             <div className="message__bubble">
               {m.thinking && (
-                <details className="message__thinking" open={!!m.isStreaming && !m.content}>
+                // 생각 텍스트는 접어둔다. 길게 흘러 화면을 밀어내서, 로더·타이머만 보이고 펼쳐야 읽힌다.
+                <details className="message__thinking">
                   <summary>
-                    {/* 타이머는 생각하는 동안만. 다시 마운트되면(대화 전환) 0.0s 로 돌아가서다. */}
+                    {/* 타이머는 생각하는 동안만. 끝난 뒤 다시 마운트되면 마지막 값을 몰라 0.0s 로 보인다.
+                        도는 동안은 since 로 답 칸을 연 시각부터 세서, 대화를 오가도 이어진다. */}
                     <LatticeLoader
+                      since={m.startedAt}
                       label="생각하는 중"
                       doneLabel="생각 과정"
                       status={m.isStreaming && !m.content ? "working" : "done"}
@@ -425,7 +428,7 @@ function ChatMessages({
               )}
               {/* 생각 토큰을 안 내는 모델도 있다. 그땐 첫 글자가 올 때까지 로더만 띄운다. */}
               {m.isStreaming && !m.content && !m.thinking && (
-                <LatticeLoader label="생각하는 중" fontSize={12} cellSize={3} gap={1} color="var(--text-secondary)" />
+                <LatticeLoader since={m.startedAt} label="생각하는 중" fontSize={12} cellSize={3} gap={1} color="var(--text-secondary)" />
               )}
               {m.isStreaming && m.content && <span className="message__cursor" />}
             </div>
@@ -434,6 +437,7 @@ function ChatMessages({
           <span className="message__meta">
             {m.time}
             {m.tokensPerSecond !== undefined && ` | ${m.tokensPerSecond.toFixed(1)} tok/s`}
+            {m.notice && ` | ${m.notice}`}
             {m.role === "assistant" && m.content && !m.isStreaming && (
               <CopyButton text={stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
             )}
@@ -919,6 +923,7 @@ export default function App() {
           thinking: meta.thinking,
           images: meta.images,
           tokensPerSecond: meta.tokensPerSecond,
+          notice: meta.notice,
           isStreaming: false,
         };
       });

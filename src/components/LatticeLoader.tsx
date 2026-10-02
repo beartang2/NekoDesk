@@ -44,6 +44,8 @@ export interface LatticeLoaderProps {
   glowColor?: string;
   showTimer?: boolean;
   elapsed?: number;
+  /** 타이머 기준 시각(Date.now() 값). 없으면 마운트한 순간부터 센다. */
+  since?: number;
   className?: string;
   style?: CSSProperties;
 }
@@ -110,6 +112,7 @@ const LatticeLoader: React.FC<LatticeLoaderProps> = ({
   glowColor = '',
   showTimer = true,
   elapsed,
+  since,
   className = '',
   style
 }) => {
@@ -137,11 +140,13 @@ const LatticeLoader: React.FC<LatticeLoaderProps> = ({
       return undefined;
     }
     if (status !== 'working') return undefined;
-    const startedAt = performance.now();
-    paint(0);
-    const id = setInterval(() => paint(Math.floor((performance.now() - startedAt) / 100)), 100);
+    // 다시 마운트돼도(대화 전환) 0 으로 돌아가지 않게, 기준 시각을 받으면 그때부터 센다.
+    const startedAt = since ?? Date.now();
+    const tick = () => paint(Math.max(0, Math.floor((Date.now() - startedAt) / 100)));
+    tick();
+    const id = setInterval(tick, 100);
     return () => clearInterval(id);
-  }, [status, elapsed]);
+  }, [status, elapsed, since]);
 
   useEffect(() => {
     if (status === 'working') setAnnounce(`${label}, in progress`);

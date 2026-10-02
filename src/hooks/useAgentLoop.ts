@@ -57,6 +57,10 @@ export interface ChatMessage {
   plan?: PlanStep[];
   /** 답변 생성 속도(tok/s). 저장하지 않아 불러온 대화엔 없다. */
   tokensPerSecond?: number;
+  /** 답 칸을 연 시각(ms). "생각하는 중" 타이머가 대화를 오가도 이어서 세게 한다. */
+  startedAt?: number;
+  /** 앱이 붙이는 안내(예: 반복돼서 끊음). 본문이 아니라 대화 기록에 안 실린다. */
+  notice?: string;
 }
 
 function nowTime(): string {
@@ -66,11 +70,24 @@ function nowTime(): string {
   });
 }
 
+/**
+ * 화면·저장에 넣기 전에 답을 다듬는다.
+ *
+ * 모델이 가끔 `<mark>기억 저장:</mark>` 같은 HTML 을 쓴다. 화면은 HTML 을 그리지 않아
+ * 태그가 글자로 보였다. 강조하려던 뜻은 살려 굵게로 바꾼다. 저장 전에 바꿔야 대화
+ * 기록으로 돌아가 모델이 따라 쓰지 않는다.
+ */
+export function cleanAnswer(text: string): string {
+  return text
+    .replace(/\[\[PET_STATE:\w+\]\]/g, "")
+    .replace(/<mark>([\s\S]*?)<\/mark>/g, (_, inner: string) => `**${inner.trim()}**`)
+    .replace(/<\/?mark>/g, "");
+}
+
 function stripSpecialTokens(text: string): { clean: string; emotion: CatEmotion | null } {
   const match = text.match(/\[\[PET_STATE:(\w+)\]\]/);
   const emotion = match ? (match[1] as CatEmotion) : null;
-  const clean = text.replace(/\[\[PET_STATE:\w+\]\]/g, "").trim();
-  return { clean, emotion };
+  return { clean: cleanAnswer(text).trim(), emotion };
 }
 
 // Text-only representation (for DB storage and system prompt context)
@@ -121,6 +138,7 @@ export interface MessageMeta {
   thinking?: string;
   images?: string[];
   tokensPerSecond?: number;
+  notice?: string;
 }
 
 /**
@@ -150,6 +168,7 @@ export function serializeMeta(meta: MessageMeta): string | undefined {
     ...(meta.thinking ? { thinking: clipForStore(meta.thinking, 8000) as string } : {}),
     ...(images.length ? { images } : {}),
     ...(meta.tokensPerSecond !== undefined ? { tokensPerSecond: meta.tokensPerSecond } : {}),
+    ...(meta.notice ? { notice: meta.notice } : {}),
   };
   return Object.keys(stored).length ? JSON.stringify(stored) : undefined;
 }
@@ -318,6 +337,7 @@ export function useAgentPool() {
         time: nowTime(),
         steps: [],
         isStreaming: true,
+        startedAt: Date.now(),
       };
 
       patchSessionMessages(sessionId, (prev) => [...prev, userMsg, placeholder]);
@@ -418,20 +438,26 @@ export function useAgentPool() {
               time: nowTime(),
               steps: [],
               isStreaming: true,
+              startedAt: Date.now(),
             };
+            // 도구를 하나도 안 쓴 칸은 생성 도중 끊긴 것이다. 새 칸에서 처음부터 다시 답하니
+            // 남기면 빈 칸이 된다 — 지운다.
+            const keepClosed = finalSteps.length > 0;
             patchSessionMessages(sessionId, (prev) => [
-              ...prev.map((m) => (m.id === closedId ? { ...m, isStreaming: false } : m)),
+              ...prev.flatMap((m) => (m.id !== closedId ? [m] : keepClosed ? [{ ...m, isStreaming: false }] : [])),
               ...userMsgs,
               next,
             ]);
 
             // 저장 순서가 곧 다시 열었을 때의 순서다. 명령이 스레드 풀에서 돌아 한꺼번에
             // 던지면 뒤바뀔 수 있으니 하나씩 잇는다.
-            let chain = conversationApi.save(sessionId, "assistant", "", undefined, serializeMeta({
-              steps: finalSteps,
-              plan: closed?.plan,
-              thinking: closed?.thinking,
-            }));
+            let chain = keepClosed
+              ? conversationApi.save(sessionId, "assistant", "", undefined, serializeMeta({
+                  steps: finalSteps,
+                  plan: closed?.plan,
+                  thinking: closed?.thinking,
+                }))
+              : Promise.resolve();
             for (const q of interjected) {
               chain = chain.then(() =>
                 conversationApi.save(
@@ -459,7 +485,7 @@ export function useAgentPool() {
                 m.id === assistantId
                   ? {
                       ...m,
-                      content: streamBuffer.replace(/\[\[PET_STATE:\w+\]\]/g, "").trimStart(),
+                      content: cleanAnswer(streamBuffer).trimStart(),
                     }
                   : m
               )
@@ -517,6 +543,7 @@ export function useAgentPool() {
                       images: images.length > 0 ? images : undefined,
                       plan: event.plan?.length ? event.plan : undefined,
                       tokensPerSecond: event.tokensPerSecond,
+                      notice: event.notice,
                     }
                   : m
               )
@@ -529,6 +556,7 @@ export function useAgentPool() {
                 thinking: thinkingBuffer.trimStart(),
                 images,
                 tokensPerSecond: event.tokensPerSecond,
+                notice: event.notice,
               }))
               .catch(() => {});
             appEvents.emit("agentDone");

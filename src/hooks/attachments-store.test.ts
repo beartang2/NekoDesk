@@ -8,7 +8,7 @@ vi.mock("../api/tauri", () => ({
 vi.mock("../agent/agent-loop", () => ({ runAgentLoop: vi.fn() }));
 vi.mock("../lib/notify", () => ({ notifyIfAway: vi.fn(), toNotificationBody: (s: string) => s }));
 
-import { parseMeta, serializeAttachments, serializeMeta } from "./useAgentLoop";
+import { cleanAnswer, parseMeta, serializeAttachments, serializeMeta } from "./useAgentLoop";
 import type { AgentStep } from "../agent/types";
 import type { AttachedFile } from "./useAgentLoop";
 
@@ -87,5 +87,18 @@ describe("serializeMeta", () => {
   it("깨진 JSON 은 빈 값으로 읽는다", () => {
     expect(parseMeta("{broken")).toEqual({});
     expect(parseMeta(null)).toEqual({});
+  });
+});
+
+describe("cleanAnswer", () => {
+  it("모델이 쓴 <mark> 는 굵게로 바꾸고, 짝 없는 태그는 지운다", () => {
+    // 화면은 HTML 을 안 그려서 태그가 글자로 보였다.
+    expect(cleanAnswer("<mark>기억 저장: </mark>\n- 이름: 다희")).toBe("**기억 저장:**\n- 이름: 다희");
+    expect(cleanAnswer("강조 <mark>끝 없음")).toBe("강조 끝 없음");
+  });
+
+  it("끊김 안내는 본문이 아니라 메타에 저장돼 다시 열어도 보인다", () => {
+    expect(serializeMeta({ notice: "같은 말이 반복돼서 끊었어" })).toContain("notice");
+    expect(parseMeta(serializeMeta({ notice: "x" })).notice).toBe("x");
   });
 });

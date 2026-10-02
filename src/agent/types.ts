@@ -281,7 +281,16 @@ export type LoopEvent =
   | { type: "plan_updated"; steps: PlanStep[] }
   /** 작업 중에 사용자가 덧붙인 말을 컨텍스트에 넣었다. `stepCount` 는 그때까지의 스텝 수. */
   | { type: "user_interjected"; stepCount: number }
-  | { type: "done"; answer: string; steps: AgentStep[]; promptTokens?: number; tokensPerSecond?: number; plan?: PlanStep[] }
+  | {
+      type: "done";
+      answer: string;
+      steps: AgentStep[];
+      promptTokens?: number;
+      tokensPerSecond?: number;
+      plan?: PlanStep[];
+      /** 앱이 사용자에게 알리는 말(예: 반복돼서 끊음). 답이 아니라 모델에게 다시 안 들어간다. */
+      notice?: string;
+    }
   | { type: "error"; message: string }
   | {
       type: "confirm_needed";
