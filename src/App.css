@@ -40,6 +40,8 @@ textarea {
   --text-muted:    oklch(0.520 0.016 285);
   --accent:        oklch(0.760 0.150 292);
   --accent-dim:    oklch(0.330 0.090 292);
+  /* 포인트색(설정에서 바꾸면 --accent 가 덮어써진다)을 따라가게 섞어서 만든다. */
+  --bubble-user:   color-mix(in oklab, var(--accent) 38%, var(--bg-base));
   --accent-hover:  oklch(0.400 0.110 292);
   --success:       oklch(0.740 0.110 155);
   --error:         oklch(0.660 0.170 22);
@@ -121,6 +123,7 @@ textarea {
   --text-muted:    oklch(0.680 0.010 85);
   --accent:        oklch(0.545 0.170 292);
   --accent-dim:    oklch(0.930 0.045 292);
+  --bubble-user:   color-mix(in oklab, var(--accent) 22%, var(--bg-base));
   --accent-hover:  oklch(0.880 0.070 292);
   --success:       oklch(0.560 0.110 155);
   --error:         oklch(0.520 0.180 22);
@@ -964,8 +967,10 @@ html, body, #root {
  * 코드가 들어가는 쪽은 고양이 말인데, 그걸 박스에 가두면 읽기만 나빠진다.
  * 사용자 말은 짧은 발화라 말풍선이 맞다 — 누가 말했는지도 이걸로 구분된다.
  */
+/* accent-dim 은 배경과 밝기 차가 작아(라이트 0.958 vs 0.930) 말풍선이 바닥에 묻혔다.
+   말풍선만 따로 진하게 둔다. ponytail: 눈대중 비율 — 세거나 흐리면 --bubble-user 의 % 만 조정. */
 .message--user .message__bubble {
-  background: var(--accent-dim);
+  background: var(--bubble-user);
   color: var(--text-primary);
   border-radius: var(--r-lg);
   /* 말꼬리 방향 힌트. 오른쪽 아래만 각지게. */

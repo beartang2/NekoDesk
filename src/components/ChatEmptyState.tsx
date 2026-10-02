@@ -74,7 +74,7 @@ export function ChatEmptyState({ onPick }: { onPick: (text: string) => void }) {
       <EmptyStateCat />
       <h2 className="empty-state__title">뭐 도와줄까?</h2>
       <p className="empty-state__sub">
-        할 일·일정 정리, 웹 검색, 파일 다루기, 맥 조작까지 부탁할 수 있어.
+        할 일·일정 정리, 웹 검색, 파일 다루기, 노래 듣기 등을 부탁할 수 있어.
       </p>
 
       <div className="empty-state__chips">
