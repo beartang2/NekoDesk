@@ -1678,40 +1678,42 @@ export default function App() {
 
       <main className="main">
 
-        {connectError && (
-          <ErrorBanner message={connectError} onDismiss={() => setConnectError(null)} />
-        )}
-
-        {error && (
-          <ErrorBanner message={error} onDismiss={() => pool.clearError(activeId)} />
-        )}
-
-        {wordChain.phase !== "idle" && (
-          <div className="wordchain-banner">
-            <span className="wordchain-banner__status">
-              {wordChain.phase === "user_turn"
-                ? `끝말잇기 — "${wordChain.lastChar}"로 시작하는 단어를 입력하세요`
-                : wordChain.phase === "cat_turn"
-                ? "고양이가 생각 중..."
-                : "게임 종료"}
-            </span>
-            <span className="wordchain-banner__turns">{wordChain.turnCount}턴</span>
-            {wordChain.phase === "user_turn" && (
-              <button
-                className="wordchain-banner__dispute"
-                onClick={() => {
-                  void pool.sendMessage(activeId, wordChain.disputeContext(), [], "이의 제기!", undefined, "game.judge");
-                }}
-                title="방금 나온 단어 검증 요청"
-              >이의 제기</button>
-            )}
-            <button className="wordchain-banner__close" onClick={() => { wordChain.reset(); }}>✕</button>
-          </div>
-        )}
-
         <div className="chat-area">
           {/* 위에서 비껴 드는 빛. reactbits 의 LightRays 를 WebGL 없이 옮긴 것. */}
           <div className="chat-aurora" aria-hidden="true" />
+          {/* 안내는 오로라 위에 떠 있다. 흐름에 두면 채팅 칸이 밀려 오로라도 같이 내려갔다. */}
+          <div className="chat-banners">
+            {connectError && (
+              <ErrorBanner message={connectError} onDismiss={() => setConnectError(null)} />
+            )}
+
+            {error && (
+              <ErrorBanner message={error} onDismiss={() => pool.clearError(activeId)} />
+            )}
+
+            {wordChain.phase !== "idle" && (
+              <div className="wordchain-banner">
+                <span className="wordchain-banner__status">
+                  {wordChain.phase === "user_turn"
+                    ? `끝말잇기 — "${wordChain.lastChar}"로 시작하는 단어를 입력하세요`
+                    : wordChain.phase === "cat_turn"
+                    ? "고양이가 생각 중..."
+                    : "게임 종료"}
+                </span>
+                <span className="wordchain-banner__turns">{wordChain.turnCount}턴</span>
+                {wordChain.phase === "user_turn" && (
+                  <button
+                    className="wordchain-banner__dispute"
+                    onClick={() => {
+                      void pool.sendMessage(activeId, wordChain.disputeContext(), [], "이의 제기!", undefined, "game.judge");
+                    }}
+                    title="방금 나온 단어 검증 요청"
+                  >이의 제기</button>
+                )}
+                <button className="wordchain-banner__close" onClick={() => { wordChain.reset(); }}>✕</button>
+              </div>
+            )}
+          </div>
           {compactSummaries[activeId] && (
             <CompactSummaryBar
               summary={compactSummaries[activeId]}

@@ -56,10 +56,11 @@
    저마다 조금씩 기울여 손으로 흩어 놓은 것처럼 둔다. 가리키면 똑바로 서면서
    강조색으로 채워지고 화살표가 따라 나온다. */
 .empty-state__chip {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 14px;
+  padding: 9px 16px;
   border: none;
   border-radius: 999px;
   background: var(--layer-hover);
@@ -108,7 +109,9 @@
   background: var(--bg-raised);
   font-size: 12.5px;
   line-height: 1;
-  transition: scale var(--dur-control) var(--ease-playful);
+  transition:
+    scale var(--dur-control) var(--ease-playful),
+    translate var(--dur-control) var(--ease-standard);
 }
 
 .empty-state__chip:hover .empty-state__chip-icon {
@@ -117,6 +120,7 @@
 
 /* 글자는 버블이 자리를 잡은 뒤에 올라온다. */
 .empty-state__chip-label {
+  transition: translate var(--dur-control) var(--ease-standard);
   animation: bubble-label-rise 380ms var(--ease-standard) calc(var(--pop-delay, 0ms) + 160ms) backwards;
 }
 
@@ -125,19 +129,30 @@
   to   { opacity: 1; translate: 0 0; }
 }
 
-/* 평소엔 자리만 차지하고 숨어 있다가, 가리키면 밀려 나온다. */
+/* 평소엔 숨어서 자리도 차지하지 않는다 — 예전엔 빈 자리를 차지해 오른쪽 여백만
+   커서 글자가 왼쪽으로 쏠려 보였다. 가리키면 아이콘·글자가 왼쪽으로 조금 비켜서고
+   그 오른쪽 여백으로 화살표가 밀려 나온다. 버블 폭은 그대로라 옆 버블이 안 움직인다. */
 .empty-state__chip-arrow {
-  flex-shrink: 0;
+  position: absolute;
+  right: 9px;
+  top: 50%;
   color: var(--accent);
   opacity: 0;
-  translate: -4px 0;
+  translate: -4px -50%;
   transition: opacity var(--dur-control) var(--ease-standard), translate var(--dur-control) var(--ease-standard);
 }
 
 .empty-state__chip:hover .empty-state__chip-arrow,
 .empty-state__chip:focus-visible .empty-state__chip-arrow {
   opacity: 1;
-  translate: 0 0;
+  translate: 0 -50%;
+}
+
+.empty-state__chip:hover .empty-state__chip-icon,
+.empty-state__chip:hover .empty-state__chip-label,
+.empty-state__chip:focus-visible .empty-state__chip-icon,
+.empty-state__chip:focus-visible .empty-state__chip-label {
+  translate: -8px 0;
 }
 
 /* 애니메이션을 끈 사용자에게는 칩이 아예 안 보이면 안 된다. */

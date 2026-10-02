@@ -601,7 +601,14 @@ html, body, #root {
 .chat-area {
   flex: 1;
   position: relative;
-  overflow: hidden;
+  /* hidden 이 아니라 clip. 오로라가 좌우로 10% 삐져나가 있어서, hidden 이면 여기가
+     가로로 스크롤되는 상자가 된다 — 대화를 드래그해 복사하면 그 방향으로 끌려가
+     메시지가 통째로 왼쪽 벽에 붙고 되돌릴 방법이 없었다. clip 은 스크롤 자체가 없다.
+     대신 clip 은 hidden 과 달리 flex 최소 높이를 0 으로 만들어 주지 않는다. 직접 0 을
+     줘야 한다 — 빼면 이 칸이 메시지 전체 높이로 늘어나 입력창이 화면 밖으로 밀려난다. */
+  overflow: clip;
+  min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -667,6 +674,22 @@ html, body, #root {
 .chat-area > *:not(.chat-aurora) {
   position: relative;
   z-index: 1;
+}
+
+/* 연결 오류·에러·끝말잇기 안내. 채팅 칸 맨 위에 겹쳐 뜬다 — 흐름에 넣으면 채팅 칸이
+   밀려서 오로라가 같이 내려갔다. 위 규칙과 구체성이 같아서 뒤에 둬야 이긴다. */
+.chat-area > .chat-banners {
+  position: absolute;
+  top: 0;
+  inset-inline: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.chat-banners > * {
+  pointer-events: auto;
 }
 
 /* ── Compact summary tab (우상단 아코디언 탭) ── */
