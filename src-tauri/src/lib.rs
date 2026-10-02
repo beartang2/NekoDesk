@@ -14,6 +14,7 @@ mod exec;
 mod llama;
 mod skills;
 mod quick;
+mod location;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
 pub use error::AppError;
@@ -278,6 +279,17 @@ mod commands {
     #[tauri::command]
     pub async fn weather_get(location: String) -> Result<String, AppError> {
         crate::http::weather::run(&location).await
+    }
+
+    /// macOS 위치 서비스로 지금 동네를 찾는다. `"역삼동 (37.5000,127.0364)"` 꼴.
+    #[tauri::command]
+    pub async fn location_current(app: tauri::AppHandle) -> Result<String, AppError> {
+        crate::location::current(&app).await
+    }
+
+    #[tauri::command]
+    pub async fn weather_now(location: String) -> Result<crate::http::weather::WeatherNow, AppError> {
+        crate::http::weather::now(&location).await
     }
 
     /// macOS 알림을 띄웁니다.
@@ -761,6 +773,8 @@ pub fn run() {
             commands::conversation_load,
             commands::conversation_delete,
             commands::weather_get,
+            commands::weather_now,
+            commands::location_current,
             commands::notify_send,
             commands::haptic_feedback,
             commands::open_url,

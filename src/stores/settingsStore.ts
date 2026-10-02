@@ -55,6 +55,7 @@ const K = {
   userProfile: "nekodesk_user_profile",
   toolMode: "nekodesk_tool_mode",
   imageGen: "nekodesk_image_gen",
+  weatherLocation: "nekodesk_weather_location",
 } as const;
 
 function loadToolMode(): ToolMode {
@@ -87,6 +88,8 @@ interface SettingsStore {
   userProfile: string | null;
   toolMode: ToolMode;
   imageGen: ImageGenSettings;
+  /** 고양이 옆에 띄울 날씨의 지역. 빈 문자열이면 숨긴다. */
+  weatherLocation: string;
   /** auto 모드에서 서버가 `tools` 를 거부해 json 으로 내려앉았다. 영속화하지 않는다. */
   nativeToolsDegraded: boolean;
   setLlmUrl: (url: string) => void;
@@ -96,6 +99,7 @@ interface SettingsStore {
   setUserProfile: (v: string | null) => void;
   setToolMode: (m: ToolMode) => void;
   setImageGen: (p: ImageGenSettings) => void;
+  setWeatherLocation: (v: string) => void;
   setNativeToolsDegraded: (v: boolean) => void;
 }
 
@@ -106,6 +110,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   userProfile: localStorage.getItem(K.userProfile),
   toolMode: loadToolMode(),
   imageGen: loadImageGen(),
+  weatherLocation: localStorage.getItem(K.weatherLocation) ?? "Seoul",
   nativeToolsDegraded: false,
 
   setLlmUrl: (url) => {
@@ -134,6 +139,10 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setImageGen: (p) => {
     localStorage.setItem(K.imageGen, JSON.stringify(p));
     set({ imageGen: p });
+  },
+  setWeatherLocation: (v) => {
+    localStorage.setItem(K.weatherLocation, v);
+    set({ weatherLocation: v });
   },
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));

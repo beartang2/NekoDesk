@@ -27,6 +27,7 @@ import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
+import { useSettingsStore } from "./stores/settingsStore";
 import { useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
@@ -170,6 +171,46 @@ function TitleBar({
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
+interface WeatherNow {
+  place: string;
+  label: string;
+  emoji: string;
+  temp: number;
+}
+
+const WEATHER_STALE_MS = 30 * 60 * 1000;
+
+/** 고양이 왼쪽 위의 지금 날씨. 30분 지나면 다시 본다. 못 가져오면 조용히 숨는다. */
+function WeatherBadge() {
+  const location = useSettingsStore((s) => s.weatherLocation.trim());
+  const [now, setNow] = useState<WeatherNow | null>(null);
+
+  useEffect(() => {
+    setNow(null);
+    if (!location) return;
+    let alive = true;
+    let fetchedAt = 0;
+    const load = () => {
+      fetchedAt = Date.now();
+      invoke<WeatherNow>("weather_now", { location })
+        .then((w) => { if (alive) setNow(w); })
+        .catch(() => {});
+    };
+    load();
+    // 30분짜리 타이머는 잠자는 동안 멈춰서, 밤새 자고 깨도 30분을 더 기다린다.
+    // 1분마다 벽시계로 오래됐는지만 본다 — 깨고 1분 안에 새로 받는다.
+    const t = setInterval(() => { if (Date.now() - fetchedAt > WEATHER_STALE_MS) load(); }, 60 * 1000);
+    return () => { alive = false; clearInterval(t); };
+  }, [location]);
+
+  if (!now) return null;
+  return (
+    <span className="cat-panel__weather" title={`${now.place} ${now.label} ${Math.round(now.temp)}°C`}>
+      {now.emoji}
+    </span>
+  );
+}
+
 function Sidebar({
   onNew,
   onDelete,
@@ -248,6 +289,7 @@ function Sidebar({
       <div className="cat-panel" style={{ position: "relative" }}>
         {/* 창가에 든 햇빛. reactbits 의 SideRays 를 WebGL 없이 기울인 그라데이션으로. */}
         <div className="cat-panel__sun" aria-hidden="true" />
+        <WeatherBadge />
         <div className="cat-panel__ctx">
           <Counter value={contextTokens} /> / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}
         </div>

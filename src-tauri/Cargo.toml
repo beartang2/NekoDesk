@@ -40,3 +40,6 @@ tauri-plugin-global-shortcut = "2"
 [target.'cfg(target_os = "macos")'.dependencies]
 # NSHapticFeedbackManager 호출용. tauri 가 이미 쓰는 버전이라 추가 빌드 비용 없음.
 objc2 = "0.6"
+# 날씨용 현재 위치(CLLocationManager). tauri 가 이미 lock 에 올려둔 objc2 0.3 계열.
+objc2-foundation = "0.3"
+objc2-core-location = { version = "0.3", default-features = false, features = ["std", "CLLocation", "CLLocationManager", "CLLocationManagerDelegate"] }

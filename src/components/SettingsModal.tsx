@@ -704,6 +704,55 @@ function UserProfileSection() {
   );
 }
 
+// ── Weather section ───────────────────────────────────────────────────────────
+
+function WeatherSection() {
+  const location = useSettingsStore((s) => s.weatherLocation);
+  const setLocation = useSettingsStore((s) => s.setWeatherLocation);
+  // 글자마다 저장하면 칠 때마다 날씨를 새로 찾는다. 다 치고 나서 쓴다.
+  const [draft, setDraft] = useState(location);
+  const [locating, setLocating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // macOS 위치 서비스에 묻는다. 처음 한 번은 권한 창이 뜬다.
+  async function fillCurrentLocation() {
+    setLocating(true);
+    setError(null);
+    try {
+      const here = await invoke<string>("location_current");
+      setDraft(here);
+      setLocation(here);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLocating(false);
+    }
+  }
+
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">날씨</h3>
+      <p className="settings-section__desc">
+        고양이 왼쪽 위에 지금 날씨를 띄워요. 지역 이름을 적거나 현재 위치를 쓰고, 비우면 숨겨요.
+      </p>
+      <div className="settings-row">
+        <input
+          className="settings-input"
+          value={draft}
+          placeholder="예: Seoul, 부산"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => setLocation(draft.trim())}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+        />
+        <button className="settings-btn settings-btn--ghost" onClick={fillCurrentLocation} disabled={locating}>
+          {locating ? "찾는 중…" : "현재 위치"}
+        </button>
+      </div>
+      {error && <div className="server-error" onClick={() => setError(null)}>{error}</div>}
+    </section>
+  );
+}
+
 // ── Tool approval rules section ───────────────────────────────────────────────
 
 const WRITE_ROOTS_KEY = "fs_write_roots";
@@ -1168,6 +1217,9 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                   ))}
                 </div>
               </section>
+
+              {/* ── 날씨 ──────────────────────────────────────────────── */}
+              <WeatherSection />
 
               {/* ── 사용자 프로필 ────────────────────────────────────── */}
               <UserProfileSection />

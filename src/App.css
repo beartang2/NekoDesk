@@ -502,13 +502,25 @@ html, body, #root {
 /* 고양이와 게이지는 빛 위에 선다.
    컨텍스트 숫자는 제 자리(absolute)를 지켜야 해서 position 은 건드리지 않는다 —
    한 번 relative 로 덮어썼더니 패널 왼쪽 벽에 붙어 버렸다. */
-.cat-panel > *:not(.cat-panel__sun):not(.cat-panel__ctx) {
+.cat-panel > *:not(.cat-panel__sun):not(.cat-panel__ctx):not(.cat-panel__weather) {
   position: relative;
   z-index: 1;
 }
 
-.cat-panel__ctx {
+.cat-panel__ctx,
+.cat-panel__weather {
   z-index: 1;
+}
+
+/* 컨텍스트 숫자가 왼쪽 아래, 날씨는 왼쪽 위. */
+.cat-panel__weather {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: default;
+  user-select: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
