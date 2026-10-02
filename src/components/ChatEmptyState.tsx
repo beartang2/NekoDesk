@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
-import { getAnimation } from "../cat/spriteData";
+import { getAnimation, type AnimDef } from "../cat/spriteData";
 import { useCatStore } from "../stores/catStore";
 import "./ChatEmptyState.css";
 
@@ -23,16 +23,41 @@ const SUGGESTIONS = [
 /** 첫 화면의 고양이. 사이드바의 그 아이가 그대로 앉아서 꼬리를 흔든다. */
 const MARK_SIZE = 32 * 2;
 
-function EmptyStateCat() {
-  const variantId = useCatStore((s) => s.variantId);
-  const anim = getAnimation("idle", variantId);
+/**
+ * 스프라이트 한 줄을 캔버스에 돌린다. `once` 면 마지막 칸에서 멈추고 `onDone` 을
+ * 한 번 부른다(부팅 화면). 아니면 계속 돈다.
+ */
+export function SpriteCat({
+  anim,
+  size = MARK_SIZE,
+  once = false,
+  onDone,
+}: {
+  anim: AnimDef;
+  size?: number;
+  once?: boolean;
+  onDone?: () => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [frameIdx, setFrameIdx] = useState(0);
+  const count = anim.frames.length;
+  const doneRef = useRef(false);
+
+  // 부르는 쪽이 매번 새 anim 객체를 넘겨도 처음부터 다시 돌지 않게 값으로 비교한다.
+  useEffect(() => {
+    const id = setInterval(
+      () => setFrameIdx((i) => (once ? Math.min(i + 1, count - 1) : (i + 1) % count)),
+      anim.interval
+    );
+    return () => clearInterval(id);
+  }, [anim.src, anim.interval, count, once]);
 
   useEffect(() => {
-    const id = setInterval(() => setFrameIdx((i) => (i + 1) % anim.frames.length), anim.interval);
-    return () => clearInterval(id);
-  }, [anim.frames.length, anim.interval]);
+    if (once && frameIdx === count - 1 && !doneRef.current) {
+      doneRef.current = true;
+      onDone?.();
+    }
+  }, [once, frameIdx, count, onDone]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -50,19 +75,24 @@ function EmptyStateCat() {
     if (image.complete) draw();
     else image.addEventListener("load", draw);
     return () => image.removeEventListener("load", draw);
-  }, [anim, frameIdx]);
+  }, [anim.src, frameIdx]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <canvas
       ref={canvasRef}
       className="empty-state__cat"
       // 화면 배율만큼 더 촘촘히 그려야 픽셀이 뭉개지지 않는다(고양이 패널과 같은 방식).
-      width={MARK_SIZE * 2}
-      height={MARK_SIZE * 2}
-      style={{ width: MARK_SIZE, height: MARK_SIZE }}
+      width={size * 2}
+      height={size * 2}
+      style={{ width: size, height: size }}
       aria-hidden="true"
     />
   );
+}
+
+export function EmptyStateCat() {
+  const variantId = useCatStore((s) => s.variantId);
+  return <SpriteCat anim={getAnimation("idle", variantId)} />;
 }
 
 /** 버블마다 조금씩 다른 기울기. 네 개가 손으로 흩어 놓은 것처럼 보인다. */

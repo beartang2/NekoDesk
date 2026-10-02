@@ -1640,3 +1640,23 @@ textarea:focus-visible {
   cursor: pointer;
   transition: scale var(--dur-control) var(--ease-standard);
 }
+
+/* ── 부팅 화면 ──────────────────────────────────────────────────────────────
+   작게 뜬 창에서 잠깐 보이고, 창이 본 크기로 다 커지면 옅어지며 걷힌다(BootSplash). */
+.boot-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--bg-base);
+  transition: opacity var(--dur-sheet) var(--ease-standard);
+}
+
+.boot-splash[data-leaving] {
+  opacity: 0;
+  pointer-events: none;
+}

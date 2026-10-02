@@ -52,6 +52,80 @@ pub fn kill_port(port: i32) {
         .output();
 }
 
+/// 지금 창 프레임과, 같은 가운데를 둔 목표 프레임(max_w×max_h, 화면의 90% 이내).
+/// 화면 밖으로 나가면 안쪽으로 민다. main thread 전용.
+#[cfg(target_os = "macos")]
+unsafe fn boot_frames(
+    ns_window: *mut objc2::runtime::AnyObject,
+    max_w: f64,
+    max_h: f64,
+) -> Option<(objc2_foundation::NSRect, objc2_foundation::NSRect)> {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+    let screen: *mut AnyObject = msg_send![ns_window, screen];
+    if screen.is_null() {
+        return None;
+    }
+    let area: NSRect = msg_send![screen, visibleFrame];
+    let from: NSRect = msg_send![ns_window, frame];
+    let w = max_w.min(area.size.width * 0.9);
+    let h = max_h.min(area.size.height * 0.9);
+    let cx = from.origin.x + from.size.width / 2.0;
+    let cy = from.origin.y + from.size.height / 2.0;
+    let x = (cx - w / 2.0).clamp(area.origin.x, area.origin.x + area.size.width - w);
+    let y = (cy - h / 2.0).clamp(area.origin.y, area.origin.y + area.size.height - h);
+    Some((from, NSRect::new(NSPoint::new(x, y), NSSize::new(w, h))))
+}
+
+/// 부팅 창을 같은 가운데에서 본 크기로 키운다. 끝날 때까지 돌아오지 않는다.
+///
+/// NSWindow 의 animate:YES 는 시간을 못 고르고, 커지는 동안 웹뷰가 다시 그려지지 않아
+/// 가운데 있던 고양이가 한쪽에 붙어 보였다. 프레임마다 직접 옮기면 웹뷰도 매번 다시
+/// 깔려서 부팅 화면이 가운데를 지킨다.
+#[cfg(target_os = "macos")]
+fn grow_boot_window(window: &tauri::WebviewWindow, max_w: f64, max_h: f64) -> Result<(), AppError> {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    const DURATION: Duration = Duration::from_millis(600);
+    const FRAME: Duration = Duration::from_millis(16);
+
+    let ns = window.ns_window()? as usize;
+    let (tx, rx) = mpsc::channel();
+    window.run_on_main_thread(move || {
+        let _ = tx.send(unsafe { boot_frames(ns as *mut AnyObject, max_w, max_h) });
+    })?;
+    let Some((from, to)) = rx.recv().ok().flatten() else { return Ok(()) };
+
+    let start = Instant::now();
+    loop {
+        let t = (start.elapsed().as_secs_f64() / DURATION.as_secs_f64()).min(1.0);
+        // ease-in-out cubic: 천천히 출발해 가운데서 빨라지고 천천히 멈춘다.
+        let e = if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 };
+        let lerp = |a: f64, b: f64| a + (b - a) * e;
+        let rect = NSRect::new(
+            NSPoint::new(lerp(from.origin.x, to.origin.x), lerp(from.origin.y, to.origin.y)),
+            NSSize::new(lerp(from.size.width, to.size.width), lerp(from.size.height, to.size.height)),
+        );
+        let (tx, rx) = mpsc::channel();
+        window.run_on_main_thread(move || {
+            let _: () = unsafe { msg_send![ns as *mut AnyObject, setFrame: rect, display: true] };
+            let _ = tx.send(());
+        })?;
+        // 이 프레임이 실제로 그려진 뒤 다음으로 간다. 메인이 밀리면 쌓이지 않고 건너뛴다.
+        let _ = rx.recv();
+        if t >= 1.0 {
+            return Ok(());
+        }
+        std::thread::sleep(FRAME);
+    }
+}
+
 /// NSHapticFeedbackManager.defaultPerformer 에 performFeedbackPattern:performanceTime: 를 보낸다.
 /// 타입 래퍼(objc2-app-kit) 없이 런타임 클래스 조회로 호출해 의존성을 최소화한다.
 /// 반드시 main thread 에서 호출할 것.
@@ -274,6 +348,30 @@ mod commands {
     pub fn conversation_delete(db: State<'_, DbState>, session_id: String) -> Result<(), AppError> {
         let conn = db.0.lock()?;
         crate::db::conversations::delete(&conn, &session_id)
+    }
+
+    /// 부팅 화면이 끝나면 프런트가 부른다. 작게 뜬 창이 같은 가운데에서 본 크기로
+    /// 부드럽게 커지고, 다 커진 뒤에 돌아온다 — 프런트는 그때 부팅 화면을 걷는다.
+    #[tauri::command]
+    pub async fn window_boot_done(window: tauri::WebviewWindow) -> Result<(), AppError> {
+        // 처음엔 1366×768 이었는데 커지고 나면 크게 느껴졌다. 한 단계 줄였다.
+        const W: f64 = 1000.0;
+        const H: f64 = 650.0;
+        #[cfg(target_os = "macos")]
+        {
+            let win = window.clone();
+            tauri::async_runtime::spawn_blocking(move || grow_boot_window(&win, W, H))
+                .await
+                .map_err(|e| AppError::msg(e.to_string()))??;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            window.set_size(tauri::LogicalSize::new(W, H))?;
+            window.center()?;
+        }
+        // 부팅 창은 작아야 해서 최소 크기는 다 커진 뒤에 건다.
+        window.set_min_size(Some(tauri::LogicalSize::new(720.0, 520.0)))?;
+        Ok(())
     }
 
     #[tauri::command]
@@ -687,13 +785,10 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 창 크기·위치를 기억하던 window-state 플러그인은 뺐다. 메인 창은 부팅 화면 크기로
+    // 작게 떴다가 window_boot_done 에서 본 크기로 커지고, 빠른 질문 창은 늘 가운데다.
+    // 지난 크기(어쩌다 줄여 둔 889×593)를 되살리면 켤 때마다 작게 떴다.
     tauri::Builder::default()
-        // 빠른 질문 창은 늘 화면 가운데서 뜬다. 지난 위치·크기를 기억하면 안 된다.
-        .plugin(
-            tauri_plugin_window_state::Builder::default()
-                .with_denylist(&["quick"])
-                .build(),
-        )
         .plugin(tauri_plugin_notification::init())
         .on_window_event(|window, event| match (window.label(), event) {
             // 메인 창을 닫아도 앱은 남는다. ⌃⇧N 으로 물어본 답이 도착할 곳이 있어야
@@ -774,6 +869,7 @@ pub fn run() {
             commands::conversation_delete,
             commands::weather_get,
             commands::weather_now,
+            commands::window_boot_done,
             commands::location_current,
             commands::notify_send,
             commands::haptic_feedback,

@@ -12,8 +12,10 @@ import { Counter } from "./components/Counter";
 import LatticeLoader from "./components/LatticeLoader";
 import { Attachments } from "./components/Attachments";
 import { PlanChecklist } from "./components/PlanChecklist";
-import { ChatEmptyState } from "./components/ChatEmptyState";
+import { ChatEmptyState, EmptyStateCat, SpriteCat } from "./components/ChatEmptyState";
 import { CatCanvas } from "./cat/CatCanvas";
+import { getBootAnimation } from "./cat/spriteData";
+import { useCatStore } from "./stores/catStore";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPanel";
 import { MenuModal } from "./components/MenuModal";
@@ -170,6 +172,48 @@ function TitleBar({
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
+
+/**
+ * 켤 때 잠깐 보이는 부팅 화면. 창은 작게 뜨고(tauri.conf), 고르둔 털색의 고양이가
+ * 깨어나는 그림을 한 번 돈 뒤 window_boot_done 이 창을 본 크기로 부드럽게 키운다.
+ * 다 커지면 걷힌다. 부팅 그림이 없는 털색은 평소 그림으로 BOOT_MIN_MS 만 기다린다.
+ */
+const BOOT_MIN_MS = 700;
+
+function BootSplash() {
+  const variantId = useCatStore((s) => s.variantId);
+  const [bootAnim] = useState(() => getBootAnimation(variantId));
+  const [animDone, setAnimDone] = useState(!bootAnim);
+  const [minDone, setMinDone] = useState(false);
+  const [phase, setPhase] = useState<"booting" | "leaving" | "gone">("booting");
+
+  useEffect(() => {
+    const t = setTimeout(() => setMinDone(true), BOOT_MIN_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (!animDone || !minDone) return;
+    document.fonts.ready
+      .then(() => invoke("window_boot_done"))
+      .catch(() => {}) // 브라우저(vite 만 띄운 경우)엔 창이 없다. 그냥 걷는다.
+      .finally(() => setPhase("leaving"));
+  }, [animDone, minDone]);
+
+  if (phase === "gone") return null;
+  return (
+    <div
+      className="boot-splash"
+      data-leaving={phase === "leaving" ? "" : undefined}
+      data-tauri-drag-region
+      // 안쪽 로더의 transition 도 여기로 올라온다. 자기 것만 듣는다.
+      onTransitionEnd={(e) => { if (e.target === e.currentTarget) setPhase("gone"); }}
+    >
+      {bootAnim ? <SpriteCat anim={bootAnim} size={96} once onDone={() => setAnimDone(true)} /> : <EmptyStateCat />}
+      <LatticeLoader label="네코 깨우는 중" status="working" showTimer={false} />
+    </div>
+  );
+}
 
 interface WeatherNow {
   place: string;
@@ -1620,6 +1664,7 @@ export default function App() {
 
   return (
     <div className={`app${isDragging ? " app--resizing" : ""}`} style={appStyle}>
+      <BootSplash />
       <TitleBar
         sessionTitle={activeSession?.title ?? ""}
         onSettings={() => setMenuOpen(true)}

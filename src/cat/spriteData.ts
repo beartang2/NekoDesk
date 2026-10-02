@@ -173,6 +173,25 @@ export const CAT_VARIANTS: CatVariant[] = [
   },
 ];
 
+/**
+ * 켤 때 깨어나는 그림. 32×32 17칸 — 누운 채 서서히 나타났다가 일어나 앉는다.
+ * 털색마다 booting_variants 에 한 장씩이고, 같은 폴더의 다른 상태 그림은 variants 와
+ * 같아서 읽지 않는다(읽으면 빌드에 두 벌 실린다).
+ */
+const BOOT_STRIPS = import.meta.glob<string>("../assets/cat/booting_variants/*/*_Boot.png", {
+  eager: true,
+  query: "?url",
+  import: "default",
+});
+const BOOT_FRAME_COUNT = 17;
+
+/** 이 털색의 부팅 그림. 없으면(기본 치즈) null — 평소 그림으로 부팅한다. */
+export function getBootAnimation(variantId: string): AnimDef | null {
+  const { dir } = getCatVariant(variantId);
+  const src = dir ? BOOT_STRIPS[`../assets/cat/booting_variants/${dir}/${dir}_Boot.png`] : undefined;
+  return src ? { src, frames: stripFrames(BOOT_FRAME_COUNT), interval: 80 } : null;
+}
+
 export function getCatVariant(id: string): CatVariant {
   return CAT_VARIANTS.find((variant) => variant.id === id) ?? CAT_VARIANTS[0];
 }
