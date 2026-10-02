@@ -175,8 +175,7 @@ export const CAT_VARIANTS: CatVariant[] = [
 
 /**
  * 켤 때 깨어나는 그림. 32×32 17칸 — 누운 채 서서히 나타났다가 일어나 앉는다.
- * 털색마다 booting_variants 에 한 장씩이고, 같은 폴더의 다른 상태 그림은 variants 와
- * 같아서 읽지 않는다(읽으면 빌드에 두 벌 실린다).
+ * 털색마다 booting_variants 에 한 장씩이다. 다른 상태 그림은 variants 에 있다.
  */
 const BOOT_STRIPS = import.meta.glob<string>("../assets/cat/booting_variants/*/*_Boot.png", {
   eager: true,
