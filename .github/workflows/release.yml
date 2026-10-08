@@ -18,7 +18,7 @@ jobs:
   release:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -31,7 +31,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -55,7 +55,17 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: NekoDesk v__VERSION__
-          releaseBody: "설치: .dmg 를 열어 Applications 로 옮긴 뒤, 처음 한 번만 터미널에서 `xattr -cr /Applications/NekoDesk.app`"
+          releaseBody: |
+            **처음 설치할 때 (한 번만)**
+            1. `.dmg` 를 열어 NekoDesk 를 Applications 로 옮긴다.
+            2. 앱을 연다. "확인되지 않은 개발자" 창이 뜨면 **완료**.
+            3. 시스템 설정 → 개인정보 보호 및 보안 → 맨 아래 **그래도 열기** → 맥 비밀번호.
+            4. 한 번 더 뜨는 확인 창에서 **열기**.
+
+            확인 창이 떠 있는 동안 앱을 여러 번 누르지 말 것. 꼬였으면 `sudo killall syspolicyd` 나 재부팅.
+            터미널이 편하면 2~4 대신, 열기 **전에** `xattr -cr /Applications/NekoDesk.app`.
+
+            이후 업데이트는 앱 안에서 안내가 뜬다.
           releaseDraft: false
           args: --config '{"bundle":{"createUpdaterArtifacts":true}}'
 
