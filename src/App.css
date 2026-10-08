@@ -808,36 +808,6 @@ html, body, #root {
   opacity: 1;
 }
 
-.update-banner {
-  background: var(--accent-dim);
-  border-color: color-mix(in oklab, var(--accent) 40%, transparent);
-  color: var(--accent);
-}
-
-.update-banner .error-banner__close {
-  color: var(--accent);
-}
-
-.update-banner__actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.update-banner__btn {
-  padding: 2px 8px;
-  border: 1px solid var(--accent);
-  border-radius: var(--r-sm);
-  background: none;
-  color: var(--accent);
-  font-size: 11px;
-}
-
-.update-banner__btn:hover {
-  background: color-mix(in oklab, var(--accent) 15%, transparent);
-}
-
 /* ── Chat messages ── */
 .chat-messages {
   flex: 1;

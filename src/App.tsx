@@ -26,7 +26,7 @@ import { useWordChainGame } from "./hooks/useWordChainGame";
 import { useAgentPool, makeInitialMessages, parseMeta, type QueuedMessage } from "./hooks/useAgentLoop";
 import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { UpdateBanner } from "./components/UpdateBanner";
+import { UpdatePrompt } from "./components/Update";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
@@ -1770,6 +1770,7 @@ export default function App() {
         onClose={() => setPaletteOpen(false)}
         commands={paletteCommands}
       />
+      <UpdatePrompt />
 
       <ErrorBoundary label="사이드바">
       <Sidebar
@@ -1812,7 +1813,6 @@ export default function App() {
           <div className="chat-aurora" aria-hidden="true" />
           {/* 안내는 오로라 위에 떠 있다. 흐름에 두면 채팅 칸이 밀려 오로라도 같이 내려갔다. */}
           <div className="chat-banners">
-            <UpdateBanner />
             {connectError && (
               <ErrorBanner message={connectError} onDismiss={() => setConnectError(null)} />
             )}

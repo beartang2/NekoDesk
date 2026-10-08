@@ -744,16 +744,23 @@ mod commands {
 
     // ── 업데이트 ──────────────────────────────────────────────────────────────
 
-    /// 깃헙 Release 에 더 새 버전이 있으면 그 번호. dev 실행은 늘 없음 —
+    #[derive(serde::Serialize)]
+    pub struct UpdateInfo {
+        version: String,
+        /// Release 본문. 변경 내역과 설치 안내가 `---` 로 나뉘어 있다.
+        notes: Option<String>,
+    }
+
+    /// 깃헙 Release 에 더 새 버전이 있으면 그 정보. dev 실행은 늘 없음 —
     /// 손으로 띄운 개발본을 배포본으로 덮어쓰면 안 된다.
     #[tauri::command]
-    pub async fn update_check(app: tauri::AppHandle) -> Result<Option<String>, AppError> {
+    pub async fn update_check(app: tauri::AppHandle) -> Result<Option<UpdateInfo>, AppError> {
         if tauri::is_dev() {
             return Ok(None);
         }
         use tauri_plugin_updater::UpdaterExt;
         let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
-        Ok(update.map(|u| u.version))
+        Ok(update.map(|u| UpdateInfo { version: u.version, notes: u.body }))
     }
 
     /// 받아서 설치하고 다시 켠다. 확인한 뒤 더 새 버전이 나왔으면 그걸 받는다.

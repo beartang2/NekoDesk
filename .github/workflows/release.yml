@@ -45,6 +45,21 @@ jobs:
       - run: npm ci
       - run: npm test
 
+      # 지난 배포 이후 feat/fix 커밋 제목을 변경 내역으로. 앱의 새 버전 창에도 뜬다.
+      - name: 변경 내역
+        id: notes
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          log=$(git log --no-merges --format=%s ${prev:+$prev..}HEAD)
+          feat=$(sed -nE 's/^feat(\([^)]*\))?!?: */- /p' <<< "$log")
+          fix=$(sed -nE 's/^fix(\([^)]*\))?!?: */- /p' <<< "$log")
+          {
+            echo 'body<<NOTES_EOF'
+            if [ -n "$feat" ]; then printf '### 새로 생긴 것\n%s\n\n' "$feat"; fi
+            if [ -n "$fix" ]; then printf '### 고친 것\n%s\n\n' "$fix"; fi
+            echo NOTES_EOF
+          } >> "$GITHUB_OUTPUT"
+
       # 업데이터 파일(.app.tar.gz, .sig, latest.json)은 CI 에서만 만든다.
       # 로컬 빌드에 서명 키가 없어도 실패하지 않게.
       - uses: tauri-apps/tauri-action@v0
@@ -55,7 +70,12 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: NekoDesk v__VERSION__
+          # `---` 위는 변경 내역, 아래는 처음 설치하는 사람용. 앱은 위만 보여준다.
           releaseBody: |
+            ${{ steps.notes.outputs.body }}
+
+            ---
+
             **처음 설치할 때 (한 번만)**
             1. `.dmg` 를 열어 NekoDesk 를 Applications 로 옮긴다.
             2. 앱을 연다. "확인되지 않은 개발자" 창이 뜨면 **완료**.

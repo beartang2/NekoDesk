@@ -37,7 +37,7 @@ import {
   listAlwaysRules,
   loadPermissionRules,
 } from "../agent/permissions";
-import { UpdateSection } from "./UpdateBanner";
+import { UpdateSection } from "./Update";
 import "./SettingsModal.css";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
