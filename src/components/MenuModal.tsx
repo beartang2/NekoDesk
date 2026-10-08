@@ -107,7 +107,7 @@ const TABS: [MenuTab, string][] = [
   ["neko", "네코"],
   ["model", "모델"],
   ["connect", "연동"],
-  ["perm", "권한"],
+  ["perm", "권한·업데이트"],
   ["history", "실행 이력"],
 ];
 

@@ -37,6 +37,7 @@ import {
   listAlwaysRules,
   loadPermissionRules,
 } from "../agent/permissions";
+import { UpdateSection } from "./UpdateBanner";
 import "./SettingsModal.css";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1295,6 +1296,8 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
           )}
           {tab === "perm" && (
             <>
+              <UpdateSection />
+
               {/* ── 항상 허용한 작업 ──────────────────────────────────── */}
               <ToolRulesSection />
 
