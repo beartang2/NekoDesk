@@ -1026,11 +1026,22 @@ export default function App() {
   const [modelContextLength, setModelContextLength] = useState<number | null>(null);
   /** 시작할 때 활성 프로필에 못 붙었다. 세션 오류와 별개라 따로 들고 있는다. */
   const [connectError, setConnectError] = useState<string | null>(null);
+  // 관리형 프로필은 앱이 켜질 때 llama-server 를 띄우는데, 모델을 올리는 동안엔
+  // /v1/models 가 503 이다. 한 번만 물으면 "--" 로 굳고 에이전트도 기본값(8192)으로
+  // 예산을 짠다. 서버가 답할 때까지 다시 묻고, 주소가 바뀌면(프로필 전환) 처음부터.
+  const llmUrl = useSettingsStore((s) => s.llmUrl);
   useEffect(() => {
-    fetchLoadedModel().then((info) => {
-      if (info?.context_length) setModelContextLength(info.context_length);
-    }).catch(() => {});
-  }, []);
+    setModelContextLength(null);
+    let alive = true;
+    let timer: number | undefined;
+    const poll = () => fetchLoadedModel().then((info) => {
+      if (!alive) return;
+      if (info === null) timer = window.setTimeout(poll, 2000);
+      else if (info.context_length) setModelContextLength(info.context_length);
+    });
+    poll();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [llmUrl]);
   useEffect(() => {
     return appEvents.on("agentDone", () => {
       fetchLoadedModel().then((info) => {
