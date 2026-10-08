@@ -67,6 +67,17 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMzRTUxNjVCMTQ4OTA0NzAKUldSd0JJa1VXeGJsdzBXemh3Ri9ieEpGN2g5OHlDV1h6NkZRdnZjOFlTVmNId0owKzdKNWNPZ0sK",
+      "endpoints": [
+        "https://github.com/beartang2/NekoDesk/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

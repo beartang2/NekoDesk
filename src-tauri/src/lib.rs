@@ -742,6 +742,34 @@ mod commands {
             .map_err(|e| AppError::msg(format!("알림 실패: {e}")))
     }
 
+    // ── 업데이트 ──────────────────────────────────────────────────────────────
+
+    /// 깃헙 Release 에 더 새 버전이 있으면 그 번호. dev 실행은 늘 없음 —
+    /// 손으로 띄운 개발본을 배포본으로 덮어쓰면 안 된다.
+    #[tauri::command]
+    pub async fn update_check(app: tauri::AppHandle) -> Result<Option<String>, AppError> {
+        if tauri::is_dev() {
+            return Ok(None);
+        }
+        use tauri_plugin_updater::UpdaterExt;
+        let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+        Ok(update.map(|u| u.version))
+    }
+
+    /// 받아서 설치하고 다시 켠다. 확인한 뒤 더 새 버전이 나왔으면 그걸 받는다.
+    ///
+    /// `restart` 가 아니라 `request_restart` 다. 이벤트 루프를 정상으로 빠져나가야
+    /// `RunEvent::Exit` 가 돌아 앱이 띄운 llama-server 를 정리한다.
+    #[tauri::command]
+    pub async fn update_install(app: tauri::AppHandle) -> Result<(), AppError> {
+        use tauri_plugin_updater::UpdaterExt;
+        let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+        let Some(update) = update else { return Ok(()) };
+        update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
+        app.request_restart();
+        Ok(())
+    }
+
     // ── 실행 이력 ─────────────────────────────────────────────────────────────
     // ExecHistoryItem 은 db::models 로 이동(상단 재노출).
 
@@ -806,6 +834,7 @@ pub fn run() {
     // 지난 크기(어쩌다 줄여 둔 889×593)를 되살리면 켤 때마다 작게 떴다.
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // 보관함에서 파일을 끌어내 다른 앱에 놓는다(macOS 드래그 세션).
         .plugin(tauri_plugin_drag::init())
         .on_window_event(|window, event| match (window.label(), event) {
@@ -908,6 +937,8 @@ pub fn run() {
             commands::fs_check,
             commands::airdrop_send,
             commands::notify_user,
+            commands::update_check,
+            commands::update_install,
             commands::skills_load,
             commands::memory_save,
             commands::memory_search,
