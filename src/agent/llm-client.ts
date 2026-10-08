@@ -230,7 +230,13 @@ function buildRequestBody(
     stream,
   };
   if (stream) body.stream_options = { include_usage: true };
-  if (params.grammar) body.grammar = params.grammar;
+  if (params.grammar) {
+    body.grammar = params.grammar;
+    // 생각 모드로 뜬 서버(`--reasoning on`)는 템플릿이 `<think>` 를 열어둔 채 답을 받는다.
+    // 문법은 그 생각 자리부터 묶어서, 모델이 쓰려던 생각("사용자가 끝말잇기를…")이
+    // 띄어쓰기 없이 잘린 채 답이 됐다(첫 단어 "사용자가끝"). 모양을 못 박는 호출엔 생각이 낄 자리가 없다.
+    body.chat_template_kwargs = { enable_thinking: false };
+  }
   if (params.temperature !== undefined) body.temperature = params.temperature;
   if (params.tools?.length) {
     body.tools = params.tools;
