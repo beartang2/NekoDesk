@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Archive, FileText, Pencil, StickyNote, X } from "lucide-react";
+import { Archive, ChevronDown, FileText, Pencil, StickyNote, X } from "lucide-react";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { todosApi, scheduleApi, settingsApi, shelfApi, type ShelfItem } from "../api/tauri";
 import { formatBytes } from "./Attachments";
@@ -41,6 +41,18 @@ export function eventDaySpan(e: { start_at: string; end_at: string | null }): [D
   const start = day(parseEventDate(e.start_at));
   const end = e.end_at ? day(parseEventDate(e.end_at)) : start;
   return [start, end < start ? start : end];
+}
+
+/** 아코디언 화살표. ▲▼ 글자는 글꼴마다 기준선이 달라 위아래가 틀어져서 SVG 를 돌린다. */
+function AccChevron({ up }: { up: boolean }) {
+  return (
+    <ChevronDown
+      size={12}
+      strokeWidth={2.25}
+      className={`acc-chevron ${up ? "acc-chevron--up" : ""}`}
+      aria-hidden="true"
+    />
+  );
 }
 
 // ── TODO Card ─────────────────────────────────────────────────────────────────
@@ -244,6 +256,11 @@ function TodoCard() {
 
 // ── Calendar Card ─────────────────────────────────────────────────────────────
 
+const CAL_COLLAPSED_KEY = "nekodesk_calendar_collapsed";
+/** 이만큼(px) 가로로 밀면 넘긴다. 작으면 세로로 굴리다 살짝 비낀 것에도 넘어간다. */
+const SWIPE_THRESHOLD = 40;
+/** wheel 이 이만큼 끊기면 손을 뗀 것으로 본다(관성 포함). */
+const SWIPE_IDLE_MS = 200;
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -253,6 +270,15 @@ function CalendarCard() {
   const [month, setMonth] = useState(today.getMonth());
   const [events, setEvents] = useState<ScheduleEvent[]>([]);
   const [selectedDay, setSelectedDay] = useState<number | null>(today.getDate());
+  // 접으면 달 이름과 한 주(이번 주, 또는 고른 날이 있는 주)만 남는다. 껐다 켜도 기억한다.
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(CAL_COLLAPSED_KEY) === "1");
+
+  function toggleCollapsed() {
+    setCollapsed((v) => {
+      localStorage.setItem(CAL_COLLAPSED_KEY, v ? "0" : "1");
+      return !v;
+    });
+  }
 
   async function loadEvents() {
     try {
@@ -314,79 +340,139 @@ function CalendarCard() {
   const isCurrentMonthView =
     year === today.getFullYear() && month === today.getMonth();
 
+  // 접혔을 때 보일 주: 고른 날 → 오늘(이번 달일 때) → 그달 첫 주.
+  const anchorDay = selectedDay ?? (isCurrentMonthView ? today.getDate() : 1);
+  const weekStart = Math.floor((startOffset + anchorDay - 1) / 7) * 7;
+
+  /** 고른 날을 한 주 옮긴다. 달이 바뀌면 달도 넘기고, 같은 달이면 주가 위아래로 미끄러진다. */
+  function stepWeek(dir: 1 | -1) {
+    const d = new Date(year, month, anchorDay + dir * 7);
+    if (d.getMonth() !== month || d.getFullYear() !== year) {
+      setCalDir(dir > 0 ? "next" : "prev");
+      setCalKey((k) => k + 1);
+      setYear(d.getFullYear());
+      setMonth(d.getMonth());
+    }
+    setSelectedDay(d.getDate());
+  }
+
+  // 트랙패드 두 손가락 가로 스와이프: 접혀 있으면 한 주, 펼쳐 있으면 한 달.
+  // 손을 떼도 관성으로 wheel 이 한참 더 오므로, 이벤트가 잠잠해질 때까지 한 번만 넘긴다.
+  const swipe = useRef<{ sum: number; locked: boolean; timer?: ReturnType<typeof setTimeout> }>({
+    sum: 0,
+    locked: false,
+  });
+  function onWheel(e: React.WheelEvent) {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    const s = swipe.current;
+    clearTimeout(s.timer);
+    s.timer = setTimeout(() => {
+      s.sum = 0;
+      s.locked = false;
+    }, SWIPE_IDLE_MS);
+    if (s.locked) return;
+    s.sum += e.deltaX;
+    if (Math.abs(s.sum) < SWIPE_THRESHOLD) return;
+    s.locked = true;
+    const dir = s.sum > 0 ? 1 : -1; // 손가락을 왼쪽으로 = 다음
+    if (collapsed) stepWeek(dir);
+    else if (dir > 0) nextMonth();
+    else prevMonth();
+  }
+
   return (
-    <div className="panel-card panel-card--calendar">
+    <div className="panel-card panel-card--calendar" onWheel={onWheel}>
       <div className="panel-card__header cal-header">
         <span>📅 캘린더</span>
         <div className="cal-nav">
           <button className="cal-nav__btn" onClick={prevMonth}>‹</button>
           <span className="cal-nav__label">{MONTH_NAMES[month]} {year}</span>
           <button className="cal-nav__btn" onClick={nextMonth}>›</button>
+          <button
+            className="cal-nav__btn"
+            onClick={toggleCollapsed}
+            title={collapsed ? "달력 펼치기" : "이번 주만 보기"}
+            aria-expanded={!collapsed}
+          >
+            <AccChevron up={!collapsed} />
+          </button>
         </div>
       </div>
       <div className="panel-card__body">
         <div key={calKey} className={`cal-slide cal-slide--${calDir}`}>
-          <div className="cal-grid">
+          <div className="cal-grid cal-grid--labels">
             {DAY_LABELS.map((d) => (
               <div key={d} className="cal-cell cal-cell--label">{d}</div>
             ))}
-            {cells.map((day, i) => {
-              if (!day) return <div key={`_${i}`} className="cal-cell" />;
-              const isToday = isCurrentMonthView && day === today.getDate();
-              const hasEvent = monthEvents.some((e) => covers(e, day));
-              const isSelected = day === selectedDay;
-              return (
-                <div
-                  key={day}
-                  className={[
-                    "cal-cell",
-                    "cal-cell--day",
-                    isToday ? "cal-cell--today" : "",
-                    isSelected ? "cal-cell--selected" : "",
-                  ].filter(Boolean).join(" ")}
-                  onClick={() => setSelectedDay(day === selectedDay ? null : day)}
-                >
-                  {day}
-                  {hasEvent && <span className="cal-dot" />}
-                </div>
-              );
-            })}
+          </div>
+          {/* 주는 늘 다 그려 두고, 접으면 상자가 한 주 높이로 줄며 그 주로 올라간다. */}
+          <div
+            className={`cal-weeks ${collapsed ? "cal-weeks--collapsed" : ""}`}
+            style={{ "--rows": cells.length / 7, "--week": weekStart / 7 } as React.CSSProperties}
+          >
+            <div className="cal-grid cal-weeks__inner">
+              {cells.map((day, i) => {
+                if (!day) return <div key={`_${i}`} className="cal-cell" />;
+                const isToday = isCurrentMonthView && day === today.getDate();
+                const hasEvent = monthEvents.some((e) => covers(e, day));
+                const isSelected = day === selectedDay;
+                return (
+                  <div
+                    key={day}
+                    className={[
+                      "cal-cell",
+                      "cal-cell--day",
+                      isToday ? "cal-cell--today" : "",
+                      isSelected ? "cal-cell--selected" : "",
+                    ].filter(Boolean).join(" ")}
+                    onClick={() => setSelectedDay(day === selectedDay ? null : day)}
+                  >
+                    {day}
+                    {hasEvent && <span className="cal-dot" />}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
-          {selectedDay && (
-            <div className="cal-events">
-              {selectedEvents.length === 0 ? (
-                <span className="panel-empty">{month + 1}/{selectedDay} 일정 없음</span>
-              ) : (
-                selectedEvents.map((e) => (
-                  <div
-                    key={e.id}
-                    className="cal-event"
-                    title={[
-                      e.title,
-                      e.end_at && !e.all_day && !isDateOnly(e.start_at)
-                        ? `${parseEventDate(e.start_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} ~ ${parseEventDate(e.end_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`
-                        : null,
-                      e.notes,
-                    ].filter(Boolean).join("\n")}
-                  >
-                    <span className="cal-event__time">
-                      {/* 여러 날이면 기간이 제일 많이 말해준다. 종일 일정이어도 기간을 보인다. */}
-                      {eventDaySpan(e)[1] > eventDaySpan(e)[0]
-                        ? eventDaySpan(e).map((d) => `${d.getMonth() + 1}/${d.getDate()}`).join("~")
-                        : e.all_day || isDateOnly(e.start_at)
-                        ? "종일"
-                        : parseEventDate(e.start_at).toLocaleTimeString("ko-KR", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                    </span>
-                    <span className="cal-event__title">{e.title}</span>
-                  </div>
-                ))
+          <div className={`acc-wrap cal-events-wrap ${selectedDay && !collapsed ? "acc-wrap--open" : ""}`}>
+            <div className="acc-inner">
+              {selectedDay && (
+                <div className="cal-events">
+                  {selectedEvents.length === 0 ? (
+                    <span className="panel-empty">{month + 1}/{selectedDay} 일정 없음</span>
+                  ) : (
+                    selectedEvents.map((e) => (
+                      <div
+                        key={e.id}
+                        className="cal-event"
+                        title={[
+                          e.title,
+                          e.end_at && !e.all_day && !isDateOnly(e.start_at)
+                            ? `${parseEventDate(e.start_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} ~ ${parseEventDate(e.end_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`
+                            : null,
+                          e.notes,
+                        ].filter(Boolean).join("\n")}
+                      >
+                        <span className="cal-event__time">
+                          {/* 여러 날이면 기간이 제일 많이 말해준다. 종일 일정이어도 기간을 보인다. */}
+                          {eventDaySpan(e)[1] > eventDaySpan(e)[0]
+                            ? eventDaySpan(e).map((d) => `${d.getMonth() + 1}/${d.getDate()}`).join("~")
+                            : e.all_day || isDateOnly(e.start_at)
+                            ? "종일"
+                            : parseEventDate(e.start_at).toLocaleTimeString("ko-KR", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                        </span>
+                        <span className="cal-event__title">{e.title}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
               )}
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>
@@ -498,7 +584,7 @@ export function PomodoroCard() {
         <span className="pomo-header-right">
           {!open && <span className="pomo-header-time">{formatTime(secondsLeft)}</span>}
           <span className="pomo-session-count">{sessionCount}세션</span>
-          <span className="pomo-chevron">{open ? "▲" : "▼"}</span>
+          <AccChevron up={open} />
         </span>
       </button>
       <div className={`acc-wrap ${open ? "acc-wrap--open" : ""}`}>
@@ -948,7 +1034,7 @@ export function DrawingPadCard({
             <X size={12} strokeWidth={2} />
           </button>
         ) : (
-          <span className="pomo-chevron">{open ? "▼" : "▲"}</span>
+          <AccChevron up={!open} />
         )}
       </button>
       <div className={`acc-wrap ${isOpen ? "acc-wrap--open" : ""}`}>

@@ -429,6 +429,8 @@
 }
 
 .cal-nav__btn {
+  display: inline-grid;
+  place-items: center;
   background: none;
   border: none;
   color: var(--text-muted);
@@ -454,7 +456,38 @@
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 1px;
+}
+
+.cal-grid--labels {
+  margin-bottom: 1px;
+}
+
+/* 주 접기. 주는 늘 다 그려 두고 상자 높이와 위치만 움직인다 — 접으면 고른 주 하나만
+   보이는 창이 되고, --ease-chewy 로 넘쳤다가 출렁이며 선다. 주를 넘길 때도 같은 결로
+   미끄러진다. */
+.cal-weeks {
+  --cal-stride: 25px; /* .cal-cell 높이 24 + 간격 1 */
+  overflow: hidden;
+  height: calc(var(--rows) * var(--cal-stride) - 1px);
   margin-bottom: 6px;
+  transition: height 620ms var(--ease-chewy);
+}
+
+.cal-weeks--collapsed {
+  height: 24px;
+}
+
+.cal-weeks__inner {
+  transition: translate 620ms var(--ease-chewy);
+}
+
+.cal-weeks--collapsed .cal-weeks__inner {
+  translate: 0 calc(var(--week) * var(--cal-stride) * -1);
+}
+
+/* 일정 목록은 자기 위 선(.cal-events)이 있다. 아코디언 선은 겹치니 뺀다. */
+.cal-events-wrap.acc-wrap--open {
+  border-top: none;
 }
 
 .cal-cell {
@@ -611,10 +644,17 @@
   text-transform: none;
 }
 
-.pomo-chevron {
-  font-size: 8px;
+/* 아코디언 화살표(포모도로·캘린더·그림판). ▲▼ 글자는 글꼴마다 기준선이 달라 버튼 안에서
+   위아래가 틀어졌다. SVG 하나를 돌려 방향만 바꾸고, 도는 것도 쫀득하게. */
+.acc-chevron {
+  flex: none;
+  display: block;
   color: var(--text-muted);
-  flex-shrink: 0;
+  transition: rotate 620ms var(--ease-chewy);
+}
+
+.acc-chevron--up {
+  rotate: 180deg;
 }
 
 .pomo-ring-wrap {
