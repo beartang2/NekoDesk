@@ -1133,9 +1133,10 @@ export default function App() {
             const mins = Math.round(diff / 60000);
             const msg = mins <= 1 ? `곧 시작돼요!` : `${mins}분 후 시작해요`;
             // ev.title 은 LLM(schedule_add)이 쓸 수 있는 값이므로 절대 스크립트 소스로 넘기지 않는다.
-            await invoke("notify_send", {
+            await invoke("notify_user", {
               title: `📅 ${ev.title}`,
               body: msg,
+              sound: true,
             }).catch(() => {});
             notified.add(ev.id);
             changed = true;

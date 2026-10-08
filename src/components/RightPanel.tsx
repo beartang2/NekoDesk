@@ -501,7 +501,7 @@ function formatTime(secs: number) {
 /** 타이머가 끝나면 네코가 알린다 — 소리 나는 macOS 알림과 고양이 말풍선. */
 function notifyTimerDone(body: string) {
   // notifyIfAway 가 아니라 늘 띄운다. 창을 보고 있어도 타이머 끝은 놓치면 안 된다.
-  invoke("notify_send", { title: "네코", body }).catch(() => {});
+  invoke("notify_user", { title: "네코", body, sound: true }).catch(() => {});
   appEvents.emit("timerDone", body);
 }
 

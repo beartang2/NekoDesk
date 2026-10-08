@@ -416,26 +416,6 @@ mod commands {
         crate::http::weather::now(&location).await
     }
 
-    /// macOS 알림을 띄웁니다.
-    ///
-    /// title/body 를 AppleScript 소스에 문자열 보간하면 안 된다. 큰따옴표 하나로
-    /// 문자열을 탈출해 임의 코드가 실행된다. `on run argv` 로 넘기면 osascript 가
-    /// 이 값들을 파싱하지 않고 데이터로만 취급한다.
-    #[tauri::command(async)]
-    pub fn notify_send(title: String, body: String) -> Result<(), AppError> {
-        Command::new("osascript")
-            .arg("-e").arg("on run argv")
-            .arg("-e").arg("display notification (item 2 of argv) with title (item 1 of argv) sound name \"Glass\"")
-            .arg("-e").arg("end run")
-            .arg(title)
-            .arg(body)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("알림 표시 실패: {e}"))?;
-        Ok(())
-    }
-
     /// 트랙패드에 촉각 피드백을 준다. 고양이를 쓰다듬을 때 실제로 트랙패드가 떨린다.
     ///
     /// pattern: 0=generic, 1=alignment(또렷한 탁), 2=levelChange.
@@ -723,18 +703,27 @@ mod commands {
     /// 보낸다. 터미널이 알림 권한을 받은 적이 없으면 macOS 가 **조용히** 버린다 —
     /// 실제로 이 맥에서 그래서 개발 중엔 알림이 한 번도 안 왔다. dev 에서만
     /// osascript 로 보낸다(스크립트 편집기 이름으로 뜬다). 빌드한 앱은 제 번들 ID 로
-    /// 플러그인이 보낸다.
+    /// 플러그인이 보낸다 — osascript 로 보내면 빌드한 앱에서도 스크립트 편집기
+    /// 아이콘으로 뜬다.
+    ///
+    /// `sound` 는 일정·타이머처럼 놓치면 안 되는 알림에만 켠다.
     #[tauri::command(async)]
-    pub fn notify_user(app: tauri::AppHandle, title: String, body: String) -> Result<(), AppError> {
+    pub fn notify_user(
+        app: tauri::AppHandle,
+        title: String,
+        body: String,
+        sound: Option<bool>,
+    ) -> Result<(), AppError> {
+        let sound = sound.unwrap_or(false).then_some("Glass");
         if tauri::is_dev() {
             // 본문은 모델이 쓴 글이다. 스크립트 문자열에 이어 붙이면 따옴표 하나로
             // 임의 AppleScript 가 실행된다. 코드는 고정하고 글은 argv 로만 넘긴다.
+            let line = match sound {
+                Some(s) => format!("display notification (item 2 of argv) with title (item 1 of argv) sound name \"{s}\""),
+                None => "display notification (item 2 of argv) with title (item 1 of argv)".into(),
+            };
             Command::new("osascript")
-                .args([
-                    "-e", "on run argv",
-                    "-e", "display notification (item 2 of argv) with title (item 1 of argv)",
-                    "-e", "end run",
-                ])
+                .args(["-e", "on run argv", "-e", &line, "-e", "end run"])
                 .arg(&title)
                 .arg(&body)
                 .stdout(Stdio::null())
@@ -744,10 +733,11 @@ mod commands {
             return Ok(());
         }
         use tauri_plugin_notification::NotificationExt;
-        app.notification()
-            .builder()
-            .title(title)
-            .body(body)
+        let mut builder = app.notification().builder().title(title).body(body);
+        if let Some(s) = sound {
+            builder = builder.sound(s);
+        }
+        builder
             .show()
             .map_err(|e| AppError::msg(format!("알림 실패: {e}")))
     }
@@ -902,7 +892,6 @@ pub fn run() {
             commands::shelf_list,
             commands::shelf_add,
             commands::shelf_remove,
-            commands::notify_send,
             commands::haptic_feedback,
             commands::open_url,
             commands::open_external_url,

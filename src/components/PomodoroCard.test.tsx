@@ -33,7 +33,7 @@ describe("커스텀 타이머", () => {
 
     act(() => vi.advanceTimersByTime(1_500));
     expect(spoken).toEqual(["⏰ 1분 타이머 끝! 시간 다 됐어요."]);
-    expect(invoke).toHaveBeenCalledWith("notify_send", { title: "네코", body: spoken[0] });
+    expect(invoke).toHaveBeenCalledWith("notify_user", { title: "네코", body: spoken[0], sound: true });
     // 다시 시작 전 상태 — 시간 자리가 분 입력으로 돌아온다.
     expect((getByLabelText("타이머 분") as HTMLInputElement).value).toBe("1");
     off();
