@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Pencil, StickyNote, X } from "lucide-react";
-import { todosApi, scheduleApi, settingsApi } from "../api/tauri";
+import { Archive, FileText, Pencil, StickyNote, X } from "lucide-react";
+import { startDrag } from "@crabnebula/tauri-plugin-drag";
+import { todosApi, scheduleApi, settingsApi, shelfApi, type ShelfItem } from "../api/tauri";
+import { formatBytes } from "./Attachments";
 import { appEvents } from "../lib/events";
 import { syncCanvasToBox } from "../lib/canvas";
 import { useRevealChildren, useScrollEdges } from "../hooks/useScrollReveal";
@@ -1040,21 +1042,134 @@ function MemoCard() {
     timer.current = setTimeout(flush, 400);
   }
 
+  // 정사각형을 가로로 반 갈라 위는 메모, 아래는 임시 보관함.
   return (
     <div className="panel-card panel-card--memo">
-      <div className="panel-card__header">
-        <span className="draw-header-title"><StickyNote size={10} strokeWidth={2} /> 메모</span>
+      <div className="memo-half">
+        <div className="panel-card__header">
+          <span className="draw-header-title"><StickyNote size={10} strokeWidth={2} /> 메모</span>
+        </div>
+        <div className="panel-card__body">
+          <textarea
+            className="memo-input"
+            value={text ?? ""}
+            disabled={text === null}
+            onChange={(e) => edit(e.target.value)}
+            onBlur={flush}
+            placeholder="메모하기"
+            spellCheck={false}
+          />
+        </div>
       </div>
-      <div className="panel-card__body">
-        <textarea
-          className="memo-input"
-          value={text ?? ""}
-          disabled={text === null}
-          onChange={(e) => edit(e.target.value)}
-          onBlur={flush}
-          placeholder="적어두고 싶은 걸 아무거나"
-          spellCheck={false}
-        />
+      <Shelf />
+    </div>
+  );
+}
+
+// ── Shelf (임시 보관함) ───────────────────────────────────────────────────────
+
+/** 끌고 갈 때 커서에 붙는 그림. 한 번만 그린다. */
+let dragIcon: string | null = null;
+function shelfDragIcon(): string {
+  if (dragIcon) return dragIcon;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.font = "48px system-ui";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("📄", 32, 36);
+  }
+  return (dragIcon = canvas.toDataURL("image/png"));
+}
+
+/**
+ * 끌어다 놓은 파일을 지우기 전까지 들고 있는다. 끌어내면 macOS 드래그로 진짜 파일이
+ * 넘어가서 Finder·메신저 같은 다른 앱에도, 이 창의 채팅에도 첨부된다.
+ */
+function Shelf() {
+  const [items, setItems] = useState<ShelfItem[]>([]);
+  const [over, setOver] = useState(false);
+  // 여기서 끌어낸 파일을 도로 여기 놓으면 같은 파일이 하나 더 생긴다. 그동안은 받지 않는다.
+  const draggingOut = useRef(false);
+
+  const refresh = useCallback(() => {
+    shelfApi.list().then(setItems).catch(() => {});
+  }, []);
+  useEffect(refresh, [refresh]);
+
+  async function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation(); // 채팅 첨부(window 의 drop)로 넘어가지 않게
+    setOver(false);
+    if (draggingOut.current) return;
+    // 폴더는 읽을 내용이 없는 빈 파일로 들어온다. 뺀다.
+    const files = Array.from(e.dataTransfer.items)
+      .filter((item) => item.kind === "file" && !item.webkitGetAsEntry()?.isDirectory)
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => !!file);
+    for (const file of files) await shelfApi.add(file).catch(console.warn);
+    refresh();
+  }
+
+  function dragOut(e: React.DragEvent, item: ShelfItem) {
+    e.preventDefault(); // HTML 드래그 대신 macOS 드래그로 파일을 넘긴다
+    draggingOut.current = true;
+    startDrag({ item: [item.path], icon: shelfDragIcon() }, () => {
+      draggingOut.current = false;
+    }).catch((err) => {
+      draggingOut.current = false;
+      console.warn("startDrag failed:", err);
+    });
+  }
+
+  async function remove(name: string) {
+    await shelfApi.remove(name).catch(console.warn);
+    refresh();
+  }
+
+  return (
+    <div
+      className={`memo-half shelf ${over ? "shelf--over" : ""}`}
+      data-shelf
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        if (!draggingOut.current) setOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+      }}
+      onDrop={onDrop}
+    >
+      <div className="panel-card__header">
+        <span className="draw-header-title"><Archive size={10} strokeWidth={2} /> 임시 보관함</span>
+        {items.length > 0 && <span className="shelf__count">{items.length}</span>}
+      </div>
+      <div className="panel-card__body shelf__body">
+        {items.length === 0 ? (
+          <span className="panel-empty">파일을 끌어다 놓기</span>
+        ) : (
+          <ul className="shelf__list">
+            {items.map((item) => (
+              <li
+                key={item.name}
+                className="shelf__item"
+                draggable
+                onDragStart={(e) => dragOut(e, item)}
+                title={`${item.name} — 끌어서 다른 곳에 놓기`}
+              >
+                <FileText size={11} strokeWidth={2} className="shelf__icon" />
+                <span className="shelf__name">{item.name}</span>
+                <span className="shelf__size">{formatBytes(item.size)}</span>
+                <button className="shelf__remove" onClick={() => remove(item.name)} title="보관함에서 지우기">
+                  <X size={11} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

@@ -15,6 +15,7 @@ mod llama;
 mod skills;
 mod quick;
 mod location;
+mod shelf;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
 pub use error::AppError;
@@ -372,6 +373,31 @@ mod commands {
         // 부팅 창은 작아야 해서 최소 크기는 다 커진 뒤에 건다.
         window.set_min_size(Some(tauri::LogicalSize::new(720.0, 520.0)))?;
         Ok(())
+    }
+
+    #[tauri::command(async)]
+    pub fn shelf_list(app: tauri::AppHandle) -> Result<Vec<crate::shelf::ShelfItem>, AppError> {
+        crate::shelf::list(&crate::shelf::dir(&app)?)
+    }
+
+    /// 보관함에 넣는다. 몸통은 파일 바이트 그대로, 이름은 x-name 헤더(encodeURIComponent).
+    #[tauri::command(async)]
+    pub fn shelf_add(app: tauri::AppHandle, request: tauri::ipc::Request<'_>) -> Result<crate::shelf::ShelfItem, AppError> {
+        let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+            return Err(AppError::msg("파일 내용이 안 왔어."));
+        };
+        let name = request
+            .headers()
+            .get("x-name")
+            .and_then(|v| v.to_str().ok())
+            .map(crate::shelf::percent_decode)
+            .unwrap_or_default();
+        crate::shelf::add(&crate::shelf::dir(&app)?, &name, bytes)
+    }
+
+    #[tauri::command(async)]
+    pub fn shelf_remove(app: tauri::AppHandle, name: String) -> Result<(), AppError> {
+        crate::shelf::remove(&crate::shelf::dir(&app)?, &name)
     }
 
     #[tauri::command]
@@ -790,6 +816,8 @@ pub fn run() {
     // 지난 크기(어쩌다 줄여 둔 889×593)를 되살리면 켤 때마다 작게 떴다.
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        // 보관함에서 파일을 끌어내 다른 앱에 놓는다(macOS 드래그 세션).
+        .plugin(tauri_plugin_drag::init())
         .on_window_event(|window, event| match (window.label(), event) {
             // 메인 창을 닫아도 앱은 남는다. ⌃⇧N 으로 물어본 답이 도착할 곳이 있어야
             // 하고, 알림도 이 창의 웹뷰가 보낸다. 완전히 끝내려면 ⌘Q.
@@ -871,6 +899,9 @@ pub fn run() {
             commands::weather_now,
             commands::window_boot_done,
             commands::location_current,
+            commands::shelf_list,
+            commands::shelf_add,
+            commands::shelf_remove,
             commands::notify_send,
             commands::haptic_feedback,
             commands::open_url,

@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Sun, Moon, Settings, Paperclip, ArrowUp, Zap, Copy, Check, X, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
@@ -708,9 +709,13 @@ function Composer({
     el.style.height = `${el.scrollHeight}px`;
   }
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(e.target.files ?? []);
     e.target.value = "";
+    void addFiles(selected);
+  }
+
+  async function addFiles(selected: File[]) {
     // Store raw File objects so the file.upload tool can access them
     for (const file of selected) {
       storeFile(file);
@@ -728,6 +733,69 @@ function Composer({
     setFiles((prev) => [...prev, ...newFiles]);
   }
 
+  // 창 어디에 떨어뜨려도 첨부한다. 첨부 버튼과 같은 File 이라 처리도 같다.
+  // 받지 않은 드롭은 웹뷰가 그 파일로 이동해 버리므로 막는다(tauri.conf 의
+  // dragDropEnabled:false 가 있어야 파일이 웹뷰까지 온다).
+  const [dragging, setDragging] = useState(false);
+  // 임시 보관함 위에서는 보관함이 받는다. 그동안은 "첨부" 안내를 거둔다.
+  const [overShelf, setOverShelf] = useState(false);
+  useEffect(() => {
+    let depth = 0; // dragenter/leave 는 안쪽 요소를 지날 때마다 와서 깊이로 센다
+    const hasFiles = (e: DragEvent) => e.dataTransfer?.types.includes("Files") ?? false;
+    const onEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth++;
+      setDragging(true);
+    };
+    const onLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragging(false);
+    };
+    const onOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      const onShelf = e.target instanceof Element && !!e.target.closest("[data-shelf]");
+      setOverShelf(onShelf);
+      e.dataTransfer!.dropEffect = locked && !onShelf ? "none" : "copy";
+    };
+    // 보관함이 받은 드롭은 여기(bubble)까지 안 온다. 끌기 상태는 capture 에서 먼저 푼다.
+    const onDropCapture = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth = 0;
+      setDragging(false);
+      setOverShelf(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (locked) return;
+      // 폴더는 읽을 내용이 없는 빈 파일로 들어온다. 뺀다.
+      const dropped = Array.from(e.dataTransfer!.items)
+        .filter((item) => item.kind === "file" && !item.webkitGetAsEntry()?.isDirectory)
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => !!file);
+      if (dropped.length) {
+        onActivity();
+        void addFiles(dropped);
+      }
+    };
+    window.addEventListener("dragenter", onEnter);
+    window.addEventListener("dragleave", onLeave);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("drop", onDropCapture, true);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("drop", onDropCapture, true);
+      window.removeEventListener("dragenter", onEnter);
+      window.removeEventListener("dragleave", onLeave);
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("drop", onDrop);
+    };
+    // addFiles·onActivity 는 매번 새로 만들어지지만 상태는 setter 로만 바꾼다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locked]);
+
   function removeAttachedFile(index: number) {
     setFiles((prev) => {
       const removed = prev[index];
@@ -738,6 +806,9 @@ function Composer({
 
   return (
     <div className="composer">
+      {/* 입력창은 backdrop-filter 가 있어 fixed 가 그 안에 갇힌다. body 로 내보낸다. */}
+      {dragging && !locked && !overShelf &&
+        createPortal(<div className="drop-overlay" aria-hidden="true">놓으면 첨부돼</div>, document.body)}
       {queued.length > 0 && (
         <ul className="composer__queue">
           {queued.map((q) => (

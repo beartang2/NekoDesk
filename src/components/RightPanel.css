@@ -47,6 +47,111 @@
   display: flex;
 }
 
+/* 정사각형을 가로로 반씩: 위는 메모, 아래는 임시 보관함. */
+.memo-half {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.memo-half + .memo-half {
+  border-top: var(--hairline);
+}
+
+/* ── 임시 보관함 ── */
+.shelf {
+  transition: background var(--dur-control) var(--ease-standard);
+}
+
+/* 파일을 끌고 올라오면 받을 곳이라는 걸 보인다. */
+.shelf--over {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  border-radius: 4px;
+}
+
+.shelf__count {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.shelf__body {
+  flex-direction: column;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.shelf__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shelf__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: grab;
+  transition: background var(--dur-micro, 0.1s);
+}
+
+.shelf__item:hover {
+  background: var(--bg-raised);
+}
+
+.shelf__item:active {
+  cursor: grabbing;
+}
+
+.shelf__icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.shelf__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.shelf__size {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.shelf__remove {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 1px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-micro, 0.1s), color var(--dur-micro, 0.1s);
+}
+
+.shelf__item:hover .shelf__remove,
+.shelf__remove:focus-visible {
+  opacity: 1;
+}
+
+.shelf__remove:hover {
+  color: var(--error);
+}
+
 /* 길어지면 메모 안에서 스크롤한다. */
 .memo-input {
   flex: 1;

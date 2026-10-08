@@ -121,6 +121,23 @@ export const settingsApi = {
   set: (key: string, value: string) => invoke<void>("settings_set", { key, value }),
 };
 
+/** 임시 보관함에 둔 파일. path 는 끌어낼 때(startDrag) 쓴다. */
+export interface ShelfItem {
+  name: string;
+  path: string;
+  size: number;
+}
+
+export const shelfApi = {
+  list: () => invoke<ShelfItem[]>("shelf_list"),
+  /** 바이트는 JSON 이 아니라 그대로 보낸다. 헤더엔 ASCII 만 실려 이름은 인코딩한다. */
+  add: async (file: File) =>
+    invoke<ShelfItem>("shelf_add", new Uint8Array(await file.arrayBuffer()), {
+      headers: { "x-name": encodeURIComponent(file.name) },
+    }),
+  remove: (name: string) => invoke<void>("shelf_remove", { name }),
+};
+
 export const conversationApi = {
   load: (sessionId: string) =>
     invoke<ConversationMessage[]>("conversation_load", { sessionId }),

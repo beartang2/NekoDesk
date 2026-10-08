@@ -35,6 +35,7 @@ globset = "0.4"
 regex = "1"
 tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-drag = "2.1.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # NSHapticFeedbackManager 호출용. tauri 가 이미 쓰는 버전이라 추가 빌드 비용 없음.
