@@ -1,0 +1,63 @@
+# release 브랜치에 올라온 커밋을 빌드해 깃헙 Release 로 낸다.
+# 버전은 src-tauri/tauri.conf.json 의 version — 배포할 때마다 올려야 한다.
+# 성공하면 main 을 이 커밋으로 당긴다(main = 마지막으로 배포된 코드).
+name: release
+
+on:
+  push:
+    branches: [release]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 같은 버전으로 다시 올리면 기존 Release 의 파일만 덮어써 태그와 코드가 어긋난다.
+      - name: 버전 중복 확인
+        run: |
+          v=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+            echo "::error::v$v 는 이미 배포됐어. src-tauri/tauri.conf.json 의 version 을 올려줘."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+      - run: npm test
+
+      # 업데이터 파일(.app.tar.gz, .sig, latest.json)은 CI 에서만 만든다.
+      # 로컬 빌드에 서명 키가 없어도 실패하지 않게.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: NekoDesk v__VERSION__
+          releaseBody: "설치: .dmg 를 열어 Applications 로 옮긴 뒤, 처음 한 번만 터미널에서 `xattr -cr /Applications/NekoDesk.app`"
+          releaseDraft: false
+          args: --config '{"bundle":{"createUpdaterArtifacts":true}}'
+
+      - name: main 을 배포된 커밋으로
+        run: git push origin HEAD:main
