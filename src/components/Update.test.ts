@@ -9,8 +9,8 @@ describe("changelog", () => {
   });
 
   it("변경 내역이 없으면 대신 쓸 말을 준다", () => {
-    expect(changelog("\n\n---\n\n**처음 설치할 때**")).toBe("자잘한 정리");
-    expect(changelog("---\n\n**처음 설치할 때**")).toBe("자잘한 정리");
-    expect(changelog(null)).toBe("자잘한 정리");
+    expect(changelog("\n\n---\n\n**처음 설치할 때**")).toBe("작은 개선 사항이 포함되어 있습니다.");
+    expect(changelog("---\n\n**처음 설치할 때**")).toBe("작은 개선 사항이 포함되어 있습니다.");
+    expect(changelog(null)).toBe("작은 개선 사항이 포함되어 있습니다.");
   });
 });

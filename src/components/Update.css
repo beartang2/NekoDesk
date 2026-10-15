@@ -53,6 +53,7 @@
   font-size: 12.5px;
   line-height: 1.55;
   color: var(--text-secondary);
+  word-break: keep-all;
 }
 
 .update-dialog__notes h3 {
@@ -127,6 +128,67 @@
   background: color-mix(in oklab, var(--accent) 88%, var(--text-primary));
   border-color: color-mix(in oklab, var(--accent) 88%, var(--text-primary));
   color: var(--bg-base);
+}
+
+/* 설정 '업데이트' 칸. 상태가 글자보다 색으로 먼저 읽히게. */
+.update-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.update-status[data-tone="new"] {
+  background: color-mix(in oklab, var(--accent) 10%, var(--bg-raised));
+  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+}
+
+.update-status__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.update-status__current {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.update-status__current strong {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.update-status__msg {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  /* 한글이 낱자 단위로 끊기면 "시작됩니/다" 가 된다. 어절 단위로만 줄을 바꾼다. */
+  word-break: keep-all;
+}
+
+.update-status[data-tone="new"] .update-status__msg { color: var(--accent); }
+.update-status[data-tone="ok"] .update-status__msg { color: var(--success); }
+.update-status[data-tone="error"] .update-status__msg { color: var(--error); }
+
+/* .settings-btn 보다 늦게 실릴 수 있어 한 단계 더 구체적으로 건다. */
+.update-status .update-status__btn,
+.update-status .update-status__btn:hover {
+  flex-shrink: 0;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-base);
+  font-weight: 600;
+}
+
+.update-status .update-status__btn:hover {
+  background: color-mix(in oklab, var(--accent) 88%, var(--text-primary));
 }
 
 @keyframes update-fade {

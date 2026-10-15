@@ -54,7 +54,7 @@ function useUpdate() {
  * 이미 깔려 있는 앱에서 보여줄 이유가 없다.
  */
 export function changelog(notes: string | null): string {
-  return notes?.split(/(?:^|\n)-{3,}\s*\n/)[0].trim() || "자잘한 정리";
+  return notes?.split(/(?:^|\n)-{3,}\s*\n/)[0].trim() || "작은 개선 사항이 포함되어 있습니다.";
 }
 
 type Update = ReturnType<typeof useUpdate>;
@@ -83,14 +83,14 @@ function UpdateDialog({ update, onClose }: { update: Update; onClose: () => void
     >
       <div className="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-title">
         <h2 id="update-title" className="update-dialog__title">새 버전 v{info.version}</h2>
-        {current && <p className="update-dialog__sub">지금 쓰는 건 v{current}</p>}
+        {current && <p className="update-dialog__sub">현재 버전 v{current}</p>}
         <div className="update-dialog__notes">
           <ReactMarkdown>{changelog(info.notes)}</ReactMarkdown>
         </div>
-        {phase === "failed" && <p className="update-dialog__error">업데이트 실패: {error}</p>}
+        {phase === "failed" && <p className="update-dialog__error">업데이트하지 못했습니다: {error}</p>}
         <div className="update-dialog__actions">
           {busy ? (
-            <span className="update-dialog__busy">받는 중… 끝나면 다시 켜져</span>
+            <span className="update-dialog__busy">다운로드 중… 완료되면 앱이 다시 시작됩니다.</span>
           ) : (
             <>
               <button className="update-dialog__btn" onClick={onClose}>나중에</button>
@@ -129,7 +129,20 @@ export function UpdatePrompt() {
   return <UpdateDialog update={update} onClose={close} />;
 }
 
-/** 설정 안의 업데이트 칸. 탭을 열 때마다 확인하고, 새 버전이면 같은 창으로 변경 내역을 보여준다. */
+/** 상태마다 안내 문구와 색. 조사가 버전 숫자에 따라 바뀌지 않게 문장을 짠다. */
+const SECTION_STATUS: Record<Phase, { tone: "muted" | "new" | "ok" | "error"; text: (v?: string) => string }> = {
+  checking: { tone: "muted", text: () => "업데이트를 확인하는 중입니다…" },
+  latest: { tone: "ok", text: () => "최신 버전을 사용하고 있습니다." },
+  available: { tone: "new", text: (v) => `v${v} 업데이트가 있습니다.` },
+  installing: { tone: "new", text: () => "업데이트를 설치하는 중입니다. 완료되면 앱이 다시 시작됩니다." },
+  failed: { tone: "error", text: () => "업데이트를 설치하지 못했습니다." },
+  offline: { tone: "error", text: () => "업데이트를 확인하지 못했습니다. 인터넷 연결을 확인해 주세요." },
+};
+
+/**
+ * 설정 안의 업데이트 칸. 탭을 열 때마다 확인한다 — 켜 둔 채로도 새 버전을 알 수 있게.
+ * "업데이트" 는 바로 설치하지 않고 같은 창으로 변경 내역부터 보여준다.
+ */
 export function UpdateSection() {
   const update = useUpdate();
   const { info, current, phase, check } = update;
@@ -140,37 +153,36 @@ export function UpdateSection() {
     check();
   }, [check]);
 
-  const status = import.meta.env.DEV
-    ? "개발 실행에선 확인하지 않아."
-    : {
-        checking: "확인하는 중…",
-        latest: "최신 버전이야.",
-        available: `새 버전 v${info?.version} 나왔어.`,
-        installing: "받는 중… 끝나면 다시 켜져.",
-        failed: "업데이트하지 못했어.",
-        offline: "확인하지 못했어. 인터넷 연결을 봐줘.",
-      }[phase];
+  const dev = import.meta.env.DEV;
+  const { tone, text } = dev
+    ? { tone: "muted" as const, text: () => "개발 실행에서는 업데이트를 확인하지 않습니다." }
+    : SECTION_STATUS[phase];
+  const hasUpdate = !!info && (phase === "available" || phase === "failed");
 
   return (
     <section className="settings-section">
       <h3 className="settings-section__title">업데이트</h3>
-      <p className="settings-section__desc">
-        {current && `지금 v${current}. `}
-        {status}
-      </p>
-      {!import.meta.env.DEV && phase !== "checking" && phase !== "installing" && (
-        <div className="settings-row settings-row--right">
-          {info && (phase === "available" || phase === "failed") ? (
-            <button className="settings-btn" onClick={() => setOpen(true)}>
-              변경 내역 보기
+      <div className="update-status" data-tone={tone}>
+        <div className="update-status__text">
+          {current && (
+            <span className="update-status__current">
+              현재 버전 <strong>v{current}</strong>
+            </span>
+          )}
+          <span className="update-status__msg">{text(info?.version)}</span>
+        </div>
+        {!dev && phase !== "checking" && phase !== "installing" && (
+          hasUpdate ? (
+            <button className="settings-btn update-status__btn" onClick={() => setOpen(true)}>
+              업데이트
             </button>
           ) : (
             <button className="settings-btn settings-btn--ghost" onClick={check}>
               다시 확인
             </button>
-          )}
-        </div>
-      )}
+          )
+        )}
+      </div>
       {open && <UpdateDialog update={update} onClose={close} />}
     </section>
   );
