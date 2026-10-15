@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Sun, Moon, Settings, Paperclip, ArrowUp, Zap, Copy, Check, X, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { historyStep, type HistoryPos } from "./lib/input-history";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalPosition } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { GameSpeechBubble } from "./components/GameSpeechBubble";
@@ -136,6 +136,45 @@ function useZoom() {
   }, []);
 }
 
+/**
+ * 누른 채 움직이는 동안 창을 직접 옮긴다. 마우스를 놓으면 끝.
+ *
+ * Tauri 의 start_dragging 은 macOS 의 창 끌기(performWindowDragWithEvent)에 맡기는데,
+ * 2026-10 macOS 27.2 에서 그게 "Window move completed without beginning" 만 남기고
+ * 창을 안 옮긴다. 손으로 옮기면 macOS 가 끌기를 받아주든 말든 움직인다.
+ *
+ * ponytail: 가장자리에 대면 화면 반쪽을 채우는 macOS 타일링은 안 된다. 그건 macOS 의
+ * 끌기에서만 나온다 — 고쳐지면 start_dragging 으로 되돌린다.
+ */
+function dragWindow(startX: number, startY: number) {
+  const win = getCurrentWindow();
+  const origin = Promise.all([win.outerPosition(), win.scaleFactor()])
+    .then(([pos, scale]) => pos.toLogical(scale));
+  let frame = 0;
+  let last: MouseEvent | null = null;
+
+  const stop = () => {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", stop);
+    cancelAnimationFrame(frame);
+  };
+  function onMove(e: MouseEvent) {
+    // 위치를 알아오는 사이 이미 놓았을 수 있다. 그대로 두면 창이 커서를 따라다닌다.
+    if (!(e.buttons & 1)) return stop();
+    last = e;
+    // 움직임마다 보내면 IPC 가 밀려 창이 늦게 따라온다. 한 프레임에 한 번만.
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      const { screenX, screenY } = last!;
+      origin.then((o) => win.setPosition(new LogicalPosition(o.x + screenX - startX, o.y + screenY - startY)))
+        .catch(() => {});
+    });
+  }
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", stop);
+}
+
 function TitleBar({
   sessionTitle,
   onSettings,
@@ -152,7 +191,19 @@ function TitleBar({
   onToggleRightPanel: () => void;
 }) {
   return (
-    <header className="titlebar" data-tauri-drag-region="deep">
+    <header
+      className="titlebar"
+      data-tauri-drag-region="deep"
+      // 한 번 누름은 직접 끈다(dragWindow 참고). 여기서 멈춰야 Tauri 스크립트가 같은 누름으로
+      // start_dragging 을 또 부르지 않는다. 두 번 눌러 확대는 그대로 Tauri 스크립트가 한다.
+      onMouseDown={(e) => {
+        if (e.button !== 0 || e.detail !== 1) return;
+        if ((e.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragWindow(e.screenX, e.screenY);
+      }}
+    >
       <span className="titlebar__name">NekoDesk</span>
       <span className="titlebar__sep">/</span>
       <span className="titlebar__session">{sessionTitle}</span>
