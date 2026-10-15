@@ -399,22 +399,24 @@
 
 /* ── Calendar ──────────────────────────────────────────────────────────────── */
 
-@keyframes cal-from-right {
-  from { opacity: 0; transform: translateX(20px); }
-  to   { opacity: 1; transform: translateX(0); }
+/* 달을 넘기면 다음 달은 아래에서, 이전 달은 위에서 들어온다. 주가 미끄러지는 방향,
+   손으로 미는 방향과 같다. */
+@keyframes cal-from-below {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes cal-from-left {
-  from { opacity: 0; transform: translateX(-20px); }
-  to   { opacity: 1; transform: translateX(0); }
+@keyframes cal-from-above {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .cal-slide--next {
-  animation: cal-from-right var(--dur-sheet) var(--ease-out-quint);
+  animation: cal-from-below var(--dur-sheet) var(--ease-out-quint);
 }
 
 .cal-slide--prev {
-  animation: cal-from-left var(--dur-sheet) var(--ease-out-quint);
+  animation: cal-from-above var(--dur-sheet) var(--ease-out-quint);
 }
 
 

@@ -9,6 +9,7 @@ import { syncCanvasToBox } from "../lib/canvas";
 import { useRevealChildren, useScrollEdges } from "../hooks/useScrollReveal";
 import type { Todo, ScheduleEvent } from "../agent/types";
 import type { DrawingGameState, DrawingGameActions } from "../hooks/useDrawingGame";
+import { createSwipeStepper } from "../lib/swipe";
 import "./RightPanel.css";
 
 // ── 날짜 파싱 유틸 (캘린더·알림 공용) ──────────────────────────────────────
@@ -257,7 +258,7 @@ function TodoCard() {
 // ── Calendar Card ─────────────────────────────────────────────────────────────
 
 const CAL_COLLAPSED_KEY = "nekodesk_calendar_collapsed";
-/** 이만큼(px) 가로로 밀면 넘긴다. 작으면 세로로 굴리다 살짝 비낀 것에도 넘어간다. */
+/** 이만큼(px) 밀면 넘긴다. 작으면 살짝 스친 것에도 넘어간다. */
 const SWIPE_THRESHOLD = 40;
 /** wheel 이 이만큼 끊기면 손을 뗀 것으로 본다(관성 포함). */
 const SWIPE_IDLE_MS = 200;
@@ -356,25 +357,14 @@ function CalendarCard() {
     setSelectedDay(d.getDate());
   }
 
-  // 트랙패드 두 손가락 가로 스와이프: 접혀 있으면 한 주, 펼쳐 있으면 한 달.
-  // 손을 떼도 관성으로 wheel 이 한참 더 오므로, 이벤트가 잠잠해질 때까지 한 번만 넘긴다.
-  const swipe = useRef<{ sum: number; locked: boolean; timer?: ReturnType<typeof setTimeout> }>({
-    sum: 0,
-    locked: false,
-  });
+  // 두 손가락 세로 스와이프(마우스 휠도): 접혀 있으면 한 주, 펼쳐 있으면 한 달.
+  // 주가 위아래로 미끄러지니 손도 위아래로 민다. 캘린더 안엔 스크롤할 게 없어 부딪히지 않는다.
+  // 손짓 한 번에 한 칸 — 관성을 걸러내는 건 createSwipeStepper.
+  const [swipeStep] = useState(() => createSwipeStepper(SWIPE_THRESHOLD, SWIPE_IDLE_MS));
   function onWheel(e: React.WheelEvent) {
-    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
-    const s = swipe.current;
-    clearTimeout(s.timer);
-    s.timer = setTimeout(() => {
-      s.sum = 0;
-      s.locked = false;
-    }, SWIPE_IDLE_MS);
-    if (s.locked) return;
-    s.sum += e.deltaX;
-    if (Math.abs(s.sum) < SWIPE_THRESHOLD) return;
-    s.locked = true;
-    const dir = s.sum > 0 ? 1 : -1; // 손가락을 왼쪽으로 = 다음
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    const dir = swipeStep(e.deltaY, e.timeStamp); // 손가락을 위로 = 다음(자연스러운 스크롤 기준)
+    if (!dir) return;
     if (collapsed) stepWeek(dir);
     else if (dir > 0) nextMonth();
     else prevMonth();
