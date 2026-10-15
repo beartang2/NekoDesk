@@ -8,8 +8,12 @@ import "./Update.css";
 /** 창을 닫아도 앱은 남아 있어서 켤 때 한 번만 보면 며칠씩 놓친다. */
 const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
 
+/** 변경 내역을 모아 올 곳. 업데이터 주소(tauri.conf.json)와 같은 레포다. */
+const RELEASES_URL = "https://api.github.com/repos/beartang2/NekoDesk/releases?per_page=30";
+
 interface UpdateInfo {
   version: string;
+  /** 서버에선 Release 본문 그대로, collectNotes 를 거친 뒤엔 보여줄 변경 내역. */
   notes: string | null;
 }
 
@@ -30,7 +34,8 @@ function useUpdate() {
   const check = useCallback(() => {
     setPhase("checking");
     invoke<UpdateInfo | null>("update_check")
-      .then((u) => {
+      .then(async (u) => {
+        if (u) u = { ...u, notes: await collectNotes(u) };
         setInfo(u);
         setPhase(u ? "available" : "latest");
       })
@@ -55,6 +60,54 @@ function useUpdate() {
  */
 export function changelog(notes: string | null): string {
   return notes?.split(/(?:^|\n)-{3,}\s*\n/)[0].trim() || "작은 개선 사항이 포함되어 있습니다.";
+}
+
+export interface Release {
+  tag_name: string;
+  body: string | null;
+  draft: boolean;
+  prerelease: boolean;
+}
+
+/** a 가 b 보다 새 버전인지. 글자로 비교하면 "0.1.10" 이 "0.1.9" 보다 낡게 나온다. */
+function isNewer(a: string, b: string): boolean {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d) return d > 0;
+  }
+  return false;
+}
+
+/**
+ * 지금 버전 다음부터 새 버전까지의 변경 내역을 새것부터 모은다. 여러 번 건너뛰어도
+ * 그사이 고친 것이 다 보이게. 하나뿐이면 버전 제목 없이 그 내역만. 없으면 null.
+ */
+export function mergeChangelogs(releases: Release[], current: string, latest: string): string | null {
+  const picked = releases
+    .filter((r) => !r.draft && !r.prerelease)
+    .map((r) => ({ version: r.tag_name.replace(/^v/, ""), body: r.body }))
+    .filter(({ version }) => isNewer(version, current) && !isNewer(version, latest))
+    .sort((a, b) => (isNewer(a.version, b.version) ? -1 : 1));
+  if (picked.length === 0) return null;
+  if (picked.length === 1) return changelog(picked[0].body);
+  return picked.map(({ version, body }) => `## v${version}\n\n${changelog(body)}`).join("\n\n");
+}
+
+/** 못 가져오면(오프라인·요청 한도) 새 버전 것만 — 업데이트 안내를 막을 일은 아니다. */
+async function collectNotes(u: UpdateInfo): Promise<string> {
+  try {
+    const [current, res] = await Promise.all([
+      getVersion(),
+      fetch(RELEASES_URL, { signal: AbortSignal.timeout(5000) }),
+    ]);
+    if (res.ok) {
+      const merged = mergeChangelogs(await res.json(), current, u.version);
+      if (merged) return merged;
+    }
+  } catch { /* 아래로 */ }
+  return changelog(u.notes);
 }
 
 type Update = ReturnType<typeof useUpdate>;
@@ -85,7 +138,7 @@ function UpdateDialog({ update, onClose }: { update: Update; onClose: () => void
         <h2 id="update-title" className="update-dialog__title">새 버전 v{info.version}</h2>
         {current && <p className="update-dialog__sub">현재 버전 v{current}</p>}
         <div className="update-dialog__notes">
-          <ReactMarkdown>{changelog(info.notes)}</ReactMarkdown>
+          <ReactMarkdown>{info.notes ?? ""}</ReactMarkdown>
         </div>
         {phase === "failed" && <p className="update-dialog__error">업데이트하지 못했습니다: {error}</p>}
         <div className="update-dialog__actions">

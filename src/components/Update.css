@@ -56,6 +56,24 @@
   word-break: keep-all;
 }
 
+/* 여러 버전을 건너뛰면 버전마다 제목이 붙는다. 사이를 선으로 가른다. */
+.update-dialog__notes h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.update-dialog__notes h2:not(:first-child) {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.update-dialog__notes h2 + h3 {
+  margin-top: 4px;
+}
+
 .update-dialog__notes h3 {
   margin: 10px 0 4px;
   font-size: 11px;
