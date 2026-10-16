@@ -27,3 +27,11 @@ export const useCatStore = create<CatStore>((set) => ({
     set({ variantId: valid });
   },
 }));
+
+/**
+ * 저장된 털색을 다시 읽는다. 빠른 질문 창처럼 따로 뜬 창이 열릴 때 부른다 — 털색은 메인 창이
+ * 바꾸고, 같은 localStorage 를 쓰지만 이 창의 스토어는 처음 뜰 때 한 번만 읽었다.
+ */
+export function reloadCatVariant() {
+  useCatStore.setState({ variantId: getCatVariant(localStorage.getItem(STORAGE_KEY) ?? DEFAULT_VARIANT_ID).id });
+}

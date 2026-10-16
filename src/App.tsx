@@ -50,6 +50,7 @@ function stripThink(text: string): string {
   return text.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<think>[\s\S]*$/i, "").trim();
 }
 import { storeFile, removeFile } from "./agent/file-store";
+import { resizeImageForLlm } from "./lib/image";
 import { applyThemeColors } from "./theme-colors";
 import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
 import type {
@@ -632,32 +633,6 @@ function parseAttachments(raw: string | null | undefined): AttachedFile[] | unde
   } catch {
     return undefined;
   }
-}
-
-function resizeImageForLlm(file: File, maxPx = 768): Promise<string> {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onerror = () => resolve("");
-    reader.onload = (e) => {
-      const src = e.target?.result as string;
-      const img = new Image();
-      img.onerror = () => resolve(src); // fallback: return original
-      img.onload = () => {
-        const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
-        const mime = file.type === "image/png" ? "image/png" : "image/jpeg";
-        const quality = mime === "image/jpeg" ? 0.82 : undefined;
-        resolve(canvas.toDataURL(mime, quality));
-      };
-      img.src = src;
-    };
-    reader.readAsDataURL(file);
-  });
 }
 
 // ── Composer ──────────────────────────────────────────────────────────────────
@@ -1599,7 +1574,10 @@ export default function App() {
       // 창을 열었을 때 답이 바로 보이게. 사용자는 지금 다른 앱에 있다.
       setActiveId(quickId);
       const { userText, displayText } = buildQuickPrompt(payload);
-      void pool.sendMessage(quickId, userText, [], displayText);
+      const files: AttachedFile[] = payload.image
+        ? [{ name: "화면 캡처.jpg", content: "", dataUrl: payload.image, size: payload.image.length, type: "image/jpeg" }]
+        : [];
+      void pool.sendMessage(quickId, userText, files, displayText);
     });
     return () => { unlisten.then((f) => f()); };
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -14,6 +14,8 @@ mod exec;
 mod llama;
 mod skills;
 mod quick;
+#[cfg(target_os = "macos")]
+mod capture;
 mod location;
 mod shelf;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
@@ -433,6 +435,32 @@ mod commands {
             let _ = (app, pattern);
         }
         Ok(())
+    }
+
+    /// 캡처 막 창이 처음에 받아 간다 — 자기 모니터와, 강조할 수 있는 창들.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn capture_targets(
+        window: tauri::WebviewWindow,
+        state: State<'_, crate::capture::CaptureState>,
+    ) -> Result<crate::capture::Targets, AppError> {
+        crate::capture::targets_for(window.label(), &state)
+    }
+
+    /// 막 창에서 고른 것(창 또는 영역). 그만두면 null.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn capture_pick(
+        pick: Option<crate::capture::Pick>,
+        state: State<'_, crate::capture::CaptureState>,
+    ) -> Result<(), AppError> {
+        crate::capture::pick(&state, pick)
+    }
+
+    /// 빠른 질문 창의 📷. 화면 일부를 잘라 data URL 로, 그만두면 None.
+    #[tauri::command(async)]
+    pub fn quick_capture(app: tauri::AppHandle) -> Result<Option<String>, AppError> {
+        crate::quick::capture(&app)
     }
 
     /// macOS URL 스킴 또는 앱을 엽니다 (권한 설정 페이지 열기 등에 사용).
@@ -868,6 +896,8 @@ pub fn run() {
             app.manage(DbState(Mutex::new(conn)));
             app.manage(LlamaServerState(Mutex::new(LlamaProc::default())));
             app.manage(crate::mcp::McpRegistry::new());
+            #[cfg(target_os = "macos")]
+            app.manage(crate::capture::CaptureState::default());
 
             // ⌃⇧N — 어느 앱에서든 빠른 질문 창. 다른 앱이 이미 쓰고 있으면 등록이
             // 실패하는데, 그렇다고 앱이 안 뜨면 안 된다.
@@ -876,10 +906,16 @@ pub fn run() {
                 app.handle().plugin(
                     tauri_plugin_global_shortcut::Builder::new()
                         .with_handler(|app, shortcut, event| {
-                            if event.state() == ShortcutState::Pressed
-                                && shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyN)
-                            {
+                            if event.state() != ShortcutState::Pressed {
+                                return;
+                            }
+                            if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyN) {
                                 quick::toggle(app);
+                            }
+                            // 캡처하는 동안만 등록된다(capture.rs).
+                            #[cfg(target_os = "macos")]
+                            if shortcut.matches(Modifiers::empty(), Code::Escape) {
+                                capture::cancel(app);
                             }
                         })
                         .build(),
@@ -929,6 +965,11 @@ pub fn run() {
             commands::shelf_add,
             commands::shelf_remove,
             commands::haptic_feedback,
+            commands::quick_capture,
+            #[cfg(target_os = "macos")]
+            commands::capture_targets,
+            #[cfg(target_os = "macos")]
+            commands::capture_pick,
             commands::open_url,
             commands::open_external_url,
             commands::save_canvas_image,

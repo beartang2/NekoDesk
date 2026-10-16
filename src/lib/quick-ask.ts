@@ -19,6 +19,8 @@ export interface QuickAskPayload {
   selection?: string;
   clipboard?: string;
   app?: string;
+  /** 📷 로 잘라 온 화면. 모델용으로 줄인 JPEG data URL. 메인 창이 첨부로 붙인다. */
+  image?: string;
 }
 
 export const QUICK_CONTEXT_EVENT = "quick-context";

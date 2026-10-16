@@ -1,0 +1,340 @@
+/* ── 네코 캡처 막 ──────────────────────────────────────────────────────────
+   모니터 전체를 덮는 투명 창. 화면을 연하게 덮고, 고른 창·영역만 밝게 뚫는다.
+   뚫린 칸 둘레는 포인트 색으로 빛나고, 커서 옆엔 발바닥이 따라다닌다. */
+html.capture-window,
+html.capture-window body,
+html.capture-window #root {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+/* 덮개 색. 퍼지는 원(.cap-spread)과 막(.cap)이 같은 색이어야 바꿔치기가 안 보인다. */
+html.capture-window {
+  --cap-dim: color-mix(in oklab, #000 36%, transparent);
+}
+
+/*
+ * 켜질 땐 부팅하듯: 📷 를 누른 자리에서 흐린 원이 퍼지며 화면을 덮는다.
+ * 작은(200px) 원을 transform 으로 키운다 — GPU 가 늘리기만 해서 매끄럽다. 예전엔 막 전체에
+ * 마스크를 씌워 반지름을 키웠는데, 매 프레임 화면 전체를 다시 그려 버벅였다. 그라데이션 원이라
+ * 크게 늘려도 경계는 계속 부드럽다. 다 퍼지면 같은 색의 진짜 막으로 바꿔치기한다.
+ */
+.cap-spread {
+  position: fixed;
+  left: calc(var(--ox) - 100px);
+  top: calc(var(--oy) - 100px);
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle closest-side, var(--cap-dim) 62%, transparent 100%);
+  transform: scale(0.02);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.cap-spread[data-on] {
+  transform: scale(var(--spread));
+  opacity: 1;
+  transition:
+    transform 1100ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 200ms ease-out;
+}
+
+.cap {
+  /* 포커스 움직임용 부드러운 스프링: 6% 넘쳤다가 가라앉는다(감쇠비 0.67). --ease-chewy(18%)를
+     짧게 쓰니 급하게 출렁여 버벅이듯 보였다. */
+  --ease-soft: linear(0, 0.068, 0.225, 0.414, 0.597, 0.754, 0.876, 0.963, 1.018, 1.048, 1.059, 1.058,
+    1.051, 1.04, 1.028, 1.018, 1.01, 1.004, 1, 0.998, 0.997, 0.996, 0.997, 0.997, 1);
+  --cap-glow: color-mix(in oklab, var(--accent) 55%, transparent);
+  position: fixed;
+  inset: 0;
+  cursor: crosshair;
+  user-select: none;
+  font-family: var(--font-ui);
+  /* 퍼지는 원이 다 덮은 뒤에 나타난다. 덮개 색이 같아 바꿔치기가 안 보인다. */
+  opacity: 0;
+}
+
+.cap[data-revealed] {
+  opacity: 1;
+}
+
+/* ── 화면 전체의 은은한 효과. 고르는 데 방해되지 않게 아주 옅게, 투명도·위치만 움직인다. ── */
+.cap__ambient {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* 가장자리에서 포인트 색이 옅게 번지고, 천천히 숨 쉰다. 네 띠로 나눠 띠마다 밑바탕에 맞춘다:
+   어두운 곳엔 밝은 빛(light), 밝은 곳엔 어두운 빛(dark). 밑바탕을 모르면 포인트 색 그대로. */
+.cap__glow {
+  position: absolute;
+  inset: 0;
+  animation: cap-breathe 3.6s ease-in-out infinite;
+}
+
+/* 빛 색을 서서히 물들이려면 변수를 색으로 등록해야 한다(안 하면 그냥 바뀐다). */
+@property --edge {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: transparent;
+}
+
+.cap__edge {
+  --edge: color-mix(in oklab, var(--accent) 34%, transparent);
+  position: absolute;
+  /* 밝기 지도가 바뀌어 밝은 빛 ↔ 어두운 빛이 바뀌어도 툭 켜지지 않게 서서히. */
+  transition: --edge 900ms ease-in-out;
+}
+
+.cap__edge[data-tone="light"] {
+  --edge: color-mix(in oklab, color-mix(in oklab, var(--accent) 55%, #fff) 40%, transparent);
+}
+
+.cap__edge[data-tone="dark"] {
+  --edge: color-mix(in oklab, color-mix(in oklab, var(--accent) 55%, #000) 42%, transparent);
+}
+
+.cap__edge--top    { inset: 0 0 auto 0; height: 200px; background: linear-gradient(to bottom, var(--edge), transparent); }
+.cap__edge--bottom { inset: auto 0 0 0; height: 200px; background: linear-gradient(to top, var(--edge), transparent); }
+.cap__edge--left   { inset: 0 auto 0 0; width: 200px;  background: linear-gradient(to right, var(--edge), transparent); }
+.cap__edge--right  { inset: 0 0 0 auto; width: 200px;  background: linear-gradient(to left, var(--edge), transparent); }
+
+@keyframes cap-breathe {
+  50% { opacity: 0.4; }
+}
+
+/* 떠다니는 발자국. 나타났다 떠오르며 사라진다. 자리마다 밑바탕에 맞춰 밝거나 어둡게. */
+.cap__drift {
+  position: absolute;
+  fill: var(--accent);
+  opacity: 0;
+  animation: cap-drift 10s ease-in-out infinite;
+  transition: fill 900ms ease-in-out;
+}
+
+.cap__drift[data-tone="light"] {
+  fill: color-mix(in oklab, var(--accent) 45%, #fff);
+}
+
+.cap__drift[data-tone="dark"] {
+  fill: color-mix(in oklab, var(--accent) 55%, #000);
+}
+
+/* 금방 나타나 한참 머물다 떠오르며 사라진다. 너무 빨리 스쳐 지나가면 있는 줄도 몰랐다. */
+@keyframes cap-drift {
+  0%   { opacity: 0; translate: 0 10px; }
+  20%  { opacity: 0.24; }
+  70%  { opacity: 0.24; }
+  100% { opacity: 0; translate: 0 -18px; }
+}
+
+/* 뚫린 칸. 바깥을 덮는 건 칸 자체의 아주 큰 그림자다 — 칸이 움직이면 덮개도 따라온다. */
+.cap__hole {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 10px;
+  pointer-events: none;
+  /* 덮개는 칸 자체의 그림자, 테두리·빛은 ::after 가 따로 — 테두리가 나타나고 사라져도
+     화면 전체 어둡기는 그대로라 깜빡이지 않는다. */
+  box-shadow: 0 0 0 100vmax var(--cap-dim);
+  will-change: transform;
+  /* 창에서 창으로는 부드러운 스프링으로 살짝 넘쳤다가 선다. 칸 안(창 자리)은 켜질 때 덮개에서
+     서서히 밝아지고, 꺼질 때 서서히 덮개로 어두워진다 — 한 번에 확 밝아지거나 어두워지지 않게. */
+  background-color: transparent;
+  animation: cap-hole-in 260ms ease-out;
+  transition: transform 240ms var(--ease-soft), width 240ms var(--ease-soft),
+    height 240ms var(--ease-soft), background-color 260ms ease-out;
+}
+
+@keyframes cap-hole-in {
+  from { background-color: var(--cap-dim); }
+}
+
+.cap__hole[data-fading] {
+  background-color: var(--cap-dim);
+}
+
+.cap__hole[data-fading]::after {
+  opacity: 0;
+  transition: opacity 260ms ease-out;
+}
+
+.cap__hole::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 0 26px 3px var(--cap-glow);
+  animation: cap-ring-in 380ms var(--ease-soft);
+  /* 꺼지다가 다른 창에 닿아 다시 켜질 때도 서서히. */
+  transition: opacity 260ms ease-out;
+}
+
+/* 테두리는 살짝 작게 시작해 한 번 출렁이고 선다. 덮개(칸 자체)는 그대로라 깜빡이지 않는다. */
+@keyframes cap-ring-in {
+  from { opacity: 0; scale: 0.97; }
+  30%  { opacity: 1; }
+}
+
+/* 고른 게 없을 땐 덮개만. */
+.cap__hole[data-empty] {
+  transition: none;
+  animation: none;
+}
+
+.cap__hole[data-empty]::after {
+  display: none;
+}
+
+/* 드래그는 손을 바로 따라와야 한다. 테두리는 흐르는 점선. */
+.cap__hole[data-mode="region"] {
+  border-radius: 4px;
+  transition: none;
+  animation: none;
+}
+
+.cap__hole[data-mode="region"]::after {
+  box-shadow: 0 0 20px 2px var(--cap-glow);
+  animation: none;
+}
+
+.cap__ants {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.cap__ants rect {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 8 6;
+  animation: cap-ants 0.7s linear infinite;
+}
+
+@keyframes cap-ants {
+  to { stroke-dashoffset: -14; }
+}
+
+/* 칸 위의 이름표: 창이면 앱 이름, 드래그면 크기. 화면 위쪽에 붙으면 칸 안으로. */
+.cap__tag {
+  position: absolute;
+  z-index: 1;
+  transform-origin: left bottom;
+  animation: cap-tag-in 360ms var(--ease-soft);
+  left: 0;
+  bottom: calc(100% + 8px);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg-base);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 2px 12px var(--cap-glow);
+}
+
+@keyframes cap-tag-in {
+  from { opacity: 0; scale: 0.9; }
+  35%  { opacity: 1; }
+}
+
+.cap__tag--inside {
+  bottom: auto;
+  top: 8px;
+  left: 8px;
+}
+
+/* 찍는 순간 한 번 반짝. */
+.cap__flash {
+  position: absolute;
+  border-radius: 6px;
+  background: var(--accent);
+  pointer-events: none;
+  animation: cap-flash 140ms ease-out forwards;
+}
+
+@keyframes cap-flash {
+  from { opacity: 0.55; }
+  to   { opacity: 0; }
+}
+
+/* 커서 옆 발바닥. 밑바탕이 어두우면 밝게(data-tone=light), 밝으면 어둡게(dark) —
+   CaptureOverlay 가 막 덮기 직전 찍은 화면에서 밝기를 읽어 정한다. */
+.cap__paw {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  fill: var(--accent);
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px var(--cap-glow));
+  /* 밝기가 바뀌어도 툭 바뀌지 않게 천천히 물든다. */
+  transition: fill 420ms ease-in-out, filter 420ms ease-in-out;
+}
+
+.cap__paw[data-tone="light"] {
+  fill: color-mix(in oklab, var(--accent) 45%, #fff);
+  filter: drop-shadow(0 0 4px color-mix(in oklab, #000 40%, transparent));
+}
+
+.cap__paw[data-tone="dark"] {
+  fill: color-mix(in oklab, var(--accent) 55%, #000);
+  filter: drop-shadow(0 0 3px color-mix(in oklab, #fff 55%, transparent));
+}
+
+.cap__hint {
+  position: absolute;
+  left: 50%;
+  bottom: 48px;
+  translate: -50% 14px;
+  scale: 0.92;
+  opacity: 0;
+  transition:
+    translate 620ms var(--ease-chewy) 60ms,
+    scale 620ms var(--ease-chewy) 60ms,
+    opacity 200ms ease-out 60ms;
+  padding: 8px 16px;
+  border: 1px solid color-mix(in oklab, var(--accent) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--bg-surface) 82%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  pointer-events: none;
+}
+
+.cap__hint b {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* 안내는 막이 퍼진 뒤에, 아래에서 쫀득하게 튀어 오른다. */
+.cap[data-revealed] .cap__hint {
+  translate: -50% 0;
+  scale: 1;
+  opacity: 1;
+}
+
+/* 가장자리 빛·떠다니는 발자국은 막이 퍼지는 동안 은은하게 번져 나온다. 빛은 따로 숨 쉬는
+   애니메이션이 있어, 등장은 감싼 칸에 건다. */
+.cap__ambient {
+  opacity: 0;
+  transition: opacity 700ms ease-out;
+}
+
+.cap[data-revealed] .cap__ambient {
+  opacity: 1;
+}

@@ -33,8 +33,7 @@ html.quick-window #root {
 }
 
 .quick__cat {
-  font-size: 22px;
-  line-height: 1;
+  flex-shrink: 0;
 }
 
 .quick__input {
@@ -76,6 +75,29 @@ html.quick-window #root {
 }
 
 .quick__send:disabled {
+  opacity: 0.3;
+}
+
+.quick__capture {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  transition: background var(--dur-micro), color var(--dur-micro);
+}
+
+.quick__capture:hover:not(:disabled) {
+  background: var(--layer-hover);
+  color: var(--text-primary);
+}
+
+.quick__capture:disabled {
   opacity: 0.3;
 }
 
@@ -129,6 +151,37 @@ html.quick-window #root {
   text-overflow: ellipsis;
   white-space: nowrap;
   opacity: 0.75;
+}
+
+/* 칩 높이(약 20px)에 맞춘 캡처 미리보기. */
+.quick__thumb {
+  width: 22px;
+  height: 14px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+.quick__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.quick__action {
+  padding: 3px 10px;
+  border: 1px solid color-mix(in oklab, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  background: none;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  transition: background var(--dur-micro);
+}
+
+.quick__action:hover {
+  background: var(--layer-selected);
 }
 
 .quick__hint {

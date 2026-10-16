@@ -28,6 +28,12 @@ pub struct QuickContext {
 
 /// 단축키 핸들러. 떠 있으면 닫고, 아니면 맥락을 읽고 띄운다.
 pub fn toggle(app: &AppHandle) {
+    // 캡처 중엔 먹지 않는다 — 캡처를 그만두는 건 esc(·오른쪽 클릭)뿐이다. 그냥 두면 입력창이
+    // 막 위에 떴다가 포커스를 잃고 바로 숨었다. 캡처가 끝나면 캡처 흐름이 입력창을 다시 띄운다.
+    #[cfg(target_os = "macos")]
+    if crate::capture::is_active(app) {
+        return;
+    }
     let Some(win) = app.get_webview_window("quick") else { return };
     if win.is_visible().unwrap_or(false) {
         let _ = win.hide();
@@ -37,6 +43,27 @@ pub fn toggle(app: &AppHandle) {
     let ctx = read_context();
     present(&win);
     let _ = app.emit_to("quick", "quick-context", ctx);
+}
+
+/// 화면 일부를 잘라 PNG data URL 로. esc 로 그만두면 None. 프런트가 모델용으로 줄인다.
+///
+/// 빠른 질문 창이 찍히지 않게 잠깐 숨기고, 네코 캡처 화면(capture.rs — 클릭하면 창,
+/// 드래그하면 영역)에서 고르게 한 뒤 다시 띄운다.
+///
+/// 앱에 화면 녹화 권한이 없으면 macOS 가 처음 한 번 묻는다. 그 전엔 바탕화면만 찍힐 수 있다.
+pub fn capture(app: &AppHandle) -> Result<Option<String>, crate::error::AppError> {
+    use base64::{engine::general_purpose, Engine as _};
+
+    let win = app.get_webview_window("quick").ok_or("빠른 질문 창이 없어.")?;
+    win.hide()?;
+    #[cfg(target_os = "macos")]
+    let shot = crate::capture::run(app);
+    #[cfg(not(target_os = "macos"))]
+    let shot: Result<Option<Vec<u8>>, crate::error::AppError> = Ok(None);
+
+    let w = win.clone();
+    app.run_on_main_thread(move || present(&w))?;
+    Ok(shot?.map(|b| format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(b))))
 }
 
 /// 창을 띄운다.
@@ -67,7 +94,7 @@ fn present(win: &tauri::WebviewWindow) {
 #[cfg(target_os = "macos")]
 pub fn install_panel(win: &tauri::WebviewWindow) {
     if let Ok(ptr) = win.ns_window() {
-        if !unsafe { macos::make_panel(ptr.cast()) } {
+        if !unsafe { macos::make_panel(ptr.cast(), true) } {
             log::warn!("빠른 질문 창을 패널로 못 바꿨어 — 일반 창으로 뜬다");
         }
     }
@@ -113,7 +140,7 @@ fn read_context() -> QuickContext {
 }
 
 #[cfg(target_os = "macos")]
-mod macos {
+pub(crate) mod macos {
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject, Bool};
     use std::ffi::{c_void, CStr};
@@ -172,7 +199,9 @@ mod macos {
     /// 객체 메모리는 TaoWindow 크기로 잡혀 있다. NSPanel 이 NSWindow 보다 크면 바꾼
     /// 뒤 남의 메모리를 읽게 되므로, 크기가 같을 때만 바꾸고 아니면 false.
     /// TaoWindow 의 `focusable` 변수도 같은 자리에 둔다 — tao 가 그 이름으로 읽는다.
-    pub unsafe fn make_panel(window: *mut AnyObject) -> bool {
+    ///
+    /// `round` 는 빠른 질문 창처럼 떠 있는 상자일 때. 화면을 덮는 캡처 막은 네모 그대로.
+    pub unsafe fn make_panel(window: *mut AnyObject, round: bool) -> bool {
         use objc2::runtime::ClassBuilder;
         use objc2::sel;
 
@@ -207,7 +236,9 @@ mod macos {
         let _: () = msg_send![window, setLevel: STATUS_WINDOW_LEVEL];
         // 패널은 기본으로 앱이 비활성화되면 숨는다. 이 앱은 애초에 활성화하지 않는다.
         let _: () = msg_send![window, setHidesOnDeactivate: Bool::NO];
-        round_corners(window);
+        if round {
+            round_corners(window);
+        }
         true
     }
 
@@ -274,12 +305,12 @@ mod macos {
     }
 
     /// NSString 은 CFString 과 같은 객체다(toll-free bridge). AX 속성 이름으로 그대로 쓴다.
-    unsafe fn ns_string(s: &CStr) -> *mut AnyObject {
+    pub(crate) unsafe fn ns_string(s: &CStr) -> *mut AnyObject {
         let Some(cls) = AnyClass::get(c"NSString") else { return std::ptr::null_mut() };
         msg_send![cls, stringWithUTF8String: s.as_ptr()]
     }
 
-    unsafe fn to_rust(obj: *mut AnyObject) -> Option<String> {
+    pub(crate) unsafe fn to_rust(obj: *mut AnyObject) -> Option<String> {
         let cls = AnyClass::get(c"NSString")?;
         if obj.is_null() {
             return None;
