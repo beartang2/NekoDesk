@@ -8,7 +8,7 @@ vi.mock("../api/tauri", () => ({
 vi.mock("../agent/agent-loop", () => ({ runAgentLoop: vi.fn() }));
 vi.mock("../lib/notify", () => ({ notifyIfAway: vi.fn(), toNotificationBody: (s: string) => s }));
 
-import { cleanAnswer, parseMeta, serializeAttachments, serializeMeta } from "./useAgentLoop";
+import { cleanAnswer, parseMeta, serializeAttachments, serializeMeta, splitAttachmentSection } from "./useAgentLoop";
 import type { AgentStep } from "../agent/types";
 import type { AttachedFile } from "./useAgentLoop";
 
@@ -31,10 +31,10 @@ describe("serializeAttachments", () => {
     expect(parsed[0].dataUrl).toContain("data:image/png");
   });
 
-  it("텍스트 파일 본문은 빼고 저장한다 — 이미 메시지 본문에 들어가 있다", () => {
+  it("텍스트 파일 내용은 첨부에 저장한다 — 메시지 본문은 보낸 글 그대로다", () => {
     const file: AttachedFile = { name: "a.ts", content: "const x = 1;", size: 12, type: "text/plain" };
     const parsed = JSON.parse(serializeAttachments([file])!);
-    expect(parsed[0].content).toBe("");
+    expect(parsed[0].content).toBe("const x = 1;");
     expect(parsed[0].name).toBe("a.ts");
   });
 
@@ -100,5 +100,34 @@ describe("cleanAnswer", () => {
   it("끊김 안내는 본문이 아니라 메타에 저장돼 다시 열어도 보인다", () => {
     expect(serializeMeta({ notice: "같은 말이 반복돼서 끊었어" })).toContain("notice");
     expect(parseMeta(serializeMeta({ notice: "x" })).notice).toBe("x");
+  });
+});
+
+describe("splitAttachmentSection", () => {
+  const img: AttachedFile = { name: "화면 캡처.jpg", content: "", size: 10, type: "image/jpeg", dataUrl: "data:image/jpeg;base64,AA" };
+  const ts: AttachedFile = { name: "a.ts", content: "", size: 30, type: "text/plain" };
+  const md: AttachedFile = { name: "b.md", content: "", size: 30, type: "text/markdown" };
+
+  it("예전 저장분의 첨부 목록을 떼어 낸다", () => {
+    const saved = "무슨 내용이 써있는거야?\n\n---\n첨부 파일:\n\n**화면 캡처.jpg** (이미지)";
+    expect(splitAttachmentSection(saved, [img])).toEqual({ content: "무슨 내용이 써있는거야?", files: [img] });
+  });
+
+  it("목록에만 있던 텍스트 파일 내용을 첨부로 되돌린다 — 안의 코드 울타리도 그대로", () => {
+    const saved =
+      "봐줘\n\n---\n첨부 파일:\n\n**a.ts**\n```ts\nconst a = 1;\n```\n\n**b.md**\n```md\n# 제목\n```js\nx()\n```\n끝\n```";
+    const { content, files } = splitAttachmentSection(saved, [ts, md]);
+    expect(content).toBe("봐줘");
+    expect(files![0].content).toBe("const a = 1;");
+    expect(files![1].content).toBe("# 제목\n```js\nx()\n```\n끝");
+  });
+
+  it("글 없이 첨부만 보낸 것도", () => {
+    expect(splitAttachmentSection("첨부 파일:\n\n**화면 캡처.jpg** (이미지)", [img]).content).toBe("");
+  });
+
+  it("새 방식 저장분과 첨부 없는 메시지는 그대로", () => {
+    expect(splitAttachmentSection("그냥 글", [img])).toEqual({ content: "그냥 글", files: [img] });
+    expect(splitAttachmentSection("---\n첨부 파일:\n\n가짜", undefined).content).toBe("---\n첨부 파일:\n\n가짜");
   });
 });

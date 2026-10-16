@@ -23,7 +23,7 @@ import { MenuModal } from "./components/MenuModal";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { useDrawingGame } from "./hooks/useDrawingGame";
 import { useWordChainGame } from "./hooks/useWordChainGame";
-import { useAgentPool, makeInitialMessages, parseMeta, type QueuedMessage } from "./hooks/useAgentLoop";
+import { useAgentPool, makeInitialMessages, parseMeta, splitAttachmentSection, type QueuedMessage } from "./hooks/useAgentLoop";
 import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UpdatePrompt } from "./components/Update";
@@ -1129,11 +1129,13 @@ export default function App() {
       if (msgs.length === 0) return;
       const chatMessages: ChatMessage[] = msgs.map((m) => {
         const meta = parseMeta(m.meta);
+        // 예전 저장분은 본문 뒤에 "첨부 파일:" 목록이 붙어 있다. 보낸 모습으로 되돌린다.
+        const { content, files } = splitAttachmentSection(m.content, parseAttachments(m.attachments));
         return {
           id: crypto.randomUUID(),
           role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
-          content: m.content,
-          attachments: parseAttachments(m.attachments),
+          content,
+          attachments: files,
           time: new Date(m.created_at).toLocaleTimeString("ko-KR", {
             hour: "2-digit",
             minute: "2-digit",

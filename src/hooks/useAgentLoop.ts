@@ -90,13 +90,13 @@ function stripSpecialTokens(text: string): { clean: string; emotion: CatEmotion 
   return { clean: cleanAnswer(text).trim(), emotion };
 }
 
-// Text-only representation (for DB storage and system prompt context)
 /**
- * 대화와 함께 저장할 첨부. 이미지 미리보기가 껐다 켠 뒤에도 남게 한다.
+ * 대화와 함께 저장할 첨부. 껐다 켠 뒤에도 처음 보낸 모습(미리보기·파일 카드)으로 되살린다.
  *
- * 글 내용(`content`)은 빼고 저장한다 — 텍스트 파일은 이미 메시지 본문에 통째로
- * 들어가 있어 두 번 저장할 이유가 없다. 이미지 데이터는 크니까 한 메시지당 총량을
- * 제한하고, 넘치면 미리보기 없이 파일 카드로만 남긴다.
+ * 메시지 본문은 보낸 글 그대로 저장하고, 텍스트 파일 내용은 여기에 둔다. 예전엔 본문 뒤에
+ * "첨부 파일:" 으로 붙여 저장해서, 다시 불러오면 그 목록이 말풍선에 글로 보였다
+ * (그렇게 저장된 대화는 splitAttachmentSection 이 되돌린다). 이미지 데이터는 크니까
+ * 한 메시지당 총량을 제한하고, 넘치면 미리보기 없이 파일 카드로만 남긴다.
  */
 const MAX_STORED_ATTACHMENT_BYTES = 2_000_000;
 
@@ -106,7 +106,7 @@ export function serializeAttachments(files: AttachedFile[]): string | undefined 
   const stored = files.map((f) => {
     const dataUrl = f.dataUrl && f.dataUrl.length <= budget ? f.dataUrl : undefined;
     if (dataUrl) budget -= dataUrl.length;
-    return { name: f.name, type: f.type, size: f.size, content: "", ...(dataUrl ? { dataUrl } : {}) };
+    return { name: f.name, type: f.type, size: f.size, content: f.content, ...(dataUrl ? { dataUrl } : {}) };
   });
   return JSON.stringify(stored);
 }
@@ -183,6 +183,7 @@ export function parseMeta(raw: string | null | undefined): MessageMeta {
   }
 }
 
+// 첨부를 글로 풀어 쓴 것 — 이미지가 없을 때 모델에 보내는 내용.
 function buildTextContent(text: string, files: AttachedFile[]): string {
   if (files.length === 0) return text;
   const fileParts = files.map((f) => {
@@ -197,6 +198,47 @@ function buildTextContent(text: string, files: AttachedFile[]): string {
   });
   const section = fileParts.join("\n\n");
   return text ? `${text}\n\n---\n첨부 파일:\n\n${section}` : `첨부 파일:\n\n${section}`;
+}
+
+const ATTACHMENT_SECTION = "\n\n---\n첨부 파일:\n\n";
+const ATTACHMENT_ONLY = "첨부 파일:\n\n";
+
+/**
+ * 예전 방식으로 저장된 메시지(본문 + "첨부 파일:" 목록)를 보낸 모습으로 되돌린다.
+ *
+ * 목록은 떼어 내고, 그 안에만 있던 텍스트 파일 내용은 첨부에 다시 넣는다 — 그래야 다시
+ * 열어도 모델이 그 파일을 보고, 뷰어로도 열린다. 첨부 이름 순서대로 다음 이름 앞까지를
+ * 그 파일 몫으로 자른다(파일 안에 코드 울타리가 있어도 다음 이름은 안 넘는다).
+ */
+export function splitAttachmentSection(
+  content: string,
+  files: AttachedFile[] | undefined
+): { content: string; files: AttachedFile[] | undefined } {
+  if (!files?.length) return { content, files };
+  const at = content.indexOf(ATTACHMENT_SECTION);
+  let text: string;
+  let section: string;
+  if (at >= 0) {
+    text = content.slice(0, at);
+    section = content.slice(at + ATTACHMENT_SECTION.length);
+  } else if (content.startsWith(ATTACHMENT_ONLY)) {
+    text = "";
+    section = content.slice(ATTACHMENT_ONLY.length);
+  } else {
+    return { content, files };
+  }
+  const restored = files.map((f, i) => {
+    if (f.dataUrl || f.content) return f;
+    const head = `**${f.name}**\n\`\`\``;
+    const s = section.indexOf(head);
+    if (s < 0) return f;
+    const bodyStart = section.indexOf("\n", s + head.length) + 1;
+    const next = files[i + 1] ? section.indexOf(`\n\n**${files[i + 1].name}**`, bodyStart) : -1;
+    const block = section.slice(bodyStart, next >= 0 ? next : section.length);
+    const close = block.lastIndexOf("\n```");
+    return { ...f, content: close >= 0 ? block.slice(0, close) : block };
+  });
+  return { content: text, files: restored };
 }
 
 // Multimodal content for LLM API (includes actual image data)
@@ -360,7 +402,7 @@ export function useAgentPool() {
       const textContent = buildTextContent(userText, files);
       const llmContent = buildLlmContent(userText, files);
       conversationApi
-        .save(sessionId, "user", buildTextContent(visibleText, files), serializeAttachments(files))
+        .save(sessionId, "user", visibleText, serializeAttachments(files))
         .catch(() => {});
 
       const rawHistory = buildHistory(useMessageStore.getState().get(sessionId));
@@ -481,7 +523,7 @@ export function useAgentPool() {
                 conversationApi.save(
                   sessionId,
                   "user",
-                  buildTextContent(q.displayText ?? q.userText, q.files),
+                  q.displayText ?? q.userText,
                   serializeAttachments(q.files)
                 )
               );
