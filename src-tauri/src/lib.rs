@@ -146,6 +146,65 @@ unsafe fn perform_haptic(pattern: isize) {
     let _: () = msg_send![performer, performFeedbackPattern: pattern, performanceTime: 1isize];
 }
 
+/// 뷰어 창에 띄울 것. 그림은 data URL, 글 파일은 text.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewerItem {
+    name: String,
+    data_url: Option<String>,
+    text: Option<String>,
+}
+
+/// 지금 뷰어 창에 띄울 것. 창은 열릴 때 이걸 가져간다 — 막 만든 창은 이벤트를 듣기 전이라
+/// 내용을 이벤트에 실어 보내면 놓친다. 이미 떠 있는 창엔 `viewer-open` 으로 다시 가져가라고 알린다.
+#[derive(Default)]
+pub struct ViewerState(Mutex<Option<ViewerItem>>);
+
+/// dir 안에서 name 을 쓸 경로. 같은 이름이 있으면 "이름 (2).확장자" 처럼 번호를 붙인다.
+/// name 은 화면에서 온 값이라 디렉터리 부분은 버리고 파일 이름만 쓴다.
+fn unique_download_path(dir: &std::path::Path, name: &str) -> PathBuf {
+    let base = std::path::Path::new(name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.trim().is_empty() && !n.starts_with('.'))
+        .unwrap_or("nekodesk")
+        .replace(':', "-");
+    let first = dir.join(&base);
+    if !first.exists() {
+        return first;
+    }
+    let p = std::path::Path::new(&base);
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("nekodesk");
+    let ext = p.extension().and_then(|e| e.to_str()).map(|e| format!(".{e}")).unwrap_or_default();
+    (2..)
+        .map(|i| dir.join(format!("{stem} ({i}){ext}")))
+        .find(|c| !c.exists())
+        .expect("번호는 끝이 없다")
+}
+
+/// PNG 바이트를 클립보드에 그림으로 올린다. main thread 전용.
+#[cfg(target_os = "macos")]
+unsafe fn copy_png_to_pasteboard(png: &[u8]) -> bool {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject, Bool};
+
+    let (Some(data_cls), Some(pb_cls), Some(str_cls)) =
+        (AnyClass::get(c"NSData"), AnyClass::get(c"NSPasteboard"), AnyClass::get(c"NSString"))
+    else {
+        return false;
+    };
+    let data: *mut AnyObject =
+        msg_send![data_cls, dataWithBytes: png.as_ptr().cast::<std::ffi::c_void>(), length: png.len()];
+    let kind: *mut AnyObject = msg_send![str_cls, stringWithUTF8String: c"public.png".as_ptr()];
+    let pb: *mut AnyObject = msg_send![pb_cls, generalPasteboard];
+    if data.is_null() || kind.is_null() || pb.is_null() {
+        return false;
+    }
+    let _: isize = msg_send![pb, clearContents];
+    let ok: Bool = msg_send![pb, setData: data, forType: kind];
+    ok.as_bool()
+}
+
 fn open_db(data_dir: PathBuf) -> rusqlite::Result<Connection> {
     // dev 빌드는 별도 디렉토리로 분리
     let dir = if cfg!(debug_assertions) {
@@ -510,6 +569,85 @@ mod commands {
             .join(format!("nekodesk_{}.png", now));
         std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
         Ok(path.to_string_lossy().into_owned())
+    }
+
+    // ── 뷰어 ──────────────────────────────────────────────────────────────────
+
+    /// 그림·파일을 뷰어 창에 띄운다. 창은 하나 — 떠 있으면 내용만 바꾸고 앞으로 가져온다.
+    /// 창 만들기를 main thread 에서 기다리면 굳을 수 있어 async 로 둔다.
+    #[tauri::command(async)]
+    pub fn viewer_open(
+        app: tauri::AppHandle,
+        state: State<'_, crate::ViewerState>,
+        item: crate::ViewerItem,
+    ) -> Result<(), AppError> {
+        use tauri::Emitter;
+        let title = item.name.clone();
+        let is_image = item.data_url.is_some();
+        *state.0.lock()? = Some(item);
+        if let Some(win) = app.get_webview_window("viewer") {
+            win.set_title(&title)?;
+            let _ = app.emit_to("viewer", "viewer-open", ());
+            let _ = win.unminimize();
+            win.show()?;
+            win.set_focus()?;
+            return Ok(());
+        }
+        let (w, h) = if is_image { (960.0, 680.0) } else { (780.0, 600.0) };
+        tauri::WebviewWindowBuilder::new(&app, "viewer", tauri::WebviewUrl::App("index.html".into()))
+            .title(&title)
+            .inner_size(w, h)
+            .min_inner_size(360.0, 260.0)
+            .center()
+            .build()?;
+        Ok(())
+    }
+
+    /// 뷰어 창이 띄울 것을 가져간다.
+    #[tauri::command]
+    pub fn viewer_item(state: State<'_, crate::ViewerState>) -> Result<Option<crate::ViewerItem>, AppError> {
+        Ok(state.0.lock()?.clone())
+    }
+
+    /// 뷰어의 "다운로드". 그림은 data URL, 글은 text 로 받아 ~/Downloads 에 쓰고 경로를 돌려준다.
+    #[tauri::command(async)]
+    pub fn save_download(name: String, data_url: Option<String>, text: Option<String>) -> Result<String, AppError> {
+        use base64::Engine;
+        let bytes = match (data_url, text) {
+            (Some(url), _) => {
+                let b64 = url.split(',').nth(1).ok_or("invalid data URL")?;
+                base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| e.to_string())?
+            }
+            (None, Some(t)) => t.into_bytes(),
+            (None, None) => return Err("저장할 내용이 없어.".into()),
+        };
+        let dir = dirs::download_dir().ok_or("다운로드 폴더를 찾을 수 없어.")?;
+        let path = crate::unique_download_path(&dir, &name);
+        std::fs::write(&path, bytes)?;
+        Ok(path.to_string_lossy().into_owned())
+    }
+
+    /// Finder 에서 그 파일을 골라 보여준다.
+    #[tauri::command(async)]
+    pub fn reveal_in_finder(path: String) -> Result<(), AppError> {
+        std::process::Command::new("open").arg("-R").arg(&path).spawn()?;
+        Ok(())
+    }
+
+    /// 뷰어의 그림 "복사". 프런트가 PNG 로 바꿔 보낸다 — 다른 앱에 붙일 때 가장 잘 받는 형식.
+    /// NSPasteboard 는 AppKit 이라 동기 커맨드(main thread)로 둔다.
+    #[tauri::command]
+    pub fn copy_image(data_url: String) -> Result<(), AppError> {
+        use base64::Engine;
+        let b64 = data_url.split(',').nth(1).ok_or("invalid data URL")?;
+        let png = base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| e.to_string())?;
+        #[cfg(target_os = "macos")]
+        if !unsafe { crate::copy_png_to_pasteboard(&png) } {
+            return Err("클립보드에 못 넣었어.".into());
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = png;
+        Ok(())
     }
 
     // ── 파일 (files 모듈 위임) ────────────────────────────────────────────────
@@ -896,6 +1034,7 @@ pub fn run() {
             app.manage(DbState(Mutex::new(conn)));
             app.manage(LlamaServerState(Mutex::new(LlamaProc::default())));
             app.manage(crate::mcp::McpRegistry::new());
+            app.manage(ViewerState::default());
             #[cfg(target_os = "macos")]
             app.manage(crate::capture::CaptureState::default());
 
@@ -965,6 +1104,11 @@ pub fn run() {
             commands::shelf_add,
             commands::shelf_remove,
             commands::haptic_feedback,
+            commands::viewer_open,
+            commands::viewer_item,
+            commands::save_download,
+            commands::reveal_in_finder,
+            commands::copy_image,
             commands::quick_capture,
             #[cfg(target_os = "macos")]
             commands::capture_targets,
@@ -1031,4 +1175,23 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod download_tests {
+    use super::unique_download_path;
+
+    #[test]
+    fn numbers_duplicates_and_drops_directories() {
+        let dir = std::env::temp_dir().join(format!("neko-dl-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(unique_download_path(&dir, "그림.png"), dir.join("그림.png"));
+        std::fs::write(dir.join("그림.png"), b"x").unwrap();
+        std::fs::write(dir.join("그림 (2).png"), b"x").unwrap();
+        assert_eq!(unique_download_path(&dir, "그림.png"), dir.join("그림 (3).png"));
+        // 화면에서 온 이름에 경로가 섞여도 다운로드 폴더 밖으로 나가지 않는다.
+        assert_eq!(unique_download_path(&dir, "../../etc/passwd"), dir.join("passwd"));
+        assert_eq!(unique_download_path(&dir, ".."), dir.join("nekodesk"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

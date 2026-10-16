@@ -5,7 +5,8 @@
   "windows": [
     "main",
     "quick",
-    "capture-*"
+    "capture-*",
+    "viewer"
   ],
   "permissions": [
     "core:default",
@@ -16,6 +17,7 @@
     "core:window:allow-set-position",
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-hide",
+    "core:window:allow-close",
     "drag:default"
   ]
 }

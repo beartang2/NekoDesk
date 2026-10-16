@@ -1,0 +1,153 @@
+/* ── 뷰어 창 ─────────────────────────────────────────────────────────────────
+   따로 뜬 창 하나를 채운다. 위는 도구 막대(확대·축소·복사·다운로드), 아래는 보는 칸. */
+html.viewer-window,
+html.viewer-window body,
+html.viewer-window #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+.vw {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+.vw__bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: var(--hairline);
+  background: var(--bg-surface);
+}
+
+.vw__zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vw__pct {
+  min-width: 46px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.vw__status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.vw__link {
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.vw__btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  transition: background var(--dur-micro), color var(--dur-micro), border-color var(--dur-micro);
+}
+
+.vw__btn:hover {
+  background: var(--layer-hover);
+  color: var(--text-primary);
+}
+
+.vw__btn--icon {
+  padding: 5px 6px;
+}
+
+.vw__btn--on {
+  border-color: color-mix(in oklab, var(--accent) 50%, transparent);
+  background: var(--layer-selected);
+  color: var(--accent);
+}
+
+/* 보는 칸. 창보다 크면 스크롤로 넘치고, 끌어서도 옮긴다. */
+.vw__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-surface);
+}
+
+.vw__body--panning {
+  cursor: grabbing;
+}
+
+/* 작은 그림은 가운데. 큰 그림은 칸을 넘쳐 스크롤된다. */
+.vw__stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 100%;
+  min-height: 100%;
+  width: max-content;
+  height: max-content;
+}
+
+.vw__canvas {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.vw__image {
+  display: block;
+  max-width: none;
+  transform-origin: 0 0;
+  user-select: none;
+}
+
+/* 핀치하는 동안만 그림을 한 장의 판으로 올려 늘린다. 계속 두면 확대 뒤에도 원래 해상도 판을
+   늘려 보여 줘 흐릿하다 — 멈추면 떼서 그 배율로 다시 선명하게 그린다. */
+.vw__image--zooming {
+  will-change: transform;
+}
+
+.vw__text {
+  margin: 0;
+  padding: 16px 18px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  line-height: 1.55;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.vw__empty {
+  margin: 0;
+  padding: 40px 24px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}

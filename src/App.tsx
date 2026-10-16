@@ -27,6 +27,7 @@ import { useAgentPool, makeInitialMessages, parseMeta, splitAttachmentSection, t
 import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UpdatePrompt } from "./components/Update";
+import { openViewer, imageName } from "./components/Viewer";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
@@ -559,7 +560,13 @@ function ChatMessages({
               {m.images && m.images.length > 0 && (
                 <div className="message__images">
                   {m.images.map((url, i) => (
-                    <img key={i} src={url} alt="생성된 이미지" className="message__image" />
+                    <img
+                      key={i}
+                      src={url}
+                      alt="생성된 이미지"
+                      className="message__image"
+                      onClick={() => openViewer({ name: imageName(`네코 그림 ${i + 1}`, url), dataUrl: url })}
+                    />
                   ))}
                 </div>
               )}

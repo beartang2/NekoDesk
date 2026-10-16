@@ -119,7 +119,10 @@ function UpdateDialog({ update, onClose }: { update: Update; onClose: () => void
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key !== "Escape" || busy) return;
+      // 앱의 ESC(일하는 네코 멈추기)까지 가지 않게 처리했다고 표시한다.
+      e.preventDefault();
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

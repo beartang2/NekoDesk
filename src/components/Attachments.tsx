@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { AttachedFile } from "../hooks/useAgentLoop";
 import "./Attachments.css";
+import { openViewer } from "./Viewer";
 
 /**
  * 첨부 파일 표시 — 채팅 말풍선과 입력창이 같은 모양을 쓴다.
@@ -77,12 +78,12 @@ export function Attachments({ files, onRemove, compact = false }: Props) {
         const size = formatBytes(f.size);
         const ext = extensionOf(f.name);
         return isImage(f) && f.dataUrl ? (
-          <figure key={i} className="att att--image" title={f.name}>
+          <figure key={i} className="att att--image" title={f.name} onClick={() => openViewer({ name: f.name, dataUrl: f.dataUrl })}>
             <img className="att__preview" src={f.dataUrl} alt={f.name} />
             {onRemove && <RemoveButton onClick={() => onRemove(i)} />}
           </figure>
         ) : (
-          <div key={i} className="att att--file" title={f.name}>
+          <div key={i} className="att att--file" title={f.name} onClick={() => openViewer({ name: f.name, text: f.content || undefined })}>
             <span className="att__icon"><Icon size={compact ? 13 : 15} strokeWidth={1.75} /></span>
             <span className="att__meta">
               <span className="att__name">{f.name}</span>
@@ -98,7 +99,13 @@ export function Attachments({ files, onRemove, compact = false }: Props) {
 
 function RemoveButton({ onClick }: { onClick: () => void }) {
   return (
-    <button className="att__remove" onClick={onClick} title="제거" aria-label="첨부 제거">
+    <button
+      className="att__remove"
+      // 카드를 누르면 뷰어가 열린다. 지우기만 하고 뷰어는 안 열리게.
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      title="제거"
+      aria-label="첨부 제거"
+    >
       <X size={11} strokeWidth={2.5} />
     </button>
   );
