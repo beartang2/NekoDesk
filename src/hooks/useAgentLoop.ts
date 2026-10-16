@@ -391,6 +391,9 @@ export function useAgentPool() {
           case "step_start":
             setCatEmotion(sessionId, "curious");
             thinkingBuffer = ""; // 새 스텝의 생각 시작
+            // 앞 턴의 글이 아직 남아 있다면 답이 아니었다(재촉받고 다시 도는 중). 새 글이
+            // 오면 그걸로 바꾼다 — 안 비우면 "찾아볼게" 뒤에 새 답이 이어 붙는다.
+            streamBuffer = "";
             break;
 
           case "thinking_token":
