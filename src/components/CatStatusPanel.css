@@ -63,8 +63,15 @@
   background: var(--error);
 }
 
+/* 놀이 게이지는 고른 포인트색 그대로(--accent-base). --accent 는 글자용이라 라이트에선 일부러
+   어둡게 — 그것도 파랗게 틀어져(theme-colors.ts) — 잡혀 있어 그대로 쓰면 너무 진했다.
+   다크에선 살짝만 밝게. */
 .cat-gauge__fill--play {
-  background: var(--accent);
+  background: oklch(from var(--accent-base) calc(l + 0.05) c h);
+}
+
+:root.light .cat-gauge__fill--play {
+  background: var(--accent-base);
 }
 
 .cat-gauge__fill--play.cat-gauge__fill--low {

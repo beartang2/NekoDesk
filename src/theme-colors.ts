@@ -84,10 +84,23 @@ export function saveAccentHex(hex: string) {
 
 // ── Apply ─────────────────────────────────────────────────────────────────────
 
-export function applyThemeColors(isDark: boolean) {
-  const hex = getStoredAccent();
+/**
+ * 포인트색 변수를 문서에 건다.
+ *
+ * --accent 는 글자·버튼용이라 테마에 맞게 밝기를 보정한 색이다. HSL 로 밝기만 옮기다 보니
+ * 라이트에서 연보라(#b18cfe)가 진한 남보라로 — 눈엔 파랑에 가깝게 — 틀어진다.
+ * 그래서 고른 색 그대로를 --accent-base 로 따로 둔다. 말풍선·놀이 게이지처럼 "내가 고른
+ * 그 색" 으로 보여야 하는 곳은 이걸 바탕으로 밝기·채도만 바꾼다(App.css).
+ */
+export function setAccentVars(hex: string, isDark: boolean) {
   const { accent, accentDim, accentHover } = deriveAccent(hex, isDark);
-  document.documentElement.style.setProperty("--accent",       accent);
-  document.documentElement.style.setProperty("--accent-dim",   accentDim);
-  document.documentElement.style.setProperty("--accent-hover", accentHover);
+  const root = document.documentElement.style;
+  root.setProperty("--accent-base",  hex);
+  root.setProperty("--accent",       accent);
+  root.setProperty("--accent-dim",   accentDim);
+  root.setProperty("--accent-hover", accentHover);
+}
+
+export function applyThemeColors(isDark: boolean) {
+  setAccentVars(getStoredAccent(), isDark);
 }

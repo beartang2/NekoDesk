@@ -40,8 +40,12 @@ textarea {
   --text-muted:    oklch(0.520 0.016 285);
   --accent:        oklch(0.760 0.150 292);
   --accent-dim:    oklch(0.330 0.090 292);
-  /* 포인트색(설정에서 바꾸면 --accent 가 덮어써진다)을 따라가게 섞어서 만든다. */
-  --bubble-user:   color-mix(in oklab, var(--accent) 38%, var(--bg-base));
+  /* 고른 포인트색 그대로. 앱이 켜지면 theme-colors.ts 가 덮어쓴다(그 전에 쓸 기본값). */
+  --accent-base:   #a78bfa;
+  /* 사용자 말풍선. 고른 포인트색(--accent-base)의 색상(hue)은 그대로 두고
+     밝기·채도만 정한 불투명한 색. 예전엔 바탕색과 섞어서 만들었는데, 보라 기가 도는 바탕에
+     끌려 초록은 회색빛, 주황은 갈색빛으로 색상 자체가 틀어졌다. oklch 라 밝기를 바꿔도 색상이 안 돈다. */
+  --bubble-user:   oklch(from var(--accent-base) 0.39 calc(c * 0.5) h);
   --accent-hover:  oklch(0.400 0.110 292);
   --success:       oklch(0.740 0.110 155);
   --error:         oklch(0.660 0.170 22);
@@ -127,7 +131,7 @@ textarea {
   --text-muted:    oklch(0.680 0.010 85);
   --accent:        oklch(0.545 0.170 292);
   --accent-dim:    oklch(0.930 0.045 292);
-  --bubble-user:   color-mix(in oklab, var(--accent) 22%, var(--bg-base));
+  --bubble-user:   oklch(from var(--accent-base) 0.88 calc(c * 0.42) h);
   --accent-hover:  oklch(0.880 0.070 292);
   --success:       oklch(0.560 0.110 155);
   --error:         oklch(0.520 0.180 22);
@@ -1009,7 +1013,7 @@ html, body, #root {
  * 사용자 말은 짧은 발화라 말풍선이 맞다 — 누가 말했는지도 이걸로 구분된다.
  */
 /* accent-dim 은 배경과 밝기 차가 작아(라이트 0.958 vs 0.930) 말풍선이 바닥에 묻혔다.
-   말풍선만 따로 진하게 둔다. ponytail: 눈대중 비율 — 세거나 흐리면 --bubble-user 의 % 만 조정. */
+   말풍선만 따로 진하게 둔다. ponytail: 눈대중 값 — 세거나 흐리면 --bubble-user 의 밝기·채도 배율만 조정. */
 .message--user .message__bubble {
   background: var(--bubble-user);
   color: var(--text-primary);
