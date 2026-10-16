@@ -1,0 +1,299 @@
+/* ── 설정 공용 컨트롤 (ui.tsx) ────────────────────────────────────────────────
+   팝오버(Select·Tooltip)는 body 로 포털되므로 메뉴 패널(z-index 100)보다 위에 둔다. */
+
+/* 입력칸 공통 면. 카드보다 한 단계 들어가 보이게 바탕색을 깐다. */
+:root {
+  --field-bg: var(--bg-base);
+  --field-border: color-mix(in oklab, var(--text-primary) 10%, transparent);
+  --field-border-hover: color-mix(in oklab, var(--text-primary) 18%, transparent);
+  --field-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+@keyframes ui-pop-in {
+  from { opacity: 0; scale: 0.96; }
+}
+
+@keyframes ui-spin {
+  to { rotate: 360deg; }
+}
+
+.ui-spin {
+  animation: ui-spin 0.9s linear infinite;
+}
+
+/* ── Switch ── */
+.ui-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--text-primary) 18%, transparent);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background var(--dur-control) var(--ease-standard);
+}
+
+.ui-switch[data-state="checked"] {
+  background: var(--accent);
+}
+
+/* 누르는 동안 손잡이가 늘어난다. 버튼 전체가 줄어드는 공용 눌림 효과는 끈다. */
+.ui-switch:not(:disabled):active {
+  scale: 1;
+}
+
+.ui-switch__thumb {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.3);
+  translate: 2px 0;
+  transition:
+    translate var(--dur-control) var(--ease-standard),
+    width var(--dur-control) var(--ease-standard);
+}
+
+.ui-switch[data-state="checked"] .ui-switch__thumb { translate: 14px 0; }
+.ui-switch:active .ui-switch__thumb { width: 17px; }
+.ui-switch[data-state="checked"]:active .ui-switch__thumb { translate: 11px 0; }
+
+.ui-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background var(--dur-micro);
+}
+
+.ui-switch-row:hover {
+  background: var(--layer-hover);
+}
+
+/* ── Select ── */
+.ui-select {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px 6px 10px;
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: border-color var(--dur-micro), box-shadow var(--dur-control) var(--ease-standard);
+}
+
+.ui-select:hover {
+  border-color: var(--field-border-hover);
+}
+
+.ui-select[data-state="open"] {
+  border-color: var(--accent);
+  box-shadow: var(--field-ring);
+}
+
+.ui-select > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select[data-placeholder] {
+  color: var(--text-muted);
+}
+
+.ui-select__icon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: rotate var(--dur-control) var(--ease-standard);
+}
+
+.ui-select[data-state="open"] .ui-select__icon {
+  rotate: 180deg;
+}
+
+.ui-select__content {
+  z-index: 200;
+  min-width: var(--radix-select-trigger-width);
+  max-width: min(360px, var(--radix-select-content-available-width));
+  max-height: min(280px, var(--radix-select-content-available-height));
+  padding: 4px;
+  overflow: hidden;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  transform-origin: var(--radix-select-content-transform-origin);
+  animation: ui-pop-in var(--dur-control) var(--ease-standard);
+}
+
+.ui-select__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+  transition: background var(--dur-micro), color var(--dur-micro);
+}
+
+.ui-select__item > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select__item[data-highlighted] {
+  background: var(--layer-selected);
+  color: var(--text-primary);
+}
+
+.ui-select__item[data-state="checked"] {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.ui-select__check {
+  display: flex;
+  color: var(--accent);
+}
+
+/* ── Segmented ── */
+.ui-seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
+  border-radius: var(--r-sm);
+}
+
+.ui-seg__item {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: color var(--dur-micro), scale var(--dur-control) var(--ease-standard);
+}
+
+.ui-seg__item:hover {
+  color: var(--text-primary);
+}
+
+.ui-seg__item[data-state="on"] {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.ui-seg__pill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-sm), inset 0 0 0 1px color-mix(in oklab, var(--text-primary) 6%, transparent);
+}
+
+.ui-seg__label {
+  position: relative;
+}
+
+/* ── Icon button + tooltip ── */
+.ui-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: color var(--dur-micro), background var(--dur-micro), scale var(--dur-control) var(--ease-standard);
+}
+
+.ui-icon-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--layer-hover);
+}
+
+.ui-icon-btn--danger:hover:not(:disabled) {
+  color: var(--error);
+  background: color-mix(in oklab, var(--error) 14%, transparent);
+}
+
+.ui-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ui-tooltip {
+  z-index: 210;
+  padding: 4px 8px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  font-size: 11px;
+  user-select: none;
+  transform-origin: var(--radix-tooltip-content-transform-origin);
+  animation: ui-pop-in var(--dur-control) var(--ease-standard);
+}
+
+/* ── Collapse ──
+   설정 섹션(gap 10px) 안에서 쓴다. 접혀 있을 때 빈 간격이 남지 않게 위 간격을
+   상쇄하고 안쪽 여백으로 되돌린다. */
+.ui-collapse {
+  margin-top: -10px;
+}
+
+.ui-collapse__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+/* ── Saved label ── */
+.ui-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

@@ -68,25 +68,42 @@
 }
 
 .menu-tab {
+  position: relative;
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
-  padding: 12px 14px 10px;
+  padding: 12px 10px 11px;
+  font-family: inherit;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, scale var(--dur-control) var(--ease-standard);
+  transition: color var(--dur-micro), scale var(--dur-control) var(--ease-standard);
   white-space: nowrap;
+  -webkit-app-region: no-drag;
 }
 
 .menu-tab:hover {
   color: var(--text-secondary);
 }
 
-.menu-tab--active {
+.menu-tab[data-state="active"] {
   color: var(--text-primary);
-  border-bottom-color: var(--accent, #a78bfa);
+}
+
+/* 밑줄은 하나뿐이고 고른 탭으로 미끄러져 옮겨 간다(motion layoutId). */
+.menu-tab__indicator {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* 탭 줄은 눌림 효과로 줄어들지 않는다 — 밑줄 위치가 어긋나 보인다. */
+.menu-tab:not(:disabled):active {
+  scale: 1;
 }
 
 .menu-modal__close {
@@ -118,7 +135,16 @@
 .menu-modal__body::-webkit-scrollbar-track { background: transparent; }
 .menu-modal__body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-/* settings-modal__body 는 기존 SettingsModal.css 스타일 그대로 사용됨 */
+/* 탭 전환 애니메이션 틀. settings-modal__body 는 SettingsModal.css 스타일 그대로. */
+.menu-modal__panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-modal__panel:focus-visible {
+  outline: none;
+}
 
 /* ── Empty state ── */
 .menu-empty {

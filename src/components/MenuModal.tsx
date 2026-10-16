@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { execHistoryApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { X } from "lucide-react";
+import { Tabs } from "radix-ui";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { EASE_FAST } from "./ui";
 import { SettingsModal, type SettingsTab } from "./SettingsModal";
 import { ErrorBoundary } from "./ErrorBoundary";
 import type { ExecHistoryItem } from "../agent/types";
@@ -106,9 +109,10 @@ type MenuTab = SettingsTab | "history";
 const TABS: [MenuTab, string][] = [
   ["neko", "네코"],
   ["model", "모델"],
+  ["tools", "도구"],
   ["connect", "연동"],
-  ["perm", "권한·업데이트"],
   ["history", "실행 이력"],
+  ["perm", "권한·업데이트"],
 ];
 
 interface MenuModalProps {
@@ -122,50 +126,90 @@ interface MenuModalProps {
 
 export function MenuModal({ onClose, isDark, initialTab = "neko", leaving, onClosed }: MenuModalProps) {
   const [tab, setTab] = useState<MenuTab>(initialTab);
+  // 오른쪽 탭으로 가면 내용이 오른쪽에서 들어온다. 어디로 움직였는지 몸으로 읽힌다.
+  const [dir, setDir] = useState(0);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  function changeTab(next: MenuTab) {
+    const at = (t: MenuTab) => TABS.findIndex(([id]) => id === t);
+    setDir(Math.sign(at(next) - at(tab)));
+    setTab(next);
+  }
 
   function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
     if (e.target === e.currentTarget) onClose();
   }
 
   return (
-    <div className="menu-backdrop" data-leaving={leaving ? "" : undefined} onClick={handleBackdrop}>
-      <div
-        className="menu-modal"
-        // 안쪽 요소의 애니메이션도 여기로 올라온다. 퇴장 애니메이션일 때만 뗀다.
-        onAnimationEnd={(e) => { if (e.animationName === "menu-slide-out") onClosed?.(); }}
-      >
-        <div className="menu-modal__header">
-          <div className="menu-modal__tabs">
-            {TABS.map(([id, label]) => (
-              <button
-                key={id}
-                className={`menu-tab ${tab === id ? "menu-tab--active" : ""}`}
-                onClick={() => setTab(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <button className="menu-modal__close" onClick={onClose}><X size={13} /></button>
-        </div>
+    <MotionConfig reducedMotion="user">
+      <div className="menu-backdrop" data-leaving={leaving ? "" : undefined} onClick={handleBackdrop}>
+        <Tabs.Root asChild value={tab} onValueChange={(v) => changeTab(v as MenuTab)}>
+          <div
+            className="menu-modal"
+            // 안쪽 요소의 애니메이션도 여기로 올라온다. 퇴장 애니메이션일 때만 뗀다.
+            onAnimationEnd={(e) => { if (e.animationName === "menu-slide-out") onClosed?.(); }}
+          >
+            <div className="menu-modal__header">
+              <Tabs.List className="menu-modal__tabs" aria-label="설정">
+                {TABS.map(([id, label]) => (
+                  <Tabs.Trigger key={id} value={id} className="menu-tab">
+                    {tab === id && (
+                      <motion.span layoutId="menu-tab-indicator" className="menu-tab__indicator" transition={EASE_FAST} />
+                    )}
+                    {label}
+                  </Tabs.Trigger>
+                ))}
+              </Tabs.List>
+              <button className="menu-modal__close" onClick={onClose} aria-label="닫기"><X size={13} /></button>
+            </div>
 
-        {/* 경계를 본문에만 둔다. 패널 전체를 감싸면 오류 화면이 퇴장 애니메이션 없이 떠서
-            닫아도 animationend 가 안 와 화면에 남는다. 여기면 틀·닫기 버튼이 살아 있다. */}
-        <div className="menu-modal__body">
-          <ErrorBoundary label="설정" key={tab}>
-            {tab === "history" ? (
-              <ExecHistoryPanel />
-            ) : (
-              <SettingsModal
-                asTab
-                tab={tab}
-                onClose={onClose}
-                isDark={isDark}
-              />
-            )}
-          </ErrorBoundary>
-        </div>
+            {/* 경계를 본문에만 둔다. 패널 전체를 감싸면 오류 화면이 퇴장 애니메이션 없이 떠서
+                닫아도 animationend 가 안 와 화면에 남는다. 여기면 틀·닫기 버튼이 살아 있다. */}
+            <div className="menu-modal__body" ref={bodyRef}>
+              <AnimatePresence
+                mode="wait"
+                initial={false}
+                custom={dir}
+                // 나간 탭의 스크롤 위치를 새 탭이 물려받지 않게.
+                onExitComplete={() => bodyRef.current?.scrollTo({ top: 0 })}
+              >
+                <motion.div
+                  key={tab}
+                  custom={dir}
+                  variants={TAB_SLIDE}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  className="menu-modal__panel"
+                >
+                  {/* forceMount: 나가는 동안에도 이전 탭 내용이 남아 있어야 같이 빠진다. */}
+                  <Tabs.Content value={tab} forceMount className="menu-modal__panel">
+                    <ErrorBoundary label="설정">
+                      {tab === "history" ? (
+                        <ExecHistoryPanel />
+                      ) : (
+                        <SettingsModal
+                          asTab
+                          tab={tab}
+                          onClose={onClose}
+                          isDark={isDark}
+                        />
+                      )}
+                    </ErrorBoundary>
+                  </Tabs.Content>
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          </div>
+        </Tabs.Root>
       </div>
-    </div>
+    </MotionConfig>
   );
 }
+
+// 나갈 땐 짧게, 들어올 땐 조금 길게. 둘 다 길면 탭 하나 넘기는 데 굼뜨다.
+const TAB_SLIDE = {
+  enter: (d: number) => ({ opacity: 0, x: d * 14 }),
+  center: { opacity: 1, x: 0, transition: { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const } },
+  exit: (d: number) => ({ opacity: 0, x: d * -10, transition: { duration: 0.1, ease: "easeIn" as const } }),
+};

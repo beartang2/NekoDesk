@@ -1,23 +1,30 @@
-/* ── Backdrop ── */
+/* ── 설정 ────────────────────────────────────────────────────────────────────
+   예전엔 1px 테두리 상자·대문자 소제목·브라우저 기본 select/checkbox 로 된
+   양식이었다. 앱의 나머지(대화·활동 기록)는 테두리 없이 옅은 면으로 묶는데
+   설정만 따로 놀았다.
+
+   이제 섹션 하나가 옅은 면 한 장이다. 그 안의 입력칸은 한 단계 들어가 보이고
+   (--field-*, ui.css), 목록 행은 한 단계 떠 보인다. 테두리는 포커스·선택처럼
+   "지금 여기" 를 가리킬 때만 쓴다. */
+
+/* ── Backdrop / panel (단독 모달 — 지금은 MenuModal 탭으로만 쓴다) ── */
 .settings-backdrop {
   position: fixed;
   inset: 0;
   background: color-mix(in oklab, var(--bg-base) 72%, transparent);
-  backdrop-filter: blur(3px);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: stretch;
   justify-content: flex-end;
   padding: 44px 12px 8px 12px;
   z-index: 100;
-  backdrop-filter: blur(2px);
 }
 
-/* ── Modal panel (slides in from right) ── */
 .settings-modal {
   width: 380px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -27,10 +34,8 @@
 
 @keyframes settings-slide-in {
   from { opacity: 0; transform: translateX(16px); }
-  to   { opacity: 1; transform: translateX(0); }
 }
 
-/* ── Header ── */
 .settings-modal__header {
   display: flex;
   align-items: center;
@@ -44,24 +49,23 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
-  letter-spacing: 0.05em;
 }
 
 .settings-modal__close {
+  display: flex;
   background: none;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 13px;
-  padding: 2px 6px;
-  border-radius: 3px;
+  padding: 4px;
+  border-radius: var(--r-sm);
   -webkit-app-region: no-drag;
-  line-height: 1;
+  transition: color var(--dur-micro), background var(--dur-micro);
 }
 
 .settings-modal__close:hover {
   color: var(--text-primary);
-  background: var(--bg-raised);
+  background: var(--layer-hover);
 }
 
 /* ── Body ── */
@@ -69,100 +73,241 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px;
-  padding-bottom: 28px;
+  padding: 12px 12px 28px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 10px;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+}
+
+/* 섹션이 위에서부터 차례로 내려앉는다. 탭을 열 때마다 한 번. */
+.settings-modal__body > * {
+  animation: settings-section-in var(--dur-sheet) var(--ease-standard) both;
+}
+.settings-modal__body > :nth-child(2) { animation-delay: 35ms; }
+.settings-modal__body > :nth-child(3) { animation-delay: 70ms; }
+.settings-modal__body > :nth-child(4) { animation-delay: 105ms; }
+.settings-modal__body > :nth-child(5) { animation-delay: 140ms; }
+.settings-modal__body > :nth-child(n + 6) { animation-delay: 175ms; }
+
+@keyframes settings-section-in {
+  from { opacity: 0; translate: 0 8px; }
 }
 
 /* ── Section ── */
 .settings-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--text-primary) 3.5%, transparent);
 }
 
 .settings-section__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
 }
 
 .settings-section__title {
-  font-size: 11px;
+  margin: 0;
+  font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-primary);
 }
 
 .settings-section__desc {
+  margin: -4px 0 0;
   font-size: 11px;
+  line-height: 1.55;
   color: var(--text-muted);
-  line-height: 1.5;
+  text-wrap: pretty;
+  word-break: keep-all;
 }
 
-/* ── Input row ── */
+.settings-section__desc code,
+.settings-feedback code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--layer-hover);
+}
+
+/* ── Rows / fields ── */
 .settings-row {
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 
-.settings-input {
-  flex: 1;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 10px;
+.settings-row--right {
+  justify-content: flex-end;
+}
+
+.settings-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 이름표 + 입력칸 한 줄. 이름표 폭을 맞춰 입력칸 왼쪽 끝이 세로로 줄 선다. */
+.settings-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-field__label {
+  width: 56px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Inputs ── */
+.settings-input,
+.settings-textarea,
+.gen-param__input,
+.mcp-form__input {
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
+  border-radius: var(--r-sm);
   color: var(--text-primary);
   font-family: inherit;
   font-size: 12px;
   outline: none;
   -webkit-app-region: no-drag;
+  transition:
+    border-color var(--dur-micro),
+    box-shadow var(--dur-control) var(--ease-standard);
 }
 
-.settings-input:focus {
+.settings-input:hover,
+.settings-textarea:hover,
+.gen-param__input:hover,
+.mcp-form__input:hover {
+  border-color: var(--field-border-hover);
+}
+
+.settings-input:focus,
+.settings-textarea:focus,
+.gen-param__input:focus,
+.mcp-form__input:focus {
   border-color: var(--accent);
+  box-shadow: var(--field-ring);
 }
 
+.settings-input::placeholder,
+.settings-textarea::placeholder,
+.mcp-form__input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.settings-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+}
+
+.settings-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  font-size: 11.5px;
+  line-height: 1.65;
+  resize: vertical;
+}
+
+/* ── Buttons ──
+   기본은 포인트색 옅은 면(주 동작), --ghost 는 중립(보조 동작). */
 .settings-btn {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--accent);
   font-family: inherit;
   font-size: 12px;
-  padding: 6px 12px;
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   -webkit-app-region: no-drag;
-  white-space: nowrap;
-  transition: background 0.1s, scale var(--dur-control) var(--ease-standard);
+  transition:
+    background var(--dur-micro),
+    color var(--dur-micro),
+    border-color var(--dur-micro),
+    opacity var(--dur-micro),
+    scale var(--dur-control) var(--ease-standard);
 }
 
-.settings-btn:hover {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: var(--accent);
+.settings-btn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 26%, transparent);
+}
+
+.settings-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.settings-btn--ghost {
+  background: var(--layer-hover);
+  color: var(--text-secondary);
+}
+
+.settings-btn--ghost:hover:not(:disabled) {
+  background: var(--layer-active);
+  color: var(--text-primary);
+}
+
+.settings-btn--start {
+  min-width: 52px;
+  background: var(--accent);
+  color: var(--bg-base);
+  font-weight: 600;
+}
+
+.settings-btn--start:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 88%, var(--text-primary));
+}
+
+.settings-btn--stop {
+  background: color-mix(in oklab, var(--error) 14%, transparent);
+  color: var(--error);
+}
+
+.settings-btn--stop:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--error) 24%, transparent);
 }
 
 .settings-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px 3px 6px;
   background: none;
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  border: none;
+  border-radius: var(--r-sm);
   color: var(--accent);
   font-family: inherit;
-  font-size: 11px;
-  padding: 3px 8px;
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
   -webkit-app-region: no-drag;
-  transition: background 0.1s, scale var(--dur-control) var(--ease-standard);
+  transition: background var(--dur-micro), opacity var(--dur-micro), scale var(--dur-control) var(--ease-standard);
 }
 
 .settings-add-btn:hover:not(:disabled) {
-  background: var(--accent-dim);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
 }
 
 .settings-add-btn:disabled {
@@ -170,183 +315,154 @@
   cursor: default;
 }
 
-/* ── Status dot ── */
+/* ── Status / feedback ── */
 .settings-status {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
+  display: inline-flex;
+  font-size: 10.5px;
   font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
-.settings-status--idle    { color: var(--text-muted); }
-.settings-status--checking { color: var(--text-secondary); animation: pulse 1s infinite; }
-.settings-status--ok      { color: var(--success); background: rgba(122,171,135,0.12); }
-.settings-status--fail    { color: var(--error);   background: rgba(181, 90, 90, 0.12); }
+.settings-status--idle     { color: var(--text-muted); }
+.settings-status--checking { color: var(--text-secondary); background: var(--layer-hover); animation: pulse 1s infinite; }
+.settings-status--ok       { color: var(--success); background: color-mix(in oklab, var(--success) 14%, transparent); }
+.settings-status--fail     { color: var(--error); background: color-mix(in oklab, var(--error) 14%, transparent); }
 
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
+/* 알림(경고) 한 줄. */
 .settings-feedback {
-  display: flex;
-  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .settings-empty {
-  font-size: 12px;
+  padding: 16px 12px;
+  border: 1px dashed color-mix(in oklab, var(--text-primary) 14%, transparent);
+  border-radius: var(--r-sm);
   color: var(--text-muted);
+  font-size: 11.5px;
   text-align: center;
-  padding: 16px 0;
-  border: 1px dashed var(--border);
-  border-radius: 4px;
 }
 
-/* ── Textarea ── */
-.settings-textarea {
-  width: 100%;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+.server-error {
   padding: 8px 10px;
-  color: var(--text-primary);
-  font-family: inherit;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--error) 13%, transparent);
+  color: var(--error);
   font-size: 11px;
-  line-height: 1.6;
-  outline: none;
-  resize: vertical;
-  box-sizing: border-box;
-  -webkit-app-region: no-drag;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: pointer;
 }
 
-.settings-textarea:focus {
-  border-color: var(--accent);
-}
-
-.settings-row--right {
-  justify-content: flex-end;
-}
-
-.settings-btn--ghost {
-  background: none;
-  color: var(--text-muted);
-}
-
-.settings-btn--ghost:hover {
-  background: var(--bg-raised);
-  border-color: var(--border);
-  color: var(--text-secondary);
-}
-
-/* ── MCP server list ── */
-.mcp-list {
+/* ── 목록 행 공통 면 ──
+   카드(섹션) 위에 한 겹 더 뜬 면. 빠지고 들어오는 움직임은 motion 이 맡는다. */
+.mcp-list,
+.rule-list,
+.profile-list {
+  position: relative; /* popLayout 이 빠지는 행을 여기 기준으로 띄운다 */
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+}
+
+.mcp-row,
+.rule-row,
+.profile-row {
+  background: color-mix(in oklab, var(--text-primary) 4.5%, transparent);
+  border-radius: var(--r-sm);
+  transition: background var(--dur-micro), box-shadow var(--dur-control) var(--ease-standard), opacity var(--dur-control);
+}
+
+.mcp-row:hover,
+.rule-row:hover,
+.profile-row:hover {
+  background: color-mix(in oklab, var(--text-primary) 7%, transparent);
 }
 
 /* ── MCP server row ── */
 .mcp-row {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  transition: border-color 0.1s, scale var(--dur-control) var(--ease-standard);
+  padding: 8px 8px 8px 10px;
 }
 
-.mcp-row--disabled {
+.mcp-row--disabled .mcp-row__name,
+.mcp-row--disabled .mcp-row__tag,
+.mcp-row--disabled .mcp-row__detail {
   opacity: 0.5;
 }
 
 .mcp-row__header {
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-
-.mcp-row__toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-
-.mcp-row__toggle input[type="checkbox"] {
-  accent-color: var(--accent);
-  width: 13px;
-  height: 13px;
-  cursor: pointer;
-  flex-shrink: 0;
+  gap: 8px;
 }
 
 .mcp-row__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
-  color: var(--text-primary);
   font-weight: 500;
+  color: var(--text-primary);
+  transition: opacity var(--dur-control);
 }
 
 .mcp-row__tag {
-  font-size: 10px;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
   color: var(--accent);
-  background: var(--accent-dim);
-  padding: 1px 5px;
-  border-radius: 3px;
-  letter-spacing: 0.03em;
+  font-size: 10px;
+  font-weight: 500;
 }
 
 .mcp-row__btns {
   display: flex;
-  gap: 2px;
-}
-
-.mcp-row__btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 12px;
-  padding: 2px 5px;
-  cursor: pointer;
-  border-radius: 3px;
-  -webkit-app-region: no-drag;
-  line-height: 1;
-}
-
-.mcp-row__btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-surface);
-}
-
-.mcp-row__btn--del:hover {
-  color: var(--error);
+  gap: 1px;
 }
 
 .mcp-row__detail {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding-left: 38px; /* 스위치 폭 + 간격. 이름 아래로 줄 맞춘다. */
+  min-height: 18px;
 }
 
 .mcp-row__url {
-  font-size: 10px;
-  color: var(--text-muted);
-  font-family: inherit;
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
 }
 
 /* ── MCP server form ── */
 .mcp-form {
-  background: var(--bg-base);
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 45%, transparent);
 }
 
 .mcp-form__row {
@@ -355,35 +471,21 @@
   gap: 8px;
 }
 
+.mcp-form__row > .ui-seg {
+  flex: 1;
+}
+
 .mcp-form__label {
-  font-size: 11px;
-  color: var(--text-muted);
   width: 56px;
   flex-shrink: 0;
-  text-align: right;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
-.mcp-form__input,
-.mcp-form__select {
+.mcp-form__input {
   flex: 1;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 5px 8px;
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 12px;
-  outline: none;
-  -webkit-app-region: no-drag;
-}
-
-.mcp-form__input:focus,
-.mcp-form__select:focus {
-  border-color: var(--accent);
-}
-
-.mcp-form__select {
-  cursor: pointer;
+  min-width: 0;
+  padding: 6px 9px;
 }
 
 .mcp-form__actions {
@@ -394,33 +496,33 @@
 }
 
 .mcp-form__btn {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  padding: 5px 12px;
+  border: none;
+  border-radius: var(--r-sm);
   font-family: inherit;
   font-size: 12px;
-  padding: 5px 12px;
+  font-weight: 500;
   cursor: pointer;
   -webkit-app-region: no-drag;
-  transition: background 0.1s, scale var(--dur-control) var(--ease-standard);
+  transition: background var(--dur-micro), scale var(--dur-control) var(--ease-standard);
 }
 
 .mcp-form__btn--cancel {
+  background: var(--layer-hover);
   color: var(--text-secondary);
 }
 
 .mcp-form__btn--cancel:hover {
-  background: var(--bg-surface);
+  background: var(--layer-active);
 }
 
 .mcp-form__btn--save {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-dim);
+  background: var(--accent);
+  color: var(--bg-base);
 }
 
 .mcp-form__btn--save:hover {
-  background: var(--accent-hover);
+  background: color-mix(in oklab, var(--accent) 88%, var(--text-primary));
 }
 
 /* ── macOS permission buttons ── */
@@ -428,27 +530,32 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
-  margin-top: 4px;
 }
 
 .perm-btn {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  padding: 8px 10px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  cursor: pointer;
+  gap: 3px;
+  padding: 10px 26px 10px 10px;
+  background: color-mix(in oklab, var(--text-primary) 4.5%, transparent);
+  border: none;
+  border-radius: var(--r-sm);
+  font-family: inherit;
   text-align: left;
-  position: relative;
-  transition: border-color 0.15s, background 0.15s, scale var(--dur-control) var(--ease-standard);
+  cursor: pointer;
+  transition:
+    background var(--dur-micro),
+    translate var(--dur-control) var(--ease-standard),
+    box-shadow var(--dur-control) var(--ease-standard),
+    scale var(--dur-control) var(--ease-standard);
 }
 
 .perm-btn:hover {
-  border-color: var(--accent);
-  background: var(--accent-dim);
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  translate: 0 -1px;
+  box-shadow: var(--shadow-sm);
 }
 
 .perm-btn__label {
@@ -458,68 +565,52 @@
 }
 
 .perm-btn__desc {
-  font-size: 10px;
-  color: var(--text-muted);
+  font-size: 10.5px;
   line-height: 1.4;
+  color: var(--text-muted);
 }
 
 .perm-btn__arrow {
   position: absolute;
-  top: 7px;
+  top: 9px;
   right: 8px;
-  font-size: 11px;
   color: var(--text-muted);
-  opacity: 0.5;
+  opacity: 0.6;
+  transition: translate var(--dur-control) var(--ease-standard), color var(--dur-micro), opacity var(--dur-micro);
 }
 
 .perm-btn:hover .perm-btn__arrow {
   opacity: 1;
   color: var(--accent);
+  translate: 2px -2px;
 }
 
-/* ── Color customization ── */
-.color-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.color-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.color-row__label {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
+/* ── Accent color swatch ── */
 .color-row__swatch {
-  width: 64px;
-  height: 20px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  cursor: pointer;
   position: relative;
-  overflow: hidden;
+  width: 56px;
+  height: 24px;
   flex-shrink: 0;
-  transition: border-color 0.1s, scale var(--dur-control) var(--ease-standard);
+  overflow: hidden;
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--text-primary) 14%, transparent), var(--shadow-sm);
+  cursor: pointer;
+  transition: scale var(--dur-control) var(--ease-standard), box-shadow var(--dur-control);
 }
 
 .color-row__swatch:hover {
-  border-color: var(--accent);
+  scale: 1.05;
 }
 
 .color-row__input {
   position: absolute;
   inset: 0;
-  opacity: 0;
   width: 100%;
   height: 100%;
-  cursor: pointer;
   padding: 0;
   border: none;
+  opacity: 0;
+  cursor: pointer;
 }
 
 /* ── Cat variant grid ── */
@@ -530,304 +621,141 @@
 }
 
 .cat-variant-grid .cat-skin-option {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: none;
-  font-size: 0.78rem;
-  color: var(--text-muted);
+  gap: 7px;
+  padding: 5px 10px 5px 6px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--text-primary) 4.5%, transparent);
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, scale var(--dur-control) var(--ease-standard);
+  transition: background var(--dur-micro), color var(--dur-micro), scale var(--dur-control) var(--ease-standard);
 }
 
 .cat-variant-grid .cat-skin-option:hover {
-  background: var(--bg-base);
+  background: color-mix(in oklab, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
 }
 
 .cat-variant-grid .cat-skin-option--active {
-  border-color: var(--accent);
   color: var(--text-primary);
+  font-weight: 500;
+}
+
+.cat-skin-option__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  pointer-events: none;
 }
 
 .cat-variant-grid .cat-skin-swatch {
+  position: relative;
   width: 18px;
   height: 18px;
-  border-radius: 3px;
   flex-shrink: 0;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px oklch(0 0 0 / 0.12);
 }
 
-/* ── Model info ── */
-.model-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
+.cat-skin-option > span:last-child {
+  position: relative;
 }
-
-.model-info__name {
-  font-size: 0.78rem;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.model-info__badge {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  background: var(--bg-base);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 5px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.model-info__empty {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  font-style: italic;
-}
-
-/* Warm-up button states */
-.settings-btn--warmup-ready { border-color: var(--accent); color: var(--accent); }
-.settings-btn--warmup-fail  { border-color: #ef4444; color: #ef4444; }
 
 /* ── Gen params grid ── */
 .gen-params-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 10px 8px;
 }
 
 .gen-param {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
+  min-width: 0;
 }
 
 .gen-param__label {
-  font-size: 0.7rem;
+  font-size: 10.5px;
   color: var(--text-muted);
 }
 
 .gen-param__input {
-  background: var(--bg-base);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 0.78rem;
-  padding: 4px 7px;
   width: 100%;
   box-sizing: border-box;
+  padding: 5px 8px;
+  font-variant-numeric: tabular-nums;
 }
 
-.gen-param__input:focus {
-  outline: none;
-  border-color: var(--accent);
+/* 숫자칸 화살표는 작고 투박하다. 키보드 ↑↓ 와 직접 입력은 그대로 된다. */
+.gen-param__input::-webkit-inner-spin-button,
+.gen-param__input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
-/* Max Tokens labels span full width */
-.gen-param:nth-child(5),
-.gen-param:nth-child(6) {
-  grid-column: span 1;
-}
-
-/* ── Server status ── */
-.server-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.server-status::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.server-status--running {
-  color: var(--success);
-}
-
-.server-status--running::before {
-  background: var(--success);
-  box-shadow: 0 0 4px var(--success);
-}
-
-.server-status--stopped {
-  color: var(--text-muted);
-}
-
-.server-status--stopped::before {
-  background: var(--text-muted);
-}
-
-.server-error {
-  margin-top: 6px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: color-mix(in srgb, #f87171 15%, transparent);
-  border: 1px solid color-mix(in srgb, #f87171 40%, transparent);
-  color: #f87171;
-  font-size: 11px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  cursor: pointer;
-}
-
-/* ── Server model/mmproj select ── */
-.server-select {
-  flex: 1;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 8px;
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 12px;
-  outline: none;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-
-.server-select:focus {
-  border-color: var(--accent);
-}
-
-/* ── Server checkbox row (Flash Attn / Jinja) ── */
-.server-checkbox-row {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  margin-top: 2px;
-}
-
-.server-checkbox-row__item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-
-.server-checkbox-row__item input[type="checkbox"] {
-  accent-color: var(--accent);
-  width: 13px;
-  height: 13px;
-  cursor: pointer;
-}
-
-/* ── Server action buttons ── */
-.settings-btn--start {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.settings-btn--start:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-.settings-btn--start:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.settings-btn--stop {
-  background: rgba(181, 90, 90, 0.12);
-  border-color: var(--error);
-  color: var(--error);
-}
-
-.settings-btn--stop:hover:not(:disabled) {
-  background: rgba(181, 90, 90, 0.22);
-}
-
-/* ── 항상 허용한 작업 목록 ── */
-.rule-list {
+/* 스위치 여러 개를 한 덩어리로. */
+.switch-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  margin: 0 -4px;
 }
 
+/* ── 항상 허용한 작업 / 기억 ── */
 .rule-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-base);
+  padding: 4px 4px 4px 10px;
 }
 
 .rule-row__key {
   flex: 1;
-  font-size: 11px;
-  color: var(--text-secondary);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.rule-row__remove {
-  background: none;
-  border: none;
+  font-size: 11.5px;
   color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  padding: 2px;
-  transition: color 0.1s;
 }
 
-.rule-row__remove:hover {
-  color: var(--error);
+code.rule-row__key {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
 }
 
 /* 기억 종류 뱃지 — 내용보다 눈에 덜 띄어야 한다. */
 .memory-row__kind {
-  font-size: 10px;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 5px;
   flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--layer-hover);
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
-/* ── 모델 프로필 ──────────────────────────────────────────────────────────── */
-
-.profile-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
+/* ── 모델 프로필 ── */
 .profile-row {
   display: flex;
   align-items: center;
   gap: 4px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 6px 4px 8px;
-  transition: border-color 0.1s;
+  padding: 4px 4px 4px 10px;
 }
 
 .profile-row--active {
-  border-color: var(--accent);
+  background: var(--layer-selected);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 55%, transparent);
+}
+
+.profile-row--active:hover {
+  background: color-mix(in oklab, var(--accent) 20%, transparent);
 }
 
 .profile-row__main {
@@ -835,12 +763,13 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 4px 0;
   background: none;
   border: none;
-  padding: 4px 0;
-  cursor: pointer;
+  font-family: inherit;
   text-align: left;
+  cursor: pointer;
   -webkit-app-region: no-drag;
 }
 
@@ -848,18 +777,31 @@
   cursor: default;
 }
 
+/* 버튼 전체가 아니라 행이 눌린다 — 아이콘 버튼과 따로 줄어들면 어긋나 보인다. */
+.profile-row__main:not(:disabled):active {
+  scale: 1;
+}
+
 .profile-row__dot {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
   flex-shrink: 0;
+  border-radius: 50%;
   background: var(--text-muted);
   opacity: 0.4;
+  transition: background var(--dur-control), opacity var(--dur-control);
 }
 
+/* 살아 있는 서버는 숨 쉬듯 번진다. */
 .profile-row__dot--live {
-  background: var(--success, #4ade80);
+  background: var(--success);
   opacity: 1;
+  animation: live-pulse 2.2s var(--ease-standard) infinite;
+}
+
+@keyframes live-pulse {
+  0%        { box-shadow: 0 0 0 0 color-mix(in oklab, var(--success) 55%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 5px transparent; }
 }
 
 .profile-row__text {
@@ -877,29 +819,331 @@
 }
 
 .profile-row__sub {
-  font-size: 10px;
-  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--text-muted);
 }
 
 .profile-row__state {
-  font-size: 10px;
-  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--text-muted);
 }
 
 .profile-row--active .profile-row__state {
   color: var(--accent);
+  font-weight: 500;
 }
 
 .profile-editor {
-  margin-top: 6px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--text-primary) 8%, transparent);
+}
+
+/* ── 이미지 생성 테스트 ── */
+.image-test {
+  display: block;
+  width: 100%;
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-md);
+}
+
+/* ── 도구 목록 (카테고리별 아코디언) ── */
+.tool-acc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-group {
+  overflow: hidden;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--text-primary) 4.5%, transparent);
+}
+
+.tool-group__header {
+  margin: 0;
+  font: inherit;
+}
+
+.tool-group__trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  background: none;
+  border: none;
+  border-radius: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background var(--dur-micro);
+}
+
+.tool-group__trigger:hover {
+  background: var(--layer-hover);
+}
+
+/* 행 전체가 줄어들면 출렁인다. 화살표가 대신 움직인다. */
+.tool-group__trigger:not(:disabled):active {
+  scale: 1;
+}
+
+/* 아코디언 화살표는 앱 전체가 쫀득한 곡선을 쓴다(App.css --ease-chewy). */
+.tool-group__chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: rotate 620ms var(--ease-chewy), color var(--dur-micro);
+}
+
+.tool-group__trigger[data-state="open"] .tool-group__chevron {
+  rotate: 90deg;
+  color: var(--accent);
+}
+
+.tool-group__count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--layer-hover);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.tool-group__content {
+  overflow: hidden;
+}
+
+.tool-group__content[data-state="open"] {
+  animation: acc-down var(--dur-sheet) var(--ease-standard);
+}
+
+.tool-group__content[data-state="closed"] {
+  animation: acc-up var(--dur-control) var(--ease-standard);
+}
+
+@keyframes acc-down {
+  from { height: 0; opacity: 0; }
+  to   { height: var(--radix-accordion-content-height); opacity: 1; }
+}
+
+@keyframes acc-up {
+  from { height: var(--radix-accordion-content-height); opacity: 1; }
+  to   { height: 0; opacity: 0; }
+}
+
+.tool-group__list {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tool-group__empty {
+  margin: 0 8px 8px;
+}
+
+/* 펼치면 위에서부터 차례로 내려앉는다(--i = 순번, TSX 에서 넣는다). */
+.tool-group__list > li {
+  animation: tool-row-in var(--dur-sheet) var(--ease-standard) both;
+  animation-delay: calc(var(--i, 0) * 18ms);
+}
+
+@keyframes tool-row-in {
+  from { opacity: 0; translate: 0 -4px; }
+}
+
+/* 이름만 보이는 행. 누르면 팝업(.tool-pop)이 열린다. */
+.tool-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
   gap: 6px;
+  padding: 7px 8px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background var(--dur-micro), scale var(--dur-control) var(--ease-standard);
+}
+
+.tool-row:hover {
+  background: var(--layer-hover);
+}
+
+.tool-row[data-state="open"] {
+  background: var(--layer-selected);
+}
+
+/* 목록 행은 폭이 넓어 공용 눌림(0.96)이 크게 출렁인다. */
+.tool-row:not(:disabled):active {
+  scale: 0.985;
+}
+
+.tool-row__name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.tool-row__icon {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--dur-micro), color var(--dur-micro);
+}
+
+.tool-row:hover .tool-row__icon,
+.tool-row:focus-visible .tool-row__icon,
+.tool-row[data-state="open"] .tool-row__icon {
+  opacity: 1;
+}
+
+.tool-row[data-state="open"] .tool-row__icon {
+  color: var(--accent);
+}
+
+/* ── 도구 상세 팝업 ── body 로 포털되므로 메뉴 패널(z-index 100)보다 위. */
+.tool-pop {
+  z-index: 200;
+  width: min(340px, var(--radix-popover-content-available-width));
+  max-height: min(420px, var(--radix-popover-content-available-height));
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  transform-origin: var(--radix-popover-content-transform-origin);
+  animation: ui-pop-in var(--dur-control) var(--ease-standard);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.tool-pop[data-state="closed"] {
+  animation: tool-pop-out var(--dur-micro) ease-in both;
+}
+
+@keyframes tool-pop-out {
+  to { opacity: 0; scale: 0.96; }
+}
+
+.tool-pop:focus-visible {
+  outline: none;
+}
+
+.tool-pop__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -2px -4px 6px 0;
+}
+
+.tool-pop__name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tool-pop__close {
+  margin-left: auto;
+}
+
+.tool-pop__desc {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  word-break: keep-all;
+}
+
+.tool-pop__label {
+  margin: 12px 0 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.tool-pop__none {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.tool-pop__params {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-param {
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  background: var(--layer-hover);
+}
+
+.tool-param__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tool-param__name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tool-param__type {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--accent);
+}
+
+.tool-param__req {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--error) 14%, transparent);
+  color: var(--error);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.tool-param__desc {
+  margin: 3px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: keep-all;
 }

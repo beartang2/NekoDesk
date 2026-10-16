@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { memoryApi, settingsApi } from "../api/tauri";
-import { X, Zap, Pencil, Trash2, Settings } from "lucide-react";
-import type { Memory } from "../agent/types";
 import {
+  X, Zap, Pencil, Trash2, Settings, Plus, RefreshCw, MapPin, Loader2, ChevronRight, ArrowUpRight, Info,
+} from "lucide-react";
+import { Accordion, Popover } from "radix-ui";
+import { AnimatePresence, motion } from "motion/react";
+import type { Memory } from "../agent/types";
+import { Collapse, EASE, IconButton, SavedLabel, Segmented, Select, SwitchRow, Switch, listItem } from "./ui";
+import {
+  getMcpTools,
   loadMcpServers as syncMcpRegistry,
   readMcpServerConfigs,
   writeMcpServerConfigs,
@@ -14,11 +20,11 @@ import {
   saveGenParams,
   type GenParams,
 } from "../agent/llm-client";
-import { getStoredAccent, saveAccentHex, deriveAccent } from "../theme-colors";
+import { getStoredAccent, saveAccentHex, setAccentVars } from "../theme-colors";
 import { CAT_VARIANTS } from "../cat/spriteData";
 import { useCatStore } from "../stores/catStore";
 import { useSettingsStore, type ImageProvider, type ToolMode } from "../stores/settingsStore";
-import { getTool } from "../agent/tool-registry";
+import { getAllTools, getTool } from "../agent/tool-registry";
 import {
   DEFAULT_LLAMA_CONFIG,
   activateProfile,
@@ -123,14 +129,14 @@ function McpServerForm({ initial, onSave, onCancel }: McpFormProps) {
 
       <div className="mcp-form__row">
         <label className="mcp-form__label">전송 방식</label>
-        <select
-          className="mcp-form__select"
+        <Segmented
           value={transport}
-          onChange={(e) => setTransport(e.target.value as McpServer["transport"])}
-        >
-          <option value="http-sse">HTTP (SSE)</option>
-          <option value="stdio">stdio (명령어)</option>
-        </select>
+          onChange={setTransport}
+          options={[
+            { value: "http-sse", label: "HTTP (SSE)" },
+            { value: "stdio", label: "stdio (명령어)" },
+          ]}
+        />
       </div>
 
       {transport === "http-sse" ? (
@@ -193,26 +199,28 @@ function McpRow({ server, onToggle, onEdit, onDelete }: McpRowProps) {
   return (
     <div className={`mcp-row ${!server.enabled ? "mcp-row--disabled" : ""}`}>
       <div className="mcp-row__header">
-        <label className="mcp-row__toggle">
-          <input type="checkbox" checked={server.enabled} onChange={onToggle} />
-          <span className="mcp-row__name">{server.name}</span>
-        </label>
+        <Switch checked={server.enabled} onChange={onToggle} label={`${server.name} 켜기`} />
+        <span className="mcp-row__name">{server.name}</span>
         <span className="mcp-row__tag">{server.transport}</span>
         <div className="mcp-row__btns">
           {server.transport === "http-sse" && (
-            <button className="mcp-row__btn" onClick={check} title="연결 확인"><Zap size={12} /></button>
+            <IconButton label="연결 확인" onClick={check}><Zap size={12} /></IconButton>
           )}
-          <button className="mcp-row__btn" onClick={onEdit} title="편집"><Pencil size={12} /></button>
-          <button className="mcp-row__btn mcp-row__btn--del" onClick={onDelete} title="삭제"><Trash2 size={12} /></button>
+          <IconButton label="편집" onClick={onEdit}><Pencil size={12} /></IconButton>
+          <IconButton label="삭제" danger onClick={onDelete}><Trash2 size={12} /></IconButton>
         </div>
       </div>
       <div className="mcp-row__detail">
         <span className="mcp-row__url">
           {server.transport === "http-sse" ? server.url : server.command}
         </span>
-        {server.transport === "http-sse" && status !== "idle" && (
-          <StatusDot status={status} />
-        )}
+        <AnimatePresence>
+          {server.transport === "http-sse" && status !== "idle" && (
+            <motion.span key="status" initial={{ opacity: 0, x: 4 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={EASE}>
+              <StatusDot status={status} />
+            </motion.span>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -221,6 +229,8 @@ function McpRow({ server, onToggle, onEdit, onDelete }: McpRowProps) {
 // ── Model profiles section ────────────────────────────────────────────────────
 
 /** 관리형 프로필의 llama-server 실행 인자 편집기. */
+const KV_OPTIONS = ["q4_0", "q8_0", "f16"].map((v) => ({ value: v, label: v }));
+
 function LlamaConfigFields({
   config,
   models,
@@ -230,36 +240,31 @@ function LlamaConfigFields({
   models: string[];
   onChange: (patch: Partial<LlamaConfig>) => void;
 }) {
-  const mainModels = models.filter((m) => !m.toLowerCase().includes("mmproj"));
-  const mmprojModels = models.filter((m) => m.toLowerCase().includes("mmproj"));
+  const fileOption = (m: string) => ({ value: m, label: m.split("/").pop() ?? m });
+  const mainModels = models.filter((m) => !m.toLowerCase().includes("mmproj")).map(fileOption);
+  const mmprojModels = models.filter((m) => m.toLowerCase().includes("mmproj")).map(fileOption);
 
   return (
     <>
-      <div className="settings-row" style={{ alignItems: "center" }}>
-        <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>모델</span>
-        <select className="server-select" value={config.model} onChange={(e) => onChange({ model: e.target.value })}>
-          <option value="">-- 선택 --</option>
-          {mainModels.map((m) => <option key={m} value={m}>{m.split("/").pop()}</option>)}
-        </select>
+      <div className="settings-field">
+        <span className="settings-field__label">모델</span>
+        <Select value={config.model} onChange={(model) => onChange({ model })}
+          placeholder="모델 선택" options={[{ value: "", label: "선택 안 함" }, ...mainModels]} />
       </div>
 
-      <div className="settings-row" style={{ alignItems: "center" }}>
-        <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>mmproj</span>
-        <select className="server-select" value={config.mmproj} onChange={(e) => onChange({ mmproj: e.target.value })}>
-          <option value="">없음</option>
-          {mmprojModels.map((m) => <option key={m} value={m}>{m.split("/").pop()}</option>)}
-        </select>
+      <div className="settings-field">
+        <span className="settings-field__label">mmproj</span>
+        <Select value={config.mmproj} onChange={(mmproj) => onChange({ mmproj })}
+          options={[{ value: "", label: "없음" }, ...mmprojModels]} />
       </div>
 
-      <div className="settings-row" style={{ alignItems: "center" }}>
-        <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>MTP 모델</span>
-        <select className="server-select" value={config.model_draft} onChange={(e) => onChange({ model_draft: e.target.value })}>
-          <option value="">없음</option>
-          {mainModels.map((m) => <option key={m} value={m}>{m.split("/").pop()}</option>)}
-        </select>
+      <div className="settings-field">
+        <span className="settings-field__label">MTP 모델</span>
+        <Select value={config.model_draft} onChange={(model_draft) => onChange({ model_draft })}
+          options={[{ value: "", label: "없음" }, ...mainModels]} />
       </div>
 
-      <div className="gen-params-grid" style={{ marginTop: 4 }}>
+      <div className="gen-params-grid">
         <label className="gen-param">
           <span className="gen-param__label">GPU 레이어</span>
           <input className="gen-param__input" type="number" step="1" min="0"
@@ -308,36 +313,19 @@ function LlamaConfigFields({
             value={config.min_p}
             onChange={(e) => onChange({ min_p: parseFloat(e.target.value) || 0 })} />
         </label>
-        <label className="gen-param">
+        <div className="gen-param">
           <span className="gen-param__label">KV Cache K</span>
-          <select className="gen-param__input server-select" value={config.ctk} onChange={(e) => onChange({ ctk: e.target.value })}>
-            <option value="q4_0">q4_0</option>
-            <option value="q8_0">q8_0</option>
-            <option value="f16">f16</option>
-          </select>
-        </label>
-        <label className="gen-param">
+          <Segmented value={config.ctk} onChange={(ctk) => onChange({ ctk })} options={KV_OPTIONS} />
+        </div>
+        <div className="gen-param">
           <span className="gen-param__label">KV Cache V</span>
-          <select className="gen-param__input server-select" value={config.ctv} onChange={(e) => onChange({ ctv: e.target.value })}>
-            <option value="q4_0">q4_0</option>
-            <option value="q8_0">q8_0</option>
-            <option value="f16">f16</option>
-          </select>
-        </label>
-        <label className="gen-param">
-          <span className="gen-param__label">Reasoning</span>
-          <select className="gen-param__input server-select" value={config.reasoning} onChange={(e) => onChange({ reasoning: e.target.value })}>
-            <option value="off">off</option>
-            <option value="on">on</option>
-          </select>
-        </label>
-        <label className="gen-param">
+          <Segmented value={config.ctv} onChange={(ctv) => onChange({ ctv })} options={KV_OPTIONS} />
+        </div>
+        <div className="gen-param">
           <span className="gen-param__label">Reasoning Format</span>
-          <select className="gen-param__input server-select" value={config.reasoning_format} onChange={(e) => onChange({ reasoning_format: e.target.value })}>
-            <option value="none">none</option>
-            <option value="deepseek-r1">deepseek-r1</option>
-          </select>
-        </label>
+          <Segmented value={config.reasoning_format} onChange={(reasoning_format) => onChange({ reasoning_format })}
+            options={[{ value: "none", label: "none" }, { value: "deepseek-r1", label: "deepseek-r1" }]} />
+        </div>
         <label className="gen-param">
           <span className="gen-param__label">Reasoning Budget</span>
           <input className="gen-param__input" type="number" step="64" min="-1"
@@ -354,15 +342,11 @@ function LlamaConfigFields({
         </label>
       </div>
 
-      <div className="server-checkbox-row">
-        <label className="server-checkbox-row__item">
-          <input type="checkbox" checked={config.flash_attn} onChange={(e) => onChange({ flash_attn: e.target.checked })} />
-          <span>Flash Attn</span>
-        </label>
-        <label className="server-checkbox-row__item">
-          <input type="checkbox" checked={config.jinja} onChange={(e) => onChange({ jinja: e.target.checked })} />
-          <span>Jinja</span>
-        </label>
+      <div className="switch-list">
+        <SwitchRow label="Reasoning" checked={config.reasoning === "on"}
+          onChange={(on) => onChange({ reasoning: on ? "on" : "off" })} />
+        <SwitchRow label="Flash Attn" checked={config.flash_attn} onChange={(flash_attn) => onChange({ flash_attn })} />
+        <SwitchRow label="Jinja" checked={config.jinja} onChange={(jinja) => onChange({ jinja })} />
       </div>
     </>
   );
@@ -390,11 +374,15 @@ export function ModelProfilesSection() {
     commit({ ...state, profiles: state.profiles.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
   }
 
+  const [scanning, setScanning] = useState(false);
   const scanModels = useCallback(async () => {
+    setScanning(true);
     try {
       setModels(await invoke<string[]>("llama_scan_models"));
     } catch (e) {
       console.warn("llama_scan_models failed:", e);
+    } finally {
+      setScanning(false);
     }
   }, []);
 
@@ -470,90 +458,98 @@ export function ModelProfilesSection() {
     <section className="settings-section">
       <div className="settings-section__header">
         <h3 className="settings-section__title">모델 프로필</h3>
-        <button className="settings-btn settings-btn--ghost" onClick={scanModels}>모델 새로고침</button>
+        <button className="settings-btn settings-btn--ghost" onClick={scanModels} disabled={scanning}>
+          <RefreshCw size={12} className={scanning ? "ui-spin" : undefined} />
+          모델 새로고침
+        </button>
       </div>
       <p className="settings-section__desc">
         한 번 설정해두고 목록에서 누르면 연결된다. 로컬 모델은 눌렀을 때 앱이 직접 띄우고,
         외부 서버는 이미 떠 있는 OpenAI 호환 엔드포인트에 붙는다.
       </p>
 
-      {error && <div className="server-error" onClick={() => setError(null)}>{error}</div>}
+      <Collapse open={!!error}>
+        <div className="server-error" onClick={() => setError(null)}>{error}</div>
+      </Collapse>
 
       <div className="profile-list">
-        {state.profiles.map((p) => {
-          const isActive = p.id === state.activeId;
-          return (
-            <div key={p.id} className={`profile-row ${isActive ? "profile-row--active" : ""}`}>
-              <button className="profile-row__main" onClick={() => connect(p)} disabled={busyId !== null}>
-                <span className={`profile-row__dot ${isActive && live ? "profile-row__dot--live" : ""}`} />
-                <span className="profile-row__text">
-                  <span className="profile-row__name">{p.name}</span>
-                  <span className="profile-row__sub">{modelLabel(p)}</span>
-                </span>
-                <span className="profile-row__state">
-                  {busyId === p.id ? "연결 중…" : isActive ? (live ? "연결됨" : "중지됨") : p.config ? "로컬" : "외부"}
-                </span>
-              </button>
-              <div className="mcp-row__btns">
-                <button className="mcp-row__btn" title="편집"
-                  onClick={() => setEditingId(editingId === p.id ? null : p.id)}>
-                  <Pencil size={12} />
+        <AnimatePresence mode="popLayout" initial={false}>
+          {state.profiles.map((p) => {
+            const isActive = p.id === state.activeId;
+            return (
+              <motion.div key={p.id} {...listItem}
+                className={`profile-row ${isActive ? "profile-row--active" : ""} ${editingId === p.id ? "profile-row--editing" : ""}`}>
+                <button className="profile-row__main" onClick={() => connect(p)} disabled={busyId !== null}>
+                  <span className={`profile-row__dot ${isActive && live ? "profile-row__dot--live" : ""}`} />
+                  <span className="profile-row__text">
+                    <span className="profile-row__name">{p.name}</span>
+                    <span className="profile-row__sub">{modelLabel(p)}</span>
+                  </span>
+                  <span className="profile-row__state">
+                    {busyId === p.id
+                      ? <><Loader2 size={11} className="ui-spin" />연결 중</>
+                      : isActive ? (live ? "연결됨" : "중지됨") : p.config ? "로컬" : "외부"}
+                  </span>
                 </button>
-                <button className="mcp-row__btn mcp-row__btn--del" title="삭제"
-                  disabled={state.profiles.length < 2}
-                  onClick={() => removeProfile(p.id)}>
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            </div>
-          );
-        })}
+                <div className="mcp-row__btns">
+                  <IconButton label="편집" onClick={() => setEditingId(editingId === p.id ? null : p.id)}>
+                    <Pencil size={12} />
+                  </IconButton>
+                  <IconButton label="삭제" danger disabled={state.profiles.length < 2} onClick={() => removeProfile(p.id)}>
+                    <Trash2 size={12} />
+                  </IconButton>
+                </div>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
       </div>
 
       <div className="settings-row">
-        <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("local")}>+ 로컬 모델</button>
-        <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("external")}>+ 외부 서버</button>
+        <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("local")}><Plus size={12} />로컬 모델</button>
+        <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("external")}><Plus size={12} />외부 서버</button>
       </div>
 
-      {editing && (
-        <div className="profile-editor">
-          <div className="settings-row" style={{ alignItems: "center" }}>
-            <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>이름</span>
-            <input className="settings-input" value={editing.name}
-              onChange={(e) => patchProfile(editing.id, { name: e.target.value })} />
-          </div>
-
-          {editing.config ? (
-            <>
-              <LlamaConfigFields
-                config={editing.config}
-                models={models}
-                onChange={(patch) => patchProfile(editing.id, { config: { ...editing.config!, ...patch } })}
-              />
-              <div className="settings-row settings-row--right">
-                <button className="settings-btn settings-btn--stop"
-                  onClick={() => stopManaged(editing)}
-                  disabled={busyId !== null || !(editing.id === state.activeId && live)}>
-                  중지
-                </button>
-                <button className="settings-btn settings-btn--start"
-                  onClick={() => connect(editing)}
-                  disabled={busyId !== null || !editing.config.model}>
-                  {busyId === editing.id ? "..." : "실행"}
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="settings-row" style={{ alignItems: "center" }}>
-              <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>주소</span>
-              <input className="settings-input" value={editing.url}
-                placeholder="http://192.168.0.10:8080"
-                onChange={(e) => patchProfile(editing.id, { url: e.target.value })} />
+      <Collapse open={!!editing}>
+        {editing && (
+          <div className="profile-editor">
+            <div className="settings-field">
+              <span className="settings-field__label">이름</span>
+              <input className="settings-input" value={editing.name}
+                onChange={(e) => patchProfile(editing.id, { name: e.target.value })} />
             </div>
-          )}
-        </div>
-      )}
 
+            {editing.config ? (
+              <>
+                <LlamaConfigFields
+                  config={editing.config}
+                  models={models}
+                  onChange={(patch) => patchProfile(editing.id, { config: { ...editing.config!, ...patch } })}
+                />
+                <div className="settings-row settings-row--right">
+                  <button className="settings-btn settings-btn--stop"
+                    onClick={() => stopManaged(editing)}
+                    disabled={busyId !== null || !(editing.id === state.activeId && live)}>
+                    중지
+                  </button>
+                  <button className="settings-btn settings-btn--start"
+                    onClick={() => connect(editing)}
+                    disabled={busyId !== null || !editing.config.model}>
+                    {busyId === editing.id ? <Loader2 size={12} className="ui-spin" /> : "실행"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="settings-field">
+                <span className="settings-field__label">주소</span>
+                <input className="settings-input" value={editing.url}
+                  placeholder="http://192.168.0.10:8080"
+                  onChange={(e) => patchProfile(editing.id, { url: e.target.value })} />
+              </div>
+            )}
+          </div>
+        )}
+      </Collapse>
     </section>
   );
 }
@@ -624,25 +620,17 @@ function ToolModeSection() {
         프롬프트가 짧아진다. <code>--jinja</code> 로 띄운 llama-server 와 툴 템플릿이
         있는 모델이 필요하다. JSON 은 예전 방식으로, 턴당 툴 하나만 부른다.
       </p>
-      <div className="settings-row">
-        <select
-          className="mcp-form__select"
-          value={toolMode}
-          onChange={(e) => setToolMode(e.target.value as ToolMode)}
-        >
-          {(Object.keys(TOOL_MODE_LABELS) as ToolMode[]).map((m) => (
-            <option key={m} value={m}>
-              {TOOL_MODE_LABELS[m]}
-            </option>
-          ))}
-        </select>
-      </div>
-      {toolMode === "auto" && degraded && (
+      <Segmented
+        value={toolMode}
+        onChange={setToolMode}
+        options={(Object.keys(TOOL_MODE_LABELS) as ToolMode[]).map((m) => ({ value: m, label: TOOL_MODE_LABELS[m] }))}
+      />
+      <Collapse open={toolMode === "auto" && degraded}>
         <div className="settings-feedback">
           서버가 네이티브 툴 호출을 거부해서 JSON 모드로 돌고 있어요.
           llama-server 를 <code>--jinja</code> 로 다시 띄우면 자동으로 복구돼요.
         </div>
-      )}
+      </Collapse>
     </section>
   );
 }
@@ -698,7 +686,7 @@ function UserProfileSection() {
       <div className="settings-row settings-row--right">
         <button className="settings-btn settings-btn--ghost" onClick={reset}>초기화</button>
         <button className="settings-btn" onClick={save}>
-          {saved ? "저장됨" : "저장"}
+          <SavedLabel saved={saved} />
         </button>
       </div>
     </section>
@@ -746,10 +734,13 @@ function WeatherSection() {
           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
         />
         <button className="settings-btn settings-btn--ghost" onClick={fillCurrentLocation} disabled={locating}>
-          {locating ? "찾는 중…" : "현재 위치"}
+          {locating ? <Loader2 size={12} className="ui-spin" /> : <MapPin size={12} />}
+          {locating ? "찾는 중" : "현재 위치"}
         </button>
       </div>
-      {error && <div className="server-error" onClick={() => setError(null)}>{error}</div>}
+      <Collapse open={!!error}>
+        <div className="server-error" onClick={() => setError(null)}>{error}</div>
+      </Collapse>
     </section>
   );
 }
@@ -802,25 +793,23 @@ function ToolRulesSection() {
         위험한 명령(rm -rf, sudo 등)은 여기에 담기지 않고 매번 확인해요.
       </p>
       {empty ? (
-        <div className="settings-feedback">아직 없어요.</div>
+        <div className="settings-empty">아직 없어요.</div>
       ) : (
         <div className="rule-list">
-          {rules.map((key) => (
-            <div className="rule-row" key={key}>
-              <code className="rule-row__key">{key}</code>
-              <button className="rule-row__remove" onClick={() => removeRule(key)} title="지우기">
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
-          {roots.map((dir) => (
-            <div className="rule-row" key={`root:${dir}`}>
-              <code className="rule-row__key">쓰기 허용: {dir}</code>
-              <button className="rule-row__remove" onClick={() => removeRoot(dir)} title="지우기">
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
+          <AnimatePresence mode="popLayout" initial={false}>
+            {rules.map((key) => (
+              <motion.div className="rule-row" key={key} {...listItem}>
+                <code className="rule-row__key">{key}</code>
+                <IconButton label="지우기" danger onClick={() => removeRule(key)}><Trash2 size={12} /></IconButton>
+              </motion.div>
+            ))}
+            {roots.map((dir) => (
+              <motion.div className="rule-row" key={`root:${dir}`} {...listItem}>
+                <code className="rule-row__key">쓰기 허용: {dir}</code>
+                <IconButton label="지우기" danger onClick={() => removeRoot(dir)}><Trash2 size={12} /></IconButton>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       )}
     </section>
@@ -865,18 +854,18 @@ function MemoriesSection() {
         대화하면서 알게 된 것들이에요. 다음 대화에서도 관련된 것만 자동으로 떠올려요.
       </p>
       {memories.length === 0 ? (
-        <div className="settings-feedback">아직 기억한 게 없어요.</div>
+        <div className="settings-empty">아직 기억한 게 없어요.</div>
       ) : (
         <div className="rule-list">
-          {memories.map((m) => (
-            <div className="rule-row" key={m.id}>
-              <span className="memory-row__kind">{MEMORY_KIND_LABELS[m.kind] ?? m.kind}</span>
-              <span className="rule-row__key" title={m.content}>{m.content}</span>
-              <button className="rule-row__remove" onClick={() => remove(m.id)} title="잊기">
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
+          <AnimatePresence mode="popLayout" initial={false}>
+            {memories.map((m) => (
+              <motion.div className="rule-row" key={m.id} {...listItem}>
+                <span className="memory-row__kind">{MEMORY_KIND_LABELS[m.kind] ?? m.kind}</span>
+                <span className="rule-row__key" title={m.content}>{m.content}</span>
+                <IconButton label="잊기" danger onClick={() => remove(m.id)}><Trash2 size={12} /></IconButton>
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       )}
     </section>
@@ -936,8 +925,8 @@ function ImageGenSection() {
   }
 
   const keyRow = (k: ImageKey, label: string, secret = true) => (
-    <div className="settings-row" style={{ alignItems: "center" }}>
-      <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>{label}</span>
+    <div className="settings-field">
+      <span className="settings-field__label">{label}</span>
       <input className="settings-input" type={secret ? "password" : "text"} value={keys[k]}
         onChange={(e) => setKeys({ ...keys, [k]: e.target.value })}
         onBlur={() => saveKey(k).catch(console.warn)} />
@@ -945,8 +934,8 @@ function ImageGenSection() {
   );
 
   const modelRow = (field: "cfModel" | "googleModel", options: string[]) => (
-    <div className="settings-row" style={{ alignItems: "center" }}>
-      <span className="gen-param__label" style={{ width: 52, flexShrink: 0 }}>모델</span>
+    <div className="settings-field">
+      <span className="settings-field__label">모델</span>
       <input className="settings-input" list={`${field}-options`} value={imageGen[field]}
         onChange={(e) => setImageGen({ ...imageGen, [field]: e.target.value })} />
       <datalist id={`${field}-options`}>
@@ -963,36 +952,38 @@ function ImageGenSection() {
         (대시보드의 계정 ID + Workers AI 권한 토큰). Google 은 AI Studio 의 Gemini API 키를 쓰고
         모델에 따라 요금이 나와요.
       </p>
-      <div className="settings-row">
-        <select className="mcp-form__select" value={imageGen.provider}
-          onChange={(e) => { setImageGen({ ...imageGen, provider: e.target.value as ImageProvider }); setTest({}); }}>
-          <option value="off">끄기</option>
-          <option value="cloudflare">Cloudflare Workers AI</option>
-          <option value="google">Google Gemini</option>
-        </select>
-      </div>
-      {imageGen.provider === "cloudflare" && (
-        <>
-          {keyRow("cf_account_id", "계정 ID", false)}
-          {keyRow("cf_api_token", "API 토큰")}
-          {modelRow("cfModel", CF_IMAGE_MODELS)}
-        </>
-      )}
-      {imageGen.provider === "google" && (
-        <>
-          {keyRow("google_api_key", "API 키")}
-          {modelRow("googleModel", GOOGLE_IMAGE_MODELS)}
-        </>
-      )}
-      {imageGen.provider !== "off" && (
+      <Segmented<ImageProvider>
+        value={imageGen.provider}
+        onChange={(provider) => { setImageGen({ ...imageGen, provider }); setTest({}); }}
+        options={[
+          { value: "off", label: "끄기" },
+          { value: "cloudflare", label: "Cloudflare" },
+          { value: "google", label: "Google Gemini" },
+        ]}
+      />
+      <Collapse open={imageGen.provider === "cloudflare"}>
+        {keyRow("cf_account_id", "계정 ID", false)}
+        {keyRow("cf_api_token", "API 토큰")}
+        {modelRow("cfModel", CF_IMAGE_MODELS)}
+      </Collapse>
+      <Collapse open={imageGen.provider === "google"}>
+        {keyRow("google_api_key", "API 키")}
+        {modelRow("googleModel", GOOGLE_IMAGE_MODELS)}
+      </Collapse>
+      <Collapse open={imageGen.provider !== "off"}>
         <div className="settings-row settings-row--right">
           <button className="settings-btn" onClick={runTest} disabled={test.busy}>
-            {test.busy ? "그리는 중…" : "테스트"}
+            {test.busy && <Loader2 size={12} className="ui-spin" />}
+            {test.busy ? "그리는 중" : "테스트"}
           </button>
         </div>
-      )}
-      {test.error && <div className="server-error" onClick={() => setTest({})}>{test.error}</div>}
-      {test.url && <img src={test.url} alt="테스트 그림" style={{ width: "100%", borderRadius: 4 }} />}
+      </Collapse>
+      <Collapse open={!!test.error}>
+        <div className="server-error" onClick={() => setTest({})}>{test.error}</div>
+      </Collapse>
+      <Collapse open={!!test.url}>
+        <img src={test.url} alt="고양이 테스트 그림" className="image-test" />
+      </Collapse>
     </section>
   );
 }
@@ -1049,51 +1040,161 @@ function McpSection() {
           onClick={() => { setAddingNew(true); setEditingId(null); }}
           disabled={addingNew || !loaded}
         >
-          + 추가
+          <Plus size={12} />추가
         </button>
       </div>
       <p className="settings-section__desc">
         Model Context Protocol 서버를 연결해 고양이의 도구를 확장하세요.
       </p>
 
-      {addingNew && (
+      <Collapse open={addingNew}>
         <McpServerForm
           onSave={addServer}
           onCancel={() => setAddingNew(false)}
         />
-      )}
+      </Collapse>
 
       {servers.length === 0 && !addingNew && (
         <div className="settings-empty">연결된 MCP 서버가 없습니다.</div>
       )}
 
       <div className="mcp-list">
-        {servers.map((s) =>
-          editingId === s.id ? (
-            <McpServerForm
-              key={s.id}
-              initial={s}
-              onSave={updateServer}
-              onCancel={() => setEditingId(null)}
-            />
-          ) : (
-            <McpRow
-              key={s.id}
-              server={s}
-              onToggle={() => toggleServer(s.id)}
-              onEdit={() => { setEditingId(s.id); setAddingNew(false); }}
-              onDelete={() => deleteServer(s.id)}
-            />
-          )
-        )}
+        <AnimatePresence mode="popLayout" initial={false}>
+          {servers.map((s) => (
+            <motion.div key={s.id} {...listItem}>
+              {editingId === s.id ? (
+                <McpServerForm
+                  initial={s}
+                  onSave={updateServer}
+                  onCancel={() => setEditingId(null)}
+                />
+              ) : (
+                <McpRow
+                  server={s}
+                  onToggle={() => toggleServer(s.id)}
+                  onEdit={() => { setEditingId(s.id); setAddingNew(false); }}
+                  onDelete={() => deleteServer(s.id)}
+                />
+              )}
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
     </section>
   );
 }
 
+// ── 도구 목록 ─────────────────────────────────────────────────────────────────
+
+// 이름 앞부분(todo.add → todo)으로 묶는다. 표에 없는 새 툴은 유틸리티로 간다.
+const TOOL_CATEGORY: Record<string, string> = {
+  plan: "빌트인", user: "빌트인", agent: "빌트인", skill: "빌트인", memory: "빌트인",
+  fs: "파일·코드", file: "파일·코드", code: "파일·코드", airdrop: "파일·코드",
+  web: "웹",
+};
+
+interface ToolInfo {
+  name: string;
+  description: string;
+  server?: string;
+  params?: {
+    properties?: Record<string, { type?: string; description?: string; enum?: string[]; items?: { type: string } }>;
+    required?: string[];
+  };
+}
+
+function ToolsSection() {
+  // 모델에게 실제로 보내는 목록과 같은 소스를 읽는다 — 꺼둔 이미지 생성은 여기서도 빠진다.
+  const groups = new Map<string, ToolInfo[]>(
+    ["빌트인", "파일·코드", "웹", "유틸리티"].map((c) => [c, []])
+  );
+  for (const t of getAllTools()) {
+    groups.get(TOOL_CATEGORY[t.name.split(".")[0]] ?? "유틸리티")!.push(t);
+  }
+  groups.set("MCP", getMcpTools().map((e) => ({ ...e.tool, server: e.serverName, params: e.tool.inputSchema })));
+
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">도구</h3>
+      <p className="settings-section__desc">네코가 쓸 수 있는 도구입니다. 누르면 설명과 매개변수를 볼 수 있어요.</p>
+      <Accordion.Root type="multiple" className="tool-acc">
+        {[...groups].map(([category, tools]) => (
+          <Accordion.Item key={category} value={category} className="tool-group">
+            <Accordion.Header className="tool-group__header">
+              <Accordion.Trigger className="tool-group__trigger">
+                <ChevronRight size={13} className="tool-group__chevron" />
+                {category}
+                <span className="tool-group__count">{tools.length}</span>
+              </Accordion.Trigger>
+            </Accordion.Header>
+            <Accordion.Content className="tool-group__content">
+              {tools.length === 0 ? (
+                <div className="settings-empty tool-group__empty">연결된 MCP 도구가 없습니다. 연동 탭에서 서버를 추가하세요.</div>
+              ) : (
+                <ul className="tool-group__list">
+                  {tools.map((t, i) => (
+                    // 펼칠 때 위에서부터 차례로 내려앉는다. 길어도 지연은 12번째에서 멈춘다.
+                    <li key={t.name} style={{ "--i": Math.min(i, 12) } as React.CSSProperties}>
+                      <ToolRow tool={t} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Accordion.Content>
+          </Accordion.Item>
+        ))}
+      </Accordion.Root>
+    </section>
+  );
+}
+
+/** 목록엔 이름만. 누르면 설명·매개변수를 행 바로 아래 팝업으로 보여준다. */
+function ToolRow({ tool }: { tool: ToolInfo }) {
+  const params = Object.entries(tool.params?.properties ?? {});
+  const required = new Set(tool.params?.required ?? []);
+
+  return (
+    <Popover.Root>
+      <Popover.Trigger className="tool-row">
+        <span className="tool-row__name">{tool.name}</span>
+        {tool.server && <span className="mcp-row__tag">{tool.server}</span>}
+        <Info size={12} className="tool-row__icon" />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content className="tool-pop" side="bottom" align="start" sideOffset={4} collisionPadding={12}>
+          <div className="tool-pop__head">
+            <span className="tool-pop__name">{tool.name}</span>
+            {tool.server && <span className="mcp-row__tag">{tool.server}</span>}
+            <Popover.Close className="ui-icon-btn tool-pop__close" aria-label="닫기"><X size={12} /></Popover.Close>
+          </div>
+          <p className="tool-pop__desc">{tool.description || "설명이 없습니다."}</p>
+
+          <div className="tool-pop__label">매개변수</div>
+          {params.length === 0 ? (
+            <p className="tool-pop__none">없음</p>
+          ) : (
+            <ul className="tool-pop__params">
+              {params.map(([key, p]) => (
+                <li key={key} className="tool-param">
+                  <div className="tool-param__head">
+                    <code className="tool-param__name">{key}</code>
+                    <span className="tool-param__type">{p.enum ? p.enum.join(" | ") : p.items ? `${p.items.type}[]` : p.type ?? "any"}</span>
+                    {required.has(key) && <span className="tool-param__req">필수</span>}
+                  </div>
+                  {p.description && <p className="tool-param__desc">{p.description}</p>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
 // ── Settings modal ────────────────────────────────────────────────────────────
 
-export type SettingsTab = "neko" | "model" | "connect" | "perm";
+export type SettingsTab = "neko" | "model" | "connect" | "tools" | "perm";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -1115,19 +1216,13 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
   function handleAccentChange(hex: string) {
     setAccentHex(hex);
     saveAccentHex(hex);
-    const { accent, accentDim, accentHover } = deriveAccent(hex, isDark);
-    document.documentElement.style.setProperty("--accent", accent);
-    document.documentElement.style.setProperty("--accent-dim", accentDim);
-    document.documentElement.style.setProperty("--accent-hover", accentHover);
+    setAccentVars(hex, isDark);
   }
 
   function resetAccent() {
     const defaultHex = "#a78bfa";
     saveAccentHex(defaultHex);
-    const { accent, accentDim, accentHover } = deriveAccent(defaultHex, isDark);
-    document.documentElement.style.setProperty("--accent", accent);
-    document.documentElement.style.setProperty("--accent-dim", accentDim);
-    document.documentElement.style.setProperty("--accent-hover", accentHover);
+    setAccentVars(defaultHex, isDark);
     setAccentHex(defaultHex);
   }
 
@@ -1184,7 +1279,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
               <section className="settings-section">
                 <div className="settings-section__header">
                   <h3 className="settings-section__title">포인트 색상</h3>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className="settings-inline">
                     <div className="color-row__swatch"
                       style={{ background: accentHex }}
                       onClick={() => accentInputRef.current?.click()}
@@ -1212,6 +1307,10 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                       className={`cat-skin-option ${v.id === catVariantId ? "cat-skin-option--active" : ""}`}
                       onClick={() => onCatVariantChange(v.id)}
                     >
+                      {/* 고른 테두리가 옆 칸으로 미끄러져 옮겨 간다. */}
+                      {v.id === catVariantId && (
+                        <motion.span layoutId="cat-skin-ring" className="cat-skin-option__ring" transition={EASE} />
+                      )}
                       <span className="cat-skin-swatch" style={{ background: v.swatchCss }} />
                       <span>{v.name}</span>
                     </button>
@@ -1243,7 +1342,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                     초기화
                   </button>
                   <button className="settings-btn" onClick={saveSystemPrompt}>
-                    {promptSaved ? "저장됨" : "저장"}
+                    <SavedLabel saved={promptSaved} />
                   </button>
                 </div>
               </section>
@@ -1285,7 +1384,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                     onBlur={saveBraveSearchKey}
                   />
                   <button className="settings-btn" onClick={saveBraveSearchKey}>
-                    {braveSearchSaved ? "저장됨" : "저장"}
+                    <SavedLabel saved={braveSearchSaved} />
                   </button>
                 </div>
               </section>
@@ -1294,6 +1393,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
               <McpSection />
             </>
           )}
+          {tab === "tools" && <ToolsSection />}
           {tab === "perm" && (
             <>
               <UpdateSection />
@@ -1332,7 +1432,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                     >
                       <span className="perm-btn__label">{label}</span>
                       <span className="perm-btn__desc">{desc}</span>
-                      <span className="perm-btn__arrow">↗</span>
+                      <ArrowUpRight size={12} className="perm-btn__arrow" />
                     </button>
                   ))}
                 </div>
