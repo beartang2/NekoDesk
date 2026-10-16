@@ -60,6 +60,26 @@ jobs:
             echo NOTES_EOF
           } >> "$GITHUB_OUTPUT"
 
+      # 직접 만든 고정 인증서로 서명한다(Apple 개발자 계정 없음). ad-hoc 서명은 빌드마다 서명값이
+      # 바뀌어 macOS 가 손쉬운 사용·화면 녹화 권한을 업데이트마다 잊었다. 같은 인증서면 유지된다.
+      # Tauri 의 APPLE_CERTIFICATE 경로는 "신뢰된" 인증서만 고를 수 있어, 키체인은 직접 만들고
+      # Tauri 에는 이름만 넘긴다. 인증서·비밀번호는 맥의 ~/.tauri/nekodesk-signing.p12*.
+      - name: 서명 인증서
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          kc="$RUNNER_TEMP/sign.keychain-db"
+          pw=$(openssl rand -hex 16)
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$pw" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$pw" "$kc"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pw" "$kc" > /dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
       # 업데이터 파일(.app.tar.gz, .sig, latest.json)은 CI 에서만 만든다.
       # 로컬 빌드에 서명 키가 없어도 실패하지 않게.
       - uses: tauri-apps/tauri-action@v0
@@ -87,7 +107,7 @@ jobs:
 
             이후 업데이트는 앱 안에서 안내가 뜬다.
           releaseDraft: false
-          args: --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          args: --config '{"bundle":{"createUpdaterArtifacts":true,"macOS":{"signingIdentity":"NekoDesk Self-Signed"}}}'
 
       - name: main 을 배포된 커밋으로
         run: git push origin HEAD:main
