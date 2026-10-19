@@ -666,14 +666,11 @@ export function useAgentPool() {
         }
       }
 
-      // 끼울 틈 없이 끝났으면(답만 한 요청, 중단) 기다리던 말을 다음 요청으로 보낸다.
+      // 끼울 틈 없이 답이 끝났으면 기다리던 말을 다음 요청으로 보낸다. 멈춘 거라면 stop 이 이미
+      // 보냈다 — 여기서 또 꺼내면 새 요청의 대기열을 가로챈다.
       // ponytail: 연결 오류로 끝나도 보낸다 — 줄 선 만큼 같은 오류가 이어진다.
       // 거슬리면 오류일 땐 대기열을 남겨 두고 사용자가 다시 보내게 한다.
-      const [waiting, ...rest] = queueRef.current[sessionId] ?? [];
-      if (waiting) {
-        setQueue(sessionId, rest);
-        void sendMessage(sessionId, waiting.userText, waiting.files, waiting.displayText, waiting.summaryContext, waiting.requireTool);
-      }
+      if (!controller.signal.aborted) sendWaiting(sessionId);
     },
     // patchSessionMessages / setRunning / setCatEmotion are defined in render scope
     // but don't capture stale state — they use functional setters or refs
@@ -681,13 +678,26 @@ export function useAgentPool() {
     []
   );
 
+  /** 기다리던 말 가운데 맨 앞을 새 요청으로 보낸다. */
+  function sendWaiting(sessionId: string) {
+    const [waiting, ...rest] = queueRef.current[sessionId] ?? [];
+    if (!waiting) return;
+    setQueue(sessionId, rest);
+    void sendMessage(sessionId, waiting.userText, waiting.files, waiting.displayText, waiting.summaryContext, waiting.requireTool);
+  }
+
   const stop = useCallback(
     (sessionId: string) => {
       // 진행 중인 fetch 를 실제로 끊는다. llama.cpp 가 생성을 중단한다.
       abortRefs.current[sessionId]?.abort();
       setRunning(sessionId, false);
       setCatEmotion(sessionId, "idle");
-      setPendingClarify((prev) => (prev?.sessionId === sessionId ? null : prev));
+      // 되묻는 중에 멈춰도 promise 를 풀어 준다. 안 그러면 루프가 대답을 영영 기다린다.
+      setPendingClarify((prev) => {
+        if (prev?.sessionId !== sessionId) return prev;
+        prev.resolve("");
+        return null;
+      });
       // 확인 대기 중에 stop 을 누르면 promise 를 풀어줘야 한다. 안 그러면 제너레이터가
       // 영원히 await 에 매달려 abort 신호를 확인할 기회조차 못 갖는다.
       setPendingConfirm((prev) => {
@@ -698,7 +708,11 @@ export function useAgentPool() {
       useMessageStore.getState().patch(sessionId, (msgs) =>
         msgs.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
       );
+      // 기다리던 말은 멈추자마자 보낸다. 멈춘 루프가 끝나기를 기다리면, 도구가 도는 중이거나
+      // 기억을 떠올리는 중일 때(신호를 안 받는 일) 그게 끝날 때까지 안 나갔다.
+      sendWaiting(sessionId);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 

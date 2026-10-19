@@ -12,13 +12,13 @@ vi.mock("../api/tauri", () => ({ conversationApi: { save: (...args: unknown[]) =
 vi.mock("../lib/notify", () => ({ notifyIfAway: vi.fn(), toNotificationBody: (s: string) => s }));
 
 type Take = () => unknown[];
-type Script = (take: Take) => AsyncGenerator<LoopEvent>;
+type Script = (take: Take, signal: AbortSignal) => AsyncGenerator<LoopEvent>;
 const scripts: Script[] = [];
 const loopInputs: string[] = [];
 vi.mock("../agent/agent-loop", () => ({
-  runAgentLoop: (input: string, _h: unknown, _c: unknown, _s: unknown, take: Take) => {
+  runAgentLoop: (input: string, _h: unknown, _c: unknown, signal: AbortSignal, take: Take) => {
     loopInputs.push(input);
-    return scripts.shift()!(take);
+    return scripts.shift()!(take, signal);
   },
 }));
 
@@ -132,5 +132,52 @@ describe("일하는 사이 보낸 말", () => {
     await act(async () => { answer.open(); await first; });
     expect(loopInputs).toEqual(["질문"]);
     expect(shown()).toEqual([["user", "질문"], ["assistant", "답"]]);
+  });
+
+  it("생각하는 중에 보내고 멈추면 기다리던 말이 바로 나간다", async () => {
+    // 진짜 루프처럼 생각을 흘리다가, 멈추면(abort) 연결이 끊겨 조용히 끝난다.
+    scripts.push(async function* (_take, signal) {
+      yield { type: "thinking_token", token: "음…" };
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
+    });
+    scripts.push(async function* () {
+      yield { type: "done", answer: "새 답", steps: [] };
+    });
+
+    const { result } = renderHook(() => useAgentPool());
+    let first!: Promise<void>;
+    act(() => { first = result.current.sendMessage("s", "첫 질문"); });
+    await act(async () => { await result.current.sendMessage("s", "기다리던 말"); });
+    expect(result.current.queued("s")).toHaveLength(1);
+
+    await act(async () => { result.current.stop("s"); await first; });
+    await waitFor(() => expect(loopInputs).toEqual(["첫 질문", "기다리던 말"]));
+    expect(result.current.queued("s")).toEqual([]);
+    await waitFor(() => expect(shown().slice(-1)[0]).toEqual(["assistant", "새 답"]));
+  });
+
+  it("멈춘 루프가 바로 안 끝나도(도구가 도는 중 등) 기다리던 말은 멈추자마자 나간다", async () => {
+    const tool = gate();
+    scripts.push(async function* () {
+      yield { type: "thinking_token", token: "음…" };
+      await tool.opened; // 신호를 안 받는 일 — 멈춰도 이게 끝나야 루프가 끝난다
+    });
+    scripts.push(async function* () {
+      yield { type: "done", answer: "새 답", steps: [] };
+    });
+
+    const { result } = renderHook(() => useAgentPool());
+    let first!: Promise<void>;
+    act(() => { first = result.current.sendMessage("s", "첫 질문"); });
+    await act(async () => { await result.current.sendMessage("s", "기다리던 말"); });
+
+    act(() => result.current.stop("s"));
+    await waitFor(() => expect(loopInputs).toEqual(["첫 질문", "기다리던 말"]));
+    expect(result.current.queued("s")).toEqual([]);
+    await waitFor(() => expect(shown().slice(-1)[0]).toEqual(["assistant", "새 답"]));
+
+    // 멈춘 루프가 나중에 끝나도 두 번 보내지 않는다.
+    await act(async () => { tool.open(); await first; });
+    expect(loopInputs).toEqual(["첫 질문", "기다리던 말"]);
   });
 });
