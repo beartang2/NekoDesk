@@ -1,13 +1,14 @@
 /* ── Backdrop ── */
 .menu-backdrop {
   position: fixed;
-  inset: 0;
+  /* 제목 표시줄은 덮지 않는다. 덮으면 설정이 떠 있는 동안 창을 끌어 옮길 수 없다. */
+  inset: var(--titlebar-h) 0 0 0;
   background: color-mix(in oklab, var(--bg-base) 72%, transparent);
   backdrop-filter: blur(3px);
   display: flex;
   align-items: stretch;
   justify-content: flex-end;
-  padding: 44px 12px 8px 12px;
+  padding: 4px 12px 8px 12px;
   z-index: 100;
   backdrop-filter: blur(2px);
 }
