@@ -52,6 +52,7 @@ function stripThink(text: string): string {
 }
 import { storeFile, removeFile } from "./agent/file-store";
 import { resizeImageForLlm } from "./lib/image";
+import { auroraTints, wave } from "./lib/aurora";
 import { applyThemeColors } from "./theme-colors";
 import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
 import type {
@@ -148,6 +149,15 @@ function useZoom() {
  * ponytail: 가장자리에 대면 화면 반쪽을 채우는 macOS 타일링은 안 된다. 그건 macOS 의
  * 끌기에서만 나온다 — 고쳐지면 start_dragging 으로 되돌린다.
  */
+/** 채팅 위 오로라 빛 다섯 덩이의 가운데 자리(가로·세로 0~1). 사이 덩이는 조금 위에 둔다. */
+const AURORA_AT: [x: number, y: number][] = [
+  [0.14, 0.3],
+  [0.3, 0.18],
+  [0.46, 0.26],
+  [0.66, 0.18],
+  [0.86, 0.34],
+];
+
 function dragWindow(startX: number, startY: number) {
   const win = getCurrentWindow();
   const origin = Promise.all([win.outerPosition(), win.scaleFactor()])
@@ -1712,6 +1722,29 @@ export default function App() {
     appStyle,
   } = useLayout();
 
+  // 채팅 위 오로라 빛 다섯 덩이. 캡처 막 가장자리 빛과 같은 방식으로 정한다(lib/aurora.ts): 색은 포인트
+  // 색에서 채도·색상을 자리마다 부드럽게 바꾸고, 일렁이는 빠르기·박자도 자리를 따라 물결치듯 달라
+  // 이웃끼리는 비슷하고 띠 전체로는 들쭉날쭉하다. 켤 때마다 새로 정한다. CSS 는 .chat-aurora__lobe.
+  const auroraLobes = useMemo(() => {
+    const tint = auroraTints();
+    const pace = wave();
+    const lag = wave();
+    return AURORA_AT.map(([x, y]) => {
+      const { chroma, hue } = tint(x);
+      const dur = 3.6 + pace(x) * 3.6;
+      return {
+        "--x": x,
+        "--y": y,
+        "--k": chroma,
+        "--h": hue,
+        "--dur": `${dur.toFixed(2)}s`,
+        // 음수로 줘서 처음부터 제각각 다른 박자에 있다.
+        "--delay": `${(-lag(x) * dur).toFixed(2)}s`,
+        "--swell": (1.15 + lag(x) * 0.2).toFixed(2),
+      } as React.CSSProperties;
+    });
+  }, []);
+
   // ── ⌘K 커맨드 팔레트 ───────────────────────────────────────────────────────
   const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
@@ -1848,7 +1881,11 @@ export default function App() {
 
         <div className="chat-area">
           {/* 위에서 비껴 드는 빛. reactbits 의 LightRays 를 WebGL 없이 옮긴 것. */}
-          <div className="chat-aurora" aria-hidden="true" />
+          <div className="chat-aurora" aria-hidden="true">
+            {auroraLobes.map((style, i) => (
+              <div key={i} className="chat-aurora__lobe" style={style} />
+            ))}
+          </div>
           {/* 안내는 오로라 위에 떠 있다. 흐름에 두면 채팅 칸이 밀려 오로라도 같이 내려갔다. */}
           <div className="chat-banners">
             {connectError && (

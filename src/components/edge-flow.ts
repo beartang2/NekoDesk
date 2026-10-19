@@ -13,6 +13,8 @@
  * 않는다.
  */
 
+import { auroraTints, wave } from "../lib/aurora";
+
 export type Side = "top" | "right" | "bottom" | "left";
 export type Point = [x: number, y: number];
 
@@ -67,16 +69,6 @@ export function blobs(w: number, h: number): Blob[] {
     }
   }
   return out;
-}
-
-/**
- * 테두리를 따라 부드럽게 오르내리는 물결(0~1). 한 바퀴에 두세 번 굽이치고, 부를 때마다 굽이 자리가
- * 달라진다. 이웃 덩이끼리는 값이 비슷하다.
- */
-function wave(): (around: number) => number {
-  const a = Math.random() * Math.PI * 2;
-  const b = Math.random() * Math.PI * 2;
-  return (u) => 0.5 + 0.3 * Math.sin(Math.PI * 2 * 2 * u + a) + 0.2 * Math.sin(Math.PI * 2 * 3 * u + b);
 }
 
 /**
@@ -235,8 +227,7 @@ export function flowEdges(
   // 테두리를 따라 굽이치는 물결들: 빠르기, 출발 때, 색상, 채도. 이웃 덩이끼리는 비슷하다.
   const pace = wave();
   const lag = wave();
-  const hueWave = wave();
-  const chromaWave = wave();
+  const tintAt = auroraTints();
   let until = now;
   const tints: { blob: Blob; chroma: number; hue: number }[] = [];
   layout.forEach((blob, i) => {
@@ -266,8 +257,7 @@ export function flowEdges(
     };
     const duration = kind === "out" ? (380 + reach * 360) * jitter : (480 + reach * 460) * jitter;
     // 채도·색상이 테두리를 따라 물결치듯 바뀌어 부드럽게 섞인다.
-    const chroma = 0.7 + chromaWave(blob.around) * 0.6;
-    const hue = (hueWave(blob.around) - 0.5) * 100;
+    const { chroma, hue } = tintAt(blob.around);
     tints.push({ blob, chroma, hue });
     // 출발은 반은 물결을, 반은 덩이마다 제멋대로 — 고리 모양 그대로 움직이지 않게.
     const delay = after + (lag(blob.around) * 0.5 + Math.random() * 0.5) * 260;

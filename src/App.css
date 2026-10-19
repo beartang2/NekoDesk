@@ -622,11 +622,14 @@ html, body, #root {
 }
 
 /* ── 채팅 오로라 ──────────────────────────────────────────────────────────────
-   reactbits 의 Aurora 는 simplex noise 셰이더로 위쪽에 색 띠를 일렁이게 한다. 여기서는
-   큰 타원 그라데이션 세 개를 제자리에 두고, 위를 축으로 커튼처럼 늘었다 줄게 한다.
-   양 끝과 가운데가 엇박으로 늘어나 띠 아래 가장자리가 물결친다. 좌우로 옮기지는
-   않는다 — 흘러가면 일렁임이 아니라 미끄러짐으로 읽힌다. 글이 놓이는 가운데에서는
-   마스크로 사라진다. */
+   위쪽에 색 띠가 일렁인다. 빛 덩이 다섯을 제자리에 두고, 덩이마다 위를 축으로 커튼처럼
+   늘었다 줄며 짙어졌다 옅어진다. 덩이마다 빠르기·박자가 달라 띠 아래 가장자리가 고르지 않게
+   물결친다(캡처 막 가장자리 빛과 같은 방식 — 이웃끼리는 비슷하고 띠 전체로는 들쭉날쭉).
+   좌우로 옮기지는 않는다 — 흘러가면 일렁임이 아니라 미끄러짐으로 읽힌다. 글이 놓이는
+   가운데에서는 마스크로 사라진다.
+   색은 포인트 색에서 채도(--k 배)·색상(--h 도)만 조금씩 바꾼 오로라 색이다. 자리·색·빠르기·박자는
+   App 이 켤 때마다 새로 정해 덩이마다 넘긴다(lib/aurora.ts). 밝기는 포인트 색 그대로라 어느 색도 튀지
+   않는다. */
 .chat-aurora {
   position: absolute;
   inset: -20% -10% auto;
@@ -639,26 +642,17 @@ html, body, #root {
   mask-image: linear-gradient(to bottom, #000 0%, color-mix(in oklab, #000 55%, transparent) 45%, transparent 85%);
 }
 
-.chat-aurora::before,
-.chat-aurora::after {
-  content: "";
+/* 빛 덩이 하나. --x·--y 가 가운데 자리(0~1), --dur·--delay·--swell 이 일렁임. */
+.chat-aurora__lobe {
+  --tint: oklch(from var(--accent) l calc(c * var(--k, 1)) calc(h + var(--h, 0)));
   position: absolute;
-  inset: 0;
+  left: calc(var(--x) * 100% - 26%);
+  top: calc(var(--y) * 100% - 40%);
+  width: 52%;
+  height: 80%;
+  background: radial-gradient(50% 50% at 50% 50%, color-mix(in oklab, var(--tint) 52%, transparent), transparent);
   transform-origin: 50% 0;
-}
-
-/* 양 끝 두 덩어리 */
-.chat-aurora::before {
-  background:
-    radial-gradient(60% 70% at 22% 30%, color-mix(in oklab, var(--accent) 58%, transparent), transparent 70%),
-    radial-gradient(65% 75% at 84% 34%, color-mix(in oklab, var(--accent) 42%, transparent), transparent 70%);
-  animation: aurora-wave 5s ease-in-out infinite alternate;
-}
-
-/* 가운데 덩어리 — 주기를 어긋나게 둬서 매번 다른 물결이 된다. */
-.chat-aurora::after {
-  background: radial-gradient(55% 65% at 58% 18%, color-mix(in oklab, var(--success) 46%, transparent), transparent 72%);
-  animation: aurora-wave 3.7s ease-in-out infinite alternate-reverse;
+  animation: aurora-sway var(--dur) ease-in-out var(--delay) infinite alternate;
 }
 
 /* 어두운 바탕은 같은 불투명도에서 색이 묻힌다. 라이트(0.55)보다 높여야 비슷하게 보인다.
@@ -668,14 +662,13 @@ html, body, #root {
 }
 
 /* 위를 축으로 커튼이 내려왔다 걷힌다. 짙어졌다 옅어지는 것도 함께. */
-@keyframes aurora-wave {
-  from { transform: scaleY(0.72); opacity: 0.7; }
-  to   { transform: scaleY(1.28); opacity: 1; }
+@keyframes aurora-sway {
+  from { transform: scale(0.94, 0.72); opacity: 0.65; }
+  to   { transform: scale(1.06, var(--swell)); opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chat-aurora::before,
-  .chat-aurora::after { animation: none; }
+  .chat-aurora__lobe { animation: none; }
 }
 
 /* 메시지·입력창은 오로라 위에 선다. */
