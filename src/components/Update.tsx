@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
+import { useBackdropClose } from "../lib/backdrop";
 import "./Update.css";
 
 /** 창을 닫아도 앱은 남아 있어서 켤 때 한 번만 보면 며칠씩 놓친다. */
@@ -116,6 +117,9 @@ type Update = ReturnType<typeof useUpdate>;
 function UpdateDialog({ update, onClose }: { update: Update; onClose: () => void }) {
   const { info, current, phase, error, install } = update;
   const busy = phase === "installing";
+  const backdrop = useBackdropClose(() => {
+    if (!busy) onClose();
+  });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -133,9 +137,7 @@ function UpdateDialog({ update, onClose }: { update: Update; onClose: () => void
   return createPortal(
     <div
       className="update-overlay"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !busy) onClose();
-      }}
+      {...backdrop}
     >
       <div className="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-title">
         <h2 id="update-title" className="update-dialog__title">새 버전 v{info.version}</h2>

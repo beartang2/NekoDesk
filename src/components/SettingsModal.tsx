@@ -44,6 +44,7 @@ import {
   loadPermissionRules,
 } from "../agent/permissions";
 import { UpdateSection } from "./Update";
+import { useBackdropClose } from "../lib/backdrop";
 import "./SettingsModal.css";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1273,10 +1274,8 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
   }
 
 
-  // Close on backdrop click
-  function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
-    if (e.target === e.currentTarget) onClose();
-  }
+  // 바탕을 눌러 닫기(누른 곳·뗀 곳 둘 다 바탕일 때만).
+  const backdrop = useBackdropClose(onClose);
 
   const body = (
         <div className="settings-modal__body">
@@ -1453,7 +1452,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
   if (asTab) return body;
 
   return (
-    <div className="settings-backdrop" onClick={handleBackdrop}>
+    <div className="settings-backdrop" {...backdrop}>
       <div className="settings-modal">
         <div className="settings-modal__header">
           <span className="settings-modal__title"><Settings size={13} strokeWidth={2} /> 설정</span>

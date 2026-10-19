@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { execHistoryApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
+import { useBackdropClose } from "../lib/backdrop";
 import { X } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
@@ -136,13 +137,11 @@ export function MenuModal({ onClose, isDark, initialTab = "neko", leaving, onClo
     setTab(next);
   }
 
-  function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
-    if (e.target === e.currentTarget) onClose();
-  }
+  const backdrop = useBackdropClose(onClose);
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="menu-backdrop" data-leaving={leaving ? "" : undefined} onClick={handleBackdrop}>
+      <div className="menu-backdrop" data-leaving={leaving ? "" : undefined} {...backdrop}>
         <Tabs.Root asChild value={tab} onValueChange={(v) => changeTab(v as MenuTab)}>
           <div
             className="menu-modal"
