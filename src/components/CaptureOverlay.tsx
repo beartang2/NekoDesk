@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { syncWindowTheme } from "../lib/window-theme";
+import { HANDOFF_MS, SIDES, TRAIL, blobs, edgePoint, flowEdges, hideEdges, type Point } from "./edge-flow";
 import "./CaptureOverlay.css";
 
 /** 포인트, 이 모니터의 왼쪽 위가 0,0 (Rust 는 전체 화면 기준 좌표를 쓴다). */
@@ -155,6 +156,10 @@ function ambientTones(lum: Lum, width: number, height: number, prev: Ambient | n
 const toLocal = (windows: Target[], screen: Rect): Target[] =>
   windows.map((t) => ({ ...t, x: t.x - screen.x, y: t.y - screen.y }));
 
+/** 화면을 (거의) 다 채운 창 — 전체화면 앱이나 꽉 채운 창. 메뉴 막대만큼은 빠져도 된다. */
+const fillsScreen = (r: Rect | null) =>
+  !!r && r.w >= window.innerWidth - 2 && r.h >= window.innerHeight * 0.9;
+
 const inside = (r: Rect, x: number, y: number) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
 
 function normalize(x0: number, y0: number, x1: number, y1: number): Rect {
@@ -204,6 +209,23 @@ export function CaptureOverlay() {
   const leaving = useRef<ReturnType<typeof setTimeout>>(undefined);
   /** 강조가 꺼지는 중 — 테두리가 사라지며 창 자리가 서서히 어두워진다(FADE_MS 뒤 접힌다). */
   const [fading, setFading] = useState(false);
+  /** 데스크톱(Space)을 넘기는 중(capture-moving). 강조와 가장자리 빛을 접어 두고, 다 넘어가면 다시 켠다. */
+  const [moving, setMoving] = useState(false);
+  const movingRef = useRef(false);
+  movingRef.current = moving;
+  /** 넘기기 시작할 때의 창 번호들. 넘기는 동안 새로 보이는 창이 넘어갈 데스크톱의 창이다. */
+  const movedFrom = useRef<Set<number>>(new Set());
+  const windowsRef = useRef<Target[]>([]);
+  /** 가장자리 빛 띠와, 커서가 오갈 때 띠에서 떨어져 날아가는 빛 덩이들(edge-flow.ts). */
+  const band = useRef<HTMLDivElement>(null);
+  const swarm = useRef<HTMLDivElement>(null);
+  const blobEls = useRef<(HTMLDivElement | null)[]>([]);
+  /** 커서의 바로 전 자리. 나갈 때 움직이던 방향을 잡는 데 쓴다. */
+  const prevCursor = useRef<{ x: number; y: number } | null>(null);
+  /** 이번 캡처에서 커서가 이 모니터에 들어온 적이 있는가. */
+  const arrived = useRef(false);
+  /** 캡처를 시작할 때 커서가 이 모니터에 있었으면 그 자리. */
+  const startAt = useRef<Point | null>(null);
 
   /** 처음 열릴 때와, 숨겨 둔 막을 다시 쓸 때(capture-start)마다. 지난 고르기를 지운다. */
   function reset() {
@@ -213,6 +235,7 @@ export function CaptureOverlay() {
     clearTimeout(leaving.current);
     leaving.current = undefined;
     setFading(false);
+    setMoving(false);
     setHover(null);
     setDrag(null);
     setFlash(null);
@@ -230,7 +253,25 @@ export function CaptureOverlay() {
 
   function hidePaw() {
     cursor.current = null;
+    prevCursor.current = null;
     setPawVisible(false);
+  }
+
+  /** 가장자리 빛을 at(이 모니터 기준) 에서 흩어 붙이거나(in) 그리로 모아 빼낸다(out). */
+  function glow(kind: "in" | "out", at: Point | null, after = 0) {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    flowEdges(band.current, swarm.current, blobEls.current, blobs(w, h), kind, at, w, h, after);
+  }
+
+  /** 커서가 다른 모니터로 갔다. 빛은 커서가 나간 자리로 모여 빠져나간다 — 마지막 두 자리로
+   *  움직이던 방향을 잡아 실제로 나간 자리를 찾는다. */
+  function leave() {
+    const c = cursor.current;
+    const p = prevCursor.current;
+    if (c) glow("out", edgePoint([c.x, c.y], p ? [c.x - p.x, c.y - p.y] : [0, 0], window.innerWidth, window.innerHeight));
+    letGo(0);
+    hidePaw();
   }
 
   /** 발바닥 정중앙 밑바탕이 밝으면 어둡게, 어두우면 밝게. 막이 덮은 곳은 덮인 만큼 어둡게 친다 —
@@ -276,6 +317,8 @@ export function CaptureOverlay() {
     setAmbient(null);
     // 숨겨 둔 막을 다시 쓸 때도 등장 효과가 처음부터 돌게 통째로 다시 그린다.
     setSession((n) => n + 1);
+    arrived.current = false;
+    startAt.current = null;
     // 투명한 채로 한 번 그려진 뒤에 켜야 페이드가 걸린다(두 프레임 뒤). 다 퍼질 즈음 마스크를 뗀다
     // — 등록한 CSS 변수의 transitionend 는 WebKit 에서 믿기 어려워 시간으로 잰다.
     requestAnimationFrame(() =>
@@ -291,6 +334,7 @@ export function CaptureOverlay() {
     )
       .then(({ screen, windows, lum: wire, start }) => {
         setOrigin(start);
+        startAt.current = start;
         setScreen(screen);
         screenRef.current = screen;
         setWindows(toLocal(windows, screen));
@@ -318,6 +362,18 @@ export function CaptureOverlay() {
       mine
     );
     const unlistenLum = listen<WireLum>("capture-lum", ({ payload }) => applyLum(decodeLum(payload)), mine);
+    // 데스크톱을 넘기기 시작하면 가장자리 빛은 그 자리에서 스러지고, 다 넘기면 커서에서 흩어져 붙는다.
+    // 넘기기 시작할 때 커서로 모으면 화면이 미끄러지는 동안 모이는 게 넘어간 뒤에야 보였다.
+    const unlistenMoving = listen<boolean>(
+      "capture-moving",
+      ({ payload }) => {
+        const c = cursor.current;
+        if (payload) movedFrom.current = new Set(windowsRef.current.map((t) => t.id));
+        if (c) glow(payload ? "out" : "in", payload ? null : [c.x, c.y]);
+        setMoving(payload);
+      },
+      mine
+    );
     const unlistenCursor = listen<{ x: number; y: number; down: boolean } | null>(
       "capture-cursor",
       ({ payload }) => fromRust.current(payload),
@@ -334,6 +390,7 @@ export function CaptureOverlay() {
       void unlistenWindows.then((f) => f());
       void unlistenCursor.then((f) => f());
       void unlistenLum.then((f) => f());
+      void unlistenMoving.then((f) => f());
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -355,13 +412,34 @@ export function CaptureOverlay() {
     setTimeout(send, FLASH_MS);
   }
 
+  // 새로 그린 막의 빛은 꺼 둔다. 빛은 커서가 있는 모니터에만 — 커서가 들어오면 켜진다.
+  useLayoutEffect(() => hideEdges(band.current), [session]);
+
+  windowsRef.current = windows;
   const hit = (x: number, y: number) => windows.find((t) => inside(t, x, y)) ?? null;
 
-  // 목록이 바뀌면 커서를 안 움직여도 강조를 다시 고른다.
+  // 데스크톱을 넘기는 동안엔 넘어갈 데스크톱에 맞춰 둔다. 미끄러지는 동안 두 데스크톱이 같은 막을
+  // 나눠 쓰니 한쪽 모습밖에 못 낸다 — 넘어갈 쪽 것을 미리 내야 다 넘긴 뒤 밝았다 어두워졌다 하지 않는다.
+  // - 넘어갈 데스크톱의 창(넘기기 전 목록에 없던 창) 가운데 커서 아래 것이 화면을 다 채우면(전체화면
+  //   앱으로 간다) 밝은 채로 그 창을 강조한다. 전체화면에서 전체화면으로 가면 아무것도 안 바뀐다.
+  // - 그 밖이면 덮개를 깐다. 다음 데스크톱 창이 아직 안 보였으면 전체화면 강조만은 그대로 둔다.
+  // 다 넘어갔거나 목록이 바뀌면 커서를 안 움직여도 강조를 다시 고른다. 잠깐 빈 곳으로 잡혀도 바로
+  // 어두워지지 않게 LEAVE_MS 만큼은 둔다.
   useEffect(() => {
-    if (cursor.current && !start.current) setHover(hit(cursor.current.x, cursor.current.y));
+    if (start.current) return;
+    const c = cursor.current;
+    if (moving) {
+      const incoming = windows.filter((t) => !movedFrom.current.has(t.id));
+      const dest = c ? incoming.find((t) => inside(t, c.x, c.y)) : undefined;
+      if (dest && fillsScreen(dest)) keepFocus(dest);
+      else if (incoming.length || !fillsScreen(hoverRef.current)) letGo(0);
+      return;
+    }
+    const target = c ? hit(c.x, c.y) : null;
+    if (target) keepFocus(target);
+    else letGo(LEAVE_MS);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windows]);
+  }, [windows, moving]);
 
   // 마우스는 두 길로 온다: 브라우저 이벤트(이 막이 키 창일 때), 그리고 Rust 가 초당 30번
   // 직접 읽어 보내는 것(capture-cursor — 키 창이 아니어도 온다). 둘 다 아래 셋으로 모인다.
@@ -372,6 +450,17 @@ export function CaptureOverlay() {
   }
 
   function moveAt(x: number, y: number) {
+    const was = cursor.current;
+    if (!was) {
+      // 들어왔다. 다른 모니터에서 넘어왔으면 나온 모니터의 빛이 다 모인 뒤 커서에서 흩어져 테두리에
+      // 붙는다. 캡처를 시작한 모니터에 처음 닿은 건 넘어온 게 아니다 — 그 자리에서 서서히 켠다.
+      const crossed = arrived.current || !startAt.current;
+      if (crossed) glow("in", [x, y], HANDOFF_MS);
+      else glow("in", null);
+      arrived.current = true;
+    } else if (Math.hypot(x - was.x, y - was.y) >= 1) {
+      prevCursor.current = was;
+    }
     cursor.current = { x, y };
     if (paw.current) paw.current.style.transform = `translate(${x + PAW_OFFSET}px, ${y + PAW_OFFSET}px)`;
     setPawVisible(true);
@@ -383,6 +472,8 @@ export function CaptureOverlay() {
       const cy = Math.max(0, Math.min(y, window.innerHeight));
       next = normalize(s.x, s.y, cx, cy);
       setDrag(next);
+    } else if (movingRef.current) {
+      next = null;
     } else {
       // 같은 창 위면 같은 객체라 React 가 다시 그리지 않는다.
       const target = hit(x, y);
@@ -416,10 +507,7 @@ export function CaptureOverlay() {
       // 커서가 다른 모니터로 갔다. 드래그 중이 아니면 강조와 발바닥을 거둔다. 이건 브라우저
       // 이벤트가 방금 왔어도 따른다 — 넘어가는 순간엔 늘 방금 왔어서, 걸러 버리면 발바닥이
       // 모니터마다 하나씩 남았다(모니터를 넘을 때 mouseleave 가 안 올 때가 있다).
-      if (!start.current) {
-        letGo(0);
-        hidePaw();
-      }
+      if (!start.current) leave();
       return;
     }
     if (performance.now() - lastDom.current < DOM_FRESH_MS) return;
@@ -473,11 +561,12 @@ export function CaptureOverlay() {
       key={session}
       className="cap"
       data-revealed={revealed ? "" : undefined}
+      data-moving={moving ? "" : undefined}
 
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
-      onMouseLeave={() => { letGo(0); hidePaw(); }}
+      onMouseLeave={leave}
       onContextMenu={(e) => e.preventDefault()}
     >
       {!flash && (
@@ -509,10 +598,29 @@ export function CaptureOverlay() {
         <div className="cap__ambient" aria-hidden>
           {/* 가장자리 빛은 네 띠로 나눠, 띠마다 맞닿은 밑바탕에 맞춰 밝거나 어둡게. */}
           <div className="cap__glow">
-            {(["top", "right", "bottom", "left"] as const).map((side) => (
-              <div key={side} className={`cap__edge cap__edge--${side}`} data-tone={ambient?.edges[side]} />
-            ))}
+            <div className="cap__band" ref={band}>
+              {SIDES.map((side) => (
+                <div key={side} className={`cap__edge cap__edge--${side}`} data-tone={ambient?.edges[side]} />
+              ))}
+            </div>
+            <div className="cap__swarm" ref={swarm}>
+            {/* 덩이마다 맨 앞 하나와 그 뒤를 따라오는 잔상들(TRAIL). */}
+            {blobs(window.innerWidth, window.innerHeight).flatMap((b, i) =>
+              Array.from({ length: TRAIL }, (_, k) => (
+                <div
+                  key={`${i}-${k}`}
+                  ref={(el) => {
+                    blobEls.current[i * TRAIL + k] = el;
+                  }}
+                  className="cap__edge cap__blob"
+                  data-tone={ambient?.edges[b.side]}
+                  style={{ left: b.x - b.w / 2, top: b.y - b.h / 2, width: b.w, height: b.h }}
+                />
+              ))
+            )}
+            </div>
           </div>
+          <div className="cap__drifts">
           {DRIFT_PAWS.map(([x, y, size, rotate, delay], i) => (
             <svg
               key={i}
@@ -524,6 +632,7 @@ export function CaptureOverlay() {
               <use href="#cap-paw" />
             </svg>
           ))}
+          </div>
         </div>
       )}
 

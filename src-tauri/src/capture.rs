@@ -41,14 +41,22 @@ const FOLLOW_EVERY: Duration = Duration::from_millis(33);
 const REFOCUS_TICKS: u32 = 30;
 /// 밝기 지도를 다시 읽는 간격(FOLLOW_EVERY 의 배수, 2초). 막 아래 화면만 읽으니 막은 안 찍힌다.
 /// 처음 한 장만 쓰면 캡처 중 데스크톱을 옮기거나 화면이 바뀌어도 옛 화면 밝기를 봤다.
-/// 화면 읽기는 WindowServer 에도 일을 시켜 자주 하면 움직임이 끊긴다 — 평소엔 2초, 창 목록이
-/// 바뀌면(데스크톱 이동 등) 그때 바로 한 번.
+/// 화면 읽기는 WindowServer 에도 일을 시켜 자주 하면 움직임이 끊긴다 — 평소엔 2초, 데스크톱을
+/// 다 넘긴 뒤(is_moving 이 풀릴 때) 그 모니터만 바로 한 번.
 const LUM_TICKS: u32 = 60;
 /// 밝기 지도의 가로 칸 수. 발바닥 정중앙 한 점을 읽으니 한 칸이 발바닥(18pt)보다 충분히 작아야 한다.
 const LUM_W: usize = 512;
-/// 창 목록을 다시 읽는 간격(FOLLOW_EVERY 의 배수). 데스크톱(Space)을 막 옮긴 직후엔
-/// 목록이 이전 데스크톱 것으로 남아 있어, 전체화면 창 대신 거기 없는 창이 잡히곤 했다.
-const REFRESH_TICKS: u32 = 15;
+/// 손을 뗀 뒤 macOS 가 마저 넘기는 시간. 손을 떼고 0.43~0.54초 뒤에 창 목록이 넘어간 데스크톱
+/// 것으로 줄었다(2026-10, macOS 27.2 에서 잼). 그동안은 넘기는 중으로 본다. 600 이었을 땐 목록이
+/// 그보다 늦게 줄면, 다 넘긴 줄 알고 빛을 퍼뜨렸다가 목록이 줄자 다시 모았다가 또 퍼뜨렸다.
+const AFTER_SWIPE_MS: u64 = 750;
+/// 창 목록이 바뀐 뒤 이만큼 조용해야 다 넘어간 것으로 본다.
+const QUIET_MS: u64 = 250;
+/// 다 넘긴 뒤 이만큼은 창 목록이 바뀌어도 넘기기로 치지 않는다. 넘어간 데스크톱의 창들이 뒤늦게
+/// 하나둘 나타나며 목록이 또 바뀌는데, 그걸 넘기기로 보면 퍼지던 빛이 다시 모였다.
+const SETTLE_MS: u64 = 700;
+/// 손을 안 뗀 채 이보다 오래 가면 끝 신호를 놓친 것으로 본다.
+const MAX_SWIPE_MS: u64 = 5000;
 
 /// 커서 아래 막에 보내는 마우스. 좌표는 그 막(모니터) 기준.
 #[derive(Clone, Copy, Serialize, PartialEq)]
@@ -123,9 +131,23 @@ fn screen_index(label: &str) -> Option<usize> {
     label.strip_prefix("capture-")?.parse().ok()
 }
 
-/// 이 모니터에 걸친 창들, 앞에 있는 것부터.
-fn windows_on(windows: &[Target], screen: &Rect) -> Vec<Target> {
-    windows.iter().filter(|t| intersects(&t.rect, screen)).cloned().collect()
+/// screens[i] 모니터의 창들, 앞에 있는 것부터. 두 모니터에 걸친 창은 더 많이 걸친 쪽에만 넣는다 —
+/// "모니터마다 별도의 데스크톱"(기본값)이면 macOS 는 창을 한 모니터에만 그리고 넘친 부분은 옆
+/// 모니터에 안 보인다. 걸치기만 해도 넣었더니, 옆 모니터 가장자리에 보이지도 않는 창 자리가 밝게
+/// 뚫려 어두운 면과 밝은 면의 경계가 생겼다.
+fn windows_on(windows: &[Target], screens: &[Rect], i: usize) -> Vec<Target> {
+    windows.iter().filter(|t| home(&t.rect, screens) == Some(i)).cloned().collect()
+}
+
+/// 이 창이 가장 많이 걸친 모니터. 어디에도 안 걸쳤으면 None.
+fn home(rect: &Rect, screens: &[Rect]) -> Option<usize> {
+    screens
+        .iter()
+        .map(|s| overlap(rect, s))
+        .enumerate()
+        .filter(|(_, area)| *area > 0.0)
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i)
 }
 
 pub fn targets_for(label: &str, state: &CaptureState) -> Result<Targets, AppError> {
@@ -139,25 +161,39 @@ pub fn targets_for(label: &str, state: &CaptureState) -> Result<Targets, AppErro
         .map(|[x, y]| [x - screen.x, y - screen.y]);
     Ok(Targets {
         screen,
-        windows: windows_on(&session.windows, &screen),
+        windows: windows_on(&session.windows, &session.screens, i),
         lum: session.lums.get(i).cloned().flatten(),
         start,
     })
 }
 
-/// 창 목록을 다시 읽어, 바뀌었으면 각 막에 자기 모니터 몫을 보낸다(`capture-windows`). 바뀌었으면 true.
-fn refresh_windows(app: &AppHandle, state: &CaptureState) -> Result<bool, AppError> {
-    let fresh = unsafe { macos::windows() };
-    let mut guard = state.0.lock()?;
-    let Some(session) = guard.as_mut() else { return Ok(false) };
-    if session.windows == fresh {
-        return Ok(false);
-    }
-    for (i, screen) in session.screens.iter().enumerate() {
-        let _ = app.emit_to(label(i), "capture-windows", windows_on(&fresh, screen));
-    }
-    session.windows = fresh;
-    Ok(true)
+/// 창 번호들, 순서 없이. 앞뒤 순서만 바뀐 건 데스크톱이 넘어간 게 아니다.
+fn ids(windows: &[Target]) -> Vec<u32> {
+    let mut ids: Vec<u32> = windows.iter().map(|t| t.id).collect();
+    ids.sort_unstable();
+    ids
+}
+
+/// 이 프로세스 안에서만 쓰는 ms 시계. 0 은 "아직 없음" 이라 1 부터.
+fn clock_ms() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64 + 1
+}
+
+/// 이 모니터가 데스크톱(Space)을 넘기는 중인가. 막은 모든 데스크톱에 떠 있어서, 넘기는 동안
+/// 강조를 그대로 두면 미끄러지며 일그러지고, 넘어간 데스크톱에 이전 강조가 잠깐 남았다.
+/// 넘기는 동안엔 강조·가장자리 빛을 접는다.
+///
+/// 두 신호를 본다(시각은 clock_ms):
+/// - 화면 넘기기 동작(began·ended). 손가락을 대는 순간 온다. 커서가 있는 모니터(here) 몫.
+/// - 이 모니터의 창 목록이 바뀐 때(changed). 넘기기 시작 0~17ms 뒤 다음 데스크톱 창들이 더해지고,
+///   다 넘어가면 줄어든다. 넘기기 동작을 못 들을 때(권한 없음)도 이걸로 대강 잡힌다. 지난번에 다
+///   넘긴 때(settled) 바로 뒤의 변화는 넘어간 데스크톱이 마저 그려지는 것이라 치지 않는다.
+fn is_moving(now: u64, began: u64, ended: u64, changed: Option<u64>, here: bool, settled: Option<u64>) -> bool {
+    let held = began > ended && now.saturating_sub(began) < MAX_SWIPE_MS;
+    let finishing = ended > 0 && now.saturating_sub(ended) < AFTER_SWIPE_MS;
+    let changed = changed.filter(|&t| settled.map_or(true, |s| t > s + SETTLE_MS));
+    (here && (held || finishing)) || changed.is_some_and(|t| now.saturating_sub(t) < QUIET_MS)
 }
 
 pub fn pick(state: &CaptureState, pick: Option<Pick>) -> Result<(), AppError> {
@@ -167,8 +203,11 @@ pub fn pick(state: &CaptureState, pick: Option<Pick>) -> Result<(), AppError> {
     Ok(())
 }
 
-fn intersects(a: &Rect, b: &Rect) -> bool {
-    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+/// 두 네모가 겹치는 넓이.
+fn overlap(a: &Rect, b: &Rect) -> f64 {
+    let w = (a.x + a.w).min(b.x + b.w) - a.x.max(b.x);
+    let h = (a.y + a.h).min(b.y + b.h) - a.y.max(b.y);
+    w.max(0.0) * h.max(0.0)
 }
 
 /// 고르게 하고 찍는다. 그만두면 None. 끝날 때까지 돌아오지 않는다(main thread 에서 부르지 말 것).
@@ -178,6 +217,8 @@ pub fn run(app: &AppHandle) -> Result<Option<Vec<u8>>, AppError> {
     let screens = on_main(app, || unsafe { macos::screens() })?;
     let mouse = on_main(app, || unsafe { macos::mouse_global() }).ok().flatten();
     let windows = unsafe { macos::windows() };
+    // 막마다 마지막으로 보낸 창 목록.
+    let mut shown: Vec<Vec<Target>> = (0..screens.len()).map(|i| windows_on(&windows, &screens, i)).collect();
     // 막이 보이기 전에 찍어야 한다. 막은 지난번에 숨겨 둔 채이거나 아직 없다.
     let lums = screens.iter().map(|r| unsafe { macos::lum(*r, None) }).collect();
     *state.0.lock()? = Some(Session { screens: screens.clone(), mouse, lums, windows, reply: tx });
@@ -201,6 +242,11 @@ pub fn run(app: &AppHandle) -> Result<Option<Vec<u8>>, AppError> {
         let mut sent: Option<(usize, Cursor)> = None;
         // 막마다 마지막으로 보낸 밝기 지도. 화면이 그대로면 다시 보내지 않는다(한 장에 200KB 남짓).
         let mut sent_lum: Vec<Option<String>> = vec![None; screens.len()];
+        // 막마다: 창 목록이 마지막으로 바뀐 때, 넘기는 중이라고 알렸는지.
+        let mut changed: Vec<Option<u64>> = vec![None; screens.len()];
+        let mut moving = vec![false; screens.len()];
+        let mut settled: Vec<Option<u64>> = vec![None; screens.len()];
+        let _ = on_main(app, || unsafe { macos::watch_swipes(true) });
         let picked = loop {
             match rx.recv_timeout(FOLLOW_EVERY) {
                 Ok(p) => break p,
@@ -231,20 +277,51 @@ pub fn run(app: &AppHandle) -> Result<Option<Vec<u8>>, AppError> {
                         let _ = app.run_on_main_thread(move || unsafe { macos::focus(ptr, refocus) });
                         focused = Some(i);
                     }
-                    let windows_changed =
-                        ticks % REFRESH_TICKS == 0 && refresh_windows(app, &state).unwrap_or(false);
-                    if windows_changed || ticks % LUM_TICKS == 0 {
-                        for (i, screen) in screens.iter().enumerate() {
-                            let Some(lum) = (unsafe { macos::lum(*screen, numbers.get(i).copied()) }) else { continue };
-                            if sent_lum[i].as_deref() != Some(lum.data.as_str()) {
-                                sent_lum[i] = Some(lum.data.clone());
-                                let _ = app.emit_to(label(i), "capture-lum", lum);
+                    // 창 목록은 매번 읽는다. 데스크톱을 넘기기 시작한 걸 바로 알아채야 한다.
+                    let now = clock_ms();
+                    let (began, ended) = macos::swipes();
+                    let fresh = unsafe { macos::windows() };
+                    let mut flipped = Vec::new();
+                    for i in 0..screens.len() {
+                        let mine = windows_on(&fresh, &screens, i);
+                        if mine != shown[i] {
+                            if ids(&mine) != ids(&shown[i]) {
+                                changed[i] = Some(now);
                             }
+                            let _ = app.emit_to(label(i), "capture-windows", &mine);
+                            shown[i] = mine;
                         }
+                        let m = is_moving(now, began, ended, changed[i], under == Some(i), settled[i]);
+                        if m != moving[i] {
+                            moving[i] = m;
+                            if !m {
+                                settled[i] = Some(now);
+                            }
+                            flipped.push(i);
+                        }
+                    }
+                    if let Some(session) = state.0.lock()?.as_mut() {
+                        session.windows = fresh;
+                    }
+                    // 다 넘어간 모니터는 새 데스크톱 밝기를 바로 읽어, 강조를 다시 켜기 전에 보낸다.
+                    for (i, screen) in screens.iter().enumerate() {
+                        let settled = flipped.contains(&i) && !moving[i];
+                        if moving[i] || !(settled || ticks % LUM_TICKS == 0) {
+                            continue;
+                        }
+                        let Some(lum) = (unsafe { macos::lum(*screen, numbers.get(i).copied()) }) else { continue };
+                        if sent_lum[i].as_deref() != Some(lum.data.as_str()) {
+                            sent_lum[i] = Some(lum.data.clone());
+                            let _ = app.emit_to(label(i), "capture-lum", lum);
+                        }
+                    }
+                    for i in flipped {
+                        let _ = app.emit_to(label(i), "capture-moving", moving[i]);
                     }
                 }
             }
         };
+        let _ = on_main(app, || unsafe { macos::watch_swipes(false) });
         for i in 0..overlays.len() {
             let _ = app.emit_to(label(i), "capture-end", ());
         }
@@ -349,6 +426,7 @@ mod macos {
     use objc2::runtime::{AnyClass, AnyObject};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     use std::ffi::c_void;
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -435,6 +513,84 @@ mod macos {
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
         fn CFRelease(cf: *const c_void);
+        fn CFMachPortCreateRunLoopSource(alloc: *const c_void, port: *const c_void, order: isize) -> *const c_void;
+        fn CFRunLoopGetMain() -> *const c_void;
+        fn CFRunLoopAddSource(run_loop: *const c_void, source: *const c_void, mode: *const c_void);
+        static kCFRunLoopCommonModes: *const c_void;
+    }
+
+    type TapCallback = extern "C" fn(*const c_void, u32, *const c_void, *mut c_void) -> *const c_void;
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGEventTapCreate(tap: u32, place: u32, options: u32, events: u64, callback: TapCallback, user: *mut c_void)
+            -> *const c_void;
+        fn CGEventTapEnable(tap: *const c_void, enable: bool);
+        fn CGEventGetIntegerValueField(event: *const c_void, field: u32) -> i64;
+    }
+
+    const SESSION_TAP: u32 = 1;
+    const HEAD_INSERT: u32 = 0;
+    const LISTEN_ONLY: u32 = 1;
+    /// 화면 넘기기(Dock 쓸기) 이벤트. 공개되지 않은 값이라 2026-10 macOS 27.2 에서 직접 쟀다:
+    /// 이벤트 종류 30, 필드 110 이 23 이면 Dock 쓸기, 필드 132 가 단계(1 시작 · 4 끝 · 8 취소).
+    const DOCK_GESTURE: u32 = 30;
+    const GESTURE_KIND: u32 = 110;
+    const DOCK_SWIPE: i64 = 23;
+    const GESTURE_PHASE: u32 = 132;
+    /// 콜백이 늦거나 입력이 몰리면 macOS 가 탭을 끈다. 이 두 "이벤트" 로 알려 준다.
+    const TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
+    const TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
+
+    static TAP: AtomicUsize = AtomicUsize::new(0);
+    static WATCHING: AtomicBool = AtomicBool::new(false);
+    static SWIPE_BEGAN: AtomicU64 = AtomicU64::new(0);
+    static SWIPE_ENDED: AtomicU64 = AtomicU64::new(0);
+
+    extern "C" fn on_gesture(_proxy: *const c_void, kind: u32, event: *const c_void, _user: *mut c_void) -> *const c_void {
+        unsafe {
+            if kind == TAP_DISABLED_BY_TIMEOUT || kind == TAP_DISABLED_BY_USER_INPUT {
+                let tap = TAP.load(Ordering::Relaxed);
+                if tap != 0 && WATCHING.load(Ordering::Relaxed) {
+                    CGEventTapEnable(tap as *const c_void, true);
+                }
+            } else if kind == DOCK_GESTURE && CGEventGetIntegerValueField(event, GESTURE_KIND) == DOCK_SWIPE {
+                match CGEventGetIntegerValueField(event, GESTURE_PHASE) {
+                    1 => SWIPE_BEGAN.store(super::clock_ms(), Ordering::Relaxed),
+                    4 | 8 => SWIPE_ENDED.store(super::clock_ms(), Ordering::Relaxed),
+                    _ => {}
+                }
+            }
+        }
+        event
+    }
+
+    /// 캡처하는 동안 화면 넘기기를 듣는다(듣기만, 다른 앱엔 그대로 간다). 처음 한 번 만들고 그 뒤엔
+    /// 켜고 끄기만 한다. 못 만들면(권한이 없으면) 그냥 둔다 — 창 목록 변화로도 대강 잡힌다.
+    /// 다음 캡처 때 다시 해 본다. main thread 전용.
+    pub unsafe fn watch_swipes(on: bool) {
+        WATCHING.store(on, Ordering::Relaxed);
+        let mut tap = TAP.load(Ordering::Relaxed);
+        if tap == 0 {
+            if !on {
+                return;
+            }
+            let port = CGEventTapCreate(SESSION_TAP, HEAD_INSERT, LISTEN_ONLY, 1u64 << DOCK_GESTURE, on_gesture, std::ptr::null_mut());
+            if port.is_null() {
+                return;
+            }
+            let source = CFMachPortCreateRunLoopSource(std::ptr::null(), port, 0);
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
+            CFRelease(source);
+            tap = port as usize;
+            TAP.store(tap, Ordering::Relaxed);
+        }
+        CGEventTapEnable(tap as *const c_void, on);
+    }
+
+    /// 마지막으로 화면 넘기기를 시작한 때와 끝낸 때(clock_ms, 없으면 0).
+    pub fn swipes() -> (u64, u64) {
+        (SWIPE_BEGAN.load(Ordering::Relaxed), SWIPE_ENDED.load(Ordering::Relaxed))
     }
 
     const ON_SCREEN_ONLY: u32 = 1 << 0;
@@ -570,14 +726,40 @@ mod tests {
     }
 
     #[test]
-    fn windows_on_another_screen_are_left_out() {
-        let main = Rect { x: 0.0, y: 0.0, w: 1512.0, h: 982.0 };
-        let right = Rect { x: 1512.0, y: -100.0, w: 1920.0, h: 1080.0 };
-        let on_right = Rect { x: 1600.0, y: 0.0, w: 800.0, h: 600.0 };
-        let straddling = Rect { x: 1400.0, y: 100.0, w: 300.0, h: 300.0 };
-        assert!(!intersects(&on_right, &main));
-        assert!(intersects(&on_right, &right));
-        assert!(intersects(&straddling, &main) && intersects(&straddling, &right));
+    fn a_window_belongs_to_the_screen_it_covers_most() {
+        let screens = [
+            Rect { x: 0.0, y: 0.0, w: 1512.0, h: 982.0 },
+            Rect { x: 1512.0, y: -100.0, w: 1920.0, h: 1080.0 },
+        ];
+        let window = |id, x| Target { id, app: String::new(), rect: Rect { x, y: 100.0, w: 300.0, h: 300.0 } };
+        // 오른쪽에만 있는 창, 왼쪽으로 더 걸친 창, 오른쪽으로 더 걸친 창.
+        let windows = [window(1, 1600.0), window(2, 1300.0), window(3, 1450.0)];
+        let ids = |ws: Vec<Target>| ws.iter().map(|t| t.id).collect::<Vec<_>>();
+        assert_eq!(ids(windows_on(&windows, &screens, 0)), vec![2]);
+        assert_eq!(ids(windows_on(&windows, &screens, 1)), vec![1, 3]);
+        let off = Rect { x: -900.0, y: 0.0, w: 300.0, h: 300.0 };
+        assert_eq!(home(&off, &screens), None);
+    }
+
+    #[test]
+    fn swiping_hides_focus_until_the_desktop_settles() {
+        // 손가락을 대고 있는 동안은 커서가 있는 모니터만.
+        assert!(is_moving(1_000, 900, 0, None, true, None));
+        assert!(!is_moving(1_000, 900, 0, None, false, None));
+        // 한 번 사이에 시작·끝이 다 와도(빨리 튕기기), 손 뗀 뒤 macOS 가 마저 넘기는 동안은 넘기는 중.
+        assert!(is_moving(1_000, 980, 990, None, true, None));
+        assert!(!is_moving(1_800, 980, 990, None, true, None));
+        // 다 넘어가며 창 목록이 바뀌면 조용해질 때까지 기다린다.
+        assert!(is_moving(1_900, 980, 990, Some(1_700), true, None));
+        assert!(!is_moving(2_000, 980, 990, Some(1_700), true, None));
+        // 끝 신호를 놓쳐도 영영 접혀 있지 않는다.
+        assert!(!is_moving(10_000, 900, 0, None, true, None));
+        // 넘기기 동작을 못 들어도 창 목록 변화로.
+        assert!(is_moving(1_100, 0, 0, Some(1_000), false, None));
+        assert!(!is_moving(1_300, 0, 0, Some(1_000), false, None));
+        // 다 넘긴 바로 뒤에 창 목록이 또 바뀌어도 다시 모으지 않는다. 한참 뒤의 변화는 친다.
+        assert!(!is_moving(2_100, 980, 990, Some(2_000), true, Some(1_800)));
+        assert!(is_moving(2_700, 980, 990, Some(2_600), true, Some(1_800)));
     }
 
     #[test]

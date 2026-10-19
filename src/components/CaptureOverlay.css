@@ -77,31 +77,70 @@ html.capture-window {
 }
 
 /* 빛 색을 서서히 물들이려면 변수를 색으로 등록해야 한다(안 하면 그냥 바뀐다). */
-@property --edge {
+/* 빛 색조는 밑바탕을 따른다: 어두운 곳엔 흰빛을 섞어 밝게(light), 밝은 곳엔 검정을 섞어 어둡게(dark),
+   모르면 그 색 그대로. 섞을 색·비율을 등록해 두어야 색조가 바뀔 때 툭 바뀌지 않고 서서히 물든다.
+   --tint 는 빛의 바탕색 — 띠는 포인트 색, 날아가는 덩이와 그 뒤 띠는 덩이마다 조금씩 다른 색. */
+@property --with {
   syntax: "<color>";
   inherits: false;
   initial-value: transparent;
 }
 
+@property --base {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 100%;
+}
+
+@property --alpha {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 34%;
+}
+
 .cap__edge {
-  --edge: color-mix(in oklab, var(--accent) 34%, transparent);
+  --tint: var(--accent);
+  --with: transparent;
+  --base: 100%;
+  --alpha: 34%;
+  --edge: color-mix(in oklab, color-mix(in oklab, var(--tint) var(--base), var(--with)) var(--alpha), transparent);
   position: absolute;
-  /* 밝기 지도가 바뀌어 밝은 빛 ↔ 어두운 빛이 바뀌어도 툭 켜지지 않게 서서히. */
-  transition: --edge 900ms ease-in-out;
+  transition: --with 900ms ease-in-out, --base 900ms ease-in-out, --alpha 900ms ease-in-out;
 }
 
 .cap__edge[data-tone="light"] {
-  --edge: color-mix(in oklab, color-mix(in oklab, var(--accent) 55%, #fff) 40%, transparent);
+  --with: #fff;
+  --base: 55%;
+  --alpha: 40%;
 }
 
 .cap__edge[data-tone="dark"] {
-  --edge: color-mix(in oklab, color-mix(in oklab, var(--accent) 55%, #000) 42%, transparent);
+  --with: #000;
+  --base: 55%;
+  --alpha: 42%;
+}
+
+.cap__band {
+  position: absolute;
+  inset: 0;
 }
 
 .cap__edge--top    { inset: 0 0 auto 0; height: 200px; background: linear-gradient(to bottom, var(--edge), transparent); }
 .cap__edge--bottom { inset: auto 0 0 0; height: 200px; background: linear-gradient(to top, var(--edge), transparent); }
 .cap__edge--left   { inset: 0 auto 0 0; width: 200px;  background: linear-gradient(to right, var(--edge), transparent); }
 .cap__edge--right  { inset: 0 0 0 auto; width: 200px;  background: linear-gradient(to left, var(--edge), transparent); }
+
+.cap__swarm {
+  position: absolute;
+  inset: 0;
+}
+
+/* 띠에서 떨어져 날아가는 연기 덩이. 자리·크기·모양(배경)은 edge-flow.ts 가 정한다. 날 때만 보인다.
+   덩이마다 포인트 색의 채도(--chroma 배)와 색상(--hue 만큼 돌림)을 조금씩 달리한다. */
+.cap__blob {
+  --tint: oklch(from var(--accent) l calc(c * var(--chroma, 1)) calc(h + var(--hue, 0)));
+  opacity: 0;
+}
 
 @keyframes cap-breathe {
   50% { opacity: 0.4; }
@@ -284,8 +323,14 @@ html.capture-window {
   fill: var(--accent);
   pointer-events: none;
   filter: drop-shadow(0 0 4px var(--cap-glow));
-  /* 밝기가 바뀌어도 툭 바뀌지 않게 천천히 물든다. */
-  transition: fill 420ms ease-in-out, filter 420ms ease-in-out;
+  /* 밝기가 바뀌어도 툭 바뀌지 않게 천천히 물든다. 데스크톱을 다 넘기면 제자리에서 서서히 돌아온다. */
+  transition: fill 420ms ease-in-out, filter 420ms ease-in-out, opacity 420ms ease-out;
+}
+
+/* 데스크톱을 넘기는 동안 발바닥은 제자리에서 서서히 사라진다. */
+.cap[data-moving] .cap__paw {
+  opacity: 0;
+  transition: fill 420ms ease-in-out, filter 420ms ease-in-out, opacity 260ms ease-in;
 }
 
 .cap__paw[data-tone="light"] {
@@ -341,4 +386,17 @@ html.capture-window {
 
 .cap[data-revealed] .cap__ambient {
   opacity: 1;
+}
+
+/* 데스크톱을 넘기는 동안 떠다니는 발자국은 스러졌다가, 다 넘기면 다시 번진다(가장자리 빛은
+   edge-flow.ts 가 테두리를 타고 흘려 보낸다). */
+.cap__drifts {
+  position: absolute;
+  inset: 0;
+  transition: opacity 700ms ease-out;
+}
+
+.cap[data-moving] .cap__drifts {
+  opacity: 0;
+  transition: opacity 260ms ease-in;
 }
