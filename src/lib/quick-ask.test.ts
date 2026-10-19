@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildQuickPrompt } from "./quick-ask";
+import { buildQuickPrompt, isKorean } from "./quick-ask";
 
 describe("buildQuickPrompt", () => {
   it("맥락이 없으면 질문 그대로", () => {
@@ -22,5 +22,34 @@ describe("buildQuickPrompt", () => {
     const quote = displayText.split("\n").find((l) => l.startsWith("> 클립보드:"))!;
     expect(quote.length).toBeLessThan(100);
     expect(displayText.split("\n")).toHaveLength(3);
+  });
+});
+
+describe("버튼 일(요약·번역·설명)", () => {
+  it("말풍선엔 고른 글만, 지시는 따로 — 프롬프트가 말풍선에 안 보인다", () => {
+    const r = buildQuickPrompt({ text: "", action: "번역", selection: " Korean won climbs ", app: "Safari" });
+    expect(r.displayText).toBe("Korean won climbs");
+    expect(r.userText).toBe("Korean won climbs");
+    expect(r.task?.label).toBe("번역");
+  });
+
+  it("번역 방향은 글을 보고 정한다", () => {
+    const to = (selection: string) => buildQuickPrompt({ text: "", action: "번역", selection }).task!.system;
+    expect(to("원화가 2년 만에 최고치로 올랐다")).toContain("영어로");
+    expect(to("Korean won climbs to two-year high")).toContain("한국어로");
+    expect(to("엔비디아 Nvidia 주가가 GPU 수요로 올랐다")).toContain("영어로");
+  });
+
+  it("긴 글은 말풍선에서만 줄인다", () => {
+    const long = "가".repeat(2000);
+    const r = buildQuickPrompt({ text: "", action: "요약", selection: long });
+    expect(r.userText).toBe(long);
+    expect(r.displayText.length).toBe(600);
+  });
+
+  it("isKorean — 영문 약어가 섞여도 한국어 문장은 한국어", () => {
+    expect(isKorean("오늘 FOMC 회의")).toBe(true);
+    expect(isKorean("The Fed 연준 held rates")).toBe(false);
+    expect(isKorean("12345 !!")).toBe(false);
   });
 });

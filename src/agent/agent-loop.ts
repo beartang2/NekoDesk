@@ -1,4 +1,4 @@
-import { agentTurnStream, chatStream, getModelContextLength } from "./llm-client";
+import { agentTurnStream, chatStream, getModelContextLength, textTaskStream, type UsageCallback } from "./llm-client";
 import { FailureTracker } from "./failure-tracker";
 import { Plan } from "./plan";
 import { runSubagent } from "./subagent";
@@ -23,6 +23,7 @@ import type {
   CodeExecResult,
   ContentPart,
   LlmMessage,
+  LlmStreamChunk,
   LoopEvent,
   PermissionDecision,
   ToolCall,
@@ -800,11 +801,18 @@ export async function* runDirectChat(
     { role: "user", content: userInput },
   ];
 
-  let directPromptTokens: number | undefined;
-  let directTps: number | undefined;
+  yield* streamAnswer((onUsage) => chatStream(messages, "", onUsage, signal));
+}
+
+/** 도구 없이 한 번에 답하는 스트림을 그대로 흘리고, 끝나면 done 을 낸다. */
+async function* streamAnswer(
+  start: (onUsage: UsageCallback) => AsyncGenerator<LlmStreamChunk>
+): AsyncGenerator<LoopEvent> {
+  let promptTokens: number | undefined;
+  let tokensPerSecond: number | undefined;
   let answer = "";
   try {
-    for await (const chunk of chatStream(messages, "", (pts, tps) => { directPromptTokens = pts; directTps = tps; }, signal)) {
+    for await (const chunk of start((pts, tps) => { promptTokens = pts; tokensPerSecond = tps; })) {
       if (chunk.content) {
         answer += chunk.content;
         yield { type: "streaming_token", token: chunk.content };
@@ -818,5 +826,10 @@ export async function* runDirectChat(
     return;
   }
 
-  yield { type: "done", answer, steps: [], promptTokens: directPromptTokens, tokensPerSecond: directTps };
+  yield { type: "done", answer, steps: [], promptTokens, tokensPerSecond };
+}
+
+/** 할 일이 뻔한 짧은 글 일(번역·요약·설명). 도구 없이 그 일만 시킨다(textTaskStream). */
+export function runTextTask(system: string, text: string, signal?: AbortSignal): AsyncGenerator<LoopEvent> {
+  return streamAnswer((onUsage) => textTaskStream(system, text, onUsage, signal));
 }

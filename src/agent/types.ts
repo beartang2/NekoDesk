@@ -28,6 +28,8 @@ export interface LlmParams {
   grammar?: string;
   /** native tool calling 용 툴 스키마. 있으면 tool_choice:"auto" 로 함께 보낸다. */
   tools?: OpenAiToolSchema[];
+  /** false 면 생각 없이 바로 답한다. 번역·요약처럼 할 일이 뻔한 짧은 일에. */
+  thinking?: false;
 }
 
 /** 스트림 델타에 실려 오는 툴 호출 조각. arguments 는 여러 청크에 걸쳐 온다. */

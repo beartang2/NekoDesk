@@ -8,8 +8,10 @@ import { resizeImageForLlm } from "../lib/image";
 import { NekoHead } from "../cat/NekoHead";
 import { reloadCatVariant, useCatStore } from "../stores/catStore";
 import {
+  QUICK_ACTIONS,
   QUICK_ASK_EVENT,
   QUICK_CONTEXT_EVENT,
+  type QuickAction,
   type QuickAskPayload,
   type QuickContext,
 } from "../lib/quick-ask";
@@ -25,13 +27,6 @@ const EMPTY: QuickContext = { selection: null, clipboard: null, app: null };
 const CAPTURE_MAX_PX = 2048;
 /** 무손실로 찍어 와 한 번만 JPEG 로 줄인다. 0.9 면 글씨 테두리가 번지지 않는다. */
 const CAPTURE_OUT = { type: "image/jpeg", quality: 0.9 } as const;
-
-/** 선택한 글에 한 번 눌러 보내는 말. 입력하지 않아도 된다. */
-const QUICK_ACTIONS: [label: string, text: string][] = [
-  ["요약", "요약해줘."],
-  ["번역", "번역해줘. 한국어면 영어로, 다른 언어면 한국어로."],
-  ["설명", "쉽게 설명해줘."],
-];
 
 /** 캡처만 하고 아무것도 안 쳤을 때 보낼 말. */
 const IMAGE_DEFAULT_TEXT = "이 화면을 설명해줘.";
@@ -88,11 +83,12 @@ export function QuickAsk() {
     setTimeout(() => inputRef.current?.focus(), 0);
   }
 
-  async function submit(preset?: string) {
-    const trimmed = preset ?? (text.trim() || (image ? IMAGE_DEFAULT_TEXT : ""));
+  async function submit(action?: QuickAction) {
+    const trimmed = action ?? (text.trim() || (image ? IMAGE_DEFAULT_TEXT : ""));
     if (!trimmed) return;
     const payload: QuickAskPayload = {
       text: trimmed,
+      action,
       selection: useSelection && ctx.selection ? ctx.selection : undefined,
       clipboard: useClipboard && ctx.clipboard ? ctx.clipboard : undefined,
       app: ctx.app ?? undefined,
@@ -175,9 +171,9 @@ export function QuickAsk() {
         </div>
         {showActions ? (
           <div className="quick__actions">
-            {QUICK_ACTIONS.map(([label, preset]) => (
-              <button key={label} className="quick__action" onClick={() => void submit(preset)}>
-                {label}
+            {QUICK_ACTIONS.map((action) => (
+              <button key={action} className="quick__action" onClick={() => void submit(action)}>
+                {action}
               </button>
             ))}
           </div>

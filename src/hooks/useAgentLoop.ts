@@ -3,7 +3,7 @@ import { conversationApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { notifyIfAway, toNotificationBody } from "../lib/notify";
 import { useMessageStore } from "../stores/messageStore";
-import { runAgentLoop } from "../agent/agent-loop";
+import { runAgentLoop, runTextTask } from "../agent/agent-loop";
 import type {
   AgentStep,
   CatEmotion,
@@ -61,6 +61,14 @@ export interface ChatMessage {
   startedAt?: number;
   /** 앱이 붙이는 안내(예: 반복돼서 끊음). 본문이 아니라 대화 기록에 안 실린다. */
   notice?: string;
+  /** 사용자 말풍선 위에 작게 보이는 꼬리표(빠른 질문의 요약·번역·설명). */
+  label?: string;
+}
+
+/** 대화 루프 대신 지시 하나로만 시키는 짧은 글 일(runTextTask). 빠른 질문의 버튼. */
+export interface TextTask {
+  label: string;
+  system: string;
 }
 
 function nowTime(): string {
@@ -119,6 +127,7 @@ export interface QueuedMessage {
   displayText?: string;
   summaryContext?: string;
   requireTool?: ToolName;
+  task?: TextTask;
 }
 
 /** 저장할 때 도구 파라미터·결과 한 칸의 최대 길이. 웹 페이지를 긁은 결과는 몇백 KB 다. */
@@ -139,6 +148,7 @@ export interface MessageMeta {
   images?: string[];
   tokensPerSecond?: number;
   notice?: string;
+  label?: string;
 }
 
 /**
@@ -169,6 +179,7 @@ export function serializeMeta(meta: MessageMeta): string | undefined {
     ...(images.length ? { images } : {}),
     ...(meta.tokensPerSecond !== undefined ? { tokensPerSecond: meta.tokensPerSecond } : {}),
     ...(meta.notice ? { notice: meta.notice } : {}),
+    ...(meta.label ? { label: meta.label } : {}),
   };
   return Object.keys(stored).length ? JSON.stringify(stored) : undefined;
 }
@@ -270,7 +281,9 @@ function buildHistory(messages: ChatMessage[]): LlmMessage[] {
       role: m.role === "user" ? "user" : ("assistant" as const),
       content: m.attachments?.length
         ? buildLlmContent(m.content, m.attachments)
-        : m.content || toolsOnlyNote(m),
+        : m.label
+          ? `[${m.label}]\n${m.content}`
+          : m.content || toolsOnlyNote(m),
     }));
 }
 
@@ -355,14 +368,15 @@ export function useAgentPool() {
       files: AttachedFile[] = [],
       displayText?: string,
       summaryContext?: string,
-      requireTool?: ToolName
+      requireTool?: ToolName,
+      task?: TextTask
     ) => {
       // 일하는 중이면 버리지 않고 줄 세운다. 도구 사이에 끼워 넣거나(user_interjected),
       // 끼울 틈 없이 답이 끝나면 다음 요청으로 보낸다(아래 맨 끝).
       if (runningSetRef.current.has(sessionId)) {
         setQueue(sessionId, [
           ...(queueRef.current[sessionId] ?? []),
-          { id: crypto.randomUUID(), userText, files, displayText, summaryContext, requireTool },
+          { id: crypto.randomUUID(), userText, files, displayText, summaryContext, requireTool, task },
         ]);
         return;
       }
@@ -384,6 +398,7 @@ export function useAgentPool() {
         content: visibleText,
         time: nowTime(),
         attachments: files.length > 0 ? files : undefined,
+        label: task?.label,
       };
       // 사용자가 끼어들면 답 칸을 새로 연다. 그때 바뀐다.
       let assistantId = crypto.randomUUID();
@@ -402,7 +417,7 @@ export function useAgentPool() {
       const textContent = buildTextContent(userText, files);
       const llmContent = buildLlmContent(userText, files);
       conversationApi
-        .save(sessionId, "user", visibleText, serializeAttachments(files))
+        .save(sessionId, "user", visibleText, serializeAttachments(files), serializeMeta({ label: task?.label }))
         .catch(() => {});
 
       const rawHistory = buildHistory(useMessageStore.getState().get(sessionId));
@@ -411,14 +426,19 @@ export function useAgentPool() {
         : rawHistory;
       // 루프가 도구 사이에 대기열을 비워 간다. 무엇을 가져갔는지는 곧이어 오는
       // user_interjected 에서 말풍선으로 옮긴다.
+      // 버튼 일(task)은 끼워 넣지 않는다 — 지시 없이 고른 글만 들어가 무엇을 하라는 건지
+      // 모른다. 줄에 남겨 두면 이번 답이 끝난 뒤 따로 돈다.
       let interjected: QueuedMessage[] = [];
       const takeInterjections = () => {
-        interjected = queueRef.current[sessionId] ?? [];
-        if (interjected.length > 0) setQueue(sessionId, []);
+        const queued = queueRef.current[sessionId] ?? [];
+        interjected = queued.filter((q) => !q.task);
+        if (interjected.length > 0) setQueue(sessionId, queued.filter((q) => q.task));
         return interjected.map((q) => buildLlmContent(q.userText, q.files));
       };
-      const hasInterjections = () => (queueRef.current[sessionId]?.length ?? 0) > 0;
-      const generator = runAgentLoop(textContent, history, llmContent, controller.signal, takeInterjections, requireTool, hasInterjections);
+      const hasInterjections = () => (queueRef.current[sessionId] ?? []).some((q) => !q.task);
+      const generator = task
+        ? runTextTask(task.system, userText, controller.signal)
+        : runAgentLoop(textContent, history, llmContent, controller.signal, takeInterjections, requireTool, hasInterjections);
 
       // 지금 답 칸의 스텝. 끼어들기로 닫힌 칸의 스텝은 stepOffset 만큼 앞에 있다.
       let stepOffset = 0;
@@ -683,7 +703,7 @@ export function useAgentPool() {
     const [waiting, ...rest] = queueRef.current[sessionId] ?? [];
     if (!waiting) return;
     setQueue(sessionId, rest);
-    void sendMessage(sessionId, waiting.userText, waiting.files, waiting.displayText, waiting.summaryContext, waiting.requireTool);
+    void sendMessage(sessionId, waiting.userText, waiting.files, waiting.displayText, waiting.summaryContext, waiting.requireTool, waiting.task);
   }
 
   const stop = useCallback(

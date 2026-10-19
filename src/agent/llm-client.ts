@@ -230,8 +230,8 @@ function buildRequestBody(
     stream,
   };
   if (stream) body.stream_options = { include_usage: true };
-  if (params.grammar) {
-    body.grammar = params.grammar;
+  if (params.grammar || params.thinking === false) {
+    if (params.grammar) body.grammar = params.grammar;
     // 생각 모드로 뜬 서버(`--reasoning on`)는 템플릿이 `<think>` 를 열어둔 채 답을 받는다.
     // 문법은 그 생각 자리부터 묶어서, 모델이 쓰려던 생각("사용자가 끝말잇기를…")이
     // 띄어쓰기 없이 잘린 채 답이 됐다(첫 단어 "사용자가끝"). 모양을 못 박는 호출엔 생각이 낄 자리가 없다.
@@ -965,6 +965,26 @@ export function chatStream(
   return fetchStream(allMessages, { max_tokens: 512 }, onUsage, signal);
 }
 
+
+/**
+ * 할 일이 뻔한 짧은 글 일(번역·요약·설명). 도구도 대화 기록도 없이 그 일만 시킨다.
+ *
+ * 채팅 시스템 프롬프트(도구 목록·말투·감정 표시 규칙)를 그대로 쓰면 4B 모델이 "번역 도구가 없어"
+ * 하고 거절하거나 표·감정 표시를 덧붙였고, 생각 모드에선 512 토큰을 생각에 다 써 답이 안 나왔다.
+ * 그 일 하나만 적은 짧은 지시 + 생각 끄기 + 낮은 온도로 4~7초 안에 답이 나온다(2026-10, Qwen3.5-4B).
+ */
+export function textTaskStream(
+  system: string,
+  text: string,
+  onUsage?: UsageCallback,
+  signal?: AbortSignal
+): AsyncGenerator<LlmStreamChunk> {
+  const messages: LlmMessage[] = [
+    { role: "system", content: system },
+    { role: "user", content: text },
+  ];
+  return fetchStream(messages, { max_tokens: 1024, temperature: 0.2, thinking: false }, onUsage, signal);
+}
 
 // ── Context compaction ────────────────────────────────────────────────────────
 

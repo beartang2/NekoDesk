@@ -521,6 +521,7 @@ function ChatMessages({
 
           {(m.content || m.isStreaming || (m.attachments && m.attachments.length > 0) || (m.images && m.images.length > 0)) && (
             <div className="message__bubble">
+              {m.label && <span className="message__label">{m.label}</span>}
               {m.thinking && (
                 // 생각 텍스트는 접어둔다. 길게 흘러 화면을 밀어내서, 로더·타이머만 보이고 펼쳐야 읽힌다.
                 <details className="message__thinking">
@@ -1138,6 +1139,7 @@ export default function App() {
           images: meta.images,
           tokensPerSecond: meta.tokensPerSecond,
           notice: meta.notice,
+          label: meta.label,
           isStreaming: false,
         };
       });
@@ -1590,11 +1592,11 @@ export default function App() {
       await loadSessionMessages(quickId);
       // 창을 열었을 때 답이 바로 보이게. 사용자는 지금 다른 앱에 있다.
       setActiveId(quickId);
-      const { userText, displayText } = buildQuickPrompt(payload);
+      const { userText, displayText, task } = buildQuickPrompt(payload);
       const files: AttachedFile[] = payload.image
         ? [{ name: "화면 캡처.jpg", content: "", dataUrl: payload.image, size: payload.image.length, type: "image/jpeg" }]
         : [];
-      void pool.sendMessage(quickId, userText, files, displayText);
+      void pool.sendMessage(quickId, userText, files, displayText, undefined, undefined, task);
     });
     return () => { unlisten.then((f) => f()); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
