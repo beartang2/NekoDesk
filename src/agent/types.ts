@@ -80,6 +80,7 @@ export type ToolName =
   | "plan.complete"
   | "memory.save"
   | "memory.search"
+  | "security.check"
   | "agent.delegate"
   | "airdrop.send";
 
@@ -226,6 +227,14 @@ export interface Skill {
 }
 
 /** 세션을 넘어 남는 기억 한 조각. */
+/** 읽기 전용 보안 점검 결과(security.rs). */
+export interface SecurityReport {
+  checks: { ok: boolean; summary: string; advice: string }[];
+  autostart: string[];
+  /** 지난 점검 뒤에 새로 생긴 자동 실행 항목. 한 번만 실린다. */
+  new_autostart: string[];
+}
+
 export interface Memory {
   id: number;
   kind: string;

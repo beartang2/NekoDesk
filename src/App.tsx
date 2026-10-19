@@ -29,7 +29,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UpdatePrompt } from "./components/Update";
 import { openViewer, imageName } from "./components/Viewer";
 import { useCatRpg } from "./hooks/useCatRpg";
-import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets } from "./api/tauri";
+import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -1211,10 +1211,11 @@ export default function App() {
     async function runBriefing() {
       try {
         const location = await settingsApi.get("weather_location").catch(() => "서울");
-        const [weatherRaw, todayEvents, openTodos] = await Promise.all([
+        const [weatherRaw, todayEvents, openTodos, security] = await Promise.all([
           invoke<string>("weather_get", { location: location || "서울" }).catch(() => null),
           scheduleApi.list("today").catch(() => [] as ScheduleEvent[]),
           todosApi.list().catch(() => [] as Todo[]),
+          securityApi.check().catch(() => null),
         ]);
 
         const weatherLine = weatherRaw
@@ -1236,6 +1237,16 @@ export default function App() {
         if (weatherLine) lines.push(`🌤 **날씨** ${weatherLine}`);
         lines.push(`📅 **오늘 일정** (${todayEvents.length}개) ${eventLines}`);
         lines.push(`✓ **할 일** (${openTodos.length}개) ${todoLines}`);
+        if (security) {
+          // 괜찮은 건 한 줄로 끝낸다. 매일 아침 항목을 다 늘어놓으면 이상이 생겨도 눈에 안 띈다.
+          const issues = security.checks.filter((c) => !c.ok).map((c) => c.summary);
+          if (security.new_autostart.length) {
+            issues.push(`새 자동 실행 항목 ${security.new_autostart.map((p) => p.split("/").pop()).join(", ")}`);
+          }
+          lines.push(issues.length
+            ? `🛡 **보안** ${issues.join(" · ")} — "보안 점검해줘" 하면 자세히 알려줄게`
+            : "🛡 **보안** 이상 없음");
+        }
         lines.push("\n좋은 하루 되세요! 🐱");
 
         const briefingMsg = {

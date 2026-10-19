@@ -6,12 +6,14 @@ import {
   execHistoryApi,
   fsApi,
   memoryApi,
+  securityApi,
   type ScheduleRange,
 } from "../api/tauri";
 import { appEvents, requestWordchainFirstWord } from "../lib/events";
 import { useSettingsStore } from "../stores/settingsStore";
 import { getFile, getStoredFileNames } from "./file-store";
 import { buildSkillIndex, readKnowledge } from "./knowledge";
+import { saveMemory } from "./memory-merge";
 import type {
   ToolName,
   JsonSchema,
@@ -21,6 +23,7 @@ import type {
   FsGrepHit,
   FsReadResult,
   Memory,
+  SecurityReport,
   Todo,
   ScheduleEvent,
   SearchResult,
@@ -606,9 +609,30 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["content"],
     },
     readOnly: false,
-    execute: async (p) =>
-      memoryApi.save(p["content"] as string, (p["kind"] as string | undefined) ?? "fact"),
-    summarize: (r) => `기억했어: ${(r as Memory).content}`,
+    execute: async (p) => saveMemory(p["content"] as string, (p["kind"] as string | undefined) ?? "fact"),
+    summarize: (r) => {
+      const { content, replaced } = r as Awaited<ReturnType<typeof saveMemory>>;
+      return replaced.length
+        ? `기억했어: ${content}\n(예전 기억을 이걸로 바꿨어: ${replaced.join(" / ")})`
+        : `기억했어: ${content}`;
+    },
+  },
+
+  "security.check": {
+    name: "security.check",
+    description:
+      "이 맥의 보안 상태를 읽기만 해서 점검한다(디스크 암호화·방화벽·SIP·Gatekeeper·자동 업데이트·" +
+      "원격 접속·새로 생긴 자동 실행 항목). 보안·해킹·악성 코드가 걱정된다고 하면 써",
+    params: { type: "object", properties: {}, required: [] },
+    readOnly: true,
+    execute: async () => securityApi.check(),
+    summarize: (r) => {
+      const { checks, autostart, new_autostart } = r as SecurityReport;
+      const lines = checks.map((c) => (c.ok ? `✓ ${c.summary}` : `✗ ${c.summary} — ${c.advice}`));
+      if (new_autostart.length) lines.push(`✗ 지난 점검 뒤 새로 생긴 자동 실행 항목: ${new_autostart.join(", ")}`);
+      lines.push(`자동 실행 항목 ${autostart.length}개:\n${clipList(autostart, 20, (a) => `- ${a}`)}`);
+      return lines.join("\n");
+    },
   },
 
   "memory.search": {

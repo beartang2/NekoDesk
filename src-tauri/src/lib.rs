@@ -18,6 +18,7 @@ mod quick;
 mod capture;
 mod location;
 mod secrets;
+mod security;
 mod shelf;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
@@ -844,6 +845,18 @@ mod commands {
         crate::db::memories::delete(&conn, id)
     }
 
+    // ── 보안 점검 (security 모듈 위임) ────────────────────────────────────────
+
+    /// 읽기 전용. 명령은 DB 잠금 밖에서 돌리고, 자동 실행 목록을 견줄 때만 잠근다.
+    #[tauri::command(async)]
+    pub fn security_check(db: State<'_, DbState>) -> Result<crate::security::Report, AppError> {
+        let checks = crate::security::checks();
+        let autostart = crate::security::autostart();
+        let conn = db.0.lock()?;
+        let new_autostart = crate::security::new_autostart(&conn, &autostart)?;
+        Ok(crate::security::Report { checks, autostart, new_autostart })
+    }
+
     // ── llama-server (llama 모듈 위임) ────────────────────────────────────────
 
     #[tauri::command(async)]
@@ -1165,6 +1178,7 @@ pub fn run() {
             commands::memory_search,
             commands::memory_list,
             commands::memory_delete,
+            commands::security_check,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,
