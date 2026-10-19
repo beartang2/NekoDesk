@@ -21,6 +21,15 @@ pub(crate) const BLOCKED_DIRS: &[&str] = &[
     "Library/Messages",
     "Library/Containers/com.apple.Safari",
     "Library/Application Support/AddressBook",
+    // 네코 자신의 데이터(대화·기억·설정 DB, 화면 저장소). 웹 페이지에 조종당한 모델이 설정을
+    // 읽어 가거나 대화 기록을 내보내지 못하게. dev 빌드는 이름이 nekodesk 다.
+    "Library/Application Support/com.nekodesk.desktop",
+    "Library/Application Support/nekodesk",
+    // 예전 이름(번들 ID 를 바꾸기 전)의 데이터. 옛 DB 에 키가 그대로 남아 있을 수 있다.
+    "Library/Application Support/nekodesk-dev",
+    "Library/Application Support/com.nekodesk.app",
+    "Library/WebKit/com.nekodesk.desktop",
+    "Library/WebKit/nekodesk",
 ];
 
 /// 이름만으로 비밀임을 알 수 있는 파일.
@@ -178,6 +187,17 @@ mod tests {
         // 사용자의 프로젝트가 외장 볼륨에 있는 흔한 경우.
         let p = Path::new("/Volumes/BREAD/project/src/main.rs");
         assert_eq!(classify(p, false, &[]), Decision::Allow);
+    }
+
+    #[test]
+    fn nekos_own_data_is_denied() {
+        // 대화·기억·설정 DB 와 화면 저장소. 승인 루트로도 못 연다.
+        for p in [
+            "/Users/kim/Library/Application Support/com.nekodesk.desktop/nekodesk.sqlite",
+            "/Users/kim/Library/WebKit/com.nekodesk.desktop/WebsiteData/LocalStorage/x",
+        ] {
+            assert!(matches!(classify(Path::new(p), false, &roots(&["/Users/kim"])), Decision::Deny(_)), "{p}");
+        }
     }
 
     #[test]

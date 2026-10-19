@@ -17,6 +17,7 @@ mod quick;
 #[cfg(target_os = "macos")]
 mod capture;
 mod location;
+mod secrets;
 mod shelf;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
@@ -328,19 +329,13 @@ mod commands {
     }
 
     #[tauri::command]
-    pub async fn web_search(
-        db: State<'_, DbState>,
-        query: String,
-    ) -> Result<Vec<SearchResult>, AppError> {
-        // brave 키는 lock 을 await 전에 버리고 owned 로 뽑는다(가드는 !Send).
-        let brave_key = {
-            let conn = db.0.lock()?;
-            crate::db::settings::get(&conn, "brave_search_key")?
-        };
+    pub async fn web_search(query: String) -> Result<Vec<SearchResult>, AppError> {
+        // brave 키는 키체인에 있다. 없거나 못 꺼내면 DuckDuckGo 만 쓴다.
+        let brave_key = crate::secrets::get("brave_search_key").ok().flatten();
         crate::http::search::run(&query, brave_key).await
     }
 
-    /// 설명대로 그림을 그려 data URL 로 돌려준다. 키는 DB 에서 꺼낸다.
+    /// 설명대로 그림을 그려 data URL 로 돌려준다. 토큰·키는 키체인에서, 계정 ID 는 DB 에서 꺼낸다.
     #[tauri::command]
     pub async fn image_generate(
         db: State<'_, DbState>,
@@ -348,11 +343,12 @@ mod commands {
         model: String,
         prompt: String,
     ) -> Result<String, AppError> {
-        let (cf_account, cf_token, google_key) = {
+        let cf_account = {
             let conn = db.0.lock()?;
-            let get = |k: &str| crate::db::settings::get(&conn, k).map(Option::unwrap_or_default);
-            (get("cf_account_id")?, get("cf_api_token")?, get("google_api_key")?)
+            crate::db::settings::get(&conn, "cf_account_id")?.unwrap_or_default()
         };
+        let secret = |k: &str| crate::secrets::get(k).map(Option::unwrap_or_default);
+        let (cf_token, google_key) = (secret("cf_api_token")?, secret("google_api_key")?);
         match provider.as_str() {
             "cloudflare" => crate::http::image::cloudflare(&cf_account, &cf_token, &model, &prompt).await,
             "google" => crate::http::image::google(&google_key, &model, &prompt).await,
@@ -367,14 +363,42 @@ mod commands {
 
     #[tauri::command(async)]
     pub fn settings_set(db: State<'_, DbState>, key: String, value: String) -> Result<(), AppError> {
+        // 비밀은 표에 안 적는다 — secret_set 으로 키체인에.
+        if crate::secrets::is_secret(&key) {
+            return Err(AppError::msg("비밀은 secret_set 으로 저장해."));
+        }
         let conn = db.0.lock()?;
         crate::db::settings::set(&conn, &key, &value)
     }
 
     #[tauri::command(async)]
     pub fn settings_get(db: State<'_, DbState>, key: String) -> Result<Option<String>, AppError> {
+        if crate::secrets::is_secret(&key) {
+            return Err(AppError::msg("비밀은 화면에 돌려주지 않아."));
+        }
         let conn = db.0.lock()?;
         crate::db::settings::get(&conn, &key)
+    }
+
+    /// API 키를 키체인에 넣는다. 빈 값이면 지운다.
+    #[tauri::command(async)]
+    pub fn secret_set(key: String, value: String) -> Result<(), AppError> {
+        crate::secrets::set(&key, &value)
+    }
+
+    /// 저장된 키가 있는가. 값은 돌려주지 않는다 — 화면엔 "저장됨" 만 보인다.
+    #[tauri::command(async)]
+    pub fn secret_has(key: String) -> Result<bool, AppError> {
+        Ok(crate::secrets::get(&key)?.is_some_and(|v| !v.is_empty()))
+    }
+
+    /// dev 빌드의 복사 버튼용. 빌드한 앱에선 거절한다 — 화면에서 키를 꺼낼 길을 남기지 않는다.
+    #[tauri::command(async)]
+    pub fn secret_dev_get(key: String) -> Result<Option<String>, AppError> {
+        if !cfg!(debug_assertions) {
+            return Err(AppError::msg("dev 빌드에서만 꺼낼 수 있어."));
+        }
+        crate::secrets::get(&key)
     }
 
     #[tauri::command(async)]
@@ -1031,6 +1055,8 @@ pub fn run() {
                 .expect("Failed to resolve app data dir");
             let conn = open_db(data_dir).expect("Failed to open database");
             db::init_schema(&conn).expect("Failed to initialize schema");
+            // 예전 버전이 표에 적어 둔 API 키를 키체인으로 옮긴다.
+            secrets::migrate(&conn);
             app.manage(DbState(Mutex::new(conn)));
             app.manage(LlamaServerState(Mutex::new(LlamaProc::default())));
             app.manage(crate::mcp::McpRegistry::new());
@@ -1093,6 +1119,9 @@ pub fn run() {
             commands::image_generate,
             commands::settings_set,
             commands::settings_get,
+            commands::secret_set,
+            commands::secret_has,
+            commands::secret_dev_get,
             commands::conversation_save,
             commands::conversation_load,
             commands::conversation_delete,

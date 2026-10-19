@@ -29,7 +29,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UpdatePrompt } from "./components/Update";
 import { openViewer, imageName } from "./components/Viewer";
 import { useCatRpg } from "./hooks/useCatRpg";
-import { todosApi, scheduleApi, settingsApi, conversationApi } from "./api/tauri";
+import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -1721,6 +1721,11 @@ export default function App() {
     startDrag,
     appStyle,
   } = useLayout();
+
+  // 예전 버전이 화면 저장소에 남긴 API 키를 키체인으로 옮긴다(한 번이면 끝).
+  useEffect(() => {
+    migrateLegacySecrets().catch(console.warn);
+  }, []);
 
   // 채팅 위 오로라 빛 다섯 덩이. 캡처 막 가장자리 빛과 같은 방식으로 정한다(lib/aurora.ts): 색은 포인트
   // 색에서 채도·색상을 자리마다 부드럽게 바꾸고, 일렁이는 빠르기·박자도 자리를 따라 물결치듯 달라

@@ -116,10 +116,35 @@ export const skillsApi = {
 };
 
 export const settingsApi = {
-  /** 없으면 null. */
+  /** 없으면 null. API 키는 여기로 못 읽고 못 쓴다 — secretsApi. */
   get: (key: string) => invoke<string | null>("settings_get", { key }),
   set: (key: string, value: string) => invoke<void>("settings_set", { key, value }),
 };
+
+/** API 키(macOS 키체인). 화면엔 값을 돌려주지 않는다 — 저장했는지만 안다. */
+export const secretsApi = {
+  /** 빈 값이면 지운다. */
+  set: (key: string, value: string) => invoke<void>("secret_set", { key, value }),
+  has: (key: string) => invoke<boolean>("secret_has", { key }),
+  /** dev 빌드의 복사 버튼용. 빌드한 앱에선 거절된다. */
+  devGet: (key: string) => invoke<string | null>("secret_dev_get", { key }),
+};
+
+/** 예전 버전이 localStorage 에 적어 둔 Brave 키를 키체인으로 옮기고 지운다. */
+export async function migrateLegacySecrets() {
+  const LEGACY = "nekodesk_brave_search_key";
+  let legacy: string | null = null;
+  try {
+    legacy = localStorage.getItem(LEGACY);
+  } catch {
+    return;
+  }
+  if (legacy === null) return;
+  if (legacy.trim() && !(await secretsApi.has("brave_search_key"))) {
+    await secretsApi.set("brave_search_key", legacy);
+  }
+  localStorage.removeItem(LEGACY);
+}
 
 /** 임시 보관함에 둔 파일. path 는 끌어낼 때(startDrag) 쓴다. */
 export interface ShelfItem {

@@ -2603,6 +2603,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rusqlite",
  "scraper",
+ "security-framework",
  "serde",
  "serde_json",
  "tauri",

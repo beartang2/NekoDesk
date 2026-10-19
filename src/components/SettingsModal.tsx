@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { memoryApi, settingsApi } from "../api/tauri";
+import { memoryApi, secretsApi, settingsApi } from "../api/tauri";
 import {
   X, Zap, Pencil, Trash2, Settings, Plus, RefreshCw, MapPin, Loader2, ChevronRight, ArrowUpRight, Info, Copy,
 } from "lucide-react";
@@ -875,14 +875,59 @@ function MemoriesSection() {
 
 // ── Image generation section ──────────────────────────────────────────────────
 
-/** dev 빌드 전용. password 칸은 복사가 막혀서 키를 꺼낼 버튼을 따로 둔다. */
-function DevCopy({ value }: { value: string }) {
+/** dev 빌드 전용. 키는 화면에 안 오니 누를 때 키체인에서 꺼내 복사한다(빌드한 앱에선 꺼내 주지 않는다). */
+function DevCopy({ secretKey }: { secretKey: string }) {
   if (!import.meta.env.DEV) return null;
-  return <IconButton label="복사" onClick={() => navigator.clipboard.writeText(value)}><Copy size={12} /></IconButton>;
+  const copy = () =>
+    secretsApi.devGet(secretKey).then((v) => (v ? navigator.clipboard.writeText(v) : undefined)).catch(console.warn);
+  return <IconButton label="복사" onClick={copy}><Copy size={12} /></IconButton>;
 }
 
-const IMAGE_KEYS = ["cf_account_id", "cf_api_token", "google_api_key"] as const;
-type ImageKey = (typeof IMAGE_KEYS)[number];
+/** 진행 중인 키 저장들. 테스트처럼 곧바로 키를 쓰는 일은 이걸 기다린다 — 칸을 벗어나며 저장하는
+ *  것과 경주하지 않게. */
+const pendingSecretSaves = new Set<Promise<unknown>>();
+const flushSecretSaves = () => Promise.allSettled([...pendingSecretSaves]);
+
+/**
+ * 키체인에 두는 API 키 입력 칸. 저장된 키는 다시 보여 주지 않는다 — "저장됨" 만 뜨고, 새로 적으면
+ * 바꾸고, 지우기로 없앤다. 칸을 벗어나거나 엔터를 치면 저장한다.
+ */
+function SecretInput({ secretKey, placeholder, onSaved }: { secretKey: string; placeholder?: string; onSaved?: () => void }) {
+  const [has, setHas] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  useEffect(() => {
+    secretsApi.has(secretKey).then(setHas).catch(() => setHas(false));
+  }, [secretKey]);
+
+  function save() {
+    const value = draft.trim();
+    if (!value) return;
+    const saving = secretsApi.set(secretKey, value).then(() => {
+      setDraft("");
+      setHas(true);
+      onSaved?.();
+    });
+    pendingSecretSaves.add(saving);
+    saving.catch(console.warn).finally(() => pendingSecretSaves.delete(saving));
+  }
+
+  function clear() {
+    secretsApi.set(secretKey, "").then(() => setHas(false)).catch(console.warn);
+  }
+
+  return (
+    <>
+      <input className="settings-input" type="password" value={draft}
+        placeholder={has ? "저장됨 · 바꾸려면 새로 입력" : placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+      {has && <DevCopy secretKey={secretKey} />}
+      {has && <button className="settings-btn settings-btn--ghost" onClick={clear}>지우기</button>}
+    </>
+  );
+}
 
 const CF_IMAGE_MODELS = [
   "@cf/black-forest-labs/flux-1-schnell",
@@ -897,32 +942,26 @@ const GOOGLE_IMAGE_MODELS = [
   "gemini-2.5-flash-image",
 ];
 
-/** 네코가 그림을 그릴 때 쓰는 서비스. 키는 DB 에만 두고 백엔드가 읽는다. */
+/** 네코가 그림을 그릴 때 쓰는 서비스. 토큰·키는 키체인에 두고 백엔드만 읽는다(계정 ID 는 DB). */
 function ImageGenSection() {
   const imageGen = useSettingsStore((s) => s.imageGen);
   const setImageGen = useSettingsStore((s) => s.setImageGen);
-  const [keys, setKeys] = useState<Record<ImageKey, string>>({
-    cf_account_id: "",
-    cf_api_token: "",
-    google_api_key: "",
-  });
+  const [accountId, setAccountId] = useState("");
   const [test, setTest] = useState<{ busy?: boolean; url?: string; error?: string }>({});
 
   useEffect(() => {
-    Promise.all(IMAGE_KEYS.map((k) => settingsApi.get(k).catch(() => null))).then((vals) =>
-      setKeys(Object.fromEntries(IMAGE_KEYS.map((k, i) => [k, vals[i] ?? ""])) as Record<ImageKey, string>)
-    );
+    settingsApi.get("cf_account_id").then((v) => setAccountId(v ?? "")).catch(() => {});
   }, []);
 
-  function saveKey(k: ImageKey) {
-    return settingsApi.set(k, keys[k].trim());
+  function saveAccountId() {
+    return settingsApi.set("cf_account_id", accountId.trim());
   }
 
   async function runTest() {
     setTest({ busy: true });
     try {
-      // blur 저장과 경주하지 않게 지금 값을 먼저 써둔다.
-      await Promise.all(IMAGE_KEYS.map(saveKey));
+      // 칸을 벗어나며 시작한 저장과 경주하지 않게, 지금 값을 먼저 써 두고 키 저장도 기다린다.
+      await Promise.all([saveAccountId(), flushSecretSaves()]);
       // 에이전트가 쓰는 길을 그대로 탄다.
       const res = await getTool("image.generate").execute({ prompt: "a cute pixel art cat sitting on a desk" });
       setTest({ url: (res as { image_data_url: string }).image_data_url });
@@ -931,13 +970,10 @@ function ImageGenSection() {
     }
   }
 
-  const keyRow = (k: ImageKey, label: string, secret = true) => (
+  const secretRow = (k: string, label: string) => (
     <div className="settings-field">
       <span className="settings-field__label">{label}</span>
-      <input className="settings-input" type={secret ? "password" : "text"} value={keys[k]}
-        onChange={(e) => setKeys({ ...keys, [k]: e.target.value })}
-        onBlur={() => saveKey(k).catch(console.warn)} />
-      {secret && <DevCopy value={keys[k]} />}
+      <SecretInput secretKey={k} />
     </div>
   );
 
@@ -970,12 +1006,17 @@ function ImageGenSection() {
         ]}
       />
       <Collapse open={imageGen.provider === "cloudflare"}>
-        {keyRow("cf_account_id", "계정 ID", false)}
-        {keyRow("cf_api_token", "API 토큰")}
+        <div className="settings-field">
+          <span className="settings-field__label">계정 ID</span>
+          <input className="settings-input" value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+            onBlur={() => saveAccountId().catch(console.warn)} />
+        </div>
+        {secretRow("cf_api_token", "API 토큰")}
         {modelRow("cfModel", CF_IMAGE_MODELS)}
       </Collapse>
       <Collapse open={imageGen.provider === "google"}>
-        {keyRow("google_api_key", "API 키")}
+        {secretRow("google_api_key", "API 키")}
         {modelRow("googleModel", GOOGLE_IMAGE_MODELS)}
       </Collapse>
       <Collapse open={imageGen.provider !== "off"}>
@@ -1259,16 +1300,9 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
     setTimeout(() => setPromptSaved(false), 1500);
   }
 
-  // Brave Search API key
-  const [braveSearchKey, setBraveSearchKey] = useState(
-    () => localStorage.getItem("nekodesk_brave_search_key") ?? ""
-  );
+  // Brave Search API key — 키체인에(SecretInput). 저장되면 잠깐 "저장됨".
   const [braveSearchSaved, setBraveSearchSaved] = useState(false);
-
-  function saveBraveSearchKey() {
-    const key = braveSearchKey.trim();
-    localStorage.setItem("nekodesk_brave_search_key", key);
-    settingsApi.set("brave_search_key", key).catch(console.warn);
+  function onBraveSaved() {
     setBraveSearchSaved(true);
     setTimeout(() => setBraveSearchSaved(false), 1500);
   }
@@ -1381,18 +1415,8 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                   DuckDuckGo 결과가 없을 때 폴백으로 사용. api.search.brave.com에서 무료 발급 (2,000회/월).
                 </p>
                 <div className="settings-row">
-                  <input
-                    className="settings-input"
-                    type="password"
-                    value={braveSearchKey}
-                    onChange={(e) => setBraveSearchKey(e.target.value)}
-                    placeholder="BSA..."
-                    onBlur={saveBraveSearchKey}
-                  />
-                  <DevCopy value={braveSearchKey} />
-                  <button className="settings-btn" onClick={saveBraveSearchKey}>
-                    <SavedLabel saved={braveSearchSaved} />
-                  </button>
+                  <SecretInput secretKey="brave_search_key" placeholder="BSA..." onSaved={onBraveSaved} />
+                  {braveSearchSaved && <SavedLabel saved />}
                 </div>
               </section>
 
