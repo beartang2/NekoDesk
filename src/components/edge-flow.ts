@@ -113,11 +113,13 @@ const GATHER: [part: number, stretch: number, size: number, alpha: number][] = [
   [0.75, 1.1, 1.3, PEAK * 0.8],
   [1, 1, 0.4, 0],
 ];
+/** 퍼질 땐 조금 더 짙게 — 크게 피어오르는 만큼 옅어 보였다. */
+const SPREAD_PEAK = PEAK * 1.2;
 const SPREAD: [part: number, stretch: number, size: number, alpha: number][] = [
   [0, 1, 0.3, 0],
-  [0.15, 1.1, 1.2, PEAK],
-  [0.45, 1.1, 2, PEAK * 0.85],
-  [0.75, 1.05, 1.4, PEAK * 0.7],
+  [0.15, 1.1, 1.2, SPREAD_PEAK],
+  [0.45, 1.1, 2, SPREAD_PEAK * 0.85],
+  [0.75, 1.05, 1.4, SPREAD_PEAK * 0.7],
   [1, 1, 1, 0],
 ];
 
