@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 서명할 때 hardened runtime 이 켜진다. 그 아래선 위치 서비스를 쓰려면 이 권한을 들고
+	     있어야 한다 — 없으면 locationd 가 권한 창도 안 띄우고, 허용해 줘도 위치를 안 준다. -->
+	<key>com.apple.security.personal-information.location</key>
+	<true/>
+</dict>
+</plist>
