@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { memoryApi, settingsApi } from "../api/tauri";
 import {
-  X, Zap, Pencil, Trash2, Settings, Plus, RefreshCw, MapPin, Loader2, ChevronRight, ArrowUpRight, Info,
+  X, Zap, Pencil, Trash2, Settings, Plus, RefreshCw, MapPin, Loader2, ChevronRight, ArrowUpRight, Info, Copy,
 } from "lucide-react";
 import { Accordion, Popover } from "radix-ui";
 import { AnimatePresence, motion } from "motion/react";
@@ -874,6 +874,12 @@ function MemoriesSection() {
 
 // ── Image generation section ──────────────────────────────────────────────────
 
+/** dev 빌드 전용. password 칸은 복사가 막혀서 키를 꺼낼 버튼을 따로 둔다. */
+function DevCopy({ value }: { value: string }) {
+  if (!import.meta.env.DEV) return null;
+  return <IconButton label="복사" onClick={() => navigator.clipboard.writeText(value)}><Copy size={12} /></IconButton>;
+}
+
 const IMAGE_KEYS = ["cf_account_id", "cf_api_token", "google_api_key"] as const;
 type ImageKey = (typeof IMAGE_KEYS)[number];
 
@@ -930,6 +936,7 @@ function ImageGenSection() {
       <input className="settings-input" type={secret ? "password" : "text"} value={keys[k]}
         onChange={(e) => setKeys({ ...keys, [k]: e.target.value })}
         onBlur={() => saveKey(k).catch(console.warn)} />
+      {secret && <DevCopy value={keys[k]} />}
     </div>
   );
 
@@ -1383,6 +1390,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                     placeholder="BSA..."
                     onBlur={saveBraveSearchKey}
                   />
+                  <DevCopy value={braveSearchKey} />
                   <button className="settings-btn" onClick={saveBraveSearchKey}>
                     <SavedLabel saved={braveSearchSaved} />
                   </button>
