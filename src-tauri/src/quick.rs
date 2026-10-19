@@ -153,12 +153,19 @@ pub(crate) mod macos {
         fn AXIsProcessTrustedWithOptions(options: CFTypeRef) -> bool;
         fn AXUIElementCreateSystemWide() -> CFTypeRef;
         fn AXUIElementCopyAttributeValue(el: CFTypeRef, attr: CFTypeRef, out: *mut CFTypeRef) -> i32;
+        fn AXUIElementCopyParameterizedAttributeValue(
+            el: CFTypeRef,
+            attr: CFTypeRef,
+            param: CFTypeRef,
+            out: *mut CFTypeRef,
+        ) -> i32;
         fn AXUIElementSetMessagingTimeout(el: CFTypeRef, seconds: f32) -> i32;
     }
 
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
         fn CFRelease(cf: CFTypeRef);
+        fn CFRetain(cf: CFTypeRef) -> CFTypeRef;
     }
 
     #[repr(C)]
@@ -366,15 +373,59 @@ pub(crate) mod macos {
             return None;
         }
 
-        let mut selected: CFTypeRef = std::ptr::null();
-        let ok = AXUIElementCopyAttributeValue(focused, ns_string(c"AXSelectedText") as CFTypeRef, &mut selected);
+        let text = copy_attr(focused, c"AXSelectedText")
+            .and_then(|selected| {
+                let text = to_rust(selected as *mut AnyObject);
+                CFRelease(selected);
+                text
+            })
+            .filter(|t| !t.trim().is_empty())
+            .or_else(|| web_selection(focused));
         CFRelease(focused);
-        if ok != 0 || selected.is_null() {
-            return None;
-        }
-        let text = to_rust(selected as *mut AnyObject);
-        CFRelease(selected);
         text
+    }
+
+    /// 속성 하나를 꺼낸다(+1 로 받으니 쓴 뒤 CFRelease). 없거나 못 꺼내면 None.
+    unsafe fn copy_attr(el: CFTypeRef, name: &CStr) -> Option<CFTypeRef> {
+        let mut out: CFTypeRef = std::ptr::null();
+        let ok = AXUIElementCopyAttributeValue(el, ns_string(name) as CFTypeRef, &mut out);
+        (ok == 0 && !out.is_null()).then_some(out)
+    }
+
+    /// 웹 페이지(Safari·메일 등 WebKit)에서 고른 글. 본문에서 고른 글은 AXSelectedText 로 안 나오고
+    /// (메모 같은 글 칸만 나온다), 웹 영역이 들고 있는 텍스트 표지 범위(AXSelectedTextMarkerRange)를
+    /// 글로 바꿔 달라고(AXStringForTextMarkerRange) 해야 나온다. 초점이 링크 같은 안쪽 요소면 웹
+    /// 영역까지 부모를 타고 올라가며 찾는다.
+    unsafe fn web_selection(focused: CFTypeRef) -> Option<String> {
+        let mut el = CFRetain(focused);
+        for _ in 0..8 {
+            if let Some(range) = copy_attr(el, c"AXSelectedTextMarkerRange") {
+                let mut out: CFTypeRef = std::ptr::null();
+                let ok = AXUIElementCopyParameterizedAttributeValue(
+                    el,
+                    ns_string(c"AXStringForTextMarkerRange") as CFTypeRef,
+                    range,
+                    &mut out,
+                );
+                CFRelease(range);
+                if ok == 0 && !out.is_null() {
+                    let text = to_rust(out as *mut AnyObject);
+                    CFRelease(out);
+                    if text.as_deref().is_some_and(|t| !t.trim().is_empty()) {
+                        CFRelease(el);
+                        return text;
+                    }
+                }
+            }
+            let parent = copy_attr(el, c"AXParent");
+            CFRelease(el);
+            match parent {
+                Some(p) => el = p,
+                None => return None,
+            }
+        }
+        CFRelease(el);
+        None
     }
 }
 
