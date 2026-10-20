@@ -7,6 +7,7 @@ import {
   fsApi,
   memoryApi,
   securityApi,
+  processApi,
   type ScheduleRange,
 } from "../api/tauri";
 import { appEvents, requestWordchainFirstWord } from "../lib/events";
@@ -24,6 +25,8 @@ import type {
   FsReadResult,
   Memory,
   SecurityReport,
+  ProcessSnapshot,
+  ProcInfo,
   Todo,
   ScheduleEvent,
   SearchResult,
@@ -632,6 +635,35 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       if (new_autostart.length) lines.push(`✗ 지난 점검 뒤 새로 생긴 자동 실행 항목: ${new_autostart.join(", ")}`);
       lines.push(`자동 실행 항목 ${autostart.length}개:\n${clipList(autostart, 20, (a) => `- ${a}`)}`);
       return lines.join("\n");
+    },
+  },
+
+  "process.list": {
+    name: "process.list",
+    description:
+      "열린 포트를 쓰는 프로세스와 CPU·메모리를 많이 쓰는 프로세스를 본다. 포트를 누가 쓰는지, " +
+      "맥이 느린 이유를 물으면 써. 끝내려면 확인받고 code.exec 로 kill PID",
+    params: {
+      type: "object",
+      properties: { port: { type: "number", description: "이 포트만 볼 때" } },
+      required: [],
+    },
+    readOnly: true,
+    execute: async (p) => {
+      const port = Number(p["port"]);
+      return processApi.list(Number.isInteger(port) && port > 0 ? port : undefined);
+    },
+    summarize: (r) => {
+      const { listeners, by_cpu, by_memory } = r as ProcessSnapshot;
+      const proc = (x: ProcInfo) => `- ${x.name} (PID ${x.pid}, ${x.user}) CPU ${x.cpu}% · 메모리 ${x.mem_mb}MB`;
+      const ports = listeners.length
+        ? clipList(listeners, 30, (l) => `- :${l.port} ${l.name} (PID ${l.pid}) ${l.public ? "밖에서도 접속 가능" : "이 맥에서만"} — ${l.command}`)
+        : "- 없음 (다른 사용자·시스템 프로세스가 연 포트는 안 보여)";
+      return [
+        `열린 포트:\n${ports}`,
+        `CPU 많이 쓰는 순:\n${by_cpu.map(proc).join("\n")}`,
+        `메모리 많이 쓰는 순:\n${by_memory.map(proc).join("\n")}`,
+      ].join("\n\n");
     },
   },
 

@@ -81,6 +81,7 @@ export type ToolName =
   | "memory.save"
   | "memory.search"
   | "security.check"
+  | "process.list"
   | "agent.delegate"
   | "airdrop.send";
 
@@ -226,7 +227,21 @@ export interface Skill {
   content: string;
 }
 
-/** 세션을 넘어 남는 기억 한 조각. */
+/** 열린 포트와 무거운 프로세스(procs.rs). */
+export interface ProcessSnapshot {
+  listeners: { port: number; pid: number; name: string; command: string; public: boolean }[];
+  by_cpu: ProcInfo[];
+  by_memory: ProcInfo[];
+}
+
+export interface ProcInfo {
+  pid: number;
+  name: string;
+  user: string;
+  cpu: number;
+  mem_mb: number;
+}
+
 /** 읽기 전용 보안 점검 결과(security.rs). */
 export interface SecurityReport {
   checks: { ok: boolean; summary: string; advice: string }[];
@@ -235,6 +250,7 @@ export interface SecurityReport {
   new_autostart: string[];
 }
 
+/** 세션을 넘어 남는 기억 한 조각. */
 export interface Memory {
   id: number;
   kind: string;

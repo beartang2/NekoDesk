@@ -21,6 +21,7 @@ import type {
   FsGrepHit,
   FsReadResult,
   Memory,
+  ProcessSnapshot,
   SecurityReport,
   Skill,
 } from "../agent/types";
@@ -104,6 +105,11 @@ export const memoryApi = {
     invoke<Memory[]>("memory_search", { query, limit }),
   list: () => invoke<Memory[]>("memory_list"),
   delete: (id: number) => invoke<boolean>("memory_delete", { id }),
+};
+
+/** 열린 포트·무거운 프로세스. 읽기만 한다. */
+export const processApi = {
+  list: (port?: number) => invoke<ProcessSnapshot>("process_list", { port }),
 };
 
 /** 읽기 전용 보안 점검. 새 자동 실행 항목은 한 번 알리면 다음엔 안 실린다. */

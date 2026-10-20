@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  Activity,
   Brain,
   CalendarDays,
   Check,
@@ -56,6 +57,7 @@ const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   "memory.save": { label: "기억하기", icon: Brain },
   "memory.search": { label: "기억 떠올리기", icon: Brain },
   "security.check": { label: "보안 점검", icon: ShieldCheck },
+  "process.list": { label: "프로세스 보기", icon: Activity },
   "airdrop.send": { label: "AirDrop 보내기", icon: Send },
   "agent.delegate": { label: "조사 맡기기", icon: Users },
   "user.ask": { label: "물어보기", icon: MessageCircleQuestion },
