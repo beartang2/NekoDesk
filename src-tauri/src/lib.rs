@@ -549,6 +549,12 @@ mod commands {
         crate::quick::capture(&app)
     }
 
+    /// 빠른 질문 창 높이. 고른 글을 풀어 본 칸이 붙을 때 늘린다.
+    #[tauri::command(async)]
+    pub fn quick_fit(app: tauri::AppHandle, height: f64) -> Result<(), AppError> {
+        crate::quick::fit(&app, height.clamp(100.0, 600.0))
+    }
+
     /// macOS URL 스킴 또는 앱을 엽니다 (권한 설정 페이지 열기 등에 사용).
     /// 내부 신뢰 호출 전용(x-apple.systempreferences: 등). 미신뢰 링크는 open_external_url.
     #[tauri::command(async)]
@@ -1177,6 +1183,7 @@ pub fn run() {
             commands::reveal_in_finder,
             commands::copy_image,
             commands::quick_capture,
+            commands::quick_fit,
             #[cfg(target_os = "macos")]
             commands::capture_targets,
             #[cfg(target_os = "macos")]

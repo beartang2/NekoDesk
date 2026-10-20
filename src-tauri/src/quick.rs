@@ -45,6 +45,23 @@ pub fn toggle(app: &AppHandle) {
     let _ = app.emit_to("quick", "quick-context", ctx);
 }
 
+/// 창 높이를 바꾼다. 가운데는 그대로 — 풀어 본 칸이 붙었다 빠져도 화면 가운데에 있게.
+/// tao 의 set_size 는 위 끝을 붙잡아 아래로만 늘고, 투명 창의 그림자도 예전 크기로 남았다.
+pub fn fit(app: &AppHandle, height: f64) -> Result<(), crate::error::AppError> {
+    let win = app.get_webview_window("quick").ok_or("빠른 질문 창이 없어.")?;
+    #[cfg(target_os = "macos")]
+    {
+        let ns = win.ns_window()? as usize;
+        app.run_on_main_thread(move || unsafe { macos::fit_height(ns as *mut objc2::runtime::AnyObject, height) })?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let size = win.inner_size()?.to_logical::<f64>(win.scale_factor()?);
+        win.set_size(tauri::LogicalSize::new(size.width, height))?;
+    }
+    Ok(())
+}
+
 /// 화면 일부를 잘라 PNG data URL 로. esc 로 그만두면 None. 프런트가 모델용으로 줄인다.
 ///
 /// 빠른 질문 창이 찍히지 않게 잠깐 숨기고, 네코 캡처 화면(capture.rs — 클릭하면 창,
@@ -275,6 +292,17 @@ pub(crate) mod macos {
 
     /// CSS(QuickAsk.css 의 .quick)와 같은 값이어야 가장자리가 어긋나지 않는다.
     const QUICK_CORNER_RADIUS: f64 = 16.0;
+
+    pub unsafe fn fit_height(window: *mut AnyObject, height: f64) {
+        let f: CGRect = msg_send![window, frame];
+        if (f.size.height - height).abs() < 0.5 {
+            return;
+        }
+        let y = f.origin.y + (f.size.height - height) / 2.0;
+        let frame = CGRect { origin: CGPoint { x: f.origin.x, y: y.round() }, size: CGSize { width: f.size.width, height } };
+        let _: () = msg_send![window, setFrame: frame, display: true];
+        let _: () = msg_send![window, invalidateShadow];
+    }
 
     /// 마우스가 있는 화면 가운데에 띄우고 키 입력을 받게 한다. 앱은 활성화하지 않는다.
     pub unsafe fn present_on_cursor_screen(window: *mut AnyObject) {

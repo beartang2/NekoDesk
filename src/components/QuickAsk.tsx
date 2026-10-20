@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ArrowUp, Camera, Clipboard, TextSelect, X } from "lucide-react";
 import { syncWindowTheme } from "../lib/window-theme";
 import { resizeImageForLlm } from "../lib/image";
+import { decode } from "../lib/decode";
 import { NekoHead } from "../cat/NekoHead";
 import { reloadCatVariant, useCatStore } from "../stores/catStore";
 import {
@@ -27,6 +28,10 @@ const EMPTY: QuickContext = { selection: null, clipboard: null, app: null };
 const CAPTURE_MAX_PX = 2048;
 /** 무손실로 찍어 와 한 번만 JPEG 로 줄인다. 0.9 면 글씨 테두리가 번지지 않는다. */
 const CAPTURE_OUT = { type: "image/jpeg", quality: 0.9 } as const;
+
+/** 창 높이(tauri.conf.json 의 quick), 고른 글을 풀어 본 칸이 붙으면 늘어나는 만큼. */
+const QUICK_H = 128;
+const DECODED_H = 172;
 
 /** 캡처만 하고 아무것도 안 쳤을 때 보낼 말. */
 const IMAGE_DEFAULT_TEXT = "이 화면을 설명해줘.";
@@ -52,7 +57,14 @@ export function QuickAsk() {
   const [useClipboard, setUseClipboard] = useState(false);
   const [image, setImage] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
+  const [copied, setCopied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const decoded = useMemo(() => (ctx.selection ? decode(ctx.selection) : null), [ctx.selection]);
+
+  useEffect(() => {
+    setCopied(false);
+    invoke("quick_fit", { height: decoded ? QUICK_H + DECODED_H : QUICK_H }).catch(() => {});
+  }, [decoded]);
 
   useEffect(() => {
     syncWindowTheme();
@@ -93,6 +105,7 @@ export function QuickAsk() {
       clipboard: useClipboard && ctx.clipboard ? ctx.clipboard : undefined,
       app: ctx.app ?? undefined,
       image: image ?? undefined,
+      decoded: useSelection && decoded ? decoded : undefined,
     };
     await emitTo("main", QUICK_ASK_EVENT, payload);
     hide();
@@ -110,6 +123,7 @@ export function QuickAsk() {
 
   return (
     <div className="quick" onKeyDown={onKeyDown}>
+      <div className="quick__main">
       <div className="quick__row">
         <NekoHead className="quick__cat" variantId={variantId} />
         <input
@@ -181,6 +195,22 @@ export function QuickAsk() {
           <span className="quick__keys"><kbd>↵</kbd> 보내기 <kbd>esc</kbd> 닫기</span>
         )}
       </div>
+      </div>
+
+      {decoded && (
+        <div className="quick__decoded">
+          <div className="quick__decoded-head">
+            <span className="quick__decoded-kind">{decoded.kind} 디코딩</span>
+            <button
+              className="quick__decoded-copy"
+              onClick={() => navigator.clipboard.writeText(decoded.text).then(() => setCopied(true)).catch(() => {})}
+            >
+              {copied ? "복사됨" : "복사"}
+            </button>
+          </div>
+          <pre className="quick__decoded-text">{decoded.text}</pre>
+        </div>
+      )}
     </div>
   );
 }

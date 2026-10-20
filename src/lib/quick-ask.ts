@@ -27,6 +27,11 @@ export interface QuickAskPayload {
   app?: string;
   /** 📷 로 잘라 온 화면. 모델용으로 줄인 JPEG data URL. 메인 창이 첨부로 붙인다. */
   image?: string;
+  /**
+   * 고른 글이 인코딩돼 있으면 빠른 질문 창이 푼 것(decode.ts). 모델은 base64·%XX 를 못 읽고 그럴듯한
+   * 글을 지어낸다 — 버튼 일은 이걸로 하고, 직접 물을 땐 같이 보낸다.
+   */
+  decoded?: { kind: string; text: string };
 }
 
 export const QUICK_CONTEXT_EVENT = "quick-context";
@@ -87,7 +92,7 @@ export interface QuickTask {
  */
 export function buildQuickPrompt(p: QuickAskPayload): { userText: string; displayText: string; task?: QuickTask } {
   if (p.action && p.selection?.trim()) {
-    const text = p.selection.trim();
+    const text = (p.decoded?.text ?? p.selection).trim();
     return {
       userText: text,
       displayText: text.length > ACTION_PREVIEW_CHARS ? `${text.slice(0, ACTION_PREVIEW_CHARS - 1)}…` : text,
@@ -99,6 +104,7 @@ export function buildQuickPrompt(p: QuickAskPayload): { userText: string; displa
   const quotes: string[] = [];
   if (p.selection) {
     blocks.push(`[선택한 텍스트${where}]\n${p.selection}`);
+    if (p.decoded) blocks.push(`[선택한 텍스트를 ${p.decoded.kind}로 풀면]\n${p.decoded.text}`);
     quotes.push(`> 선택${where}: ${preview(p.selection)}`);
   }
   if (p.clipboard) {

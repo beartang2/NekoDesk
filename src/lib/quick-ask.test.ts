@@ -40,6 +40,15 @@ describe("버튼 일(요약·번역·설명)", () => {
     expect(to("엔비디아 Nvidia 주가가 GPU 수요로 올랐다")).toContain("영어로");
   });
 
+  it("인코딩된 글은 푼 글로 일한다 — 모델이 base64 를 지어내 번역하지 않게", () => {
+    const decoded = { kind: "Base64", text: "Hello, 네코!" };
+    const r = buildQuickPrompt({ text: "", action: "번역", selection: "SGVsbG8sIOuEpOy9lCE=", decoded });
+    expect(r.userText).toBe("Hello, 네코!");
+    expect(r.displayText).toBe("Hello, 네코!");
+    const ask = buildQuickPrompt({ text: "이거 뭐야?", selection: "SGVsbG8sIOuEpOy9lCE=", decoded });
+    expect(ask.userText).toContain("[선택한 텍스트를 Base64로 풀면]\nHello, 네코!");
+  });
+
   it("긴 글은 말풍선에서만 줄인다", () => {
     const long = "가".repeat(2000);
     const r = buildQuickPrompt({ text: "", action: "요약", selection: long });

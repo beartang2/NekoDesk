@@ -17,13 +17,78 @@ html.quick-window #root {
   box-shadow: inset 0 0 0 0.5px color-mix(in oklab, var(--text-primary) 14%, transparent);
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 12px;
   padding: 0 16px 0 18px;
   background: color-mix(in oklab, var(--bg-surface) 55%, transparent);
   color: var(--text-primary);
   font-family: var(--font-ui);
   user-select: none;
+}
+
+/* 입력 줄과 칩 줄. 창의 처음 높이(128px)를 늘 차지해, 풀어 본 칸이 붙어도 그 아래로만 늘어난다. */
+.quick__main {
+  height: 128px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* 고른 글이 JWT·base64 같은 인코딩이면 풀어서 보여 주는 칸. */
+.quick__decoded {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* 위 칸은 가운데 정렬이라 아래에 여백이 남는다. 그만큼 당겨 칩 줄에 붙인다. */
+  margin: -12px 0 16px 34px;
+  padding: 8px 10px 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--bg-base) 40%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in oklab, var(--text-primary) 12%, transparent);
+}
+
+.quick__decoded-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.quick__decoded-kind {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.quick__decoded-copy {
+  padding: 2px 9px;
+  border: 1px solid color-mix(in oklab, var(--text-primary) 18%, transparent);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  transition: background var(--dur-micro), color var(--dur-micro);
+}
+
+.quick__decoded-copy:hover {
+  background: var(--layer-hover);
+  color: var(--text-primary);
+}
+
+.quick__decoded-text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-primary);
+  user-select: text;
 }
 
 .quick__row {
