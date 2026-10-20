@@ -81,13 +81,14 @@ describe("activateProfile", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("같은 모델이 이미 떠 있으면 다시 띄우지 않는다", async () => {
+  it("같은 모델이 이미 떠 있으면 다시 띄우지 않고, 끌 때 내리도록 포트를 넘긴다", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ data: [{ id: "/Users/me/models/qwen3-8b.gguf" }] }),
     }));
     await activateProfile(localProfile());
-    expect(invoke).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalledWith("llama_start", expect.anything());
+    expect(invoke).toHaveBeenCalledWith("llama_adopt", { port: 8803 });
   });
 
   it("같은 포트에 다른 모델이 떠 있으면 갈아탄다", async () => {

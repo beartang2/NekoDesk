@@ -211,6 +211,10 @@ export async function activateProfile(p: ModelProfile, prev?: ModelProfile | nul
   const running = await probe(url, 1500);
   // 같은 모델이 이미 그 주소에 떠 있으면 그대로 쓴다. 다른 모델이면 갈아탄다
   // (llama.cpp 는 id 로 모델 경로를 주지만, alias 를 준 서버도 있어 basename 으로 비교).
-  if (running !== null && running !== "" && basename(running) === basename(p.config.model)) return;
+  // 남이 띄운 서버를 물려받아도 포트는 적어 둔다 — 안 그러면 ⌘Q 로 꺼도 모델이 메모리에 남는다.
+  if (running !== null && running !== "" && basename(running) === basename(p.config.model)) {
+    await invoke("llama_adopt", { port: p.config.port });
+    return;
+  }
   await invoke("llama_start", { config: p.config });
 }

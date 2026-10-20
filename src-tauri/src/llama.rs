@@ -195,6 +195,16 @@ pub fn stop(port: i32, state: &LlamaServerState) -> AppResult<()> {
     Ok(())
 }
 
+/// 이미 떠 있던 서버(이전 앱·개발 빌드가 남긴 고아)를 그대로 쓰기로 했을 때 포트만 적어 둔다.
+/// 자식 핸들은 없어도 앱을 끌 때 `RunEvent::Exit` 가 이 포트를 비운다.
+pub fn adopt(port: i32, state: &LlamaServerState) -> AppResult<()> {
+    let mut guard = state.0.lock().map_err(|e| AppError::msg(e.to_string()))?;
+    if guard.child.is_none() {
+        guard.port = Some(port);
+    }
+    Ok(())
+}
+
 pub fn is_running(state: &LlamaServerState) -> AppResult<bool> {
     let mut guard = state.0.lock().map_err(|e| AppError::msg(e.to_string()))?;
     if let Some(ref mut child) = guard.child {

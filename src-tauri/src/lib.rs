@@ -878,6 +878,11 @@ mod commands {
     }
 
     #[tauri::command(async)]
+    pub fn llama_adopt(port: i32, server_state: State<'_, LlamaServerState>) -> Result<(), AppError> {
+        crate::llama::adopt(port, &server_state)
+    }
+
+    #[tauri::command(async)]
     pub fn llama_is_running(server_state: State<'_, LlamaServerState>) -> Result<bool, AppError> {
         crate::llama::is_running(&server_state)
     }
@@ -1186,6 +1191,7 @@ pub fn run() {
             commands::llama_scan_models,
             commands::llama_start,
             commands::llama_stop,
+            commands::llama_adopt,
             commands::llama_is_running,
         ])
         .build(tauri::generate_context!())
