@@ -53,7 +53,7 @@ pub fn snapshot(port: Option<u16>) -> Snapshot {
         let args = run("/bin/ps", &["-o", "pid=,args=", "-p", &pids.join(",")]).map(|o| parse_args(&o)).unwrap_or_default();
         for l in &mut listeners {
             if let Some(a) = args.get(&l.pid) {
-                l.command = a.chars().take(MAX_COMMAND).collect();
+                l.command = redact(a).chars().take(MAX_COMMAND).collect();
             }
         }
     }
@@ -104,6 +104,34 @@ fn parse_args(out: &str) -> HashMap<u32, String> {
         .collect()
 }
 
+/// 명령 줄은 모델(외부 서버일 수도 있다)에 그대로 간다. 비밀 같아 보이는 값은 가린다 —
+/// `--api-key x`, `--token=x`, `API_KEY=x`, `postgres://user:pass@host`. 넘치게 가려도 괜찮다.
+fn redact(args: &str) -> String {
+    let secret = |s: &str| {
+        let s = s.to_ascii_lowercase();
+        ["key", "token", "secret", "pass", "auth", "cred"].iter().any(|k| s.contains(k))
+    };
+    let mut hide_next = false;
+    let mut out = Vec::new();
+    for w in args.split(' ') {
+        if std::mem::take(&mut hide_next) {
+            out.push("***".to_string());
+            continue;
+        }
+        match w.split_once('=') {
+            Some((k, _)) if secret(k) => out.push(format!("{k}=***")),
+            _ => {
+                hide_next = w.starts_with('-') && !w.contains('=') && secret(w);
+                out.push(match (w.find("://"), w.rfind('@')) {
+                    (Some(s), Some(at)) if at > s => format!("{}***{}", &w[..s + 3], &w[at..]),
+                    _ => w.to_string(),
+                });
+            }
+        }
+    }
+    out.join(" ")
+}
+
 /// `ps -Ao pid=,pcpu=,rss=,user=,comm=` 의 앞 n 줄. comm 은 경로라 공백이 있을 수 있어 맨 끝에 둔다.
 fn parse_ps(out: &str, n: usize) -> Vec<Proc> {
     out.lines()
@@ -142,6 +170,14 @@ mod tests {
         assert_eq!(top[0], Proc { pid: 123, name: "Google Chrome".into(), user: "kdh".into(), cpu: 45.5, mem_mb: 200 });
         assert_eq!(top[1].name, "launchd");
         assert_eq!(parse_args(" 2000 node vite --port 3000\n").get(&2000).map(String::as_str), Some("node vite --port 3000"));
+    }
+
+    #[test]
+    fn hides_secrets_in_command_lines() {
+        assert_eq!(redact("llama-server --api-key sk-123 --port 8803"), "llama-server --api-key *** --port 8803");
+        assert_eq!(redact("node app.js --token=abc API_KEY=xyz"), "node app.js --token=*** API_KEY=***");
+        assert_eq!(redact("psql postgres://me:pw@db:5432/x"), "psql postgres://***@db:5432/x");
+        assert_eq!(redact("node vite --port 3000"), "node vite --port 3000");
     }
 
     #[test]
