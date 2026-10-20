@@ -1186,6 +1186,8 @@ export default function App() {
               body: msg,
               sound: true,
             }).catch(() => {});
+            // 알림 배너는 놓치기 쉽다. 커서가 있는 화면 테두리도 잠깐 빛낸다.
+            invoke("glow_alert").catch(() => {});
             notified.add(ev.id);
             changed = true;
           }

@@ -20,6 +20,7 @@ mod location;
 mod secrets;
 mod security;
 mod procs;
+mod glow;
 mod shelf;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
@@ -858,6 +859,18 @@ mod commands {
         Ok(crate::security::Report { checks, autostart, new_autostart })
     }
 
+    /// 일정 알림 때 커서가 있는 화면 테두리를 빛낸다.
+    #[tauri::command(async)]
+    pub fn glow_alert(app: tauri::AppHandle) -> Result<(), AppError> {
+        crate::glow::alert(&app)
+    }
+
+    /// 빛 창이 띄울 자리를 가져간다. 한 번 가져가면 비운다.
+    #[tauri::command]
+    pub fn glow_take() -> Option<crate::glow::GlowAt> {
+        crate::glow::take()
+    }
+
     /// 열린 포트를 쓰는 프로세스와 CPU·메모리를 많이 쓰는 프로세스. 읽기 전용.
     #[tauri::command(async)]
     pub fn process_list(port: Option<u16>) -> crate::procs::Snapshot {
@@ -1192,6 +1205,8 @@ pub fn run() {
             commands::memory_delete,
             commands::security_check,
             commands::process_list,
+            commands::glow_alert,
+            commands::glow_take,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,

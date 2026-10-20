@@ -295,6 +295,14 @@ export function flowEdges(
   flights.set(band, { kind, until });
 }
 
+/** 빛을 지금 밝기에서 서서히 끈다. */
+export function fadeEdges(band: HTMLElement | null, duration: number) {
+  if (!band) return;
+  const lit = opacityOf(band);
+  stop(band);
+  band.animate([{ opacity: lit }, { opacity: 0 }], { id: FLOW, duration, easing: "ease-in-out", fill: "forwards" });
+}
+
 /** 빛을 바로 끈다. 커서가 없는 막은 빛이 없다. */
 export function hideEdges(band: HTMLElement | null) {
   if (!band) return;

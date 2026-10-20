@@ -6,7 +6,8 @@
     "main",
     "quick",
     "capture-*",
-    "viewer"
+    "viewer",
+    "glow"
   ],
   "permissions": [
     "core:default",
