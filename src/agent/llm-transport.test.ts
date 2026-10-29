@@ -17,6 +17,8 @@ vi.mock("@tauri-apps/api/core", () => {
 import {
   CLAUDE_MIN_MAX_TOKENS,
   createUsageTap,
+  decodeToolName,
+  encodeToolName,
   explainClaudeError,
   llmFetch,
   toClaudeBody,
@@ -64,9 +66,49 @@ describe("toClaudeBody", () => {
       { role: "assistant", content: "안녕" },
     ] }, "m");
     expect(out.messages).toEqual([
-      { role: "assistant", content: null, tool_calls: [call] },
+      { role: "assistant", content: null, tool_calls: [{ ...call, function: { ...call.function, name: "todo__list" } }] },
       { role: "assistant", content: "안녕" },
     ]);
+  });
+});
+
+describe("툴 이름 — Claude 는 ^[a-zA-Z0-9_-]{1,128}$ 만 받는다", () => {
+  const NAME_RULE = /^[a-zA-Z0-9_-]{1,128}$/;
+
+  it("tools 와 이력의 tool_calls 이름에서 점을 없애고, 응답 이름은 되돌린다", () => {
+    const out = toClaudeBody({
+      tools: [
+        { type: "function", function: { name: "todo.list", description: "d", parameters: {} } },
+        { type: "function", function: { name: "web.search", description: "d", parameters: {} } },
+      ],
+      messages: [
+        { role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "todo.list", arguments: "{}" } }] },
+        { role: "tool", tool_call_id: "1", content: "[]" },
+      ],
+    }, "m");
+    const tools = out.tools as Array<{ function: { name: string } }>;
+    for (const t of tools) expect(t.function.name).toMatch(NAME_RULE);
+    expect(tools.map((t) => decodeToolName(t.function.name))).toEqual(["todo.list", "web.search"]);
+    const msgs = out.messages as Array<{ tool_calls?: Array<{ function: { name: string } }> }>;
+    expect(msgs[0].tool_calls![0].function.name).toBe(tools[0].function.name);
+  });
+
+  it("MCP 의 이상한 이름도 규칙에 맞추고 충돌을 피한다", () => {
+    toClaudeBody({ tools: [
+      { type: "function", function: { name: "검색/도구", parameters: {} } },
+      { type: "function", function: { name: "a.b", parameters: {} } },
+      { type: "function", function: { name: "a__b", parameters: {} } },
+    ] }, "m");
+    expect(encodeToolName("검색/도구")).toMatch(NAME_RULE);
+    const ab = encodeToolName("a.b");
+    const aub = encodeToolName("a__b");
+    expect(ab).not.toBe(aub);
+    expect(decodeToolName(ab)).toBe("a.b");
+    expect(decodeToolName(aub)).toBe("a__b");
+  });
+
+  it("바꾼 적 없는 이름은 그대로 돌려준다", () => {
+    expect(decodeToolName("plain_name")).toBe("plain_name");
   });
 });
 

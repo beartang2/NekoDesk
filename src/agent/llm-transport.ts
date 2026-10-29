@@ -41,14 +41,50 @@ const DROP_FIELDS = [
 
 type Json = Record<string, unknown>;
 
+// ── 툴 이름 ──────────────────────────────────────────────────────────────────
+//
+// Claude 의 툴 이름 규칙은 `^[a-zA-Z0-9_-]{1,128}$` 다. 네코의 툴은 전부 `todo.list` 처럼
+// 점으로 묶여 있고(llama.cpp 는 신경 안 쓴다), MCP 서버가 주는 이름은 무엇이든 올 수 있다.
+// 보낼 때 규칙에 맞게 바꾸고, 응답의 tool_calls 에서 원래 이름으로 되돌린다. registry 와
+// 루프는 원래 이름만 안다.
+
+/** 바꾼 이름 → 원래 이름. 요청마다 다시 채운다(툴 목록은 요청 사이에 바뀔 수 있다 — MCP). */
+const toolNameMap = new Map<string, string>();
+
+export function encodeToolName(name: string): string {
+  // `__` 를 점의 자리로 쓴다. 혹시 남는 금지 문자는 `_` 로. 되돌릴 땐 표를 보므로 충돌만 피하면 된다.
+  let encoded = name.replace(/\./g, "__").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 128);
+  if (!encoded) encoded = "tool";
+  // 다른 원래 이름이 같은 모양으로 바뀌었으면 꼬리를 붙여 구분한다.
+  let candidate = encoded;
+  for (let i = 2; toolNameMap.has(candidate) && toolNameMap.get(candidate) !== name; i++) {
+    candidate = `${encoded.slice(0, 120)}_${i}`;
+  }
+  toolNameMap.set(candidate, name);
+  return candidate;
+}
+
+/** 응답에 실려 온 이름을 원래 이름으로. 모르는 이름(바꾼 적 없음)은 그대로. */
+export function decodeToolName(name: string): string {
+  return toolNameMap.get(name) ?? name;
+}
+
+function encodeToolCallNames(calls: unknown): unknown {
+  if (!Array.isArray(calls)) return calls;
+  return calls.map((c) => {
+    const call = c as { function?: { name?: string } };
+    if (!call?.function?.name) return c;
+    return { ...call, function: { ...call.function, name: encodeToolName(call.function.name) } };
+  });
+}
+
 function sanitizeMessage(m: unknown): unknown {
   if (!m || typeof m !== "object") return m;
   const msg = m as Json;
-  // 툴만 부르고 말은 없던 턴. 빈 문자열을 그대로 보내면 빈 텍스트 블록이 돼 Claude 가 거부한다.
-  if (msg.role === "assistant" && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0 && !msg.content) {
-    return { ...msg, content: null };
-  }
-  return m;
+  if (msg.role !== "assistant" || !Array.isArray(msg.tool_calls) || msg.tool_calls.length === 0) return m;
+  // 이력의 툴 호출 이름도 보낼 때 규칙에 맞춘다. 툴만 부르고 말은 없던 턴의 빈 문자열은
+  // 빈 텍스트 블록이 돼 Claude 가 거부하므로 null 로.
+  return { ...msg, tool_calls: encodeToolCallNames(msg.tool_calls), content: msg.content || null };
 }
 
 /** llama-server 용으로 조립한 본문을 Claude 호환 엔드포인트가 받는 모양으로 바꾼다. */
@@ -57,6 +93,14 @@ export function toClaudeBody(body: Json, model: string): Json {
   for (const k of DROP_FIELDS) delete out[k];
   const max = typeof body.max_tokens === "number" ? body.max_tokens : 0;
   out.max_tokens = Math.max(max, CLAUDE_MIN_MAX_TOKENS);
+  if (Array.isArray(body.tools)) {
+    toolNameMap.clear();
+    out.tools = body.tools.map((t) => {
+      const tool = t as { function?: { name?: string } };
+      if (!tool?.function?.name) return t;
+      return { ...tool, function: { ...tool.function, name: encodeToolName(tool.function.name) } };
+    });
+  }
   if (Array.isArray(body.messages)) out.messages = body.messages.map(sanitizeMessage);
   return out;
 }

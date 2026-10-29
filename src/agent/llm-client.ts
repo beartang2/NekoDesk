@@ -18,7 +18,7 @@ import {
   useSettingsStore,
   type GenParams,
 } from "../stores/settingsStore";
-import { llmFetch } from "./llm-transport";
+import { decodeToolName, llmFetch } from "./llm-transport";
 import { isClaudeUrl } from "../lib/claude-models";
 
 /** 지금 Claude 프로필로 묻고 있는가. 로컬 서버 전용 동작(강등·워밍업)을 건너뛸 때 본다. */
@@ -299,7 +299,10 @@ export async function fetchCompletionMessage(
   return {
     text: message?.content ?? "",
     reasoning: message?.reasoning_content ?? "",
-    toolCalls: fromWireToolCalls(message?.tool_calls),
+    // Claude 로 보낼 땐 툴 이름을 바꿔 보냈다(llm-transport). 여기서 원래 이름으로.
+    toolCalls: fromWireToolCalls(message?.tool_calls?.map((c) =>
+      c.function?.name ? { ...c, function: { ...c.function, name: decodeToolName(c.function.name) } } : c
+    )),
   };
 }
 
@@ -341,7 +344,7 @@ function mapToolCallDeltas(
   return deltas.map((d) => ({
     index: d.index ?? 0,
     ...(d.id ? { id: d.id } : {}),
-    ...(d.function?.name ? { name: d.function.name } : {}),
+    ...(d.function?.name ? { name: decodeToolName(d.function.name) } : {}),
     ...(d.function?.arguments ? { argumentsFragment: d.function.arguments } : {}),
   }));
 }
