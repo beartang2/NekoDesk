@@ -23,8 +23,10 @@ export interface PendingConfirm {
   code: string;
   isDangerous: boolean;
   dangerReason: string;
-  /** "이 세션 동안"/"항상" 을 고르면 저장될 규칙. 버튼 라벨에도 쓴다. */
-  ruleKey: string;
+  externalSendReason: string;
+  /** "이 세션 동안"/"항상" 을 고르면 저장될 규칙. 버튼 라벨에도 쓴다. null 이면 기억 불가. */
+  ruleKey: string | null;
+  canRemember: boolean;
   resolve: (decision: PermissionDecision) => void;
 }
 
@@ -581,7 +583,9 @@ export function useAgentPool() {
               code: event.code,
               isDangerous: event.isDangerous,
               dangerReason: event.dangerReason,
+              externalSendReason: event.externalSendReason,
               ruleKey: event.ruleKey,
+              canRemember: event.canRemember,
               resolve: event.resolve,
             });
             break;

@@ -260,10 +260,20 @@ interface Gate {
   preview: string;
   isDangerous: boolean;
   dangerReason: string;
-  /** "세션 동안"/"항상" 을 고르면 저장될 규칙 키. */
-  ruleKey: string;
+  /**
+   * 밖으로 내보내는 코드(메시지·메일·HTTP 전송)면 그 사유. 되돌릴 수 없으므로 저장
+   * 규칙·오토모드와 무관하게 매번 묻고, 기억할 수도 없다.
+   */
+  externalSendReason: string;
+  /** "세션 동안"/"항상" 을 고르면 저장될 규칙 키. null 이면 기억할 수 없는 호출이다. */
+  ruleKey: string | null;
   /** 파일 쓰기라면 승인 루트로 등록할 디렉토리. */
   writeDir?: string;
+}
+
+/** 이 게이트를 "세션 동안"/"항상" 으로 기억해도 되는가. */
+function canRemember(gate: Gate): boolean {
+  return !gate.isDangerous && !gate.externalSendReason && gate.ruleKey !== null;
 }
 
 /** 하드 차단된 경로면 던진다 — 확인 창을 띄우는 것 자체가 잘못이다. */
@@ -279,6 +289,7 @@ async function buildGate(call: ToolCall): Promise<Gate | null> {
       preview: code,
       isDangerous,
       dangerReason: dangerReason ?? "",
+      externalSendReason: findExternalSendReason(code) ?? "",
       ruleKey: execRuleKey(code, language),
     };
   }
@@ -294,13 +305,16 @@ async function buildGate(call: ToolCall): Promise<Gate | null> {
   if (decision.kind === "allow") return null; // 이미 승인된 쓰기 루트 안
 
   const kind = call.name === "fs.write" ? "write" : "edit";
+  const ruleKey = writeRuleKey(decision.path);
   return {
     language: kind,
     preview: previewOf(call, decision.path),
     isDangerous: false,
     dangerReason: "",
-    ruleKey: writeRuleKey(decision.path),
-    writeDir: parentDir(decision.path),
+    externalSendReason: "",
+    ruleKey,
+    // 기억할 수 없는 쓰기(홈·루트 바로 아래)는 승인 루트로도 넣지 않는다.
+    writeDir: ruleKey ? parentDir(decision.path) : undefined,
   };
 }
 
@@ -659,17 +673,17 @@ export async function* runAgentLoop(
       // 이 표시가 없는 호출은 게이트를 아예 안 지난 경로라는 뜻이라 백엔드가 막는다.
       let approved = gate === null;
       if (gate) {
-        // 위험 패턴에 걸린 코드는 저장된 규칙이 있어도 매번 묻는다. 규칙을 만든
-        // 주체가 사용자가 아니라 프롬프트 인젝션일 수 있다.
-        // 오토모드도 같은 선을 넘지 않는다. 위험 패턴과 밖으로 내보내는 코드는 여전히 묻는다.
-        const autoOk =
-          isAutoApprove() &&
-          !(call.name === "code.exec" && findExternalSendReason(gate.preview));
-        if (!gate.isDangerous && (isAllowed(gate.ruleKey) || autoOk)) {
+        // 위험 패턴에 걸린 코드와 밖으로 내보내는 코드는 저장된 규칙이 있어도, 오토모드여도
+        // 매번 묻는다. 규칙을 만든 주체가 사용자가 아니라 프롬프트 인젝션일 수 있고,
+        // 한 번 나간 메시지는 되돌릴 수 없다.
+        const alwaysAsk = gate.isDangerous || !!gate.externalSendReason;
+        const remembered = gate.ruleKey !== null && isAllowed(gate.ruleKey);
+        if (!alwaysAsk && (remembered || isAutoApprove())) {
           approved = true;
         } else {
           // 방금 거부한 것을 또 들고 왔다 — "다른 방법" 이 아니다. 다시 묻지 않고 끝낸다.
-          if (deniedThisTurn.has(gate.ruleKey)) {
+          const denyKey = gate.ruleKey ?? `${gate.language}:${gate.preview}`;
+          if (deniedThisTurn.has(denyKey)) {
             context.addTurn({ text: turn.text, calls: executed });
             const cancelMsg = "실행을 취소했어.";
             yield { type: "streaming_token", token: cancelMsg };
@@ -684,16 +698,20 @@ export async function* runAgentLoop(
             code: gate.preview,
             isDangerous: gate.isDangerous,
             dangerReason: gate.dangerReason,
+            externalSendReason: gate.externalSendReason,
             ruleKey: gate.ruleKey,
+            canRemember: canRemember(gate),
             resolve: resolveConfirm,
           };
-          const decision = await decisionPromise;
+          let decision = await decisionPromise;
+          // 화면이 버튼을 숨겨도 한 겹 더: 기억할 수 없는 호출의 "세션 동안"/"항상" 은 한 번만으로.
+          if (!canRemember(gate) && decision !== "deny") decision = "allow_once";
 
           if (decision === "deny") {
             // 예전엔 여기서 턴을 통째로 끝냈다. Claude Code 는 거부를 툴 결과로
             // 돌려준다 — "사용자가 거절했다. 같은 걸 그대로 다시 하지 말고 조정해라".
             // 그래야 모델이 다른 방법을 쓰거나, 왜 필요한지 설명하고 멈출 수 있다.
-            deniedThisTurn.add(gate.ruleKey);
+            deniedThisTurn.add(denyKey);
             deniedSteps.add(step);
             step.status = "error";
             step.errorMessage = "사용자가 실행을 거부했습니다";
@@ -705,7 +723,7 @@ export async function* runAgentLoop(
           }
 
           approved = true;
-          await remember(gate.ruleKey, decision);
+          if (gate.ruleKey !== null) await remember(gate.ruleKey, decision);
           // "항상" 을 고른 쓰기는 백엔드의 승인 루트에도 넣는다. 그래야 다음부터
           // approved 플래그 없이도 통과한다.
           if (decision === "allow_always" && gate.writeDir) {

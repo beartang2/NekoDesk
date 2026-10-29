@@ -328,11 +328,15 @@ export type LoopEvent =
       code: string;
       isDangerous: boolean;
       dangerReason: string;
+      /** 밖으로 내보내는 코드면 그 사유. 매번 묻고 기억할 수 없다. */
+      externalSendReason: string;
       /**
-       * "이 세션 동안" / "항상" 을 고르면 저장될 규칙 키.
+       * "이 세션 동안" / "항상" 을 고르면 저장될 규칙 키. null 이면 기억할 수 없는 호출.
        * 위험 패턴에 걸린 건 규칙이 있어도 매번 물으므로 isDangerous 와 무관하다.
        */
-      ruleKey: string;
+      ruleKey: string | null;
+      /** "세션 동안"/"항상" 버튼을 보여도 되는가. 루프가 최종 판정한다. */
+      canRemember: boolean;
       resolve: (decision: PermissionDecision) => void;
     }
   | { type: "clarify_needed"; question: string; options: string[]; resolve: (answer: string) => void };

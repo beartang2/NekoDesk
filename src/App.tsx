@@ -39,6 +39,7 @@ import { initMcpFromStorage } from "./agent/mcp-registry";
 import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
 import { reloadUserSkills } from "./agent/knowledge";
 import { detectGameIntent } from "./lib/game-intent";
+import { installGlobalLinkGuard, safeMarkdownComponents } from "./lib/safe-markdown";
 import { roParticle } from "./lib/hangul";
 
 /**
@@ -550,22 +551,11 @@ function ChatMessages({
               {m.content && (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
+                  // 링크는 바깥 브라우저로, 원격 이미지는 그리지 않는다(safe-markdown 참고).
                   components={{
+                    ...safeMarkdownComponents,
                     table: ({ children }) => (
                       <div className="table-wrapper"><table>{children}</table></div>
-                    ),
-                    a: ({ href, children }) => (
-                      // Tauri webview 는 <a> 클릭을 자기 창에서 처리해 브라우저를 안 띄운다.
-                      // 가로채서 기본 브라우저로 연다(http/https 만, Rust 에서 재검증).
-                      <a
-                        href={href}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          if (href) invoke("open_external_url", { url: href }).catch(() => {});
-                        }}
-                      >
-                        {children}
-                      </a>
                     ),
                   }}
                 >
@@ -940,8 +930,12 @@ function Composer({
 
 // ── Confirm banner ────────────────────────────────────────────────────────────
 
-/** 규칙 키에서 사람이 읽을 부분만 꺼낸다. `code.exec:shell:git status` → `git status`. */
+/**
+ * 규칙 키에서 사람이 읽을 부분만 꺼낸다. `code.exec:shell:git status` → `git status`,
+ * `fs.write:/Users/me/notes` → `/Users/me/notes` 폴더. 버튼이 무엇을 여는지 정확히 보여야 한다.
+ */
 function ruleLabel(ruleKey: string): string {
+  if (ruleKey.startsWith("fs.write:")) return `${ruleKey.slice("fs.write:".length)} 폴더`;
   const parts = ruleKey.split(":");
   return parts[parts.length - 1] || ruleKey;
 }
@@ -953,15 +947,19 @@ function ConfirmBanner({
   confirm: PendingConfirm;
   onResolve: (decision: PermissionDecision) => void;
 }) {
-  // 위험 패턴에 걸린 건 규칙으로 미리 승인해둘 수 없다 — 매번 물어야 하므로
-  // "세션 동안"·"항상" 버튼 자체를 감춘다.
-  const canRemember = !confirm.isDangerous;
+  // 위험 패턴·외부 전송·기억할 수 없는 코드(Python 전체, 복합 셸)는 규칙으로 미리
+  // 승인해둘 수 없다 — 매번 물어야 하므로 "세션 동안"·"항상" 버튼 자체를 감춘다.
+  const canRemember = confirm.canRemember && confirm.ruleKey !== null;
+  const ruleKey = confirm.ruleKey ?? "";
   return (
     <div className={`confirm-banner ${confirm.isDangerous ? "confirm-banner--danger" : ""}`}>
       <div className="confirm-banner__header">
         <span className="confirm-banner__tag">{confirm.language}</span>
         {confirm.isDangerous && (
           <span className="confirm-banner__warn">⚠ {confirm.dangerReason}</span>
+        )}
+        {!confirm.isDangerous && confirm.externalSendReason && (
+          <span className="confirm-banner__warn">↗ {confirm.externalSendReason} — 매번 확인</span>
         )}
       </div>
       <pre className="confirm-banner__code">{confirm.code}</pre>
@@ -974,16 +972,16 @@ function ConfirmBanner({
             <button
               className="confirm-banner__remember"
               onClick={() => onResolve("allow_session")}
-              title={`이 세션 동안 ${confirm.ruleKey} 를 묻지 않아요`}
+              title={`이 세션 동안 ${ruleLabel(ruleKey)} 를 묻지 않아요`}
             >
-              세션 동안
+              세션 동안 ({ruleLabel(ruleKey)})
             </button>
             <button
               className="confirm-banner__remember"
               onClick={() => onResolve("allow_always")}
-              title={`앞으로 ${confirm.ruleKey} 를 묻지 않아요`}
+              title={`앞으로 ${ruleLabel(ruleKey)} 를 묻지 않아요`}
             >
-              항상 ({ruleLabel(confirm.ruleKey)})
+              항상 ({ruleLabel(ruleKey)})
             </button>
           </>
         )}
@@ -1048,7 +1046,7 @@ function CompactSummaryBar({
       {expanded && (
         <div className="compact-tab__panel">
           <div className="compact-tab__panel-inner">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={safeMarkdownComponents}>
               {stripThink(summary)}
             </ReactMarkdown>
           </div>
@@ -1584,6 +1582,8 @@ export default function App() {
 
   // Init MCP servers on mount
   useEffect(() => { initMcpFromStorage(); }, []);
+  // 어떤 링크든 앱 창 안에서 열리지 않게. Rust 의 navguard 와 두 겹이다.
+  useEffect(() => installGlobalLinkGuard(), []);
   // 저장해둔 "항상 허용" 규칙을 메모리에 올린다. 이게 없으면 첫 요청은
   // 이미 승인한 명령에도 확인 창이 뜬다.
   useEffect(() => { loadPermissionRules(); }, []);

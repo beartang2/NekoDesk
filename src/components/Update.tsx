@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
+import { safeMarkdownComponents } from "../lib/safe-markdown";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { useBackdropClose } from "../lib/backdrop";
@@ -143,7 +144,7 @@ function UpdateDialog({ update, onClose }: { update: Update; onClose: () => void
         <h2 id="update-title" className="update-dialog__title">새 버전 v{info.version}</h2>
         {current && <p className="update-dialog__sub">현재 버전 v{current}</p>}
         <div className="update-dialog__notes">
-          <ReactMarkdown>{info.notes ?? ""}</ReactMarkdown>
+          <ReactMarkdown components={safeMarkdownComponents}>{info.notes ?? ""}</ReactMarkdown>
         </div>
         {phase === "failed" && <p className="update-dialog__error">업데이트하지 못했습니다: {error}</p>}
         <div className="update-dialog__actions">

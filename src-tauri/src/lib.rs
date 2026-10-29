@@ -19,6 +19,7 @@ mod capture;
 mod location;
 mod secrets;
 mod claude;
+mod navguard;
 mod security;
 mod procs;
 mod glow;
@@ -1075,6 +1076,7 @@ pub fn run() {
     // 작게 떴다가 window_boot_done 에서 본 크기로 커지고, 빠른 질문 창은 늘 가운데다.
     // 지난 크기(어쩌다 줄여 둔 889×593)를 되살리면 켤 때마다 작게 떴다.
     tauri::Builder::default()
+        .plugin(navguard::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         // 보관함에서 파일을 끌어내 다른 앱에 놓는다(macOS 드래그 세션).

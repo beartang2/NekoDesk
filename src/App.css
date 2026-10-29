@@ -1268,6 +1268,17 @@ html, body, #root {
   object-fit: contain;
 }
 
+/* 마크다운 안의 원격 이미지는 그리지 않는다(safe-markdown). 자리만 표시. */
+.md-blocked-image {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--border);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .composer__input {
   flex: 1;
   background: none;

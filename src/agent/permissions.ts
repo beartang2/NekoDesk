@@ -91,30 +91,75 @@ export function setAutoApprove(on: boolean): void {
 // ── 규칙 키 ───────────────────────────────────────────────────────────────────
 
 /**
- * code.exec 의 규칙 키.
+ * code.exec 의 규칙 키. **null 이면 기억할 수 없는 호출**이다 — 매번 묻는다.
  *
  * 코드 전체가 아니라 **무엇을 실행하는지**로 묶는다. `git status` 를 승인했다고
  * `git push --force` 까지 열리면 안 되므로 shell 은 첫 두 토큰까지 본다
  * (`git status`, `brew install`). AppleScript 는 어느 앱을 조종하는지가 핵심이다.
+ *
+ * 기억할 수 없는 것:
+ *  - Python 등 범용 언어. "python 항상 허용" 은 "아무 코드나 항상 허용" 과 같다.
+ *  - 메타문자가 든 셸(`git status; git push`). 첫 명령만 보고 키를 만들면 뒤에 붙은
+ *    명령이 그 키로 같이 열린다.
+ *  - 인터프리터·래퍼(`python3 -c`, `sh -c`, `xargs`, `env`). 역시 아무 코드나 돈다.
+ *  - 앱을 안 고른 AppleScript, 또는 메시지·메일·키 입력처럼 되돌릴 수 없는 앱.
  */
-export function execRuleKey(code: string, language: string): string {
+export function execRuleKey(code: string, language: string): string | null {
   const lang = language.toLowerCase();
   if (lang === "applescript" || lang === "osascript") {
-    const app = code.match(/tell\s+application\s+"([^"]+)"/i)?.[1];
-    return app ? `code.exec:applescript:${app}` : "code.exec:applescript";
+    return appleScriptRuleKey(code);
   }
   if (lang === "shell" || lang === "sh" || lang === "bash") {
-    const first = firstCommand(code);
-    return first ? `code.exec:shell:${first}` : "code.exec:shell";
+    const lines = code.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+    // 명령이 두 줄이면 첫 줄 키로 둘째 줄까지 열린다. 한 줄, 그것도 메타문자 없는 한 줄만.
+    if (lines.length !== 1 || SHELL_COMPOUND.test(lines[0])) return null;
+    const first = firstCommand(lines[0]);
+    if (!first || INTERPRETERS.has(first.split(" ")[0])) return null;
+    return `code.exec:shell:${first}`;
   }
-  return `code.exec:${lang}`;
+  return null;
+}
+
+/** 연결·치환·서브셸·이스케이프. 하나라도 있으면 명령이 하나가 아니다. */
+const SHELL_COMPOUND = /[;&|$`(){}\\]/;
+
+/** 이 안에서 아무 코드나 돌릴 수 있는 명령. 기억하면 언어 전체를 여는 셈이다. */
+const INTERPRETERS = new Set([
+  "sh", "bash", "zsh", "fish", "dash", "python", "python3", "node", "deno", "bun", "ruby", "perl",
+  "php", "osascript", "swift", "eval", "exec", "xargs", "env", "nohup", "nice", "time", "sudo",
+  "doas", "su", "command", "builtin", "source", ".",
+]);
+
+/**
+ * 되돌릴 수 없거나 다른 앱으로 번지는 AppleScript 대상. 매번 묻는다.
+ * System Events 는 키 입력·메뉴 조작으로 어떤 앱이든 조종할 수 있다.
+ */
+const APPLESCRIPT_NEVER_REMEMBER = new Set([
+  "messages", "mail", "system events", "safari", "google chrome", "chrome", "arc", "firefox",
+  "terminal", "iterm", "iterm2", "script editor",
+]);
+
+const APPLESCRIPT_ESCAPES = /\b(do shell script|run script|load script|do javascript|keystroke|key code|with administrator privileges)\b/i;
+
+function appleScriptRuleKey(code: string): string | null {
+  if (APPLESCRIPT_ESCAPES.test(code)) return null;
+  const targets = new Set<string>();
+  for (const m of code.matchAll(/tell\s+(?:application|app)\s+(?:id\s+)?"([^"]+)"/gi)) {
+    targets.add(m[1]);
+  }
+  if (targets.size === 0) return null;
+  for (const t of targets) {
+    if (APPLESCRIPT_NEVER_REMEMBER.has(t.toLowerCase())) return null;
+  }
+  // 조종하는 앱 **전부**가 키다. Music 만 승인했는데 Music+Messages 스크립트가 열리면 안 된다.
+  return `code.exec:applescript:${[...targets].sort().join("+")}`;
 }
 
 /**
  * 셸 코드에서 실제로 실행되는 첫 명령을 뽑는다.
  *
- * 환경변수 대입(`FOO=1 git ...`)을 건너뛰고, 파이프·리다이렉트·`&&` 앞까지만 본다.
- * 서브명령이 있는 도구(git, brew, npm, docker)는 두 토큰을 묶어야 의미가 산다.
+ * 환경변수 대입(`FOO=1 git ...`)을 건너뛴다. 서브명령이 있는 도구(git, brew, npm,
+ * docker)는 두 토큰을 묶어야 의미가 산다.
  */
 const SUBCOMMAND_TOOLS = new Set([
   "git", "brew", "npm", "npx", "pnpm", "yarn", "cargo", "docker", "kubectl", "gh", "pip", "pip3",
@@ -126,7 +171,7 @@ function firstCommand(code: string): string | null {
 
   const tokens = line
     .trim()
-    .split(/[|;&]|\s+/)
+    .split(/\s+/)
     .filter(Boolean)
     // 앞에 붙는 환경변수 대입은 명령이 아니다.
     .filter((t, i, arr) => !(i < arr.length - 1 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t)));
@@ -145,8 +190,14 @@ function firstCommand(code: string): string | null {
  * 파일 쓰기의 규칙 키는 **부모 디렉토리**다. 파일 하나를 승인했다고 그 파일만
  * 열어두면 규칙이 수백 개로 늘어 아무 의미가 없다.
  */
-export function writeRuleKey(path: string): string {
-  return `fs.write:${parentDir(path)}`;
+export function writeRuleKey(path: string): string | null {
+  const dir = parentDir(path);
+  // 홈이나 루트 바로 아래 파일을 "항상" 으로 열면 `~/.zshrc`, `~/Library/...` 까지 그 규칙에
+  // 들어간다(쓰기 루트는 재귀다). 그런 쓰기는 매번 묻는다.
+  if (dir === "/" || /^\/Users\/?$/.test(dir) || /^\/Users\/[^/]+$/.test(dir) || /^\/home\/[^/]+$/.test(dir)) {
+    return null;
+  }
+  return `fs.write:${dir}`;
 }
 
 export function parentDir(path: string): string {

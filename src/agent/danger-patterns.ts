@@ -67,18 +67,31 @@ export function findDangerReason(code: string): string | undefined {
 
 // 부작용이 없다고 확신할 수 있는 좁은 화이트리스트. 애매하면 false 를 돌려
 // 확인을 요구한다(fail-safe). 여기 있는 것만 확인 없이 실행된다.
+//
+// 이 화이트리스트는 **문자열 전체**가 안전해야 통과한다. 예전엔 "date 로 시작하면 조회"
+// 였는데, `date; python3 -c "…urlopen(…)"` 가 조회로 판정돼 확인 없이 네트워크로 나갔다.
+// 셸 메타문자가 하나라도 있으면 한 명령이 아니므로 통과시키지 않는다.
 
 const SAFE_APPLESCRIPT = [
-  /^\s*display notification\b/,     // 알림
-  /^\s*get volume settings\b/,      // 볼륨 조회
-  /^\s*set volume\b/,               // 볼륨 조절 (되돌리기 쉬움)
+  /^display notification\b/,     // 알림
+  /^get volume settings\b/,      // 볼륨 조회
+  /^set volume\b/,               // 볼륨 조절 (되돌리기 쉬움)
 ];
 
-// 읽기/조회만 하는 셸 명령. 쓰기·삭제·네트워크·리다이렉트가 없어야 한다.
-const SAFE_SHELL_ONELINE =
-  /^\s*(date|cal|whoami|pwd|hostname|uptime|sw_vers|uname|echo)\b[^\n]*$/;
+/**
+ * 안전한 AppleScript 한 줄에도 있어선 안 되는 것. `display notification (do shell script "…")`
+ * 처럼 괄호 안에서 아무 코드나 돌릴 수 있고, `tell`/`script` 는 다른 앱·스크립트로 번진다.
+ */
+const APPLESCRIPT_ESCAPE = /[()«»]|\b(do|run|load|tell|script|osascript|attribute|of application)\b/i;
 
-const HAS_REDIRECT_OR_PIPE = /[|>]/;
+/** 읽기/조회만 하는 셸 명령. 인자가 있어도 되지만 그 인자가 또 다른 명령이면 안 된다. */
+const SAFE_SHELL_COMMANDS = new Set(["date", "cal", "whoami", "pwd", "hostname", "uptime", "sw_vers", "uname", "echo"]);
+
+/**
+ * 하나라도 있으면 "명령 하나" 가 아니다: 연결(; & |), 치환($ `), 서브셸·그룹(( ) { }),
+ * 리다이렉트(< >), 이스케이프(\), 줄바꿈. 따옴표는 허용한다 — `echo "안녕"` 은 괜찮다.
+ */
+const SHELL_META = /[;&|$`(){}<>\\\n\r]/;
 
 /**
  * 확인 없이 실행해도 안전한, 부작용 없는 코드인가.
@@ -94,14 +107,16 @@ export function isSafeReadOnly(code: string, language: string): boolean {
     return src.split("\n").every((line) => {
       const l = line.trim();
       if (!l || l.startsWith("--")) return true;
+      if (APPLESCRIPT_ESCAPE.test(l)) return false;
       return SAFE_APPLESCRIPT.some((re) => re.test(l));
     });
   }
 
   if (lang === "shell" || lang === "sh" || lang === "bash") {
-    // 한 줄짜리 순수 조회만 허용. 여러 줄·파이프·리다이렉트는 확인.
-    if (src.includes("\n") || HAS_REDIRECT_OR_PIPE.test(src)) return false;
-    return SAFE_SHELL_ONELINE.test(src);
+    if (SHELL_META.test(src)) return false;
+    const first = src.split(/\s+/)[0] ?? "";
+    // 경로로 부른 것(`/bin/date`)도, 환경변수 대입(`X=1 date`)도 통과시키지 않는다 — 단순하게.
+    return SAFE_SHELL_COMMANDS.has(first);
   }
 
   // Python 등은 임의 부작용을 판별하기 어렵다. 항상 확인.
