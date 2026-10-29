@@ -12,6 +12,9 @@ export interface ClaudePrice {
   /** 100만 토큰당 USD. */
   input: number;
   output: number;
+  /** 프롬프트 캐시 쓰기(5분)·읽기. 네이티브 API 로 갈 때 자동 캐싱이 이걸로 청구된다. */
+  cacheWrite: number;
+  cacheRead: number;
   /**
    * 프롬프트가 이 토큰 수를 넘는 요청은 그 요청 전체가 long* 가격이다(Haiku 5.5 만 해당).
    * 없으면 길이 구간이 없다.
@@ -19,6 +22,8 @@ export interface ClaudePrice {
   longThreshold?: number;
   longInput?: number;
   longOutput?: number;
+  longCacheWrite?: number;
+  longCacheRead?: number;
 }
 
 export interface ClaudeModel {
@@ -37,13 +42,23 @@ export const CLAUDE_MODELS: readonly ClaudeModel[] = [
     id: "claude-haiku-5-5",
     label: "Haiku 5.5",
     hint: "제일 싸고 빠름",
-    price: { input: 0.1, output: 0.5, longThreshold: 100_000, longInput: 0.5, longOutput: 2.5 },
+    price: {
+      input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01,
+      longThreshold: 100_000, longInput: 0.5, longOutput: 2.5, longCacheWrite: 0.625, longCacheRead: 0.05,
+    },
   },
-  { id: "claude-sonnet-5-5", label: "Sonnet 5.5", hint: "균형", price: { input: 2, output: 10 } },
-  { id: "claude-opus-5-5", label: "Opus 5.5", hint: "가장 똑똑함 · 비쌈", price: { input: 4, output: 20 } },
+  { id: "claude-sonnet-5-5", label: "Sonnet 5.5", hint: "균형", price: { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1 } },
+  { id: "claude-opus-5-5", label: "Opus 5.5", hint: "가장 똑똑함 · 비쌈", price: { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2 } },
 ];
 
 export const DEFAULT_CLAUDE_MODEL = CLAUDE_MODELS[0].id;
+
+/**
+ * Claude 로 보낼 때 max_tokens 의 바닥. Claude 5 모델은 적응형 생각이 기본으로 켜져 있고
+ * 생각 토큰도 max_tokens 에 포함된다. 끝말잇기(20)·기억 판정(8)처럼 아주 짧게 잡은 호출은
+ * 생각만 하다 잘려 답이 비어 버린다. 실제로 쓴 만큼만 청구되므로 바닥을 올려도 비용은 그대로다.
+ */
+export const CLAUDE_MIN_MAX_TOKENS = 4096;
 
 /**
  * 네코에게 알려주는 컨텍스트 길이. 모델 자체는 1M 까지 받지만 그대로 알려주면 에이전트가
@@ -79,12 +94,26 @@ export function claudeLabel(id: string): string {
 /**
  * 요청 한 건의 비용(USD). 목록에 없는 모델은 가장 비싼 값으로 친다 — 모르는 걸 싸게
  * 잡으면 예산 상한이 늦게 걸린다.
+ *
+ * `promptTokens` 는 캐시에서 읽은 것·캐시에 쓴 것까지 합친 **전체 입력**이다(길이 구간 판정은
+ * 전체로 한다). 캐시 토큰은 따로 주면 그 요율로 뺀다. 웹 검색은 1,000회당 $10 이 더 붙는다.
  */
-export function estimateCostUsd(model: string, promptTokens: number, completionTokens: number): number {
+export function estimateCostUsd(
+  model: string,
+  promptTokens: number,
+  completionTokens: number,
+  extra: { cacheRead?: number; cacheWrite?: number; webSearches?: number } = {}
+): number {
   const fallback = CLAUDE_MODELS[CLAUDE_MODELS.length - 1].price;
   const p = findClaudeModel(model)?.price ?? fallback;
   const long = p.longThreshold !== undefined && promptTokens > p.longThreshold;
   const inRate = long ? p.longInput ?? p.input : p.input;
   const outRate = long ? p.longOutput ?? p.output : p.output;
-  return (promptTokens * inRate + completionTokens * outRate) / 1_000_000;
+  const readRate = long ? p.longCacheRead ?? p.cacheRead : p.cacheRead;
+  const writeRate = long ? p.longCacheWrite ?? p.cacheWrite : p.cacheWrite;
+  const cacheRead = extra.cacheRead ?? 0;
+  const cacheWrite = extra.cacheWrite ?? 0;
+  const fresh = Math.max(0, promptTokens - cacheRead - cacheWrite);
+  const tokens = (fresh * inRate + cacheRead * readRate + cacheWrite * writeRate + completionTokens * outRate) / 1_000_000;
+  return tokens + (extra.webSearches ?? 0) * 0.01;
 }

@@ -67,7 +67,7 @@ async function replaces(older: string, newer: string): Promise<boolean> {
       { role: "system", content: JUDGE_SYSTEM },
       { role: "user", content: `예전 기억: ${older}\n새 기억: ${newer}` },
     ],
-    { max_tokens: 8, temperature: 0, grammar: JUDGE_GRAMMAR }
+    { max_tokens: 8, temperature: 0, grammar: JUDGE_GRAMMAR, thinking: false }
   );
   return parseJudge(answer) === "대체";
 }

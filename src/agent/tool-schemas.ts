@@ -1,5 +1,6 @@
 import { getAllTools } from "./tool-registry";
 import { getMcpTools } from "./mcp-registry";
+import { isReplacedByServerTool } from "../stores/settingsStore";
 import type { JsonSchema, JsonSchemaProp, OpenAiToolSchema } from "./types";
 
 /**
@@ -14,10 +15,13 @@ import type { JsonSchema, JsonSchemaProp, OpenAiToolSchema } from "./types";
 
 /** 정적 registry + 로드된 MCP 툴 → OpenAI `tools` 배열. */
 export function buildToolSchemas(): OpenAiToolSchema[] {
-  const staticSchemas: OpenAiToolSchema[] = getAllTools().map((t) => ({
-    type: "function",
-    function: { name: t.name, description: t.description, parameters: t.params },
-  }));
+  // 모델이 서버에서 직접 돌리는 툴(웹 검색·페이지 읽기)이 켜져 있으면 겹치는 로컬 툴은 뺀다.
+  const staticSchemas: OpenAiToolSchema[] = getAllTools()
+    .filter((t) => !isReplacedByServerTool(t.serverEquivalent))
+    .map((t) => ({
+      type: "function",
+      function: { name: t.name, description: t.description, parameters: t.params },
+    }));
 
   const mcpSchemas: OpenAiToolSchema[] = getMcpTools().map((e) => ({
     type: "function",

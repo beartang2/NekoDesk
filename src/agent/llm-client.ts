@@ -245,6 +245,12 @@ function buildRequestBody(
     body.tools = params.tools;
     body.tool_choice = "auto";
   }
+  if (isClaudeActive()) {
+    // Claude 전용 힌트. llm-transport 가 output_config.effort / thinking 으로 바꾼다.
+    // 툴이 있는 호출(에이전트)은 medium, 잡담·단발 작업은 low — 생각 토큰이 곧 돈이다.
+    body.neko_effort = params.effort ?? (params.tools?.length ? "medium" : "low");
+    if (params.thinking === false) body.neko_thinking_off = true;
+  }
   return body;
 }
 

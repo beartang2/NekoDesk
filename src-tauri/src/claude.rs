@@ -1,12 +1,12 @@
 //! Claude API 중계.
 //!
-//! 화면(webview)은 OpenAI 호환 `chat/completions` 본문을 만들어 넘기기만 하고, 키는 여기서
-//! 키체인에서 꺼내 붙인다. 키가 화면으로 넘어가지 않으니 secrets.rs 의 원칙("값을 쓰는 건
-//! 백엔드뿐")이 그대로 지켜지고, 주소가 이 파일에 박혀 있으니 프롬프트 인젝션으로 툴이 꼬여도
-//! 키가 다른 호스트로 새지 않는다.
+//! 화면(webview)은 네이티브 Messages API 본문을 만들어 넘기기만 하고, 키는 여기서 키체인에서
+//! 꺼내 붙인다. 키가 화면으로 넘어가지 않으니 secrets.rs 의 원칙("값을 쓰는 건 백엔드뿐")이
+//! 그대로 지켜지고, 주소가 이 파일에 박혀 있으니 프롬프트 인젝션으로 툴이 꼬여도 키가 다른
+//! 호스트로 새지 않는다.
 //!
-//! 응답은 받은 그대로(SSE 든 JSON 이든) 채널로 흘려보낸다. 파싱은 llama-server 응답을 읽던
-//! llm-client 가 똑같이 한다 — Anthropic 의 OpenAI 호환 계층이 같은 모양으로 답하기 때문이다.
+//! 응답은 받은 그대로(SSE) 채널로 흘려보낸다. Messages 이벤트를 chat-completions 모양으로
+//! 바꾸는 건 화면 쪽(claude-messages.ts)이 한다.
 
 use crate::error::AppError;
 use serde::Serialize;
@@ -18,7 +18,16 @@ use tauri::ipc::Channel;
 /// 키체인 항목 이름. secrets::KEYS 에도 올라가 있어야 한다.
 pub const KEY_NAME: &str = "anthropic_api_key";
 
-const ENDPOINT: &str = "https://api.anthropic.com/v1/chat/completions";
+const BASE: &str = "https://api.anthropic.com";
+const MESSAGES: &str = "/v1/messages";
+const API_VERSION: &str = "2023-06-01";
+
+/// 화면이 GET 으로 읽어도 되는 경로. 모델 능력(capabilities.server_tools) 조회에 쓴다.
+fn get_allowed(path: &str) -> bool {
+    path.starts_with("/v1/models")
+        && !path.contains("..")
+        && path.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.' | '?' | '=' | '&'))
+}
 
 /// 화면으로 보내는 사건. 순서대로 온다: Head → Chunk* → End, 또는 어느 시점에든 Error.
 #[derive(Clone, Serialize)]
@@ -101,8 +110,9 @@ async fn stream_once(body: String, on_event: &Channel<ClaudeEvent>) -> Result<()
         .ok_or_else(|| AppError::msg("Claude API 키가 없어. 설정 → 모델 프로필에서 넣어줘."))?;
 
     let mut res = client()
-        .post(ENDPOINT)
-        .bearer_auth(key.trim())
+        .post(format!("{BASE}{MESSAGES}"))
+        .header("x-api-key", key.trim())
+        .header("anthropic-version", API_VERSION)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body(body)
         .send()
@@ -152,6 +162,26 @@ pub fn claude_chat(id: String, body: String, on_event: Channel<ClaudeEvent>) -> 
     Ok(())
 }
 
+/// 모델 정보 같은 읽기 전용 GET. 경로는 `/v1/models…` 만. 본문을 그대로 돌려준다(상태코드 포함).
+#[tauri::command]
+pub async fn claude_get(path: String) -> Result<(u16, String), AppError> {
+    if !get_allowed(&path) {
+        return Err(AppError::msg(format!("허용되지 않은 경로야: {path}")));
+    }
+    let key = crate::secrets::get(KEY_NAME)?
+        .filter(|k| !k.trim().is_empty())
+        .ok_or_else(|| AppError::msg("Claude API 키가 없어."))?;
+    let res = client()
+        .get(format!("{BASE}{path}"))
+        .header("x-api-key", key.trim())
+        .header("anthropic-version", API_VERSION)
+        .send()
+        .await?;
+    let status = res.status().as_u16();
+    let text = res.text().await?;
+    Ok((status, text))
+}
+
 /// 진행 중인 요청을 끊는다. 이미 끝났으면 아무것도 안 한다.
 #[tauri::command]
 pub fn claude_cancel(id: String) -> Result<(), AppError> {
@@ -198,5 +228,14 @@ mod tests {
     #[test]
     fn api_key_is_a_secret() {
         assert!(crate::secrets::is_secret(KEY_NAME));
+    }
+
+    #[test]
+    fn get_is_limited_to_models() {
+        assert!(get_allowed("/v1/models/claude-haiku-5-5"));
+        assert!(get_allowed("/v1/models?limit=20"));
+        assert!(!get_allowed("/v1/messages"));
+        assert!(!get_allowed("/v1/models/../organizations"));
+        assert!(!get_allowed("https://evil.example/v1/models"));
     }
 }

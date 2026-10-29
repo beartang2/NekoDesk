@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { buildToolSchemas, describeToolsForPrompt } from "./tool-schemas";
 import { clipList, getAllTools } from "./tool-registry";
-import { DEFAULT_IMAGE_GEN, useSettingsStore } from "../stores/settingsStore";
+import { DEFAULT_IMAGE_GEN, setServerToolCaps, useSettingsStore } from "../stores/settingsStore";
 
 describe("buildToolSchemas", () => {
   it("이미지 생성을 꺼두면 image.generate 를 싣지 않는다", () => {
@@ -11,6 +11,22 @@ describe("buildToolSchemas", () => {
     expect(names()).not.toContain("image.generate");
     useSettingsStore.getState().setImageGen({ ...DEFAULT_IMAGE_GEN, provider: "cloudflare" });
     expect(names()).toContain("image.generate");
+  });
+
+  it("모델에 같은 일을 하는 서버 툴이 있으면 겹치는 로컬 툴은 자동으로 빠지고, 없으면 돌아온다", () => {
+    const names = () => buildToolSchemas().map((s) => s.function.name);
+    useSettingsStore.getState().setLlmUrl("claude://claude-haiku-5-5");
+    // 능력을 아직 모르면(앱 켠 직후) 로컬 툴 그대로.
+    expect(names()).toEqual(expect.arrayContaining(["web.search", "web.scrape"]));
+    setServerToolCaps("claude-haiku-5-5", { web_search: true, web_fetch: false });
+    expect(names()).not.toContain("web.search");
+    expect(names()).toContain("web.scrape");
+    setServerToolCaps("claude-haiku-5-5", { web_search: true, web_fetch: true });
+    expect(names()).not.toContain("web.scrape");
+    // 로컬 모델로 돌아오면 다시 로컬 툴.
+    useSettingsStore.getState().setLlmUrl("http://127.0.0.1:8803");
+    expect(names()).toEqual(expect.arrayContaining(["web.search", "web.scrape"]));
+    setServerToolCaps("claude-haiku-5-5", { web_search: false, web_fetch: false });
   });
 
   it("registry 의 모든 툴을 빠짐없이 내보낸다", () => {

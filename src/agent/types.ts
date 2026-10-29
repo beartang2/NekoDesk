@@ -30,6 +30,11 @@ export interface LlmParams {
   tools?: OpenAiToolSchema[];
   /** false 면 생각 없이 바로 답한다. 번역·요약처럼 할 일이 뻔한 짧은 일에. */
   thinking?: false;
+  /**
+   * Claude 의 생각 깊이(output_config.effort). 안 주면 툴이 있는 호출은 medium,
+   * 없는 호출(잡담·단발 작업)은 low. 로컬 모델엔 의미 없다.
+   */
+  effort?: "low" | "medium" | "high";
 }
 
 /** 스트림 델타에 실려 오는 툴 호출 조각. arguments 는 여러 청크에 걸쳐 온다. */

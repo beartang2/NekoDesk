@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { isClaudeUrl } from "../lib/claude-models";
+import { claudeModelOf, isClaudeUrl } from "../lib/claude-models";
 
 /**
  * LLM 관련 설정 스토어 (llm_url / gen_params / system_prompt / user_profile).
@@ -93,6 +93,8 @@ interface SettingsStore {
   weatherLocation: string;
   /** auto 모드에서 서버가 `tools` 를 거부해 json 으로 내려앉았다. 영속화하지 않는다. */
   nativeToolsDegraded: boolean;
+  /** 서버 툴 능력표가 바뀔 때마다 1 씩. 구독자가 툴 목록을 다시 그리게 한다. */
+  serverCapsVersion: number;
   setLlmUrl: (url: string) => void;
   setGenParams: (p: GenParams) => void;
   /** null 이면 삭제(기본값으로 복귀). */
@@ -113,6 +115,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   imageGen: loadImageGen(),
   weatherLocation: localStorage.getItem(K.weatherLocation) ?? "Seoul",
   nativeToolsDegraded: false,
+  serverCapsVersion: 0,
 
   setLlmUrl: (url) => {
     localStorage.setItem(K.llmUrl, url);
@@ -161,6 +164,51 @@ export type Backend = "local" | "claude";
 
 export function activeBackend(): Backend {
   return isClaudeUrl(useSettingsStore.getState().llmUrl) ? "claude" : "local";
+}
+
+// ── Claude 서버 툴 ───────────────────────────────────────────────────────────
+
+/** 모델이 서버에서 직접 돌리는 툴. Models API 의 capabilities.server_tools 로 안다. */
+export interface ServerToolCaps {
+  web_search: boolean;
+  web_fetch: boolean;
+}
+
+/** 모델별 서버 툴 능력. 활성 Claude 프로필을 고를 때 한 번 물어 채운다(claude-caps). */
+const serverCaps = new Map<string, ServerToolCaps>();
+
+export function setServerToolCaps(model: string, caps: ServerToolCaps): void {
+  serverCaps.set(model, caps);
+  // 툴 목록이 바뀌니 구독자(모델 칩 등)가 다시 그리게 아무 상태나 건드린다.
+  useSettingsStore.setState({ serverCapsVersion: useSettingsStore.getState().serverCapsVersion + 1 });
+}
+
+export function getServerToolCaps(model: string): ServerToolCaps | null {
+  return serverCaps.get(model) ?? null;
+}
+
+/**
+ * 지금 요청에 붙일 서버 툴. Claude 가 활성이고 그 모델이 지원한다고 확인된 것만.
+ * 확인 전(앱 켠 직후)엔 비어 있고, 그동안은 로컬 툴(web.search/web.scrape)이 그대로 쓰인다.
+ */
+export function activeServerTools(): Array<{ type: string; name: string; [k: string]: unknown }> {
+  const { llmUrl } = useSettingsStore.getState();
+  const model = claudeModelOf(llmUrl);
+  if (!model) return [];
+  const caps = serverCaps.get(model);
+  if (!caps) return [];
+  const out: Array<{ type: string; name: string; [k: string]: unknown }> = [];
+  if (caps.web_search) out.push({ type: "web_search_20250305", name: "web_search", max_uses: 8 });
+  if (caps.web_fetch) {
+    out.push({ type: "web_fetch_20250910", name: "web_fetch", max_uses: 8, max_content_tokens: 20_000, citations: { enabled: true } });
+  }
+  return out;
+}
+
+/** 이 로컬 툴이 서버 툴로 대체돼 지금은 숨겨야 하는가. */
+export function isReplacedByServerTool(serverEquivalent: string | undefined): boolean {
+  if (!serverEquivalent) return false;
+  return activeServerTools().some((t) => t.name === serverEquivalent);
 }
 
 /**

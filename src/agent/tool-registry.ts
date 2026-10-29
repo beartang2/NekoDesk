@@ -88,6 +88,11 @@ export interface ToolEntry {
    * false 면 순차 실행한다(쓰기·확인 필요·순서 의존).
    */
   readOnly: boolean;
+  /**
+   * 모델 쪽에 같은 일을 하는 서버 툴이 있으면 그 이름. 활성 모델이 그 서버 툴을 지원하면
+   * 이 로컬 툴은 숨긴다(두뇌마다 자동으로 켜고 끈다). 로컬 모델은 늘 로컬 툴이다.
+   */
+  serverEquivalent?: "web_search" | "web_fetch";
   execute: (params: Record<string, unknown>) => Promise<unknown>;
   summarize: (result: unknown) => string;
 }
@@ -302,6 +307,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["query"],
     },
     readOnly: true,
+    serverEquivalent: "web_search",
     execute: async (p) => invoke<SearchResult[]>("web_search", { query: p["query"] as string }),
     summarize: (r) => summarizeSearch((r as SearchResult[]).slice(0, 3)),
   },
@@ -315,6 +321,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["url"],
     },
     readOnly: true,
+    serverEquivalent: "web_fetch",
     execute: async (p) => invoke<ScrapResult>("web_scrape", { url: p["url"] as string }),
     summarize: (r) => {
       const res = r as ScrapResult;

@@ -19,6 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore, DEFAULT_LLM_URL } from "./settingsStore";
 import { claudeLabel, claudeModelOf, claudeUrl, DEFAULT_CLAUDE_MODEL, isClaudeUrl } from "../lib/claude-models";
 import { llmFetch } from "../agent/llm-transport";
+import { refreshServerToolCaps } from "../agent/claude-caps";
 
 export interface LlamaConfig {
   model: string;
@@ -276,6 +277,10 @@ function basename(p: string): string {
 export async function activateProfile(p: ModelProfile, prev?: ModelProfile | null): Promise<void> {
   const url = profileUrl(p);
   useSettingsStore.getState().setLlmUrl(url);
+  // Claude 면 그 모델이 서버 툴(웹 검색·페이지 읽기)을 지원하는지 한 번 물어 둔다. 답이 오면
+  // 겹치는 로컬 툴은 자동으로 빠진다. 기다리지 않는다 — 못 물어보면 로컬 툴로 간다.
+  const claudeModel = claudeModelOf(url);
+  if (claudeModel) void refreshServerToolCaps(claudeModel);
 
   // 떠나온 프로필이 앱이 띄운 서버였다면 내려놓는다. 로컬 모델은 VRAM 을 통째로
   // 물고 있어서, 남겨두면 쓰지도 않는 모델이 새로 띄울 모델과 메모리를 다툰다.

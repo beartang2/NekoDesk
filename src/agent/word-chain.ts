@@ -86,7 +86,7 @@ export async function wordChainReply(lastChar: string, usedWords: string[]): Pro
       // 첫 수는 가장 그럴듯한 단어를 고르게 낮게 시작한다. 문법이 첫 글자를 박아두면
       // 낮은 온도에선 매번 같은 단어("음악")가 나와서, 그게 이미 쓰인 단어면 재시도가
       // 헛돈다. 재시도마다 올려서 다른 단어가 나오게 한다.
-      { max_tokens: 20, temperature: 0.6 + 0.2 * i, grammar }
+      { max_tokens: 20, temperature: 0.6 + 0.2 * i, grammar, thinking: false }
     )).trim();
 
     const word = pickChainWord(raw, lastChar, usedWords);

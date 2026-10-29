@@ -42,6 +42,8 @@ import {
 } from "../stores/modelProfiles";
 import { CLAUDE_CONTEXT_CAP, CLAUDE_MODELS, claudeLabel, claudeModelOf, claudeUrl, findClaudeModel } from "../lib/claude-models";
 import { CLAUDE_KEY } from "../agent/llm-transport";
+import { refreshServerToolCaps } from "../agent/claude-caps";
+import { getServerToolCaps } from "../stores/settingsStore";
 import { ClaudeBudgetFields, ClaudeUsageMeter } from "./ClaudeUsage";
 import {
   forgetAlwaysRule,
@@ -376,6 +378,10 @@ function ClaudeProfileFields({
 }) {
   const model = claudeModelOf(profile.url) ?? CLAUDE_MODELS[0].id;
   const info = findClaudeModel(model);
+  // 능력표가 바뀌면 다시 그린다(값은 쓰지 않는다 — 구독용).
+  useSettingsStore((s) => s.serverCapsVersion);
+  const caps = getServerToolCaps(model);
+  const [checkingCaps, setCheckingCaps] = useState(false);
 
   function setModel(next: string) {
     const renamed = profile.name === claudeLabel(model) ? { name: claudeLabel(next) } : {};
@@ -400,7 +406,21 @@ function ClaudeProfileFields({
       )}
       <div className="settings-field">
         <span className="settings-field__label">API 키</span>
-        <SecretInput secretKey={CLAUDE_KEY} placeholder="sk-ant-…" onSaved={onKeySaved} />
+        <SecretInput secretKey={CLAUDE_KEY} placeholder="sk-ant-…" onSaved={() => { onKeySaved(); void refreshServerToolCaps(model, true); }} />
+      </div>
+      <div className="settings-field">
+        <span className="settings-field__label">웹 검색</span>
+        <span className="settings-section__desc" style={{ margin: 0 }}>
+          {caps === null
+            ? "모델 능력 미확인 — 로컬 검색(DuckDuckGo)을 쓴다"
+            : caps.web_search
+            ? `Anthropic 서버 검색${caps.web_fetch ? " + 페이지 읽기" : ""} (로컬 web.search 는 자동으로 숨김)`
+            : "이 모델은 서버 검색을 지원하지 않아 로컬 검색을 쓴다"}
+        </span>
+        <button className="settings-btn settings-btn--ghost" disabled={checkingCaps}
+          onClick={async () => { setCheckingCaps(true); await refreshServerToolCaps(model, true); setCheckingCaps(false); }}>
+          {checkingCaps ? <Loader2 size={12} className="ui-spin" /> : "다시 확인"}
+        </button>
       </div>
       <p className="settings-section__desc">
         Max 요금제의 월 API 크레딧을 쓰려면 claude.ai 설정 → 결제에서 Console 조직을 연결하고,
