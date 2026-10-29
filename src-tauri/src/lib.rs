@@ -18,6 +18,7 @@ mod quick;
 mod capture;
 mod location;
 mod secrets;
+mod claude;
 mod security;
 mod procs;
 mod glow;
@@ -1166,6 +1167,8 @@ pub fn run() {
             commands::secret_set,
             commands::secret_has,
             commands::secret_dev_get,
+            claude::claude_chat,
+            claude::claude_cancel,
             commands::conversation_save,
             commands::conversation_load,
             commands::conversation_delete,

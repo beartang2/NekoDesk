@@ -11,10 +11,14 @@
  *    host:port 에서 파생한다.
  *  - `config` 가 null 이면 **외부** — 이미 떠 있는 OpenAI 호환 서버에 붙기만 한다
  *    (다른 맥에 띄운 llama.cpp, Ollama, LM Studio 등).
+ *  - 외부 중 주소가 `claude://모델` 이면 **Claude** — Rust 가 키체인의 API 키를 붙여
+ *    api.anthropic.com 으로 중계한다(llm-transport). 띄울 서버가 없으니 연결은 주소 전환뿐이다.
  */
 
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore, DEFAULT_LLM_URL } from "./settingsStore";
+import { claudeLabel, claudeModelOf, claudeUrl, DEFAULT_CLAUDE_MODEL, isClaudeUrl } from "../lib/claude-models";
+import { llmFetch } from "../agent/llm-transport";
 
 export interface LlamaConfig {
   model: string;
@@ -91,7 +95,17 @@ export function profileUrl(p: ModelProfile): string {
   return `http://${host}:${p.config.port}`;
 }
 
+export function isClaudeProfile(p: ModelProfile): boolean {
+  return !p.config && isClaudeUrl(p.url);
+}
+
+export function newClaudeProfile(model = DEFAULT_CLAUDE_MODEL): ModelProfile {
+  return { id: newId(), name: claudeLabel(model), url: claudeUrl(model), config: null };
+}
+
 export function modelLabel(p: ModelProfile): string {
+  const claude = !p.config ? claudeModelOf(p.url) : null;
+  if (claude) return claudeLabel(claude);
   if (!p.config) return p.url.trim() || "(주소 없음)";
   return p.config.model ? (p.config.model.split("/").pop() ?? "") : "(모델 미선택)";
 }
@@ -173,7 +187,8 @@ export function saveProfiles(state: ProfileState): void {
  */
 export async function probe(url: string, timeoutMs = 2000): Promise<string | null> {
   try {
-    const res = await fetch(`${url}/v1/models`, { signal: AbortSignal.timeout(timeoutMs) });
+    // Claude 주소면 llm-transport 가 "키가 있으면 살아 있음" 으로 답한다.
+    const res = await llmFetch("/v1/models", { signal: AbortSignal.timeout(timeoutMs) }, url);
     if (!res.ok) return null;
     const data = await res.json() as { data?: Array<{ id?: string }> };
     return data.data?.[0]?.id ?? "";

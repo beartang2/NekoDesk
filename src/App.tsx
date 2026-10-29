@@ -20,6 +20,7 @@ import { useCatStore } from "./stores/catStore";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPanel";
 import { MenuModal } from "./components/MenuModal";
+import { ModelSwitcher } from "./components/ModelSwitcher";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { useDrawingGame } from "./hooks/useDrawingGame";
 import { useWordChainGame } from "./hooks/useWordChainGame";
@@ -63,7 +64,7 @@ import type {
   Todo,
 } from "./agent/types";
 import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
-import { activateProfile, loadProfiles, probe, profileUrl } from "./stores/modelProfiles";
+import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl } from "./stores/modelProfiles";
 import { listen } from "@tauri-apps/api/event";
 import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
 
@@ -194,6 +195,7 @@ function TitleBar({
   onThemeToggle,
   rightPanelVisible,
   onToggleRightPanel,
+  onManageModels,
 }: {
   sessionTitle: string;
   onSettings: () => void;
@@ -201,6 +203,7 @@ function TitleBar({
   onThemeToggle: () => void;
   rightPanelVisible: boolean;
   onToggleRightPanel: () => void;
+  onManageModels: () => void;
 }) {
   return (
     <header
@@ -219,6 +222,7 @@ function TitleBar({
       <span className="titlebar__name">NekoDesk</span>
       <span className="titlebar__sep">/</span>
       <span className="titlebar__session">{sessionTitle}</span>
+      <ModelSwitcher onManage={onManageModels} />
       <button className="titlebar__settings" onClick={onThemeToggle} title={isDark ? "라이트 모드" : "다크 모드"}>
         {isDark ? <Sun size={14} /> : <Moon size={14} />}
       </button>
@@ -1628,13 +1632,17 @@ export default function App() {
         // 걸리므로 여기서 또 찔러보면 멀쩡한 서버를 죽었다고 오해한다.
         if (active.config) return;
         if ((await probe(profileUrl(active), 3000)) === null) {
-          setConnectError(`'${active.name}' 서버에 연결되지 않았어. 설정 → 모델 프로필에서 확인해줘.`);
+          setConnectError(isClaudeProfile(active)
+            ? `'${active.name}' 를 쓰려면 Claude API 키가 필요해. 설정 → 모델 프로필에서 넣어줘.`
+            : `'${active.name}' 서버에 연결되지 않았어. 설정 → 모델 프로필에서 확인해줘.`);
         }
       })
       .catch((e) => setConnectError(String(e)));
   }, []);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  /** 메뉴를 어느 탭으로 열지. 모델 칩의 "모델 관리" 는 모델 탭으로 바로 연다. */
+  const [menuTab, setMenuTab] = useState<React.ComponentProps<typeof MenuModal>["initialTab"]>(undefined);
   // 닫혀도 퇴장 애니메이션이 끝날 때까지 붙여둔다.
   const [menuMounted, setMenuMounted] = useState(false);
   if (menuOpen && !menuMounted) setMenuMounted(true);
@@ -1842,14 +1850,16 @@ export default function App() {
       <BootSplash />
       <TitleBar
         sessionTitle={activeSession?.title ?? ""}
-        onSettings={() => setMenuOpen(true)}
+        onSettings={() => { setMenuTab(undefined); setMenuOpen(true); }}
         isDark={isDark}
         onThemeToggle={toggleTheme}
         rightPanelVisible={rightPanelVisible}
         onToggleRightPanel={() => setRightPanelVisible((v) => !v)}
+        onManageModels={() => { setMenuTab("model"); setMenuOpen(true); }}
       />
       {menuMounted && (
         <MenuModal
+          initialTab={menuTab}
           onClose={() => setMenuOpen(false)}
           isDark={isDark}
           leaving={!menuOpen}

@@ -5,13 +5,13 @@
 //! 사용자에게 묻는다. 서명이 고정 인증서라 업데이트해도 같은 앱으로 친다.
 //!
 //! 화면(webview)에는 값을 돌려주지 않는다 — 저장했는지만 알려 준다. 값을 쓰는 건 백엔드뿐이다
-//! (검색·그림 그리기). dev 빌드만 복사 버튼용으로 값을 꺼내 준다.
+//! (검색·그림 그리기·Claude 중계). dev 빌드만 복사 버튼용으로 값을 꺼내 준다.
 
 use crate::error::AppError;
 use rusqlite::Connection;
 
 /// 키체인에 두는 설정 이름. 이 밖의 이름은 비밀로 다루지 않는다.
-pub const KEYS: &[&str] = &["brave_search_key", "cf_api_token", "google_api_key"];
+pub const KEYS: &[&str] = &["brave_search_key", "cf_api_token", "google_api_key", "anthropic_api_key"];
 
 #[cfg(target_os = "macos")]
 const SERVICE: &str = "com.nekodesk.desktop";
@@ -97,6 +97,7 @@ mod tests {
     fn only_listed_names_are_secrets() {
         assert!(is_secret("brave_search_key"));
         assert!(is_secret("google_api_key"));
+        assert!(is_secret("anthropic_api_key"));
         assert!(!is_secret("cf_account_id"));
         assert!(!is_secret("memo"));
         assert!(get("memo").is_err());

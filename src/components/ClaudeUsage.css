@@ -1,0 +1,56 @@
+.claude-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: var(--r-sm);
+  background: var(--layer-hover);
+}
+
+.claude-meter__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.claude-meter__label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.claude-meter__amount {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.claude-meter__limit {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.claude-meter__bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--layer-active);
+  overflow: hidden;
+}
+
+.claude-meter__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width var(--dur-control) var(--ease-standard);
+}
+
+.claude-meter__fill--ok   { background: var(--accent); }
+.claude-meter__fill--warn { background: color-mix(in oklab, var(--accent) 40%, var(--error)); }
+.claude-meter__fill--over { background: var(--error); }
+
+.claude-meter__sub {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}

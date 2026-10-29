@@ -18,9 +18,12 @@ import {
   useSettingsStore,
   type GenParams,
 } from "../stores/settingsStore";
+import { llmFetch } from "./llm-transport";
+import { isClaudeUrl } from "../lib/claude-models";
 
-function getLlmUrl(): string {
-  return useSettingsStore.getState().llmUrl;
+/** 지금 Claude 프로필로 묻고 있는가. 로컬 서버 전용 동작(강등·워밍업)을 건너뛸 때 본다. */
+function isClaudeActive(): boolean {
+  return isClaudeUrl(useSettingsStore.getState().llmUrl);
 }
 
 /**
@@ -266,7 +269,7 @@ export async function fetchCompletionMessage(
   signal?: AbortSignal
 ): Promise<LlmCompletion> {
   const p = loadGenParams();
-  const res = await fetch(`${getLlmUrl()}/v1/chat/completions`, {
+  const res = await llmFetch("/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(buildRequestBody(messages, params, p.max_tokens_agent, false)),
@@ -350,7 +353,7 @@ export async function* fetchStream(
   signal?: AbortSignal
 ): AsyncGenerator<LlmStreamChunk> {
   const p = loadGenParams();
-  const res = await fetch(`${getLlmUrl()}/v1/chat/completions`, {
+  const res = await llmFetch("/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(buildRequestBody(messages, params, p.max_tokens_chat, true)),
@@ -931,7 +934,8 @@ export async function* agentTurnStream(
       }
       return;
     } catch (err) {
-      if (emitted > 0 || !isNativeToolsRejected(err)) throw err;
+      // Claude 는 툴 호출을 늘 지원한다. 400 이 와도 툴 때문이 아니니 json 으로 내려가면 안 된다.
+      if (emitted > 0 || isClaudeActive() || !isNativeToolsRejected(err)) throw err;
       console.warn("[tools] 서버가 native tool calling 을 거부해 json 모드로 강등:", err);
       useSettingsStore.getState().setNativeToolsDegraded(true);
     }
@@ -1028,7 +1032,7 @@ export async function compactMessages(messages: LlmMessage[], previousSummary?: 
 
 export async function checkLlmHealth(): Promise<boolean> {
   try {
-    const res = await fetch(`${getLlmUrl()}/health`, { signal: AbortSignal.timeout(3000) });
+    const res = await llmFetch("/health", { signal: AbortSignal.timeout(3000) });
     return res.ok;
   } catch {
     return false;
@@ -1062,14 +1066,14 @@ export function getModelContextLength(): number {
 
 export async function fetchLoadedModel(): Promise<LlmModelInfo | null> {
   try {
-    const res = await fetch(`${getLlmUrl()}/v1/models`, { signal: AbortSignal.timeout(3000) });
+    const res = await llmFetch("/v1/models", { signal: AbortSignal.timeout(3000) });
     if (!res.ok) return null;
     const data = await res.json() as { data?: Array<{ id: string }> };
     const first = data.data?.[0];
     if (!first) return null;
     // Try to get extra info from /props (llama.cpp specific)
     try {
-      const propsRes = await fetch(`${getLlmUrl()}/props`, { signal: AbortSignal.timeout(2000) });
+      const propsRes = await llmFetch("/props", { signal: AbortSignal.timeout(2000) });
       if (propsRes.ok) {
         const props = await propsRes.json() as Record<string, unknown>;
         const dgs = props.default_generation_settings as Record<string, unknown> | undefined;
@@ -1097,8 +1101,10 @@ export async function fetchLoadedModel(): Promise<LlmModelInfo | null> {
 
 /** KV cache 초기화용 빈 요청. 첫 실제 대화 지연 제거. */
 export async function warmUpModel(): Promise<boolean> {
+  // Claude 엔 데울 KV 캐시가 없다. 보내 봐야 돈만 든다.
+  if (isClaudeActive()) return true;
   try {
-    const res = await fetch(`${getLlmUrl()}/v1/chat/completions`, {
+    const res = await llmFetch("/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(30000),

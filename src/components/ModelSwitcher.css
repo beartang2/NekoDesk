@@ -1,0 +1,181 @@
+/* 제목 표시줄의 모델 칩. 세션 제목 오른쪽, 아이콘 버튼들 왼쪽에 앉는다. */
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  height: 24px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.model-chip:hover,
+.model-chip[data-state="open"] {
+  color: var(--text-primary);
+  background: var(--layer-hover);
+}
+
+.model-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.model-chip__dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.model-chip__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.model-chip__caret {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.model-pop {
+  z-index: 200;
+  width: min(280px, var(--radix-popover-content-available-width));
+  max-height: min(440px, var(--radix-popover-content-available-height));
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  transform-origin: var(--radix-popover-content-transform-origin);
+  animation: ui-pop-in var(--dur-control) var(--ease-standard);
+  scrollbar-width: thin;
+}
+
+.model-pop:focus-visible {
+  outline: none;
+}
+
+.model-pop__title {
+  padding: 2px 6px 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.model-pop__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.model-pop__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  font-family: inherit;
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.model-pop__item:hover:not(:disabled) {
+  background: var(--layer-hover);
+}
+
+.model-pop__item--active,
+.model-pop__item--active:hover:not(:disabled) {
+  background: var(--layer-selected);
+}
+
+.model-pop__item:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.model-pop__item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.model-pop__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.model-pop__name {
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.model-pop__sub {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.model-pop__tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.model-pop__error {
+  padding: 8px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--error);
+  background: color-mix(in oklab, var(--error) 10%, transparent);
+}
+
+.model-pop__meter {
+  padding-top: 2px;
+}
+
+.model-pop__manage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  margin-top: 2px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.model-pop__manage:hover {
+  color: var(--text-primary);
+  background: var(--layer-hover);
+}

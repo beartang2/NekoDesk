@@ -28,8 +28,10 @@ import { getAllTools, getTool } from "../agent/tool-registry";
 import {
   DEFAULT_LLAMA_CONFIG,
   activateProfile,
+  isClaudeProfile,
   loadProfiles,
   modelLabel,
+  newClaudeProfile,
   newId,
   probe,
   profileUrl,
@@ -38,6 +40,9 @@ import {
   type ModelProfile,
   type ProfileState,
 } from "../stores/modelProfiles";
+import { CLAUDE_CONTEXT_CAP, CLAUDE_MODELS, claudeLabel, claudeModelOf, claudeUrl, findClaudeModel } from "../lib/claude-models";
+import { CLAUDE_KEY } from "../agent/llm-transport";
+import { ClaudeBudgetFields, ClaudeUsageMeter } from "./ClaudeUsage";
 import {
   forgetAlwaysRule,
   listAlwaysRules,
@@ -353,6 +358,60 @@ function LlamaConfigFields({
   );
 }
 
+/**
+ * Claude 프로필 편집기 — 모델, API 키, 예산.
+ *
+ * 키는 다른 API 키처럼 키체인에만 둔다. 화면은 저장 여부만 알고, 값을 붙여 보내는 건
+ * Rust(claude.rs) 다. 모델을 바꾸면 이름이 기본값 그대로일 때만 이름도 따라 바꾼다 —
+ * 사용자가 붙인 이름("네코 두뇌")은 건드리지 않는다.
+ */
+function ClaudeProfileFields({
+  profile,
+  onChange,
+  onKeySaved,
+}: {
+  profile: ModelProfile;
+  onChange: (patch: Partial<ModelProfile>) => void;
+  onKeySaved: () => void;
+}) {
+  const model = claudeModelOf(profile.url) ?? CLAUDE_MODELS[0].id;
+  const info = findClaudeModel(model);
+
+  function setModel(next: string) {
+    const renamed = profile.name === claudeLabel(model) ? { name: claudeLabel(next) } : {};
+    onChange({ url: claudeUrl(next), ...renamed });
+  }
+
+  return (
+    <>
+      <div className="settings-field">
+        <span className="settings-field__label">모델</span>
+        <Segmented value={model} onChange={setModel}
+          options={CLAUDE_MODELS.map((m) => ({ value: m.id, label: m.label }))} />
+      </div>
+      {info && (
+        <p className="settings-section__desc">
+          {info.hint} · 100만 토큰당 입력 ${info.price.input} / 출력 ${info.price.output}
+          {info.price.longThreshold
+            ? ` (프롬프트 ${info.price.longThreshold / 1000}K 초과 요청은 $${info.price.longInput} / $${info.price.longOutput})`
+            : ""}
+          . 컨텍스트는 {CLAUDE_CONTEXT_CAP / 1000}K 로 묶어 둔다.
+        </p>
+      )}
+      <div className="settings-field">
+        <span className="settings-field__label">API 키</span>
+        <SecretInput secretKey={CLAUDE_KEY} placeholder="sk-ant-…" onSaved={onKeySaved} />
+      </div>
+      <p className="settings-section__desc">
+        Max 요금제의 월 API 크레딧을 쓰려면 claude.ai 설정 → 결제에서 Console 조직을 연결하고,
+        그 조직에서 만든 키를 넣는다. 같은 조직의 다른 키와 잔액을 나눠 쓴다.
+      </p>
+      <ClaudeUsageMeter />
+      <ClaudeBudgetFields />
+    </>
+  );
+}
+
 export function ModelProfilesSection() {
   const [state, setState] = useState<ProfileState>(loadProfiles);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -439,10 +498,12 @@ export function ModelProfilesSection() {
     }
   }
 
-  function addProfile(kind: "local" | "external") {
+  function addProfile(kind: "local" | "external" | "claude") {
     const p: ModelProfile =
       kind === "local"
         ? { id: newId(), name: "새 로컬 모델", url: "", config: { ...DEFAULT_LLAMA_CONFIG } }
+        : kind === "claude"
+        ? newClaudeProfile()
         : { id: newId(), name: "새 외부 서버", url: "http://", config: null };
     commit({ ...state, profiles: [...state.profiles, p] });
     setEditingId(p.id);
@@ -466,7 +527,8 @@ export function ModelProfilesSection() {
       </div>
       <p className="settings-section__desc">
         한 번 설정해두고 목록에서 누르면 연결된다. 로컬 모델은 눌렀을 때 앱이 직접 띄우고,
-        외부 서버는 이미 떠 있는 OpenAI 호환 엔드포인트에 붙는다.
+        외부 서버는 이미 떠 있는 OpenAI 호환 엔드포인트에 붙는다. Claude 는 API 키로
+        Anthropic 에 묻는다 — 이때는 대화가 맥 밖으로 나간다. 제목 표시줄의 모델 칩에서도 바꿀 수 있다.
       </p>
 
       <Collapse open={!!error}>
@@ -489,7 +551,9 @@ export function ModelProfilesSection() {
                   <span className="profile-row__state">
                     {busyId === p.id
                       ? <><Loader2 size={11} className="ui-spin" />연결 중</>
-                      : isActive ? (live ? "연결됨" : "중지됨") : p.config ? "로컬" : "외부"}
+                      : isActive
+                      ? (live ? "연결됨" : isClaudeProfile(p) ? "키 없음" : "중지됨")
+                      : isClaudeProfile(p) ? "Claude" : p.config ? "로컬" : "외부"}
                   </span>
                 </button>
                 <div className="mcp-row__btns">
@@ -509,6 +573,7 @@ export function ModelProfilesSection() {
       <div className="settings-row">
         <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("local")}><Plus size={12} />로컬 모델</button>
         <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("external")}><Plus size={12} />외부 서버</button>
+        <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("claude")}><Plus size={12} />Claude</button>
       </div>
 
       <Collapse open={!!editing}>
@@ -540,6 +605,12 @@ export function ModelProfilesSection() {
                   </button>
                 </div>
               </>
+            ) : isClaudeProfile(editing) ? (
+              <ClaudeProfileFields
+                profile={editing}
+                onChange={(patch) => patchProfile(editing.id, patch)}
+                onKeySaved={() => { if (editing.id === state.activeId) setLive(true); }}
+              />
             ) : (
               <div className="settings-field">
                 <span className="settings-field__label">주소</span>
