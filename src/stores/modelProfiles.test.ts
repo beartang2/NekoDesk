@@ -8,8 +8,11 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 import {
   DEFAULT_LLAMA_CONFIG,
   activateProfile,
+  isClaudeProfile,
   loadProfiles,
   profileUrl,
+  saveProfiles,
+  switchToClaudeIfReady,
   type ModelProfile,
 } from "./modelProfiles";
 import { useSettingsStore } from "./settingsStore";
@@ -49,7 +52,8 @@ describe("마이그레이션", () => {
     localStorage.setItem("nekodesk_llm_url", "http://127.0.0.1:8803");
 
     const { profiles, activeId } = loadProfiles();
-    expect(profiles).toHaveLength(1);
+    // 로컬이 활성이고, Claude 는 목록에만 들어 있다(키가 아직 없다).
+    expect(profiles.map((p) => isClaudeProfile(p))).toEqual([false, true]);
     expect(profiles[0].name).toBe("qwen3-8b");
     expect(profiles[0].config?.model).toBe("qwen3-8b.gguf");
     expect(activeId).toBe(profiles[0].id);
@@ -60,17 +64,79 @@ describe("마이그레이션", () => {
     localStorage.setItem("nekodesk_llm_url", "http://192.168.0.10:8080");
 
     const { profiles, activeId } = loadProfiles();
-    expect(profiles).toHaveLength(2);
+    expect(profiles.filter((p) => !isClaudeProfile(p))).toHaveLength(2);
     const active = profiles.find((p) => p.id === activeId)!;
     expect(active.config).toBeNull();
     expect(active.url).toBe("http://192.168.0.10:8080");
   });
 
-  it("앱으로 서버를 띄운 적 없으면 손으로 띄워둔 주소만 프로필이 된다", () => {
+  it("앱으로 서버를 띄운 적 없으면 손으로 띄워둔 주소가 프로필이 된다", () => {
     localStorage.setItem("nekodesk_llm_url", "http://127.0.0.1:1234");
-    const { profiles } = loadProfiles();
-    expect(profiles).toHaveLength(1);
-    expect(profiles[0].config).toBeNull();
+    const { profiles, activeId } = loadProfiles();
+    const locals = profiles.filter((p) => !isClaudeProfile(p));
+    expect(locals).toHaveLength(1);
+    expect(locals[0].config).toBeNull();
+    expect(activeId).toBe(locals[0].id);
+  });
+
+  it("처음 설치면 Claude 가 활성이고 로컬 서버 프로필이 같이 있다", () => {
+    const { profiles, activeId } = loadProfiles();
+    const active = profiles.find((p) => p.id === activeId)!;
+    expect(isClaudeProfile(active)).toBe(true);
+    expect(active.url).toBe("claude://claude-haiku-5-5");
+    expect(profiles.some((p) => !isClaudeProfile(p) && p.url === "http://127.0.0.1:8803")).toBe(true);
+    expect(useSettingsStore.getState().llmUrl).toBe("claude://claude-haiku-5-5");
+  });
+
+  it("이미 저장된 목록엔 Claude 를 한 번만 끼워 넣고, 지우면 되살리지 않는다", () => {
+    localStorage.setItem("nekodesk_model_profiles", JSON.stringify({
+      activeId: "ext",
+      profiles: [{ id: "ext", name: "외부", url: "http://192.168.0.10:8080", config: null }],
+    }));
+    const first = loadProfiles();
+    expect(first.profiles.some(isClaudeProfile)).toBe(true);
+    expect(first.activeId).toBe("ext"); // 활성은 그대로
+
+    saveProfiles({ ...first, profiles: first.profiles.filter((p) => !isClaudeProfile(p)) });
+    expect(loadProfiles().profiles.some(isClaudeProfile)).toBe(false);
+  });
+});
+
+describe("switchToClaudeIfReady — 키가 있을 때만, 한 번만 Claude 를 기본으로", () => {
+  function savedWithClaude() {
+    localStorage.setItem("nekodesk_model_profiles", JSON.stringify({
+      activeId: "ext",
+      profiles: [
+        { id: "ext", name: "외부", url: "http://192.168.0.10:8080", config: null },
+        { id: "cl", name: "Claude", url: "claude://claude-haiku-5-5", config: null },
+      ],
+    }));
+    return loadProfiles();
+  }
+
+  it("키가 없으면 건드리지 않고 다음 실행에 다시 본다", async () => {
+    invoke.mockImplementation(async (cmd: string) => (cmd === "secret_has" ? false : undefined));
+    expect(await switchToClaudeIfReady(savedWithClaude())).toBeNull();
+    expect(loadProfiles().activeId).toBe("ext");
+    expect(localStorage.getItem("nekodesk_claude_default_switched")).toBeNull();
+  });
+
+  it("키가 있으면 Claude 로 옮기고, 로컬 프로필은 목록에 남는다", async () => {
+    invoke.mockImplementation(async (cmd: string) => (cmd === "secret_has" ? true : undefined));
+    const switched = await switchToClaudeIfReady(savedWithClaude());
+    expect(switched?.id).toBe("cl");
+    const after = loadProfiles();
+    expect(after.activeId).toBe("cl");
+    expect(after.profiles.map((p) => p.id)).toEqual(["ext", "cl"]);
+  });
+
+  it("한 번 옮긴 뒤 사용자가 로컬로 되돌리면 다시 옮기지 않는다", async () => {
+    invoke.mockImplementation(async (cmd: string) => (cmd === "secret_has" ? true : undefined));
+    const state = savedWithClaude();
+    await switchToClaudeIfReady(state);
+    saveProfiles({ ...loadProfiles(), activeId: "ext" });
+    expect(await switchToClaudeIfReady(loadProfiles())).toBeNull();
+    expect(loadProfiles().activeId).toBe("ext");
   });
 });
 

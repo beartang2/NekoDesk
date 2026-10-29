@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { Memory } from "./types";
-import { similarMemories } from "./memory-merge";
+import { parseJudge, similarMemories } from "./memory-merge";
 
 const mem = (id: number, content: string): Memory => ({ id, kind: "fact", content, created_at: "", use_count: 0 });
 
@@ -58,4 +58,20 @@ describe.skipIf(!serverUp)("saveMemory — 실서버", () => {
       "율리오는 사용자의 AI 친구로, 보라색 로봇 아이콘을 쓴다",
     ]);
   }, 60_000);
+});
+
+describe("parseJudge — grammar 없이 온 답도 읽는다 (Claude)", () => {
+  it("두 낱말 그대로", () => {
+    expect(parseJudge("대체")).toBe("대체");
+    expect(parseJudge("따로")).toBe("따로");
+  });
+  it("설명이 붙어도 읽는다", () => {
+    expect(parseJudge("대체야. 새 기억이 예전 걸 다 담고 있어.")).toBe("대체");
+    expect(parseJudge("따로. 서로 다른 사실이야.")).toBe("따로");
+  });
+  it("애매하면 따로 — 잘못 지우는 쪽이 더 나쁘다", () => {
+    expect(parseJudge("")).toBe("따로");
+    expect(parseJudge("음, 대체라기보다 따로가 맞아")).toBe("따로");
+    expect(parseJudge("<think>대체인가</think>따로")).toBe("따로");
+  });
 });

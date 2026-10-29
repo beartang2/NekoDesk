@@ -33,7 +33,7 @@ import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
-import { useSettingsStore } from "./stores/settingsStore";
+import { activeBackend, useSettingsStore } from "./stores/settingsStore";
 import { useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
@@ -65,7 +65,7 @@ import type {
   Todo,
 } from "./agent/types";
 import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
-import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl } from "./stores/modelProfiles";
+import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl, switchToClaudeIfReady } from "./stores/modelProfiles";
 import { listen } from "@tauri-apps/api/event";
 import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
 
@@ -1015,10 +1015,24 @@ function ClarifyBanner({ clarify, onAnswer }: { clarify: PendingClarify; onAnswe
 
 // ── Error banner ──────────────────────────────────────────────────────────────
 
-function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+function ErrorBanner({
+  message,
+  onDismiss,
+  action,
+}: {
+  message: string;
+  onDismiss: () => void;
+  /** 바로 할 수 있는 일이 있으면 버튼으로. "설정에서 넣어줘" 라고만 하면 어디인지 찾게 된다. */
+  action?: { label: string; onClick: () => void };
+}) {
   return (
     <div className="error-banner">
       <span>{message}</span>
+      {action && (
+        <button className="error-banner__action" onClick={action.onClick}>
+          {action.label}
+        </button>
+      )}
       <button className="error-banner__close" onClick={onDismiss}>
         ✕
       </button>
@@ -1073,6 +1087,8 @@ export default function App() {
   const [modelContextLength, setModelContextLength] = useState<number | null>(null);
   /** 시작할 때 활성 프로필에 못 붙었다. 세션 오류와 별개라 따로 들고 있는다. */
   const [connectError, setConnectError] = useState<string | null>(null);
+  /** 그 오류가 "Claude 키 없음" 이면 배너에 설정으로 가는 버튼을 단다. */
+  const [connectErrorNeedsKey, setConnectErrorNeedsKey] = useState(false);
   // 관리형 프로필은 앱이 켜질 때 llama-server 를 띄우는데, 모델을 올리는 동안엔
   // /v1/models 가 503 이다. 한 번만 물으면 "--" 로 굳고 에이전트도 기본값(8192)으로
   // 예산을 짠다. 서버가 답할 때까지 다시 묻고, 주소가 바뀌면(프로필 전환) 처음부터.
@@ -1472,7 +1488,9 @@ export default function App() {
     const midGame =
       (game.phase !== "idle" && game.phase !== "done") ||
       (wordChain.phase !== "idle" && wordChain.phase !== "done");
-    if (!midGame) {
+    // 키워드 라우팅은 로컬 모델 전용이다. Claude 는 game.start 를 스스로 고르므로 모델에게 맡긴다
+    // (memory/feedback_no_keyword_routing.md — 모델이 판단해야 할 일을 키워드로 가로채지 않는다).
+    if (!midGame && activeBackend() === "local") {
       const intent = detectGameIntent(text);
       if (intent) {
         injectMessage("user", text.trim());
@@ -1623,21 +1641,24 @@ export default function App() {
   // 외부 서버면 주소를 맞춘 뒤 살아 있는지 확인한다 — 꺼져 있다는 걸 첫 질문을
   // 던지고 나서야 알게 되면 늦다.
   useEffect(() => {
-    const { profiles, activeId: profileId } = loadProfiles();
-    const active = profiles.find((p) => p.id === profileId);
-    if (!active) return;
-    activateProfile(active)
-      .then(async () => {
-        // 관리형은 llama_start 가 즉시 죽었는지 이미 확인했다. 모델 로딩엔 수십 초가
-        // 걸리므로 여기서 또 찔러보면 멀쩡한 서버를 죽었다고 오해한다.
-        if (active.config) return;
-        if ((await probe(profileUrl(active), 3000)) === null) {
-          setConnectError(isClaudeProfile(active)
-            ? `'${active.name}' 를 쓰려면 Claude API 키가 필요해. 설정 → 모델 프로필에서 넣어줘.`
-            : `'${active.name}' 서버에 연결되지 않았어. 설정 → 모델 프로필에서 확인해줘.`);
-        }
-      })
-      .catch((e) => setConnectError(String(e)));
+    const state = loadProfiles();
+    (async () => {
+      // 키를 넣어 둔 사용자는 한 번 Claude 로 옮긴다(기본 연결). 로컬 프로필은 목록에 남는다.
+      const switched = await switchToClaudeIfReady(state);
+      const active = switched ?? state.profiles.find((p) => p.id === state.activeId);
+      if (!active) return;
+      await activateProfile(active);
+      // 관리형은 llama_start 가 즉시 죽었는지 이미 확인했다. 모델 로딩엔 수십 초가
+      // 걸리므로 여기서 또 찔러보면 멀쩡한 서버를 죽었다고 오해한다.
+      if (active.config) return;
+      if ((await probe(profileUrl(active), 3000)) === null) {
+        const claude = isClaudeProfile(active);
+        setConnectErrorNeedsKey(claude);
+        setConnectError(claude
+          ? `'${active.name}' 를 쓰려면 Claude API 키가 필요해.`
+          : `'${active.name}' 서버에 연결되지 않았어. 설정 → 모델 프로필에서 확인해줘.`);
+      }
+    })().catch((e) => setConnectError(String(e)));
   }, []);
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1919,7 +1940,13 @@ export default function App() {
           {/* 안내는 오로라 위에 떠 있다. 흐름에 두면 채팅 칸이 밀려 오로라도 같이 내려갔다. */}
           <div className="chat-banners">
             {connectError && (
-              <ErrorBanner message={connectError} onDismiss={() => setConnectError(null)} />
+              <ErrorBanner
+                message={connectError}
+                onDismiss={() => setConnectError(null)}
+                action={connectErrorNeedsKey
+                  ? { label: "키 넣기", onClick: () => { setMenuTab("model"); setMenuOpen(true); } }
+                  : undefined}
+              />
             )}
 
             {error && (

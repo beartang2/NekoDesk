@@ -11,7 +11,7 @@ import {
   type ScheduleRange,
 } from "../api/tauri";
 import { appEvents, requestWordchainFirstWord } from "../lib/events";
-import { useSettingsStore } from "../stores/settingsStore";
+import { resultCap, useSettingsStore } from "../stores/settingsStore";
 import { getFile, getStoredFileNames } from "./file-store";
 import { buildSkillIndex, readKnowledge } from "./knowledge";
 import { saveMemory } from "./memory-merge";
@@ -318,7 +318,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     execute: async (p) => invoke<ScrapResult>("web_scrape", { url: p["url"] as string }),
     summarize: (r) => {
       const res = r as ScrapResult;
-      return `[${res.title}]\n${res.content.slice(0, 500)}`;
+      return `[${res.title}]\n${res.content.slice(0, resultCap())}`;
     },
   },
 

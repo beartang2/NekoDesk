@@ -16,7 +16,7 @@ import { fsApi, memoryApi } from "../api/tauri";
 import { isMcpTool, executeMcpTool } from "./mcp-registry";
 import { AgentContext, type ExecutedCall } from "./agent-context";
 import { findDangerReason, findExternalSendReason, isSafeReadOnly } from "./danger-patterns";
-import { shouldUseNativeTools } from "../stores/settingsStore";
+import { activeBackend, resultCap, shouldUseNativeTools, type Backend } from "../stores/settingsStore";
 import type {
   AgentStep,
   AgentTurn,
@@ -53,12 +53,12 @@ function isTimeout(err: unknown): boolean {
   return err instanceof DOMException && err.name === "TimeoutError";
 }
 
-const ERROR_SEARCH_HINT = `\n\n[자동 힌트] web.search로 이 오류의 해결책을 찾아 재시도하세요. 검색 쿼리에서 파일 경로·사용자명·API키 등 개인정보를 반드시 제거하고, 오류 메시지 핵심만 사용하세요.`;
+const ERROR_SEARCH_HINT = `\n\n[자동 힌트] 이 오류의 해결책을 web.search 로 찾아서 다시 시도해. 검색어엔 파일 경로·사용자명·API 키 같은 개인정보를 빼고 오류 메시지 핵심만 넣어.`;
 
 const APPLESCRIPT_ERROR_HINT = `\n\n[AppleScript 오류 힌트]
-1. osascript -e '...' 래퍼를 사용했다면 즉시 제거하고 순수 AppleScript 코드만 작성해서 재시도해. (올바른 예: set volume output volume 30)
-2. 시스템 프롬프트의 "## 참고 지식" 섹션에 올바른 AppleScript 문법이 있으니 반드시 확인해.
-3. web.search는 참고 지식으로 해결이 안 될 때만 사용해.`;
+1. osascript -e '...' 래퍼를 썼다면 빼고 순수 AppleScript 코드만 써서 다시 시도해. (올바른 예: set volume output volume 30)
+2. 참고 지식 목록의 AppleScript 항목을 skill.read 로 읽으면 올바른 문법이 있어.
+3. web.search 는 참고 지식으로 안 풀릴 때만 써.`;
 
 /** 개인정보(홈 경로·사용자명·자격증명)를 지운다. 오류 메시지를 모델·검색에 넘기기 전. */
 function sanitize(text: string): string {
@@ -105,18 +105,20 @@ function injectErrorSearchHint(
  * even when the full JSON is long.
  */
 function summarizeMcpResult(text: string): string {
+  const cap = resultCap();
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>;
     const lines: string[] = [];
     if ("status" in parsed) lines.push(`status: ${parsed["status"]}`);
     if ("error" in parsed && parsed["error"]) lines.push(`error: ${String(parsed["error"])}`);
     const header = lines.join("\n");
-    const body = text.slice(0, 500);
+    const body = text.slice(0, cap);
     return header ? `${header}\n\n${body}` : body;
   } catch {
-    return text.slice(0, 500);
+    return text.slice(0, cap);
   }
 }
+
 
 // 위험 패턴 목록은 danger-patterns.ts 로 분리(테스트 대상). findDangerReason 사용.
 
@@ -413,6 +415,10 @@ export async function* runAgentLoop(
   // 모드는 루프 시작 시 한 번 고정한다. 중간에 강등되면 이미 쌓인 컨텍스트의
   // 메시지 형식과 어긋나므로, 강등은 다음 사용자 메시지부터 반영된다.
   const native = shouldUseNativeTools();
+  // 두뇌도 한 번 고정한다. 작은 모델용 휴리스틱(중복 조회 차단·반복 출력 절단)은
+  // 로컬에서만 켠다 — Claude 는 결과를 보고 스스로 그만두므로 목줄을 채울 이유가 없다.
+  const backend: Backend = activeBackend();
+  const babysit = backend === "local";
   const context = new AgentContext(
     chatHistory,
     userContent ?? userInput,
@@ -472,14 +478,19 @@ export async function* runAgentLoop(
         }
         if (turn) continue;
         if (takeInterjections && hasInterjections?.()) { cut = "interjected"; break; }
-        if (ev.type === "delta" && degenerateAt(streamedAnswer) !== null) { cut = "repetition"; break; }
+        if (babysit && ev.type === "delta" && degenerateAt(streamedAnswer) !== null) { cut = "repetition"; break; }
         // 생각이 맴돌면 답은 끝내 안 나온다. max_tokens 까지 기다릴 이유가 없다.
-        if (ev.type === "thinking" && degenerateAt(streamedThinking) !== null) { cut = "thinking-loop"; break; }
+        if (babysit && ev.type === "thinking" && degenerateAt(streamedThinking) !== null) { cut = "thinking-loop"; break; }
       }
     } catch (err) {
       if (isAbort(err)) return;
       if (isTimeout(err)) {
-        yield { type: "error", message: "LLM 서버가 응답하지 않아. llama.cpp 가 켜져 있는지 확인해줘." };
+        yield {
+          type: "error",
+          message: backend === "claude"
+            ? "Claude 가 제때 답하지 않았어. 잠시 후 다시 해줘."
+            : "LLM 서버가 응답하지 않아. llama.cpp 가 켜져 있는지 확인해줘.",
+        };
         return;
       }
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -543,7 +554,7 @@ export async function* runAgentLoop(
     // 반복 실패로 잠긴 툴은 실행하지 않는다. 조용히 무시하면 모델은 아무 일도
     // 안 일어난 줄 알고 또 부르므로, 잠갔다는 사실을 결과로 돌려준다.
     const calls = turn.toolCalls.filter((c) => {
-      if (seenCalls.has(callKey(c))) {
+      if (babysit && seenCalls.has(callKey(c))) {
         const step = newStep(++stepId, c, turn!.text);
         step.status = "done";
         step.summary = REPEAT_NOTE;

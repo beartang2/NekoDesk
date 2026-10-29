@@ -148,12 +148,35 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));
 
+/**
+ * 지금 어느 두뇌에 묻고 있는가.
+ *
+ *  - local:  llama-server(관리형·외부). 작은 모델용 프롬프트·grammar·휴리스틱 세트.
+ *  - claude: Anthropic API. Claude 용 프롬프트 세트, native 툴 고정, grammar 없음.
+ *
+ * 프롬프트·툴 설명·지식·루프 휴리스틱을 가르는 **유일한** 판별이다. 요청 하나 안에서는
+ * 시작할 때 한 번 읽어 고정한다 — 루프 도중 프로필을 바꿔도 세트가 섞이지 않게.
+ */
+export type Backend = "local" | "claude";
+
+export function activeBackend(): Backend {
+  return isClaudeUrl(useSettingsStore.getState().llmUrl) ? "claude" : "local";
+}
+
+/**
+ * 툴 결과를 모델에게 돌려줄 때의 글자 상한. 로컬 8K 컨텍스트엔 500자가 한계였지만
+ * Claude 는 64K 로 묶어도 넉넉하다 — 페이지 본문을 조각만 보고 답하게 할 이유가 없다.
+ */
+export function resultCap(): number {
+  return activeBackend() === "claude" ? 4000 : 500;
+}
+
 /** 이번 호출에 native tool calling 을 쓸 것인가. */
 export function shouldUseNativeTools(): boolean {
-  const { toolMode, nativeToolsDegraded, llmUrl } = useSettingsStore.getState();
+  const { toolMode, nativeToolsDegraded } = useSettingsStore.getState();
   // json 모드는 llama.cpp 의 GBNF grammar 로 출력을 묶는 방식이라 Claude 에선 성립하지 않는다.
   // Claude 는 툴 호출을 기본으로 지원하므로 설정과 무관하게 native 로 간다.
-  if (isClaudeUrl(llmUrl)) return true;
+  if (activeBackend() === "claude") return true;
   if (toolMode === "json") return false;
   if (toolMode === "native") return true;
   return !nativeToolsDegraded;

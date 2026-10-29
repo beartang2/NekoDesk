@@ -82,6 +82,12 @@ export interface ProfileState {
 const KEY = "nekodesk_model_profiles";
 const LEGACY_CONFIG_KEY = "nekodesk_llama_config";
 const LEGACY_URL_KEY = "nekodesk_llm_url";
+/**
+ * 프로필 목록의 세대. 2: Claude 프로필이 기본으로 들어간 뒤. 이미 저장된 목록에 Claude 가
+ * 없으면 한 번만 끼워 넣고 이 값을 적는다 — 사용자가 지운 걸 켤 때마다 되살리지 않게.
+ */
+const PROFILES_VERSION_KEY = "nekodesk_profiles_v";
+const PROFILES_VERSION = "2";
 
 export function newId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -120,14 +126,27 @@ function sanitize(c: Partial<LlamaConfig>): LlamaConfig {
 }
 
 /**
- * 예전 단일 설정을 프로필 하나로 옮긴다.
+ * 예전 단일 설정을 프로필로 옮기거나, 처음 켠 앱의 기본 목록을 만든다.
  *
- * 이미 쓰던 로컬 모델이 그대로 기본 프로필이 되는 게 요점이다 — 업그레이드 후
+ * 이미 쓰던 로컬 모델이 그대로 활성 프로필이 되는 게 요점이다 — 업그레이드 후
  * 아무것도 다시 고르지 않아도 어제와 똑같이 뜬다. 앱으로 서버를 띄운 적이
  * 없다면(모델 미선택) 손으로 띄워둔 서버를 외부 프로필로 받아 적는다.
+ *
+ * 예전 설정이 아예 없으면(처음 설치) Claude 가 활성이다. 로컬 서버 프로필도 같이 만들어
+ * 두어 모델 칩에서 한 번에 돌아갈 수 있다.
  */
 function migrate(): ProfileState {
-  const url = localStorage.getItem(LEGACY_URL_KEY)?.trim() || DEFAULT_LLM_URL;
+  const legacyUrl = localStorage.getItem(LEGACY_URL_KEY)?.trim();
+  const legacyConfig = localStorage.getItem(LEGACY_CONFIG_KEY);
+  if (!legacyUrl && !legacyConfig) {
+    const claude = newClaudeProfile();
+    return {
+      profiles: [claude, { id: newId(), name: "로컬 서버", url: DEFAULT_LLM_URL, config: null }],
+      activeId: claude.id,
+    };
+  }
+
+  const url = legacyUrl || DEFAULT_LLM_URL;
   let config: LlamaConfig | null = null;
   try {
     const raw = localStorage.getItem(LEGACY_CONFIG_KEY);
@@ -146,9 +165,23 @@ function migrate(): ProfileState {
   if (!managedUrl || managedUrl !== url) {
     profiles.push({ id: newId(), name: "외부 서버", url, config: null });
   }
-  // 마지막으로 실제 쓰던 주소를 활성으로.
+  // 마지막으로 실제 쓰던 주소를 활성으로. Claude 는 목록에만 넣는다 — 키가 아직 없다.
   const active = profiles.find((p) => profileUrl(p) === url) ?? profiles[0];
+  profiles.push(newClaudeProfile());
   return { profiles, activeId: active.id };
+}
+
+/**
+ * 이미 저장된 목록에 Claude 프로필이 없으면 한 번 끼워 넣는다(활성은 바꾸지 않는다 —
+ * 키가 있는지는 비동기라 App 이 시작할 때 따로 본다, `switchToClaudeIfReady`).
+ */
+function ensureClaudeProfile(state: ProfileState): ProfileState {
+  if (localStorage.getItem(PROFILES_VERSION_KEY) === PROFILES_VERSION) return state;
+  localStorage.setItem(PROFILES_VERSION_KEY, PROFILES_VERSION);
+  if (state.profiles.some(isClaudeProfile)) return state;
+  const next = { ...state, profiles: [...state.profiles, newClaudeProfile()] };
+  localStorage.setItem(KEY, JSON.stringify(next));
+  return next;
 }
 
 export function loadProfiles(): ProfileState {
@@ -162,13 +195,45 @@ export function loadProfiles(): ProfileState {
           config: p.config ? sanitize(p.config) : null,
         }));
         const activeId = profiles.some((p) => p.id === parsed.activeId) ? parsed.activeId : profiles[0].id;
-        return { profiles, activeId };
+        return ensureClaudeProfile({ profiles, activeId });
       }
     }
   } catch { /* 깨졌으면 마이그레이션으로 다시 만든다 */ }
+  localStorage.setItem(PROFILES_VERSION_KEY, PROFILES_VERSION);
   const migrated = migrate();
   saveProfiles(migrated);
   return migrated;
+}
+
+const DEFAULT_SWITCHED_KEY = "nekodesk_claude_default_switched";
+
+/**
+ * Claude 를 기본 연결로 — 단, **키가 이미 들어 있을 때만**, 그리고 한 번만.
+ *
+ * 키 없이 조용히 바꾸면 첫 질문이 "키가 없어" 로 실패한다. 키를 넣어 둔 사용자에게만
+ * 다음 실행부터 Claude 가 활성이 되고, 로컬 프로필은 목록에 그대로 남아 칩에서 되돌릴
+ * 수 있다. 사용자가 다시 로컬로 바꾸면 다시는 건드리지 않는다.
+ *
+ * 돌려주는 값: 바꿨으면 새 활성 프로필, 아니면 null.
+ */
+export async function switchToClaudeIfReady(state: ProfileState): Promise<ModelProfile | null> {
+  if (localStorage.getItem(DEFAULT_SWITCHED_KEY)) return null;
+  const active = state.profiles.find((p) => p.id === state.activeId);
+  const claude = state.profiles.find(isClaudeProfile);
+  if (!claude || (active && isClaudeProfile(active))) {
+    localStorage.setItem(DEFAULT_SWITCHED_KEY, "1");
+    return null;
+  }
+  let hasKey = false;
+  try {
+    hasKey = await invoke<boolean>("secret_has", { key: "anthropic_api_key" });
+  } catch {
+    return null; // 못 물어봤으면 다음 실행에 다시 본다.
+  }
+  if (!hasKey) return null;
+  localStorage.setItem(DEFAULT_SWITCHED_KEY, "1");
+  saveProfiles({ ...state, activeId: claude.id });
+  return claude;
 }
 
 export function saveProfiles(state: ProfileState): void {

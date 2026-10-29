@@ -14,16 +14,16 @@ import { ToolCallAccumulator, fromWireToolCalls } from "./tool-calls";
 import { buildKnowledgeSection, buildSkillIndex } from "./knowledge";
 import { createJsonStringFieldStreamer } from "./json-stream";
 import {
+  activeBackend,
   shouldUseNativeTools,
   useSettingsStore,
   type GenParams,
 } from "../stores/settingsStore";
 import { decodeToolName, llmFetch } from "./llm-transport";
-import { isClaudeUrl } from "../lib/claude-models";
 
 /** 지금 Claude 프로필로 묻고 있는가. 로컬 서버 전용 동작(강등·워밍업)을 건너뛸 때 본다. */
 function isClaudeActive(): boolean {
-  return isClaudeUrl(useSettingsStore.getState().llmUrl);
+  return activeBackend() === "claude";
 }
 
 /**
@@ -614,17 +614,14 @@ function parseAgentResponse(raw: string): ParsedAgentStep {
   }
 }
 
-const STATIC_TOOL_NAMES = new Set([
-  "todo.list", "todo.add", "todo.complete",
-  "schedule.list", "schedule.add", "schedule.delete", "code.exec", "web.search", "web.scrape",
-  "file.upload", "weather.get", "user.ask", "game.start", "none",
-]);
-
+/**
+ * json 모드가 낸 툴 이름이 실제 툴인가. 예전엔 손으로 적은 목록이라 fs.*, memory.*, plan.*
+ * 처럼 나중에 생긴 툴을 json 모드가 영영 못 불렀다. registry 가 아는 것(MCP 포함)이 기준이다.
+ */
 function isValidTool(val: unknown): val is string {
   if (typeof val !== "string") return false;
-  if (STATIC_TOOL_NAMES.has(val)) return true;
-  // Also accept any loaded MCP tool
-  return getMcpTools().some((e) => e.tool.name === val);
+  if (val === "none") return true;
+  return buildToolSchemas().some((t) => t.function.name === val);
 }
 
 function stripImageParts(messages: LlmMessage[]): { messages: LlmMessage[]; hadImages: boolean } {
