@@ -63,9 +63,9 @@ html.quick-window #root {
 
 .quick__decoded-copy {
   padding: 2px 9px;
-  border: 1px solid color-mix(in oklab, var(--text-primary) 18%, transparent);
+  border: none;
   border-radius: 999px;
-  background: none;
+  background: var(--layer-hover);
   color: var(--text-muted);
   font-family: inherit;
   font-size: 11px;
@@ -73,7 +73,7 @@ html.quick-window #root {
 }
 
 .quick__decoded-copy:hover {
-  background: var(--layer-hover);
+  background: var(--layer-active);
   color: var(--text-primary);
 }
 
@@ -188,19 +188,17 @@ html.quick-window #root {
   min-width: 0;
   max-width: 320px;
   padding: 3px 9px 3px 7px;
-  border: 1px dashed color-mix(in oklab, var(--text-primary) 22%, transparent);
+  border: none;
   border-radius: 999px;
-  background: none;
+  background: var(--layer-hover);
   color: var(--text-muted);
   font-family: inherit;
   font-size: 11px;
   transition: background var(--dur-micro), color var(--dur-micro), border-color var(--dur-micro);
 }
 
-/* 켜진 칩은 실선 + 색. 꺼진 칩은 점선 — "눌러서 넣을 수 있다" 로 읽힌다. */
+/* 켜진 칩은 포인트색 면. 꺼진 칩은 옅은 회색 면에 흐린 글자. */
 .quick__chip--on {
-  border-style: solid;
-  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
   background: var(--layer-selected);
   color: var(--text-primary);
 }
@@ -235,9 +233,9 @@ html.quick-window #root {
 
 .quick__action {
   padding: 3px 10px;
-  border: 1px solid color-mix(in oklab, var(--accent) 45%, transparent);
+  border: none;
   border-radius: 999px;
-  background: none;
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
   color: var(--accent);
   font-family: inherit;
   font-size: 11px;
@@ -246,7 +244,7 @@ html.quick-window #root {
 }
 
 .quick__action:hover {
-  background: var(--layer-selected);
+  background: color-mix(in oklab, var(--accent) 20%, transparent);
 }
 
 .quick__hint {

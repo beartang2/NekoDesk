@@ -1,11 +1,14 @@
 /* ── Right Panel ─────────────────────────────────────────────────────────────── */
 
 .right-panel {
-  background: var(--bg-surface);
-  border-left: var(--hairline);
   display: flex;
   flex-direction: column;
-  gap: 0;
+  /* 카드 사이 틈. RightPanel 이 포모도로를 접을지 잴 때 이 값을 뺀다. */
+  gap: var(--gutter);
+  /* 카드가 패널 왼쪽·위 끝에 붙어 있어 포커스 링(3px)이 잘렸다. 상자만 그만큼 틈 쪽으로
+     넓히고 안쪽 여백으로 되돌린다 — 카드 자리는 그대로다. */
+  margin: -3px 0 0 -3px;
+  padding: 3px var(--gutter) var(--gutter) 3px;
   /* 패널 자체는 스크롤하지 않는다. 자리가 모자라면 포모도로가 접히고(right-panel--tight),
      길어지는 건 할 일 목록 안에서만 스크롤한다. */
   overflow: hidden;
@@ -14,16 +17,14 @@
 
 /* ── Panel Card ────────────────────────────────────────────────────────────── */
 
-/* 카드 사이를 실선으로 나누면 패널이 표처럼 보인다. 여백으로 나누고, 선은
-   카드 헤더 아래(제목과 내용 사이)에만 남긴다 — 거기서는 선이 실제로 일한다. */
+/* 카드 사이를 실선으로 나누면 패널이 표처럼 보인다. 위젯처럼 한 장씩 띄우고
+   틈(--gutter)으로 나눈다. */
 .panel-card {
   flex-shrink: 0;
   padding-bottom: 6px;
-}
-
-.panel-card + .panel-card {
-  border-top: var(--hairline);
-  padding-top: 4px;
+  border-radius: var(--r-lg);
+  background-color: var(--bg-surface);
+  box-shadow: var(--shadow-card);
 }
 
 .panel-card--calendar {
@@ -56,7 +57,7 @@
 }
 
 .memo-half + .memo-half {
-  border-top: var(--hairline);
+  margin-top: 4px;
 }
 
 /* ── 임시 보관함 ── */
@@ -67,8 +68,8 @@
 /* 파일을 끌고 올라오면 받을 곳이라는 걸 보인다. */
 .shelf--over {
   background: color-mix(in oklab, var(--accent) 12%, transparent);
-  box-shadow: inset 0 0 0 1.5px var(--accent);
-  border-radius: 4px;
+  box-shadow: inset 0 0 0 1.5px var(--focus-edge);
+  border-radius: var(--r-md);
 }
 
 .shelf__count {
@@ -102,7 +103,7 @@
 }
 
 .shelf__item:hover {
-  background: var(--bg-raised);
+  background: var(--layer-hover);
 }
 
 .shelf__item:active {
@@ -208,7 +209,6 @@
 
 .acc-wrap--open {
   grid-template-rows: 1fr;
-  border-top: var(--hairline);
 }
 
 .acc-inner {
@@ -374,9 +374,9 @@
 }
 
 .todo-done-toggle {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  background: var(--layer-hover);
+  border: none;
+  border-radius: 999px;
   color: var(--text-muted);
   cursor: pointer;
   font-size: 9px;
@@ -389,7 +389,7 @@
 
 .todo-done-toggle:hover {
   color: var(--text-primary);
-  border-color: var(--text-muted);
+  background: var(--layer-active);
 }
 
 /* ── Calendar ──────────────────────────────────────────────────────────────── */
@@ -482,11 +482,6 @@
   translate: 0 calc(var(--week) * var(--cal-stride) * -1);
 }
 
-/* 일정 목록은 자기 위 선(.cal-events)이 있다. 아코디언 선은 겹치니 뺀다. */
-.cal-events-wrap.acc-wrap--open {
-  border-top: none;
-}
-
 .cal-cell {
   display: flex;
   align-items: center;
@@ -552,7 +547,6 @@
 }
 
 .cal-events {
-  border-top: 1px solid var(--border);
   padding-top: 6px;
   display: flex;
   flex-direction: column;
@@ -600,16 +594,18 @@
   width: 100%;
   background: none;
   border: none;
+  /* 카드 위쪽 전체가 버튼이다. 포커스 링이 카드 모서리를 따라가게. */
+  border-radius: var(--r-lg) var(--r-lg) var(--r-sm) var(--r-sm);
   cursor: pointer;
   text-align: left;
-  padding: 8px 10px 6px;
+  /* 다른 카드 헤더(.panel-card__header)와 글자 자리·크기를 맞춘다. 위아래가 같아야
+     접혔을 때 글자가 카드 가운데 앉는다(카드 아래 여백은 아래에서 뺀다). */
+  padding: 10px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   color: var(--text-secondary);
   user-select: none;
   transition: color 0.1s, scale var(--dur-control) var(--ease-standard);
@@ -629,16 +625,16 @@
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
   font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
 }
 
 .pomo-session-count {
-  font-size: 10px;
   color: var(--text-muted);
   font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
+}
+
+/* 헤더가 버튼인 카드(포모도로·그림판)는 헤더가 위아래 여백을 다 갖는다. */
+.panel-card:has(> .pomo-header) {
+  padding-bottom: 0;
 }
 
 /* 아코디언 화살표(포모도로·캘린더·그림판). ▲▼ 글자는 글꼴마다 기준선이 달라 버튼 안에서
@@ -708,9 +704,9 @@
 }
 
 .pomo-btn {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: var(--layer-hover);
+  border: none;
+  border-radius: 999px;
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 13px;
@@ -724,7 +720,7 @@
 }
 
 .pomo-btn:hover {
-  background: var(--bg-hover, var(--border));
+  background: var(--layer-active);
   color: var(--text-primary);
 }
 
@@ -734,7 +730,6 @@
   font-size: 15px;
   background: var(--accent-dim, color-mix(in srgb, var(--accent, #7df) 15%, transparent));
   color: var(--accent, #7df);
-  border-color: var(--accent-dim, transparent);
 }
 
 .pomo-btn--primary:hover {
@@ -824,7 +819,8 @@
 
 .pomo-time--edit input:focus-visible {
   outline: none;
-  border-bottom: 1px solid var(--accent);
+  box-shadow: none;
+  border-bottom: 1px solid var(--focus-edge);
 }
 
 /* ── Drawing Pad ───────────────────────────────────────────────────────────── */
@@ -854,8 +850,8 @@
   position: relative;
   width: 100%;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
 }
 
 /* 비트맵 크기는 JS 가 이 박스에 맞춘다(RightPanel 의 ResizeObserver).
@@ -926,9 +922,21 @@
   height: 100%;
 }
 
+/* 줄어드는 건 다 펼쳐진 뒤에만. 열고 닫는 동안(아코디언 높이가 움직이는 동안) 줄이면 캔버스가
+   매 프레임 눌렸다 늘어나며 비트맵을 다시 잡아(syncCanvasToBox) 늘어난 자리가 비어 보이고,
+   색·도구 줄이 마지막에 튀어나왔다. 접힌 동안 80px 로 눌려 아래쪽 그림이 잘려 나가기도 했다.
+   그래서 평소엔 제 크기로 두고 잘라 보이며, 펼침 전환(--dur-sheet)이 끝나면 줄 수 있게 연다. */
 .panel-card--draw .draw-body {
-  flex: 1 1 auto;
+  flex: 1 0 auto;
   min-height: 0;
+}
+
+.panel-card--draw .acc-wrap--open .draw-body {
+  animation: draw-settle 0s var(--dur-sheet) forwards;
+}
+
+@keyframes draw-settle {
+  to { flex-shrink: 1; }
 }
 
 .panel-card--draw .draw-canvas-wrapper {
@@ -973,9 +981,9 @@
 }
 
 .draw-tool-btn {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  background: var(--layer-hover);
+  border: none;
+  border-radius: var(--r-sm);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 11px;
@@ -989,7 +997,7 @@
 }
 
 .draw-tool-btn:hover {
-  background: var(--bg-hover, var(--border));
+  background: var(--layer-active);
   color: var(--text-primary);
 }
 
@@ -1089,9 +1097,9 @@
 }
 
 .draw-game-opt {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: var(--layer-hover);
+  border: none;
+  border-radius: var(--r-sm);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 11px;
@@ -1104,7 +1112,7 @@
 }
 
 .draw-game-opt:hover {
-  background: var(--bg-hover, var(--border));
+  background: var(--layer-active);
   color: var(--text-primary);
 }
 
@@ -1126,9 +1134,9 @@
 }
 
 .draw-game-btn {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: var(--layer-hover);
+  border: none;
+  border-radius: var(--r-sm);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 11px;
@@ -1137,7 +1145,7 @@
 }
 
 .draw-game-btn:hover {
-  background: var(--bg-hover, var(--border));
+  background: var(--layer-active);
   color: var(--text-primary);
 }
 
@@ -1188,7 +1196,7 @@
 
 .draw-game-close-btn:hover {
   color: var(--text-primary);
-  background: var(--bg-raised);
+  background: var(--layer-hover);
 }
 
 /* 제시어는 이모지 그대로 보여준다 — 글자보다 크게. */

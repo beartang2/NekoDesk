@@ -326,7 +326,8 @@
   max-height: 180px;
   overflow: auto;
   border-radius: var(--r-sm);
-  background: var(--bg-base);
+  /* 불투명하게 칠하면 뒤의 오로라를 가린다. 글자색을 옅게 깐 층이라 어느 바탕에서도 한 단계 들어가 보인다. */
+  background: var(--layer-hover);
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }

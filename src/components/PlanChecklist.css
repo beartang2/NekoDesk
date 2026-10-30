@@ -1,8 +1,8 @@
+/* 도구 기록(.step-accordion)과 같은 옅은 면 한 장. */
 .plan-checklist {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-panel);
-  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--text-primary) 3.5%, transparent);
+  padding: 8px 12px;
   margin-bottom: 6px;
 }
 

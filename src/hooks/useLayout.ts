@@ -15,7 +15,9 @@ import {
 
 const MIN_W = 160;
 const MAX_W = 400;
-const DEFAULT_SIDEBAR_W = 220;
+// 고양이 칸의 밥 주기·놀아주기가 이모지가 아니라 글자로 보이는 가장 좁은 폭(고양이 칸 220px)에
+// 카드 왼쪽 틈(--gutter 8px)을 더한 값. ⌘0 이 여기로 돌아온다.
+export const DEFAULT_SIDEBAR_W = 228;
 const DEFAULT_RIGHT_W = 210;
 
 type DragType = "sidebar" | "right";

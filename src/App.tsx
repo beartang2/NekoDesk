@@ -34,7 +34,7 @@ import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecre
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { useSettingsStore } from "./stores/settingsStore";
-import { useLayout } from "./hooks/useLayout";
+import { DEFAULT_SIDEBAR_W, useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
 import { reloadUserSkills } from "./agent/knowledge";
@@ -367,6 +367,7 @@ function Sidebar({
   useRevealChildren(listRef);
   return (
     <aside className="sidebar">
+      <div className="sidebar__sessions">
       <button className="sidebar__new-btn" onClick={onNew}>
         ＋ 새 대화
       </button>
@@ -393,6 +394,7 @@ function Sidebar({
             </button>
           </div>
         ))}
+      </div>
       </div>
 
       <DrawingPadCard gameMode={gameMode} />
@@ -1653,7 +1655,7 @@ export default function App() {
     if (game.phase !== "idle") {
       setSidebarW(400);
     } else {
-      setSidebarW(220);
+      setSidebarW(DEFAULT_SIDEBAR_W);
     }
   }, [game.phase]);
 

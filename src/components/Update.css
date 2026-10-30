@@ -21,11 +21,8 @@
   gap: 10px;
   padding: 20px 20px 16px;
   background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow:
-    var(--shadow-lg),
-    0 0 0 1px color-mix(in oklab, var(--accent) 12%, transparent);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg), var(--edge);
   animation: update-pop var(--dur-sheet) var(--ease-sheet);
 }
 
@@ -65,9 +62,7 @@
 }
 
 .update-dialog__notes h2:not(:first-child) {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
+  margin-top: 16px;
 }
 
 .update-dialog__notes h2 + h3 {
@@ -120,9 +115,9 @@
 
 .update-dialog__btn {
   padding: 6px 14px;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--r-md);
-  background: none;
+  background: var(--layer-hover);
   color: var(--text-secondary);
   font-family: inherit;
   font-size: 12px;
@@ -130,13 +125,12 @@
 }
 
 .update-dialog__btn:hover {
-  background: var(--bg-surface);
+  background: var(--layer-active);
   color: var(--text-primary);
 }
 
 .update-dialog__btn--primary {
   background: var(--accent);
-  border-color: var(--accent);
   color: var(--bg-base);
   font-weight: 600;
 }
@@ -144,7 +138,6 @@
 /* --accent-hover 는 옅은 배경용이라 채운 버튼에 쓰면 글자가 묻힌다. 글자색 쪽으로 살짝만 민다. */
 .update-dialog__btn--primary:hover {
   background: color-mix(in oklab, var(--accent) 88%, var(--text-primary));
-  border-color: color-mix(in oklab, var(--accent) 88%, var(--text-primary));
   color: var(--bg-base);
 }
 
@@ -156,13 +149,11 @@
   gap: 12px;
   padding: 10px 12px;
   background: var(--bg-raised);
-  border: 1px solid var(--border);
   border-radius: var(--r-md);
 }
 
 .update-status[data-tone="new"] {
-  background: color-mix(in oklab, var(--accent) 10%, var(--bg-raised));
-  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+  background: color-mix(in oklab, var(--accent) 12%, var(--bg-raised));
 }
 
 .update-status__text {

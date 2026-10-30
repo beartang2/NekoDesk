@@ -1281,7 +1281,8 @@ export function RightPanel({
         next = squeezed;
       } else {
         const prev = memo.previousElementSibling as HTMLElement;
-        const gap = memo.offsetTop - (prev.offsetTop + prev.offsetHeight);
+        // 카드 사이 고정 틈(row-gap)은 빈칸이 아니다.
+        const gap = memo.offsetTop - (prev.offsetTop + prev.offsetHeight) - (parseFloat(getComputedStyle(panel).rowGap) || 0);
         next = squeezed || gap < fullPomoH.current - pomo.offsetHeight;
       }
       tightRef.current = next;
