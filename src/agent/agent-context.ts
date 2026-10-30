@@ -14,6 +14,18 @@ const BUDGET_RATIO = 0.35;
 /** 이만큼의 최근 턴은 요약하지 않고 전문을 싣는다. */
 const VERBATIM_TURNS = 3;
 
+
+/**
+ * 오래돼도 줄이지 않는 툴 결과. 스킬 문서는 이번 요청 내내 참고하는 문법·규칙이라
+ * 첫 줄·끝 줄만 남기면 쓸모가 없다 — 실제로 세 턴 뒤 잘린 문서를 본 모델이 "본문이
+ * 잘렸다" 며 skill.read 를 다섯 번 다시 불렀다.
+ */
+const KEEP_WHOLE = new Set(["skill.read"]);
+
+function resultText(call: ToolCall, step: AgentStep, verbatim: boolean): string {
+  return `[${call.name} 결과]\n${verbatim || KEEP_WHOLE.has(call.name) ? step.summary : condense(step.summary)}`;
+}
+
 /** 요약해도 예산을 넘으면 오래된 것부터 이 표시로 접는다. */
 const ELIDED = "[이전 단계 생략됨]";
 
@@ -48,17 +60,24 @@ export class AgentContext {
   private readonly turns: ContextTurn[] = [];
   private readonly native: boolean;
   private readonly budget: number;
+  private readonly condenseOld: boolean;
 
   constructor(
     chatHistory: LlmMessage[],
     userContent: string | ContentPart[],
     native: boolean,
-    contextLength: number
+    contextLength: number,
+    /**
+     * 오래된 툴 결과를 첫 줄·끝 줄로 줄일까. 작은 로컬 모델용이다. Claude 는 읽은 기사가
+     * 세 턴 뒤 그렇게 잘려 앞에서 읽은 걸 근거로 답하지 못했다 — 끄면 넘칠 때만 예산이 턴째 접는다.
+     */
+    condenseOld = true
   ) {
     this.userContent = userContent;
     this.chatHistory = chatHistory;
     this.native = native;
     this.budget = Math.max(512, Math.floor(contextLength * BUDGET_RATIO));
+    this.condenseOld = condenseOld;
   }
 
   addTurn(turn: ContextTurn): void {
@@ -95,6 +114,21 @@ export class AgentContext {
       (turn.followUps ?? []).map((content): LlmMessage => ({ role: "user", content }));
     remaining -= estimateMessagesTokens(this.turns.flatMap(followUpsOf));
 
+    const blockOf = (i: number) =>
+      this.turnMessages(this.turns[i], !this.condenseOld || this.turns.length - 1 - i < VERBATIM_TURNS);
+
+    // 0) 스킬 문서를 읽은 턴은 먼저 자리를 잡는다. 오래된 것부터 접으면 처음에 읽은 스킬이
+    // 가장 먼저 사라지고, 모델은 "생략됨" 만 보고 같은 스킬을 또 읽는다(실제로 13번).
+    const pinned = new Map<number, LlmMessage[]>();
+    for (let i = this.turns.length - 1; i >= 0; i--) {
+      if (!this.turns[i].calls.some((c) => KEEP_WHOLE.has(c.call.name))) continue;
+      const block = blockOf(i);
+      const cost = estimateMessagesTokens(block);
+      if (cost > remaining) continue;
+      remaining -= cost;
+      pinned.set(i, block);
+    }
+
     // 1) 턴 메시지 — 최근 것부터, 오래된 것은 요약본으로.
     const turnBlocks: LlmMessage[][] = [];
     let elidedTurns = 0;
@@ -109,8 +143,12 @@ export class AgentContext {
         }
         continue;
       }
-      const verbatim = this.turns.length - 1 - i < VERBATIM_TURNS;
-      const block = this.turnMessages(turn, verbatim);
+      const kept = pinned.get(i);
+      if (kept) {
+        turnBlocks.unshift([...kept, ...followUpsOf(turn)]);
+        continue;
+      }
+      const block = blockOf(i);
       const cost = estimateMessagesTokens(block);
       if (cost > remaining) {
         elidedTurns++;
@@ -199,7 +237,7 @@ function nativeTurnMessages(turn: ContextTurn, verbatim: boolean): LlmMessage[] 
       ({ call, step }): LlmMessage => ({
         role: "tool",
         tool_call_id: call.id,
-        content: `[${call.name} 결과]\n${verbatim ? step.summary : condense(step.summary)}`,
+        content: resultText(call, step, verbatim),
       })
     ),
   ];
@@ -214,7 +252,7 @@ function jsonTurnMessages(turn: ContextTurn, verbatim: boolean): LlmMessage[] {
     },
     {
       role: "tool",
-      content: `[${call.name} 결과]\n${verbatim ? step.summary : condense(step.summary)}`,
+      content: resultText(call, step, verbatim),
     },
   ]);
 }
