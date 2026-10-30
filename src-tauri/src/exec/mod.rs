@@ -24,7 +24,25 @@ fn output_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".nekodesk/output");
     std::fs::create_dir_all(&dir).ok();
+    prune_old(&dir, SystemTime::now());
     dir
+}
+
+/// 출력 폴더에서 이만큼 안 바뀐 파일은 지운다. 채팅은 이미지를 data URL 로 들고 있어서
+/// 파일이 없어져도 옛 대화가 안 깨진다.
+const OUTPUT_TTL: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+
+/// ponytail: 한 겹의 파일만 지운다. 하위 폴더와 심볼릭 링크는 그대로 둔다.
+fn prune_old(dir: &Path, now: SystemTime) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        if !meta.is_file() { continue; }
+        let age = meta.modified().ok().and_then(|m| now.duration_since(m).ok());
+        if age.is_some_and(|a| a > OUTPUT_TTL) {
+            std::fs::remove_file(entry.path()).ok();
+        }
+    }
 }
 
 /// svg 도 그대로 `<img>` 로 렌더된다. 작은 모델은 PIL 도형 조합보다 SVG 를 훨씬
@@ -260,8 +278,26 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_output_image, truncate_chars};
+    use super::{collect_output_image, prune_old, truncate_chars, OUTPUT_TTL};
     use std::time::{Duration, SystemTime};
+
+    /// 30일 넘은 파일만 지우고, 새 파일과 하위 폴더는 남긴다.
+    #[test]
+    fn prunes_only_files_older_than_ttl() {
+        let dir = std::env::temp_dir().join(format!("neko_prune_test_{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("old.png"), b"old").unwrap();
+        std::fs::write(dir.join("new.png"), b"new").unwrap();
+        let old = SystemTime::now() - OUTPUT_TTL - Duration::from_secs(60);
+        std::fs::File::options().write(true).open(dir.join("old.png")).unwrap().set_modified(old).unwrap();
+
+        prune_old(&dir, SystemTime::now());
+
+        assert!(!dir.join("old.png").exists());
+        assert!(dir.join("new.png").exists());
+        assert!(dir.join("sub").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     /// 파일명 계약을 없앤 게 핵심이다. 아무 이름이어도 줍고, 실행 전부터 있던
     /// 이미지는 안 줍고, 이미지가 아닌 파일은 무시해야 한다.
