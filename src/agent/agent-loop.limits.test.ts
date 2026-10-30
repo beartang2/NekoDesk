@@ -148,6 +148,16 @@ describe("같은 웹 조회 반복", () => {
     expect(repeats).toHaveLength(2);
     expect(events.find((e) => e.type === "done")).toMatchObject({ answer: "정리했어" });
   });
+
+  it("같은 스킬을 또 읽으면 다시 읽히지 않고, 두 번 반복하면 끝낸다", async () => {
+    // Claude 가 Music 스킬을 29번 다시 읽었다(2026-10-30). 문서는 요청 안에서 안 바뀐다.
+    nextTurn = (i) => ({ text: "", toolCalls: [{ id: `s${i}`, name: "skill.read", params: { name: "AppleScript/Music" } }] });
+
+    const events = await run();
+    const reads = events.filter((e) => e.type === "step_done" && e.step.tool === "skill.read");
+    expect(reads.map((e) => e.type === "step_done" && e.step.summary.startsWith("### AppleScript/Music"))).toEqual([true, false, false]);
+    expect(events.find((e) => e.type === "done")).toMatchObject({ answer: "정리했어" });
+  });
 });
 
 describe("작업 중에 끼어든 말", () => {

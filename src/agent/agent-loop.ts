@@ -127,9 +127,10 @@ function summarizeMcpResult(text: string): string {
  * 성공한 웹 조회를 똑같이 또 부르면 실행하지 않는다. 작은 모델은 결과를 보고도
  * "다른 방법을 찾아볼게" 하며 같은 검색을 되풀이해 답을 끝내 못 낸다. 실패 사다리는
  * 에러만 세므로 이 루프를 못 잡는다.
- * 웹만 대상이다 — 할 일·파일 목록 같은 조회는 중간에 바뀌어 다시 볼 이유가 있다.
+ * 웹과 스킬 문서만 대상이다 — 할 일·파일 목록 같은 조회는 중간에 바뀌어 다시 볼 이유가 있다.
+ * 스킬은 요청 안에서 안 바뀌는데 Claude 가 Music 스킬을 29번 다시 읽었다(2026-10-30).
  */
-const DEDUPE_TOOLS = new Set(["web.search", "web.scrape"]);
+const DEDUPE_TOOLS = new Set(["web.search", "web.scrape", "skill.read"]);
 const REPEAT_NOTE =
   "이미 똑같이 조회했어 — 결과는 앞에 있어. 같은 걸 다시 부르지 말고, 지금까지 찾은 정보로 답해.";
 /** 반복이 이만큼 쌓이면 모델에게 더 맡기지 않고 모은 결과로 답을 만든다. */
@@ -754,7 +755,8 @@ export async function* runAgentLoop(
           seenCalls.add(callKey(call));
           // 0건인 검색은 찾아본 게 아니다 — 사다리가 "찾아봤는데도 실패" 로 넘어가 버린다.
           const empty = call.name === "web.search" && searchFoundNothing(step.result);
-          if (!empty) failures.recordSearch();
+          // 스킬을 읽은 건 찾아본 게 아니다 — 스킬대로 했는데 실패하면 그때 검색해야 한다.
+          if (!empty && call.name !== "skill.read") failures.recordSearch();
         }
         continue;
       }
