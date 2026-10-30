@@ -15,9 +15,11 @@ type Take = () => unknown[];
 type Script = (take: Take, signal: AbortSignal) => AsyncGenerator<LoopEvent>;
 const scripts: Script[] = [];
 const loopInputs: string[] = [];
+const loopHistories: unknown[] = [];
 vi.mock("../agent/agent-loop", () => ({
-  runAgentLoop: (input: string, _h: unknown, _c: unknown, signal: AbortSignal, take: Take) => {
+  runAgentLoop: (input: string, history: unknown, _c: unknown, signal: AbortSignal, take: Take) => {
     loopInputs.push(input);
+    loopHistories.push(history);
     return scripts.shift()!(take, signal);
   },
 }));
@@ -40,8 +42,27 @@ const shown = () => useMessageStore.getState().get("s").map((m) => [m.role, m.co
 beforeEach(() => {
   scripts.length = 0;
   loopInputs.length = 0;
+  loopHistories.length = 0;
   save.mockClear();
   useMessageStore.setState({ messages: {} });
+});
+
+describe("대화 기록", () => {
+  it("방금 보낸 말은 기록에 다시 싣지 않는다 — 루프가 현재 요청으로 따로 싣는다", async () => {
+    for (const answer of ["첫 답", "둘째 답"]) {
+      scripts.push(async function* () {
+        yield { type: "done", answer, steps: [] };
+      });
+    }
+    const { result } = renderHook(() => useAgentPool());
+    await act(async () => { await result.current.sendMessage("s", "첫 질문"); });
+    await act(async () => { await result.current.sendMessage("s", "둘째 질문"); });
+
+    expect(loopHistories).toEqual([
+      [],
+      [{ role: "user", content: "첫 질문" }, { role: "assistant", content: "첫 답" }],
+    ]);
+  });
 });
 
 describe("일하는 사이 보낸 말", () => {

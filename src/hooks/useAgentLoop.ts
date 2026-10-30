@@ -418,7 +418,8 @@ export function useAgentPool() {
         .save(sessionId, "user", visibleText, serializeAttachments(files), serializeMeta({ label: task?.label }))
         .catch(() => {});
 
-      const rawHistory = buildHistory(useMessageStore.getState().get(sessionId));
+      // 방금 넣은 질문은 빼고 담는다. 루프가 현재 요청으로 따로 싣는다 — 같이 담으면 두 번 간다.
+      const rawHistory = buildHistory(useMessageStore.getState().get(sessionId).filter((m) => m.id !== userMsg.id));
       const history: LlmMessage[] = summaryContext
         ? [{ role: "user", content: `[이전 대화 요약]\n${summaryContext}` }, { role: "assistant", content: "알겠어, 이전 내용 참고할게." }, ...rawHistory]
         : rawHistory;
