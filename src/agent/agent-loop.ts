@@ -44,6 +44,17 @@ const LIMITS = {
   toolCalls: 100,
 };
 
+/**
+ * Claude 프로필의 상한. Claude Code(Agent SDK)의 루프는 모델이 툴 없이 답할 때까지 돌고,
+ * 턴 수·시간 상한이 기본으로 없다 — 끝없이 돌면 사용자가 멈춘다. 여기선 턴 100 만 둔다.
+ * 돈은 claudeBudget 의 월 예산이 따로 막는다.
+ */
+const CLAUDE_LIMITS = {
+  iterations: 100,
+  wallClockMs: Infinity,
+  toolCalls: Infinity,
+};
+
 /** 사용자가 stop 을 눌렀다. 스스로 멈춘 것이니 에러 말풍선을 띄우지 않는다. */
 function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -96,7 +107,8 @@ function injectErrorSearchHint(
   result: CodeExecResult,
   language?: string
 ): string {
-  if (!result.exit_code) return summary;
+  // Claude 는 오류를 보고 스스로 고친다. 힌트를 붙이면 판단을 좁힌다(claude-rules 와 같은 이유).
+  if (!result.exit_code || isClaudeActive()) return summary;
   const rawErr = (result.stderr ?? result.stdout ?? "").trim().slice(0, 400);
   const hint = language === "applescript" ? APPLESCRIPT_ERROR_HINT : ERROR_SEARCH_HINT;
   return `${summary}${hint}\n오류 요약: ${sanitize(rawErr) || `exit_code=${result.exit_code}`}`;
@@ -249,7 +261,7 @@ async function runCall(call: ToolCall, step: AgentStep, approved = false): Promi
     const errMsg = err instanceof Error ? err.message : String(err);
     step.errorMessage = errMsg;
     step.status = "error";
-    step.summary = `오류: ${sanitize(errMsg)}${ERROR_SEARCH_HINT}`;
+    step.summary = `오류: ${sanitize(errMsg)}${isClaudeActive() ? "" : ERROR_SEARCH_HINT}`;
     return step;
   }
 }
@@ -421,12 +433,16 @@ export async function* runAgentLoop(
   // 모드는 루프 시작 시 한 번 고정한다. 중간에 강등되면 이미 쌓인 컨텍스트의
   // 메시지 형식과 어긋나므로, 강등은 다음 사용자 메시지부터 반영된다.
   const native = shouldUseNativeTools();
+  // Claude 는 Claude Code 처럼 돈다: 툴 오류는 그대로 돌려주고, 실패 사다리(힌트·잠금·중단)와
+  // 반복 끊기 없이 모델이 끝낼 때까지 간다. 이 장치들은 같은 실수를 되풀이하는 작은 모델용이다.
+  const claude = isClaudeActive();
+  const limits = claude ? CLAUDE_LIMITS : LIMITS;
   const context = new AgentContext(
     chatHistory,
     userContent ?? userInput,
     native,
     getModelContextLength(),
-    !isClaudeActive()
+    !claude
   );
   const failures = new FailureTracker();
   const plan = new Plan();
@@ -456,8 +472,8 @@ export async function* runAgentLoop(
     if (tps) latestTps = tps;
   };
 
-  for (let i = 0; i < LIMITS.iterations; i++) {
-    if (Date.now() - startedAt > LIMITS.wallClockMs || toolCallCount >= LIMITS.toolCalls) break;
+  for (let i = 0; i < limits.iterations; i++) {
+    if (Date.now() - startedAt > limits.wallClockMs || toolCallCount >= limits.toolCalls) break;
     yield { type: "step_start", iteration: i + 1 };
 
     // ── LLM: decide next action ─────────────────────────────────────────────
@@ -762,14 +778,14 @@ export async function* runAgentLoop(
       }
       // 거부는 실패가 아니다. 사다리에 올리면 "검색해서 해결책을 찾아라" 같은
       // 엉뚱한 힌트가 붙는다.
-      if (deniedSteps.has(step)) continue;
+      if (claude || deniedSteps.has(step)) continue;
       const advice = failures.record(step);
       if (advice.hint) step.summary += advice.hint;
       if (advice.stop) shouldStop = true;
     }
 
     // native 모드는 tool_call 마다 결과 메시지가 짝으로 있어야 하므로 반복분도 싣는다.
-    const review = native && isClaudeActive() ? await imagesToReview(executed) : null;
+    const review = native && claude ? await imagesToReview(executed) : null;
     context.addTurn({ text: turn.text, calls: [...executed, ...repeated], followUps: review ? [review] : undefined });
 
     if (shouldStop) {
@@ -778,7 +794,8 @@ export async function* runAgentLoop(
       yield { type: "done", answer: msg, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
       return;
     }
-    if (repeats >= MAX_REPEATS) break;
+    // Claude 에겐 "이미 읽었어" 만 알리고 맡긴다.
+    if (!claude && repeats >= MAX_REPEATS) break;
 
     // ── 끼어든 말 ────────────────────────────────────────────────────────────
     // 도구 결과 바로 뒤가 유일하게 안전한 자리다. native 모드는 tool_call 과 결과가
