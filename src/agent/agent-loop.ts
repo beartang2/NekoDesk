@@ -1,4 +1,4 @@
-import { agentTurnStream, chatStream, getModelContextLength, textTaskStream, type UsageCallback } from "./llm-client";
+import { agentContextPrefix, agentTurnStream, chatStream, getModelContextLength, textTaskStream, type UsageCallback } from "./llm-client";
 import { FailureTracker } from "./failure-tracker";
 import { Plan } from "./plan";
 import { runSubagent } from "./subagent";
@@ -14,7 +14,7 @@ import {
 } from "./permissions";
 import { fsApi, memoryApi } from "../api/tauri";
 import { isMcpTool, executeMcpTool } from "./mcp-registry";
-import { AgentContext, type ExecutedCall } from "./agent-context";
+import { AgentContext, prefixContent, type ExecutedCall } from "./agent-context";
 import { findDangerReason, findExternalSendReason, isSafeReadOnly } from "./danger-patterns";
 import { isClaudeActive, shouldUseNativeTools } from "../stores/settingsStore";
 import { rasterizeForLlm } from "../lib/image";
@@ -150,6 +150,11 @@ const MAX_REPEATS = 2;
 
 function callKey(call: ToolCall): string {
   return `${call.name}|${JSON.stringify(call.params).toLowerCase().replace(/\s+/g, " ")}`;
+}
+
+/** Claude 에게 보일 남은 계획. 계획을 건드리지 않은 턴의 마지막 툴 결과에 한 번 붙는다. */
+function planNote(plan: Plan): string | undefined {
+  return plan.remaining > 0 ? `[계획]\n${plan.render()}` : undefined;
 }
 
 /**
@@ -437,12 +442,18 @@ export async function* runAgentLoop(
   // 반복 끊기 없이 모델이 끝낼 때까지 간다. 이 장치들은 같은 실수를 되풀이하는 작은 모델용이다.
   const claude = isClaudeActive();
   const limits = claude ? CLAUDE_LIMITS : LIMITS;
+  // 관련 기억은 요청 시작 때 한 번만 떠올린다. 사용자 입력은 요청 안에서 안 바뀌므로
+  // 턴마다 다시 검색할 이유가 없다(턴당 IPC 왕복 하나를 아낀다).
+  // 기억이 없거나 조회에 실패해도 요청은 계속돼야 한다 — 부가 기능이지 전제가 아니다.
+  const memories = await recallMemories(userInput);
+  const question = userContent ?? userInput;
   const context = new AgentContext(
     chatHistory,
-    userContent ?? userInput,
+    // Claude 는 시각·기억을 여기서 한 번 붙여 요청 내내 같은 글을 보낸다(agentContextPrefix).
+    claude ? prefixContent(question, agentContextPrefix(userInput, memories)) : question,
     native,
     getModelContextLength(),
-    !claude
+    claude
   );
   const failures = new FailureTracker();
   const plan = new Plan();
@@ -457,10 +468,6 @@ export async function* runAgentLoop(
   // 끼어든 말의 글자 부분. 상한에 걸려 마지막 답을 따로 만들 때 질문에 붙인다.
   const interjectedTexts: string[] = [];
 
-  // 관련 기억은 요청 시작 때 한 번만 떠올린다. 사용자 입력은 요청 안에서 안 바뀌므로
-  // 턴마다 다시 검색할 이유가 없다(턴당 IPC 왕복 하나를 아낀다).
-  // 기억이 없거나 조회에 실패해도 요청은 계속돼야 한다 — 부가 기능이지 전제가 아니다.
-  const memories = await recallMemories(userInput);
   const startedAt = Date.now();
   let stepId = 0;
   let toolCallCount = 0;
@@ -786,7 +793,13 @@ export async function* runAgentLoop(
 
     // native 모드는 tool_call 마다 결과 메시지가 짝으로 있어야 하므로 반복분도 싣는다.
     const review = native && claude ? await imagesToReview(executed) : null;
-    context.addTurn({ text: turn.text, calls: [...executed, ...repeated], followUps: review ? [review] : undefined });
+    context.addTurn({
+      text: turn.text,
+      calls: [...executed, ...repeated],
+      followUps: review ? [review] : undefined,
+      // Claude 는 남은 계획을 이 턴에 한 번 붙여 두고 다시 안 건드린다(withPlan 은 매 턴 붙였다 뗀다).
+      note: claude && !executed.some(({ call }) => call.name.startsWith("plan.")) ? planNote(plan) : undefined,
+    });
 
     if (shouldStop) {
       const msg = `같은 오류가 반복돼서 멈췄어. 지금까지 시도한 것:\n\n${failures.summary()}`;

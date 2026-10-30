@@ -20,6 +20,7 @@ import {
   type GenParams,
 } from "../stores/settingsStore";
 import { llmFetch } from "./llm-transport";
+import { prefixContent } from "./agent-context";
 import { timeZone } from "../lib/time";
 
 
@@ -672,6 +673,15 @@ function buildAgentContextPrefix(
   return `[현재 날짜/시각: ${nowHere()}]${knowledge}${recalled}\n\n`;
 }
 
+/**
+ * Claude 용. 시각·지식·기억을 요청 시작 때 한 번 만들어 현재 질문에 붙인다(agent-loop).
+ * 매 턴 "마지막 user 메시지" 에 붙이면 시각이 바뀌고 붙는 자리도 옮겨 가서(그림 검토
+ * 메시지가 생기면 그쪽으로), 앞쪽이 바뀌어 생각 블록·프롬프트 캐시가 깨진다.
+ */
+export function agentContextPrefix(userInput: string, memories: string): string {
+  return buildAgentContextPrefix(userInput, "", memories);
+}
+
 /** messages 배열에서 마지막 user 메시지 앞에 컨텍스트 프리픽스를 끼운다.
  *  멀티모달(content 배열)이면 맨 앞에 text 파트로 추가한다. */
 function injectContextIntoLastUser(messages: LlmMessage[], prefix: string): LlmMessage[] {
@@ -679,13 +689,7 @@ function injectContextIntoLastUser(messages: LlmMessage[], prefix: string): LlmM
   for (let i = out.length - 1; i >= 0; i--) {
     if (out[i].role !== "user") continue;
     const c = out[i].content;
-    out[i] = {
-      ...out[i],
-      content:
-        typeof c === "string"
-          ? prefix + c
-          : [{ type: "text", text: prefix }, ...c],
-    };
+    out[i] = { ...out[i], content: prefixContent(c, prefix) };
     break;
   }
   return out;
@@ -708,6 +712,8 @@ function buildAgentMessages(
     role: "system",
     content: buildAgentSystemPrompt(native),
   };
+  // Claude 는 agent-loop 가 현재 질문에 이미 붙였다(agentContextPrefix).
+  if (isClaudeActive()) return [systemMessage, ...messages];
   const prefix = buildAgentContextPrefix(userInput, recentUserContext, memories);
   return [systemMessage, ...injectContextIntoLastUser(messages, prefix)];
 }

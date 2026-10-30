@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { AgentTurn, LoopEvent } from "./types";
+import type { AgentTurn, LlmMessage, LoopEvent } from "./types";
 import { useSettingsStore } from "../stores/settingsStore";
 
 /**
@@ -22,9 +22,12 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => ({})) }));
 
 let nextTurn: (i: number) => AgentTurn = () => ({ text: "끝", toolCalls: [] });
 let turnIndex = 0;
+let sent: LlmMessage[][] = [];
 vi.mock("./llm-client", () => ({
   getModelContextLength: () => 64_000,
-  agentTurnStream: async function* () {
+  agentContextPrefix: () => "[현재 날짜/시각: 고정]\n\n",
+  agentTurnStream: async function* (messages: LlmMessage[]) {
+    sent.push(messages);
     yield { type: "turn" as const, turn: nextTurn(turnIndex++) };
   },
   chatStream: async function* () {
@@ -32,10 +35,10 @@ vi.mock("./llm-client", () => ({
   },
 }));
 
-async function run(): Promise<LoopEvent[]> {
+async function run(history: LlmMessage[] = []): Promise<LoopEvent[]> {
   const { runAgentLoop } = await import("./agent-loop");
   const events: LoopEvent[] = [];
-  for await (const ev of runAgentLoop("해줘", [])) events.push(ev);
+  for await (const ev of runAgentLoop("해줘", history)) events.push(ev);
   return events;
 }
 
@@ -46,6 +49,7 @@ const call = (i: number, name: string, params: Record<string, unknown> = {}): Ag
 
 beforeEach(() => {
   turnIndex = 0;
+  sent = [];
   useSettingsStore.setState({ llmUrl: "claude://claude-haiku-5-5" });
 });
 
@@ -69,6 +73,27 @@ describe("Claude 프로필 루프", () => {
     const reads = events.filter((e) => e.type === "step_done" && e.step.tool === "skill.read");
     expect(reads).toHaveLength(4);
     expect(events.find((e) => e.type === "done")).toMatchObject({ answer: "다 읽었어" });
+  });
+
+  it("매 턴 보내는 메시지는 앞쪽이 그대로다 — 시각은 현재 질문에 한 번만, 계획은 덧붙이기만", async () => {
+    const history: LlmMessage[] = Array.from({ length: 60 }, (_, i) => ({
+      role: i % 2 ? "assistant" : "user",
+      content: `지난 대화 ${i} ${"내용".repeat(200)}`,
+    }));
+    nextTurn = (i) =>
+      i === 0 ? call(i, "plan.set", { steps: ["보기", "고치기"] })
+      : i < 5 ? call(i, "skill.read", { name: `스킬 ${i}` })
+      : { text: "끝", toolCalls: [] };
+
+    await run(history);
+    expect(sent).toHaveLength(6);
+    for (let i = 1; i < sent.length; i++) {
+      expect(sent[i].slice(0, sent[i - 1].length)).toEqual(sent[i - 1]);
+    }
+    const prefixed = sent[5].filter((m) => String(typeof m.content === "string" ? m.content : JSON.stringify(m.content)).includes("[현재 날짜/시각"));
+    expect(prefixed).toHaveLength(1);
+    expect(prefixed[0]).toMatchObject({ role: "user", content: "[현재 날짜/시각: 고정]\n\n해줘" });
+    expect(sent[5].some((m) => m.role === "tool" && String(m.content).includes("[계획]"))).toBe(true);
   });
 
   it("턴 100 에서 멈춘다", async () => {

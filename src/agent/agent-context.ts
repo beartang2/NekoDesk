@@ -45,6 +45,13 @@ export interface ContextTurn {
   calls: ExecutedCall[];
   /** 이 턴의 도구가 도는 사이 사용자가 덧붙인 말. 도구 결과 뒤에 user 메시지로 실린다. */
   followUps?: (string | ContentPart[])[];
+  /** 루프가 이 턴의 마지막 툴 결과 끝에 붙이는 알림(남은 계획). 한 번 붙으면 안 바뀐다. */
+  note?: string;
+}
+
+/** 내용 맨 앞에 글을 붙인다. 이미지가 섞인 내용이면 맨 앞에 글 조각을 하나 더한다. */
+export function prefixContent(content: string | ContentPart[], prefix: string): string | ContentPart[] {
+  return typeof content === "string" ? prefix + content : [{ type: "text", text: prefix }, ...content];
 }
 
 /**
@@ -60,7 +67,9 @@ export class AgentContext {
   private readonly turns: ContextTurn[] = [];
   private readonly native: boolean;
   private readonly budget: number;
-  private readonly condenseOld: boolean;
+  private readonly appendOnly: boolean;
+  /** appendOnly 일 때 처음 정한 대화 이력. 요청 내내 같은 것을 싣는다. */
+  private fixedHistory?: LlmMessage[];
 
   constructor(
     chatHistory: LlmMessage[],
@@ -68,16 +77,18 @@ export class AgentContext {
     native: boolean,
     contextLength: number,
     /**
-     * 오래된 툴 결과를 첫 줄·끝 줄로 줄일까. 작은 로컬 모델용이다. Claude 는 읽은 기사가
-     * 세 턴 뒤 그렇게 잘려 앞에서 읽은 걸 근거로 답하지 못했다 — 끄면 넘칠 때만 예산이 턴째 접는다.
+     * Claude 모드. 이전에 보낸 메시지를 한 글자도 바꾸지 않고 뒤에 덧붙이기만 한다 —
+     * 줄이지도 접지도 않고, 대화 이력은 처음 정한 만큼만 싣는다. Claude 의 생각 블록과
+     * 프롬프트 캐시는 앞쪽이 바뀌면 깨진다. 예산은 그 이력을 고를 때만 쓴다.
+     * 끄면(로컬 모델) 오래된 툴 결과를 줄이고, 넘치면 오래된 턴부터 접는다.
      */
-    condenseOld = true
+    appendOnly = false
   ) {
     this.userContent = userContent;
     this.chatHistory = chatHistory;
     this.native = native;
     this.budget = Math.max(512, Math.floor(contextLength * BUDGET_RATIO));
-    this.condenseOld = condenseOld;
+    this.appendOnly = appendOnly;
   }
 
   addTurn(turn: ContextTurn): void {
@@ -105,17 +116,28 @@ export class AgentContext {
    */
   toMessages(): LlmMessage[] {
     const current: LlmMessage = { role: "user", content: this.userContent };
+    const followUpsOf = (turn: ContextTurn): LlmMessage[] =>
+      (turn.followUps ?? []).map((content): LlmMessage => ({ role: "user", content }));
+
+    if (this.appendOnly) {
+      this.fixedHistory ??= this.fitHistory(this.budget - estimateMessagesTokens([current]));
+      const turns = this.turns.flatMap((turn): LlmMessage[] =>
+        turn.calls.length > 0
+          ? [...this.turnMessages(turn, true), ...followUpsOf(turn)]
+          : [...(turn.followUps?.length && turn.text ? [{ role: "assistant" as const, content: turn.text }] : []), ...followUpsOf(turn)]
+      );
+      return [...this.fixedHistory, current, ...turns];
+    }
+
     // 생략 안내를 붙일 수도 있으니 그 자리를 미리 뺀다. 나중에 더하면 예산을 넘는다.
     // 실제 문구로 재서 어림수를 쓰다 1토큰씩 새는 것을 막는다(턴 수는 자릿수만큼만 는다).
     const noticeReserve = estimateMessagesTokens([elidedNotice(this.turns.length)]);
     let remaining = this.budget - estimateMessagesTokens([current]) - noticeReserve;
     // 덧붙인 말은 이번 요청의 일부다. 턴이 예산에 밀려 접혀도 이것만은 남긴다.
-    const followUpsOf = (turn: ContextTurn): LlmMessage[] =>
-      (turn.followUps ?? []).map((content): LlmMessage => ({ role: "user", content }));
     remaining -= estimateMessagesTokens(this.turns.flatMap(followUpsOf));
 
     const blockOf = (i: number) =>
-      this.turnMessages(this.turns[i], !this.condenseOld || this.turns.length - 1 - i < VERBATIM_TURNS);
+      this.turnMessages(this.turns[i], this.turns.length - 1 - i < VERBATIM_TURNS);
 
     // 0) 스킬 문서를 읽은 턴은 먼저 자리를 잡는다. 오래된 것부터 접으면 처음에 읽은 스킬이
     // 가장 먼저 사라지고, 모델은 "생략됨" 만 보고 같은 스킬을 또 읽는다(실제로 13번).
@@ -160,17 +182,24 @@ export class AgentContext {
     }
 
     // 2) 남은 예산으로 대화 이력을 최근부터 채운다.
+    const history = this.fitHistory(remaining);
+
+    const notice: LlmMessage[] = elidedTurns > 0 ? [elidedNotice(elidedTurns)] : [];
+
+    return [...history, current, ...notice, ...turnBlocks.flat()];
+  }
+
+  /** 대화 이력을 최근 것부터 예산 안에서 고른다. */
+  private fitHistory(budget: number): LlmMessage[] {
     const history: LlmMessage[] = [];
+    let remaining = budget;
     for (let i = this.chatHistory.length - 1; i >= 0; i--) {
       const cost = estimateMessagesTokens([this.chatHistory[i]]);
       if (cost > remaining) break;
       remaining -= cost;
       history.unshift(this.chatHistory[i]);
     }
-
-    const notice: LlmMessage[] = elidedTurns > 0 ? [elidedNotice(elidedTurns)] : [];
-
-    return [...history, current, ...notice, ...turnBlocks.flat()];
+    return history;
   }
 
   private turnMessages(turn: ContextTurn, verbatim: boolean): LlmMessage[] {
@@ -227,7 +256,7 @@ function condense(summary: string, max = 200): string {
  * 하나. 순서와 tool_call_id 가 어긋나면 채팅 템플릿이 짝을 못 맞춘다.
  */
 function nativeTurnMessages(turn: ContextTurn, verbatim: boolean): LlmMessage[] {
-  return [
+  return withNote(turn, [
     {
       role: "assistant",
       content: turn.text,
@@ -240,12 +269,19 @@ function nativeTurnMessages(turn: ContextTurn, verbatim: boolean): LlmMessage[] 
         content: resultText(call, step, verbatim),
       })
     ),
-  ];
+  ]);
+}
+
+/** 턴의 알림을 마지막 툴 결과 끝에 붙인다. */
+function withNote(turn: ContextTurn, messages: LlmMessage[]): LlmMessage[] {
+  const last = messages[messages.length - 1];
+  if (!turn.note || last?.role !== "tool") return messages;
+  return [...messages.slice(0, -1), { ...last, content: `${last.content}\n\n${turn.note}` }];
 }
 
 /** json 폴백 모드: 예전 형식 그대로 — assistant 가 JSON 한 덩이, tool 이 결과. */
 function jsonTurnMessages(turn: ContextTurn, verbatim: boolean): LlmMessage[] {
-  return turn.calls.flatMap(({ call, step }): LlmMessage[] => [
+  return withNote(turn, turn.calls.flatMap(({ call, step }): LlmMessage[] => [
     {
       role: "assistant",
       content: JSON.stringify({ thought: turn.text, tool: call.name, params: call.params }),
@@ -254,5 +290,5 @@ function jsonTurnMessages(turn: ContextTurn, verbatim: boolean): LlmMessage[] {
       role: "tool",
       content: resultText(call, step, verbatim),
     },
-  ]);
+  ]));
 }

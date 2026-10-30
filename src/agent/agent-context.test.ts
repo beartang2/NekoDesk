@@ -70,8 +70,8 @@ describe("AgentContext 예산", () => {
     expect(oldest).toContain("…");
   });
 
-  it("줄이기를 끄면(Claude) 오래된 툴 결과도 전문 그대로 싣는다", () => {
-    const ctx = new AgentContext([], "질문", true, 32768, false);
+  it("Claude 는 오래된 툴 결과도 전문 그대로 싣는다", () => {
+    const ctx = new AgentContext([], "질문", true, 32768, true);
     const long = Array.from({ length: 40 }, (_, i) => `줄 ${i} ${"내용".repeat(10)}`).join("\n");
     for (let i = 0; i < 6; i++) ctx.addTurn(turn("web.scrape", long, `c${i}`));
     const oldest = ctx.toMessages().filter((m) => m.role === "tool")[0].content as string;
@@ -90,17 +90,32 @@ describe("AgentContext 예산", () => {
   });
 
   it("예산이 넘쳐도 스킬 문서를 읽은 턴은 접지 않는다 — 접으면 같은 스킬을 계속 다시 읽는다", () => {
-    // Opus(16K → 예산 5.6K)에서 Music 스킬(약 3.8K)이 맨 처음 턴이라 가장 먼저 접혔고,
-    // 모델은 "생략됨" 만 보고 skill.read 를 13번 불렀다.
-    const ctx = new AgentContext([], "질문", true, 16_000, false);
+    // Music 스킬이 맨 처음 턴이라 가장 먼저 접혔고, 모델은 "생략됨" 만 보고 skill.read 를 13번 불렀다.
+    const ctx = new AgentContext([], "질문", true, 16_000);
     const doc = Array.from({ length: 100 }, (_, i) => `문법 ${i} ${"설명".repeat(10)}`).join("\n");
     ctx.addTurn(turn("skill.read", doc, "s0"));
-    for (let i = 0; i < 5; i++) ctx.addTurn(turn("code.exec", "결과 ".repeat(600), `c${i}`));
+    for (let i = 0; i < 6; i++) ctx.addTurn(turn("code.exec", "결과 ".repeat(800), `c${i}`));
 
     const messages = ctx.toMessages();
     const skill = messages.find((m) => m.role === "tool" && String(m.content).startsWith("[skill.read"));
     expect(String(skill?.content)).toContain("문법 99");
     expect(messages.some((m) => String(m.content).includes("[이전 단계 생략됨]"))).toBe(true);
+  });
+
+  it("Claude 는 앞쪽을 바꾸지 않는다 — 이전에 보낸 메시지가 다음 요청의 앞부분 그대로다", () => {
+    // 생각 블록과 프롬프트 캐시는 앞쪽이 한 글자라도 바뀌면 깨진다. 예산이 넘쳐도 접지 않고,
+    // 대화 이력도 처음 정한 만큼만 싣는다.
+    const ctx = new AgentContext(history(100), "질문", true, 8192, true);
+    let before = ctx.toMessages();
+    for (let i = 0; i < 8; i++) {
+      ctx.addTurn({ ...turn("code.exec", "결과 ".repeat(600), `c${i}`), note: i % 2 ? "[계획]\n1. 할 일" : undefined });
+      const after = ctx.toMessages();
+      expect(after.slice(0, before.length)).toEqual(before);
+      before = after;
+    }
+    expect(before.some((m) => String(m.content).includes("[이전 단계 생략됨]"))).toBe(false);
+    expect(before.filter((m) => m.role === "tool").length).toBe(8);
+    expect(before.filter((m) => String(m.content).endsWith("[계획]\n1. 할 일")).length).toBe(4);
   });
 
   it("턴이 잘리면 생략됐다고 알린다 — 조용히 사라지면 모델이 헷갈린다", () => {
