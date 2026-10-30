@@ -218,30 +218,50 @@ end tell
 
 ---
 
-## 아트워크(커버 이미지) 넣기 — Neko's Playlist·곡
+## 아트워크(커버 이미지) — 2026-10-30 기준 (macOS 27.2, Music 1.7.2)
 
-- 이미지는 **PNG·JPEG 만**. SVG 는 먼저 PNG 로 굽는다(language: "shell"):
-  `qlmanage -t -s 1024 -o ~/.nekodesk/output ~/.nekodesk/output/cover.svg` → `cover.svg.png`.
-  같은 이름의 예전 PNG 가 남아 있을 수 있으니 방금 구운 파일을 써라.
-- ⚠️ `make new artwork ... with data X` 는 없는 문법이다(-2741). `with properties {data:X}` 를 쓰고,
-  이미 아트워크가 있으면 `set data of artwork 1 of ...` 로 바꾼다.
-- `read` 는 `tell application "Music"` **밖에서** 한다. `POSIX file` 은 `~` 를 못 푼다 — 홈 경로를 붙여라.
+플레이리스트 커버는 아래 `set data of artwork 1` 로 바꾼다. **`make new artwork` 는 쓰지 마라** — 사전(sdef)엔
+`artwork` 가 playlist 의 원소로 있지만 만들기는 안 된다. 2026-10-30 이 Mac 에서 실제로 실패했다:
+- `make new artwork at end of artworks of p with properties {data:imgData}` → -10014
+- `make new artwork at p with properties {data:imgData}` → -2710 (jrf.io 2026-03-26 글도 같은 -2710)
+- `make new artwork ... with data X` 는 문법 자체가 없다(-2741).
+
+⚠️ `count of artworks of <playlist>` 로 커버가 있는지 판단하지 마라. 이날 이 Mac 의 플레이리스트
+28개가 전부 0 이었다 — 화면에 커버가 보이는 Neko's Playlist 도 0 이다. 스크립트가 플레이리스트
+커버를 못 읽는 것이지, 커버가 없는 게 아니다.
+
+**커버 바꾸기는 `set data of artwork 1` 로 된다 — 2026-10-30 이 Mac 에서 확인.** 성공해도 Music 이
+"An error of type 1 has occurred. (1)" 을 낸다(jrf.io 2026-03-26 보고와 같음). 그래서 오류 1 만 삼킨다.
+이 그대로 써라 — 다른 오류 번호는 그대로 올라온다. 끝나면 바뀌었는지 사용자에게 화면으로 확인받아라
+(스크립트로는 커버를 읽을 수 없다).
 
 ```applescript
 set imgPath to (POSIX path of (path to home folder)) & ".nekodesk/output/cover.svg.png"
 set imgData to read (POSIX file imgPath) as «class PNGf»  -- JPEG 면 as JPEG picture
 tell application "Music"
-    set p to playlist "Neko's Playlist"
-    if (count of artworks of p) > 0 then
-        set data of artwork 1 of p to imgData
-    else
-        make new artwork at end of artworks of p with properties {data:imgData}
-    end if
-    return "artworks: " & (count of artworks of p)
+    try
+        set data of artwork 1 of playlist "Neko's Playlist" to imgData
+    on error errMsg number errNum
+        if errNum is not 1 then error errMsg number errNum  -- 1 은 성공해도 나는 오류
+    end try
 end tell
+return "커버 바꿈"
 ```
 
-곡도 같다: `artwork 1 of current track`. 다른 플레이리스트의 아트워크는 바꾸지 마라.
+커버가 한 번도 없던 플레이리스트에서도 되는지는 확인 못 했다. 다른 오류가 나면 이미지를 PNG 로
+저장해 두고 사용자에게 이렇게 안내해라(Apple 지원 문서, macOS 27):
+Music 사이드바에서 플레이리스트 선택 → 편집 버튼(또는 더 보기 → 편집) → 추가 버튼으로 이미지 선택.
+이미지 파일을 아트워크 자리에 끌어다 놓아도 된다.
+
+- 이미지는 **PNG·JPEG 만**. SVG 는 먼저 PNG 로 굽는다(language: "shell"):
+  `qlmanage -t -s 1024 -o ~/.nekodesk/output ~/.nekodesk/output/cover.svg` → `cover.svg.png`.
+  같은 이름의 예전 PNG 가 남아 있을 수 있으니 방금 구운 파일을 써라.
+- `read` 는 `tell application "Music"` **밖에서** 한다. `POSIX file` 은 `~` 를 못 푼다 — 홈 경로를 붙여라.
+- 곡은 `set data of artwork 1 of <track> to imgData` (Doug Adams 의 iTunes 시절 방식, 이 Mac 에선 미확인).
+- 다른 플레이리스트·곡의 아트워크는 바꾸지 마라.
+
+출처: [jrf.io — ampart](https://jrf.io/posts/ampart/) ·
+[Apple 지원 — Mac용 Music 에서 플레이리스트 만들기·편집](https://support.apple.com/guide/music/musd5d051981/mac)
 
 ---
 
@@ -342,3 +362,15 @@ echo "playing"
 ```
 
 결과는 항상 `return "문자열"` 로 반환한다.
+
+
+---
+
+## 문법 참고 (2026-10-30 확인)
+
+- 앱마다 정확한 명령·속성은 그 앱의 스크립트 사전(.sdef)이 기준이다. 웹 글보다 우선한다.
+  `find /System/Applications/<앱>.app /System/Library/CoreServices/<앱>.app -name "*.sdef"` 로 찾아 grep 해라
+  (`sdef` 명령은 Xcode 가 있어야 돌아서 이 Mac 에선 안 된다).
+- 언어 문법: [AppleScript Language Guide](https://developer.apple.com/library/archive/documentation/AppleScript/Conceptual/AppleScriptLangGuide/introduction/ASLR_intro.html) (Apple, 2016-01-25 갱신된 보관 문서)
+- 자동화 예제: [Mac Automation Scripting Guide](https://developer.apple.com/library/archive/documentation/LanguagesUtilities/Conceptual/MacAutomationScriptingGuide/index.html) (Apple, 2016-06-13 갱신된 보관 문서)
+- Music 전용: [Doug's AppleScripts](https://dougscripts.com/itunes/) (Music 앱 스크립트 모음, 2026-10-29 글까지 갱신 중)

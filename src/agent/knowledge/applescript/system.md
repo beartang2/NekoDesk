@@ -168,3 +168,14 @@ set the clipboard to (read (POSIX file "/path/to/image.jpg") as JPEG picture)
 -- TIFF 파일의 경우 (가장 범용적)
 set the clipboard to (read (POSIX file "/path/to/image.tiff") as TIFF picture)
 ```
+
+
+---
+
+## 문법 참고 (2026-10-30 확인)
+
+- 앱마다 정확한 명령·속성은 그 앱의 스크립트 사전(.sdef)이 기준이다. 웹 글보다 우선한다.
+  `find /System/Applications/<앱>.app /System/Library/CoreServices/<앱>.app -name "*.sdef"` 로 찾아 grep 해라
+  (`sdef` 명령은 Xcode 가 있어야 돌아서 이 Mac 에선 안 된다).
+- 언어 문법: [AppleScript Language Guide](https://developer.apple.com/library/archive/documentation/AppleScript/Conceptual/AppleScriptLangGuide/introduction/ASLR_intro.html) (Apple, 2016-01-25 갱신된 보관 문서)
+- 자동화 예제: [Mac Automation Scripting Guide](https://developer.apple.com/library/archive/documentation/LanguagesUtilities/Conceptual/MacAutomationScriptingGuide/index.html) (Apple, 2016-06-13 갱신된 보관 문서)
