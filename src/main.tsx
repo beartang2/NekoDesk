@@ -22,6 +22,30 @@ if (isQuick) document.documentElement.classList.add("quick-window");
 if (isCapture || isGlow) document.documentElement.classList.add("capture-window");
 if (isViewer) document.documentElement.classList.add("viewer-window");
 
+// Tab 은 입력창 사이만 오간다. 버튼까지 돌면 포커스가 어디 있는지 안 보여 헤맨다.
+// 모달이 떠 있으면 그 안에서만 돈다.
+const TEXT_FIELDS =
+  'textarea, input:not([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="hidden"], [type="file"], [type="color"])';
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if (e.key !== "Tab" || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const scopes = document.querySelectorAll(".menu-modal, .settings-modal, [role='dialog']");
+    const scope = scopes[scopes.length - 1] ?? document;
+    const fields = [...scope.querySelectorAll<HTMLInputElement>(TEXT_FIELDS)].filter(
+      (el) => !el.disabled && el.getClientRects().length > 0,
+    );
+    if (!fields.length) return;
+    const i = fields.indexOf(document.activeElement as HTMLInputElement);
+    const step = e.shiftKey ? -1 : 1;
+    const next = i < 0 ? (e.shiftKey ? fields.length - 1 : 0) : (i + step + fields.length) % fields.length;
+    fields[next].focus();
+  },
+  true,
+);
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
