@@ -9,12 +9,13 @@ import { EASE_FAST } from "./ui";
 import { SettingsModal, type SettingsTab } from "./SettingsModal";
 import { ErrorBoundary } from "./ErrorBoundary";
 import type { ExecHistoryItem } from "../agent/types";
+import { parseDbTime } from "../lib/time";
 import "./MenuModal.css";
 
 // ── Exec History Panel (탭 내 임베딩용) ──────────────────────────────────────
 
 function relativeTime(dateStr: string): string {
-  const d = new Date(dateStr.replace(" ", "T"));
+  const d = parseDbTime(dateStr);
   const diff = Math.floor((Date.now() - d.getTime()) / 1000);
   if (diff < 60) return "방금";
   if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;

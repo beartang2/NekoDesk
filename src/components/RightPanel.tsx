@@ -10,6 +10,7 @@ import { useRevealChildren, useScrollEdges } from "../hooks/useScrollReveal";
 import type { Todo, ScheduleEvent } from "../agent/types";
 import type { DrawingGameState, DrawingGameActions } from "../hooks/useDrawingGame";
 import { createSwipeStepper } from "../lib/swipe";
+import { dbDate } from "../lib/time";
 import "./RightPanel.css";
 
 // ── 날짜 파싱 유틸 (캘린더·알림 공용) ──────────────────────────────────────
@@ -226,8 +227,8 @@ function TodoCard() {
                   key={t.id}
                   label={t.content}
                   checked
-                  meta={t.completed_at?.slice(5, 10)}
-                  title={t.completed_at ? `완료: ${t.completed_at.slice(0, 10)}` : t.content}
+                  meta={t.completed_at ? dbDate(t.completed_at).slice(5) : undefined}
+                  title={t.completed_at ? `완료: ${dbDate(t.completed_at)}` : t.content}
                 />
               ))}
             </TodoList>

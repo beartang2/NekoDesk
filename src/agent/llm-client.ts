@@ -20,6 +20,7 @@ import {
 } from "../stores/settingsStore";
 import { llmFetch } from "./llm-transport";
 import { isClaudeUrl } from "../lib/claude-models";
+import { timeZone } from "../lib/time";
 
 /** 지금 Claude 프로필로 묻고 있는가. 로컬 서버 전용 동작(강등·워밍업)을 건너뛸 때 본다. */
 function isClaudeActive(): boolean {
@@ -133,9 +134,10 @@ J3. thought 는 한 문장 이내로 짧게.
 
 ⚠️ params.code 안에 큰따옴표(")가 있으면 반드시 백슬래시로 이스케이프(\\")해야 해. AppleScript 는 문자열에 큰따옴표를 쓰므로 특히 주의: \\"Music\\", \\"Neko Queue\\" 처럼.`;
 
-function nowKst(): string {
+/** 날씨 위치의 시각. 예전엔 Asia/Seoul 로 박혀 있었다. */
+function nowHere(): string {
   return new Date().toLocaleString("ko-KR", {
-    timeZone: "Asia/Seoul",
+    timeZone: timeZone(),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -197,7 +199,7 @@ const STATIC_TOOLS_BRIEF = `todo.list, todo.add, todo.complete, schedule.list, s
 /** Returns base system prompt + dynamic tool list injected at the end. */
 function buildChatSystemPrompt(): string {
   const base = useSettingsStore.getState().systemPrompt ?? DEFAULT_CHAT_SYSTEM_PROMPT;
-  const dateSection = `\n현재 날짜/시각: ${nowKst()}`;
+  const dateSection = `\n현재 날짜/시각: ${nowHere()}`;
 
   const mcpEntries = getMcpTools();
   const mcpList = mcpEntries.length > 0
@@ -651,7 +653,7 @@ function buildAgentContextPrefix(
   // 기억은 "참고" 로만 준다. 모델이 이걸 사용자가 방금 한 말로 착각하면
   // 엉뚱한 것을 확인 없이 실행한다.
   const recalled = memories ? `\n\n[예전에 기억해둔 것 — 참고만 해]\n${memories}` : "";
-  return `[현재 날짜/시각: ${nowKst()}]${knowledge}${recalled}\n\n`;
+  return `[현재 날짜/시각: ${nowHere()}]${knowledge}${recalled}\n\n`;
 }
 
 /** messages 배열에서 마지막 user 메시지 앞에 컨텍스트 프리픽스를 끼운다.

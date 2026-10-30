@@ -67,6 +67,7 @@ import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
 import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl } from "./stores/modelProfiles";
 import { listen } from "@tauri-apps/api/event";
 import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
+import { clock, parseDbTime, setTimeZone } from "./lib/time";
 
 const QUICK_SESSION_KEY = "nekodesk_quick_session";
 import "./App.css";
@@ -289,6 +290,8 @@ interface WeatherNow {
   label: string;
   emoji: string;
   temp: number;
+  /** IANA 시간대("Asia/Seoul"). 앱의 시각 표시가 이걸 따른다(lib/time). */
+  timezone: string;
 }
 
 const WEATHER_STALE_MS = 30 * 60 * 1000;
@@ -300,13 +303,13 @@ function WeatherBadge() {
 
   useEffect(() => {
     setNow(null);
-    if (!location) return;
+    if (!location) { setTimeZone(undefined); return; }
     let alive = true;
     let fetchedAt = 0;
     const load = () => {
       fetchedAt = Date.now();
       invoke<WeatherNow>("weather_now", { location })
-        .then((w) => { if (alive) setNow(w); })
+        .then((w) => { if (alive) { setNow(w); setTimeZone(w.timezone); } })
         .catch(() => {});
     };
     load();
@@ -1135,10 +1138,7 @@ export default function App() {
           role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
           content,
           attachments: files,
-          time: new Date(m.created_at).toLocaleTimeString("ko-KR", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
+          time: clock(parseDbTime(m.created_at)),
           steps: meta.steps ?? [],
           plan: meta.plan,
           thinking: meta.thinking,
@@ -1261,7 +1261,7 @@ export default function App() {
           id: crypto.randomUUID(),
           role: "assistant" as const,
           content: lines.join("\n"),
-          time: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }),
+          time: clock(),
           steps: [],
           isStreaming: false,
         };
@@ -1448,7 +1448,7 @@ export default function App() {
       id: crypto.randomUUID(),
       role,
       content,
-      time: new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }),
+      time: clock(),
       steps: [] as [],
       isStreaming: false,
     };

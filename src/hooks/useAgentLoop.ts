@@ -14,6 +14,7 @@ import type {
   ToolName,
 } from "../agent/types";
 import type { PlanStep } from "../agent/plan";
+import { clock } from "../lib/time";
 
 export interface PendingConfirm {
   sessionId: string;
@@ -72,10 +73,7 @@ export interface TextTask {
 }
 
 function nowTime(): string {
-  return new Date().toLocaleTimeString("ko-KR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return clock();
 }
 
 /**

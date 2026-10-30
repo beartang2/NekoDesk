@@ -12,6 +12,8 @@ pub struct WeatherNow {
     pub label: String,
     pub emoji: String,
     pub temp: f64,
+    /// 그 위치의 IANA 시간대("Asia/Seoul"). 앱의 시각 표시가 이걸 따른다.
+    pub timezone: String,
 }
 
 pub async fn now(location: &str) -> Result<WeatherNow, AppError> {
@@ -29,6 +31,7 @@ pub async fn now(location: &str) -> Result<WeatherNow, AppError> {
         label,
         emoji: code_to_emoji(code, night).to_string(),
         temp: cur["temperature_2m"].as_f64().unwrap_or(0.0),
+        timezone: w["timezone"].as_str().unwrap_or("").to_string(),
     })
 }
 
@@ -82,7 +85,7 @@ pub async fn run(location: &str) -> Result<String, AppError> {
     let (lat, lon, place) = geocode(location).await?;
 
     let weather_url = format!(
-        "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,apparent_temperature&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FSeoul&forecast_days=3"
+        "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,apparent_temperature&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=3"
     );
     let weather: serde_json::Value = client().get(&weather_url).send().await?.json().await?;
 
