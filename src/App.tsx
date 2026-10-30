@@ -891,6 +891,14 @@ function Composer({
           value={value}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
+          onPaste={(e) => {
+            // Finder 에서 복사한 파일과 클립보드 이미지는 files 로 온다. 글만 있으면 그대로 붙인다.
+            const pasted = Array.from(e.clipboardData.files);
+            if (!pasted.length) return;
+            e.preventDefault();
+            onActivity();
+            void addFiles(pasted);
+          }}
           onFocus={onActivity}
           rows={1}
           disabled={locked}

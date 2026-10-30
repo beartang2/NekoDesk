@@ -1168,8 +1168,6 @@ function shelfDragIcon(): string {
 function Shelf() {
   const [items, setItems] = useState<ShelfItem[]>([]);
   const [over, setOver] = useState(false);
-  // 여기서 끌어낸 파일을 도로 여기 놓으면 같은 파일이 하나 더 생긴다. 그동안은 받지 않는다.
-  const draggingOut = useRef(false);
 
   const refresh = useCallback(() => {
     shelfApi.list().then(setItems).catch(() => {});
@@ -1180,7 +1178,6 @@ function Shelf() {
     e.preventDefault();
     e.stopPropagation(); // 채팅 첨부(window 의 drop)로 넘어가지 않게
     setOver(false);
-    if (draggingOut.current) return;
     // 폴더는 읽을 내용이 없는 빈 파일로 들어온다. 뺀다.
     const files = Array.from(e.dataTransfer.items)
       .filter((item) => item.kind === "file" && !item.webkitGetAsEntry()?.isDirectory)
@@ -1192,11 +1189,8 @@ function Shelf() {
 
   function dragOut(e: React.DragEvent, item: ShelfItem) {
     e.preventDefault(); // HTML 드래그 대신 macOS 드래그로 파일을 넘긴다
-    draggingOut.current = true;
-    startDrag({ item: [item.path], icon: shelfDragIcon() }, () => {
-      draggingOut.current = false;
-    }).catch((err) => {
-      draggingOut.current = false;
+    // 도로 여기 놓아도 shelf_add 가 같은 파일이면 새로 안 만든다.
+    startDrag({ item: [item.path], icon: shelfDragIcon() }).catch((err) => {
       console.warn("startDrag failed:", err);
     });
   }
@@ -1213,7 +1207,7 @@ function Shelf() {
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
-        if (!draggingOut.current) setOver(true);
+        setOver(true);
       }}
       onDragLeave={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);

@@ -41,7 +41,15 @@ pub fn list(dir: &Path) -> Result<Vec<ShelfItem>, AppError> {
 }
 
 pub fn add(dir: &Path, raw_name: &str, bytes: &[u8]) -> Result<ShelfItem, AppError> {
-    let path = free_path(dir, &safe_name(raw_name)?);
+    let name = safe_name(raw_name)?;
+    // 보관함에서 끌어낸 걸 도로 놓으면 같은 파일이 온다. 이름과 내용이 같으면 그걸 돌려준다.
+    // 프런트에서 막으려 했지만 macOS 드래그 끝 알림이 drop 보다 먼저 와서 놓쳤다.
+    let same = dir.join(&name);
+    let same_len = std::fs::metadata(&same).is_ok_and(|m| m.len() == bytes.len() as u64);
+    if same_len && std::fs::read(&same).is_ok_and(|b| b == bytes) {
+        return item(&same);
+    }
+    let path = free_path(dir, &name);
     std::fs::write(&path, bytes)?;
     item(&path)
 }
@@ -117,6 +125,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         add(&dir, "a.txt", b"1").unwrap();
         assert_eq!(add(&dir, "a.txt", b"2").unwrap().name, "a (2).txt");
+        assert_eq!(add(&dir, "a.txt", b"1").unwrap().name, "a.txt"); // 도로 놓은 같은 파일
         assert_eq!(list(&dir).unwrap().len(), 2);
         remove(&dir, "../a.txt").unwrap(); // 이름만 남아 보관함 안의 a.txt 를 지운다
         assert_eq!(list(&dir).unwrap().len(), 1);
