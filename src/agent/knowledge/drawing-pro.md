@@ -49,84 +49,37 @@
 
 두 번 다듬어도 더 나아지지 않으면 거기서 멈추고 결과를 보여 줘라.
 
-## 예시 — 고양이 얼굴 (기법 참고용, 그대로 베끼지 마라)
+## 기법 조각 (완성 그림이 아니라 쓰는 법. 모양·색·구도는 주제마다 새로 구상해라)
+
+완성된 예시를 주면 무엇을 그려도 그 예시를 색만 바꿔 다시 그리게 된다. 그래서 조각만 둔다.
 
 ```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <defs>
-    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#CFE6F5"/>
-      <stop offset="1" stop-color="#F7EFE4"/>
-    </linearGradient>
-    <radialGradient id="fur" cx="0.42" cy="0.40" r="0.70" fx="0.30" fy="0.26">
-      <stop offset="0" stop-color="#FFCB94"/>
-      <stop offset="0.55" stop-color="#F4A259"/>
-      <stop offset="1" stop-color="#D8823F"/>
-    </radialGradient>
-    <radialGradient id="blush">
-      <stop offset="0" stop-color="#F28B8B" stop-opacity="0.6"/>
-      <stop offset="1" stop-color="#F28B8B" stop-opacity="0"/>
-    </radialGradient>
-    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="16"/>
-    </filter>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="10"/>
-    </filter>
-    <path id="head" d="M512 300 C672 300 780 400 780 540 C780 690 660 790 512 790 C364 790 244 690 244 540 C244 400 352 300 512 300 Z"/>
-    <clipPath id="inHead"><use href="#head"/></clipPath>
-    <path id="ear" d="M300 430 C286 330 300 230 336 176 C400 206 456 262 486 320 C420 330 352 370 300 430 Z"/>
-    <path id="earIn" d="M330 380 C326 316 336 262 356 232 C392 256 422 290 440 322 C398 334 362 352 330 380 Z"/>
-  </defs>
-
-  <rect width="1024" height="1024" fill="url(#sky)"/>
-  <circle cx="830" cy="210" r="110" fill="#FFF4D6" opacity="0.8" filter="url(#soft)"/>
-  <circle cx="150" cy="900" r="220" fill="#B9D9EE" opacity="0.6" filter="url(#soft)"/>
-  <ellipse cx="512" cy="828" rx="230" ry="30" fill="#2E3A59" opacity="0.18" filter="url(#soft)"/>
-
-  <g>
-    <use href="#ear" fill="#E8954F"/>
-    <use href="#earIn" fill="#F2B3A6"/>
-  </g>
-  <g transform="translate(1024 0) scale(-1 1)">
-    <use href="#ear" fill="#E8954F"/>
-    <use href="#earIn" fill="#F2B3A6"/>
-  </g>
-
-  <use href="#head" fill="url(#fur)"/>
-  <g clip-path="url(#inHead)">
-    <path d="M800 420 C780 640 650 760 430 810 L820 840 Z" fill="#B8642C" opacity="0.28"/>
-    <g fill="#D27A37" opacity="0.6">
-      <path d="M512 300 C500 340 500 372 512 396 C524 372 524 340 512 300 Z"/>
-      <path d="M462 306 C456 336 460 360 474 378 C480 354 478 330 470 304 Z"/>
-      <path d="M562 306 C568 336 564 360 550 378 C544 354 546 330 554 304 Z"/>
-    </g>
-  </g>
-  <ellipse cx="392" cy="420" rx="86" ry="44" transform="rotate(-32 392 420)" fill="#FFE9D2" opacity="0.5" filter="url(#glow)"/>
-  <use href="#head" fill="none" stroke="#9C5626" stroke-width="7"/>
-
-  <ellipse cx="372" cy="612" rx="58" ry="34" fill="url(#blush)"/>
-  <ellipse cx="652" cy="612" rx="58" ry="34" fill="url(#blush)"/>
-  <g fill="#2B2D42">
-    <ellipse cx="420" cy="540" rx="32" ry="40"/>
-    <ellipse cx="604" cy="540" rx="32" ry="40"/>
-  </g>
-  <g fill="#FFFFFF">
-    <circle cx="431" cy="524" r="12"/>
-    <circle cx="410" cy="556" r="5"/>
-    <circle cx="615" cy="524" r="12"/>
-    <circle cx="594" cy="556" r="5"/>
-  </g>
-  <path d="M498 600 C504 594 520 594 526 600 C522 610 516 614 512 614 C508 614 502 610 498 600 Z" fill="#E98A8A"/>
-  <path d="M512 614 C512 630 498 642 484 636 M512 614 C512 630 526 642 540 636" stroke="#9C5626" stroke-width="6" fill="none" stroke-linecap="round"/>
-  <g stroke="#9C5626" stroke-width="4" stroke-linecap="round" opacity="0.7">
-    <path d="M330 610 C290 604 256 606 226 614"/>
-    <path d="M334 636 C296 640 266 652 240 668"/>
-    <path d="M694 610 C734 604 768 606 798 614"/>
-    <path d="M690 636 C728 640 758 652 784 668"/>
-  </g>
-</svg>
+<defs>
+  <!-- 입체 면: 광원(왼쪽 위) 쪽에 fx·fy -->
+  <radialGradient id="body" cx="0.42" cy="0.4" r="0.7" fx="0.3" fy="0.26">
+    <stop offset="0" stop-color="{하이라이트}"/>
+    <stop offset="0.55" stop-color="{기본}"/>
+    <stop offset="1" stop-color="{그림자}"/>
+  </radialGradient>
+  <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="16"/></filter>
+  <path id="shape" d="M… C… C… Z"/>                 <!-- 실루엣: 닫힌 Bézier path 하나 -->
+  <clipPath id="inShape"><use href="#shape"/></clipPath>
+</defs>
+<ellipse cx="512" cy="830" rx="230" ry="30" fill="{가장 어두운 색}" opacity="0.18" filter="url(#soft)"/>  <!-- 바닥 그림자 -->
+<use href="#shape" fill="url(#body)"/>                                      <!-- 기본 면 -->
+<g clip-path="url(#inShape)">
+  <path d="{광원 반대편을 덮는 면}" fill="{그림자}" opacity="0.3"/>         <!-- 그림자 면, 본체 안에 갇힘 -->
+</g>
+<ellipse cx="…" cy="…" rx="…" ry="…" fill="{하이라이트}" opacity="0.5" filter="url(#soft)"/>  <!-- 흐린 하이라이트 -->
+<use href="#shape" fill="none" stroke="{외곽선색}" stroke-width="7" stroke-linejoin="round"/>   <!-- 외곽선 -->
+<g transform="translate(1024 0) scale(-1 1)"><use href="#part"/></g>      <!-- 반쪽을 뒤집어 대칭 -->
 ```
+
+## 다른 곳에 쓸 그림
+
+Music 아트워크·배경화면처럼 다른 앱에 넣을 그림은 SVG 를 저장한 뒤 PNG 로도 굽는다:
+`qlmanage -t -s 1024 -o <폴더> <파일>.svg` → `<파일>.svg.png`. 같은 이름의 예전 PNG 가
+남아 있을 수 있으니, 방금 구운 파일인지 보고 써라.
 
 사진 편집·차트·이미지 변환은 SVG 가 아니라 PIL/matplotlib 을 써라. 이 문서는
 **그림을 새로 그리는 경우**에만 해당한다.

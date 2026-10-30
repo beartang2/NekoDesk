@@ -218,6 +218,33 @@ end tell
 
 ---
 
+## 아트워크(커버 이미지) 넣기 — Neko's Playlist·곡
+
+- 이미지는 **PNG·JPEG 만**. SVG 는 먼저 PNG 로 굽는다(language: "shell"):
+  `qlmanage -t -s 1024 -o ~/.nekodesk/output ~/.nekodesk/output/cover.svg` → `cover.svg.png`.
+  같은 이름의 예전 PNG 가 남아 있을 수 있으니 방금 구운 파일을 써라.
+- ⚠️ `make new artwork ... with data X` 는 없는 문법이다(-2741). `with properties {data:X}` 를 쓰고,
+  이미 아트워크가 있으면 `set data of artwork 1 of ...` 로 바꾼다.
+- `read` 는 `tell application "Music"` **밖에서** 한다. `POSIX file` 은 `~` 를 못 푼다 — 홈 경로를 붙여라.
+
+```applescript
+set imgPath to (POSIX path of (path to home folder)) & ".nekodesk/output/cover.svg.png"
+set imgData to read (POSIX file imgPath) as «class PNGf»  -- JPEG 면 as JPEG picture
+tell application "Music"
+    set p to playlist "Neko's Playlist"
+    if (count of artworks of p) > 0 then
+        set data of artwork 1 of p to imgData
+    else
+        make new artwork at end of artworks of p with properties {data:imgData}
+    end if
+    return "artworks: " & (count of artworks of p)
+end tell
+```
+
+곡도 같다: `artwork 1 of current track`. 다른 플레이리스트의 아트워크는 바꾸지 마라.
+
+---
+
 ## 음악 Discover — 라이브러리 외 곡 탐색 + 미리듣기
 
 사용자가 "새로운 노래 찾아줘", "디스커버", "취향 맞는 노래 추천", "라이브러리에 없는 노래 틀어줘" 등 요청 시:

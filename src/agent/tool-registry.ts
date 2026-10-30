@@ -11,7 +11,7 @@ import {
   type ScheduleRange,
 } from "../api/tauri";
 import { appEvents, requestWordchainFirstWord } from "../lib/events";
-import { useSettingsStore } from "../stores/settingsStore";
+import { isClaudeActive, useSettingsStore } from "../stores/settingsStore";
 import { getFile, getStoredFileNames } from "./file-store";
 import { buildSkillIndex, readKnowledge } from "./knowledge";
 import { saveMemory } from "./memory-merge";
@@ -57,7 +57,8 @@ function summarizeEvents(events: ScheduleEvent[], max: number): string {
 }
 
 function summarizeSearch(results: SearchResult[]): string {
-  if (results.length === 0) return "검색 결과 없음";
+  // 따옴표·긴 문구를 넣은 검색은 자주 0건이다. 0건을 "찾아봤다" 로 끝내지 않게 다시 하는 법을 붙인다.
+  if (results.length === 0) return "검색 결과 없음 — 따옴표와 긴 문구를 빼고, 핵심 낱말 몇 개(앱 이름 + 하려는 일 + 오류 번호)로 다시 검색해.";
   // URL 을 빼면 모델이 web.scrape 할 주소를 지어낸다(404 → 재검색 루프).
   return results.map((r) => `- ${r.title} (${r.url}): ${r.snippet}`).join("\n");
 }
@@ -303,7 +304,8 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: true,
     execute: async (p) => invoke<SearchResult[]>("web_search", { query: p["query"] as string }),
-    summarize: (r) => summarizeSearch((r as SearchResult[]).slice(0, 3)),
+    // 작은 모델은 컨텍스트가 빠듯해 셋만 본다. Claude 는 받은 걸 다 본다(검색기가 최대 5개를 준다).
+    summarize: (r) => summarizeSearch((r as SearchResult[]).slice(0, isClaudeActive() ? undefined : 3)),
   },
 
   "web.scrape": {
@@ -318,7 +320,9 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     execute: async (p) => invoke<ScrapResult>("web_scrape", { url: p["url"] as string }),
     summarize: (r) => {
       const res = r as ScrapResult;
-      return `[${res.title}]\n${res.content.slice(0, 500)}`;
+      // 500자면 기사 첫 문단도 다 못 담는다 — Claude 는 "본문이 잘려서 확인 못 했어" 를 되풀이했다.
+      // 본문은 Rust 가 이미 6000자로 자른다. 작은 모델만 예전처럼 짧게.
+      return `[${res.title}]\n${isClaudeActive() ? res.content : res.content.slice(0, 500)}`;
     },
   },
 

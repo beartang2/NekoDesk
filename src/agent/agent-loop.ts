@@ -424,7 +424,8 @@ export async function* runAgentLoop(
     chatHistory,
     userContent ?? userInput,
     native,
-    getModelContextLength()
+    getModelContextLength(),
+    !isClaudeActive()
   );
   const failures = new FailureTracker();
   const plan = new Plan();
@@ -751,7 +752,9 @@ export async function* runAgentLoop(
         failures.recordSuccess(step.tool);
         if (DEDUPE_TOOLS.has(call.name)) {
           seenCalls.add(callKey(call));
-          failures.recordSearch();
+          // 0건인 검색은 찾아본 게 아니다 — 사다리가 "찾아봤는데도 실패" 로 넘어가 버린다.
+          const empty = call.name === "web.search" && Array.isArray(step.result) && step.result.length === 0;
+          if (!empty) failures.recordSearch();
         }
         continue;
       }
