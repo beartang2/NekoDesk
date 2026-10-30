@@ -8,12 +8,23 @@ import appsKnowledge        from "./applescript/apps.md?raw";
 import mailCalendarKnowledge from "./applescript/mail-calendar.md?raw";
 import messagesKnowledge     from "./applescript/messages.md?raw";
 import drawingKnowledge      from "./drawing.md?raw";
+import drawingProKnowledge   from "./drawing-pro.md?raw";
+import { isClaudeActive } from "../../stores/settingsStore";
 
 interface KnowledgeEntry {
   name: string;
   /** 한 줄 요약. 스킬 목록(프롬프트)에 이름 옆에 실린다 — 짧게. */
   description: string;
   content: string;
+  /**
+   * Claude 처럼 큰 모델이 읽을 본문. 없으면 content.
+   * 작은 모델용 본문은 실패에서 배운 제약(필터·마스크 금지, 짧은 path)이라 큰 모델에겐 족쇄다.
+   */
+  strongContent?: string;
+}
+
+function bodyOf(e: KnowledgeEntry): string {
+  return (isClaudeActive() && e.strongContent) || e.content;
 }
 
 const KNOWLEDGE_MAP: KnowledgeEntry[] = [
@@ -21,6 +32,7 @@ const KNOWLEDGE_MAP: KnowledgeEntry[] = [
     name: "그림그리기",
     description: "SVG 로 그림·아이콘·캐릭터 그리기",
     content: drawingKnowledge,
+    strongContent: drawingProKnowledge,
   },
   {
     name: "AppleScript/시스템",
@@ -103,7 +115,7 @@ function findKnowledge(name: string): KnowledgeEntry | undefined {
  */
 export function readKnowledge(name: string): { name: string; content: string } | null {
   const hit = findKnowledge(name);
-  return hit ? { name: hit.name, content: hit.content.trim() } : null;
+  return hit ? { name: hit.name, content: bodyOf(hit).trim() } : null;
 }
 
 /**
@@ -120,7 +132,7 @@ export function buildKnowledgeSection(userInput: string): string {
   if (!name) return "";
   const entry = findKnowledge(name);
   if (!entry) return "";
-  return `\n\n## 참고 지식 (사용자가 /${entry.name} 으로 직접 불렀어)\n### ${entry.name}\n${entry.content.trim()}`;
+  return `\n\n## 참고 지식 (사용자가 /${entry.name} 으로 직접 불렀어)\n### ${entry.name}\n${bodyOf(entry).trim()}`;
 }
 
 /**

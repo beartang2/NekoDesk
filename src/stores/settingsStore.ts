@@ -149,6 +149,11 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
 }));
 
 /** 이번 호출에 native tool calling 을 쓸 것인가. */
+/** 지금 Claude 프로필로 묻고 있는가. 큰 모델에게만 주는 것(원칙 규칙·그림 확인·스킬 본문)을 가를 때 본다. */
+export function isClaudeActive(): boolean {
+  return isClaudeUrl(useSettingsStore.getState().llmUrl);
+}
+
 export function shouldUseNativeTools(): boolean {
   const { toolMode, nativeToolsDegraded, llmUrl } = useSettingsStore.getState();
   // json 모드는 llama.cpp 의 GBNF grammar 로 출력을 묶는 방식이라 Claude 에선 성립하지 않는다.

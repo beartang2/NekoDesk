@@ -16,7 +16,8 @@ import { fsApi, memoryApi } from "../api/tauri";
 import { isMcpTool, executeMcpTool } from "./mcp-registry";
 import { AgentContext, type ExecutedCall } from "./agent-context";
 import { findDangerReason, findExternalSendReason, isSafeReadOnly } from "./danger-patterns";
-import { shouldUseNativeTools } from "../stores/settingsStore";
+import { isClaudeActive, shouldUseNativeTools } from "../stores/settingsStore";
+import { rasterizeForLlm } from "../lib/image";
 import type {
   AgentStep,
   AgentTurn,
@@ -55,10 +56,12 @@ function isTimeout(err: unknown): boolean {
 
 const ERROR_SEARCH_HINT = `\n\n[자동 힌트] web.search로 이 오류의 해결책을 찾아 재시도하세요. 검색 쿼리에서 파일 경로·사용자명·API키 등 개인정보를 반드시 제거하고, 오류 메시지 핵심만 사용하세요.`;
 
+// 예전엔 "시스템 프롬프트의 참고 지식 섹션을 확인하고, web.search 는 그걸로 안 될 때만" 이었다.
+// 그 섹션은 skill.read 로 바뀌며 사라졌고, 스킬을 읽고도 실패한 모델은 검색 없이 추측으로
+// 고쳐 보다가 포기했다. 이제 스킬 → 검색 순서를 분명히 한다(그 뒤는 failure-tracker 가 조인다).
 const APPLESCRIPT_ERROR_HINT = `\n\n[AppleScript 오류 힌트]
-1. osascript -e '...' 래퍼를 사용했다면 즉시 제거하고 순수 AppleScript 코드만 작성해서 재시도해. (올바른 예: set volume output volume 30)
-2. 시스템 프롬프트의 "## 참고 지식" 섹션에 올바른 AppleScript 문법이 있으니 반드시 확인해.
-3. web.search는 참고 지식으로 해결이 안 될 때만 사용해.`;
+1. osascript -e '...' 래퍼를 썼다면 빼고 순수 AppleScript 코드만 써서 재시도해. (올바른 예: set volume output volume 30)
+2. 관련 스킬을 아직 안 읽었으면 skill.read 로 문법부터 확인해. 이미 읽었다면 추측으로 고치지 말고, 개인정보를 뺀 오류 핵심으로 web.search 해서 맞는 문법을 찾아.`;
 
 /** 개인정보(홈 경로·사용자명·자격증명)를 지운다. 오류 메시지를 모델·검색에 넘기기 전. */
 function sanitize(text: string): string {
@@ -86,7 +89,7 @@ function stripLlmHints(summary: string): string {
 
 /**
  * code.exec 결과에서 오류를 감지하고, 있으면 LLM에게 힌트를 주입한다.
- * AppleScript 오류는 knowledge 재확인 힌트, 그 외는 web.search 힌트.
+ * AppleScript 오류는 스킬 → 검색 힌트, 그 외는 web.search 힌트.
  */
 function injectErrorSearchHint(
   summary: string,
@@ -364,6 +367,24 @@ export function degenerateAt(text: string): number | null {
   }
   // 첫 번째 바퀴까지만 남긴다.
   return hits.length >= 4 ? hits[0] + probe.length : null;
+}
+
+/**
+ * 이번 턴에 툴이 만든 그림을 모델에게 보여 줄 메시지. 없으면 null.
+ *
+ * 그림은 step 에만 담고 컨텍스트엔 "[이미지 생성됨]" 한 줄만 남겼다 — 모델은 자기가 그린 걸
+ * 끝내 못 보고, 좌표만 상상해 도형을 쌓았다. 그려서 보고 고치는(렌더 → 확인 → 수정) 쪽이
+ * 결과가 훨씬 낫다. 볼 수 있는 Claude 에게만 싣는다: user 메시지로 들어가는데, 작은 로컬
+ * 모델은 user 메시지를 새 지시로 읽어 엉뚱한 일을 벌였다(지어낸 넛지 사건).
+ * SVG 는 Claude 가 못 받아 PNG 로 굽는다. 못 구우면 그 그림은 건너뛴다.
+ */
+async function imagesToReview(executed: ExecutedCall[]): Promise<ContentPart[] | null> {
+  const parts: ContentPart[] = [];
+  for (const { step } of executed) {
+    const png = step.imageDataUrl ? await rasterizeForLlm(step.imageDataUrl) : null;
+    if (png) parts.push({ type: "image_url", image_url: { url: png } });
+  }
+  return parts.length ? [{ type: "text", text: "[방금 툴이 만든 이미지 — 사용자 화면에도 이렇게 보여]" }, ...parts] : null;
 }
 
 function finalAnswerOf(text: string): string {
@@ -728,7 +749,10 @@ export async function* runAgentLoop(
     for (const { call, step } of executed) {
       if (step.status !== "error") {
         failures.recordSuccess(step.tool);
-        if (DEDUPE_TOOLS.has(call.name)) seenCalls.add(callKey(call));
+        if (DEDUPE_TOOLS.has(call.name)) {
+          seenCalls.add(callKey(call));
+          failures.recordSearch();
+        }
         continue;
       }
       // 거부는 실패가 아니다. 사다리에 올리면 "검색해서 해결책을 찾아라" 같은
@@ -740,7 +764,8 @@ export async function* runAgentLoop(
     }
 
     // native 모드는 tool_call 마다 결과 메시지가 짝으로 있어야 하므로 반복분도 싣는다.
-    context.addTurn({ text: turn.text, calls: [...executed, ...repeated] });
+    const review = native && isClaudeActive() ? await imagesToReview(executed) : null;
+    context.addTurn({ text: turn.text, calls: [...executed, ...repeated], followUps: review ? [review] : undefined });
 
     if (shouldStop) {
       const msg = `같은 오류가 반복돼서 멈췄어. 지금까지 시도한 것:\n\n${failures.summary()}`;

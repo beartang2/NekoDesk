@@ -34,3 +34,35 @@ export function resizeImageForLlm(
     reader.readAsDataURL(file);
   });
 }
+
+/**
+ * 툴이 만든 그림(SVG·PNG·JPEG data URL)을 모델이 받는 PNG 로 굽는다. 긴 변 maxPx.
+ *
+ * Claude 는 SVG 를 이미지로 받지 않는다. 웹뷰가 SVG 를 그릴 줄 아니 캔버스에 한 번
+ * 그려 PNG 로 뽑는다. 못 읽거나(깨진 SVG) 캔버스가 막히면 null — 그 그림은 안 보여 주면 된다.
+ */
+export function rasterizeForLlm(dataUrl: string, maxPx = 768): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    // 깨진 SVG 는 onerror 없이 영영 안 끝나기도 한다. 기다리다 루프가 멈추면 안 된다.
+    const timer = setTimeout(() => resolve(null), 3000);
+    const done = (v: string | null) => { clearTimeout(timer); resolve(v); };
+    img.onerror = () => done(null);
+    img.onload = () => {
+      // 크기 없는 SVG(width/height 빠짐)는 0 으로 온다. viewBox 비율을 모르니 정사각으로 본다.
+      const w0 = img.naturalWidth || maxPx;
+      const h0 = img.naturalHeight || maxPx;
+      const scale = Math.min(1, maxPx / Math.max(w0, h0));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(w0 * scale));
+      canvas.height = Math.max(1, Math.round(h0 * scale));
+      try {
+        canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        done(canvas.toDataURL("image/png"));
+      } catch {
+        done(null);
+      }
+    };
+    img.src = dataUrl;
+  });
+}

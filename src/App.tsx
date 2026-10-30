@@ -33,7 +33,7 @@ import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
-import { useSettingsStore } from "./stores/settingsStore";
+import { isClaudeActive, useSettingsStore } from "./stores/settingsStore";
 import { DEFAULT_SIDEBAR_W, useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
@@ -1476,7 +1476,9 @@ export default function App() {
     const midGame =
       (game.phase !== "idle" && game.phase !== "done") ||
       (wordChain.phase !== "idle" && wordChain.phase !== "done");
-    if (!midGame) {
+    // Claude 는 말의 겉모양으로 가르지 않는다 — 하자는 건지 묻는 건지 스스로 보고 game.start 를 부른다.
+    // 키워드 표는 작은 모델이 게임을 채팅으로 흉내내서 생긴 보조 바퀴다.
+    if (!midGame && !isClaudeActive()) {
       const intent = detectGameIntent(text);
       if (intent) {
         injectMessage("user", text.trim());

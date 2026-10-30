@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // vi.mock 은 파일 맨 위로 끌어올려지므로 팩토리가 쓸 값은 vi.hoisted 로 만든다.
@@ -5,6 +7,8 @@ const { load } = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("../../api/tauri", () => ({ skillsApi: { load } }));
 
 import { buildKnowledgeSection, buildSkillIndex, readKnowledge, reloadUserSkills } from "./index";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { claudeUrl } from "../../lib/claude-models";
 
 beforeEach(() => load.mockReset());
 
@@ -76,3 +80,22 @@ describe("스킬 목록", () => {
     expect(index).not.toContain("본문은 목록에");
   });
 });
+
+describe("모델에 맞는 본문", () => {
+  it("Claude 는 그림그리기의 큰 모델용 본문을, 로컬 모델은 제약 많은 본문을 읽는다", async () => {
+    load.mockResolvedValue([]);
+    await reloadUserSkills();
+    const local = useSettingsStore.getState().llmUrl;
+    try {
+      expect(readKnowledge("그림그리기")?.content).toContain("<filter>` `<mask>` `<clipPath>` 는 쓰지 마라");
+      useSettingsStore.setState({ llmUrl: claudeUrl("claude-haiku-5-5") });
+      const strong = readKnowledge("그림그리기")?.content ?? "";
+      expect(strong).toContain("보고 고치기");
+      expect(strong).toContain("clipPath");
+      expect(strong).not.toContain("는 쓰지 마라. 값이 조금만 틀려도");
+    } finally {
+      useSettingsStore.setState({ llmUrl: local });
+    }
+  });
+});
+

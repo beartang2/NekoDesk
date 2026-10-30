@@ -14,18 +14,14 @@ import { ToolCallAccumulator, fromWireToolCalls } from "./tool-calls";
 import { buildKnowledgeSection, buildSkillIndex } from "./knowledge";
 import { createJsonStringFieldStreamer } from "./json-stream";
 import {
+  isClaudeActive,
   shouldUseNativeTools,
   useSettingsStore,
   type GenParams,
 } from "../stores/settingsStore";
 import { llmFetch } from "./llm-transport";
-import { isClaudeUrl } from "../lib/claude-models";
 import { timeZone } from "../lib/time";
 
-/** 지금 Claude 프로필로 묻고 있는가. 로컬 서버 전용 동작(강등·워밍업)을 건너뛸 때 본다. */
-function isClaudeActive(): boolean {
-  return isClaudeUrl(useSettingsStore.getState().llmUrl);
-}
 
 /**
  * 에이전트 스텝 출력을 valid JSON 객체로 강제하는 GBNF grammar.
@@ -99,6 +95,24 @@ const BEHAVIOR_RULES = `규칙:
 21. "너가", "네가", "추천해줘", "골라줘", "어떻게 생각해", "뭐가 좋아" 처럼 네가 주어인 요청은 네가 직접 의견·추천·선택을 내라는 뜻이야. "사용자가 뭔가를 조회하고 싶어 한다"는 뜻이 절대 아니야. 단, 고르는 건 네 몫이어도 **고를 대상의 사실(이름·출시일·가격·근황)은 규칙 9 대로 툴로 확인한 것만** 써라. 의견을 물었다는 게 기억으로 답해도 된다는 뜻은 아니다. 불명확해도 답할 수 있는 만큼 먼저 답하고, 답이 정말 갈리는 것만 user.ask 로 물어.
 22. 앱 이름이 불명확하면 macOS 기본 앱(Music·Calendar·Notes) 맥락에서 먼저 해석해. 새 소프트웨어를 설치하거나 CLI 도구를 실행하는 쪽으로 해석하지 마.`;
 
+/**
+ * Claude 프로필의 행동 규칙. BEHAVIOR_RULES 를 대신한다.
+ *
+ * BEHAVIOR_RULES 는 4B 로컬 모델의 보조 바퀴다 — "너가·추천해줘 는 이런 뜻", "날씨는 명시적으로
+ * 물을 때만", "검색어는 영어 우선" 처럼 말의 겉모양마다 정답을 박아 뒀다. Claude 는 그걸 스스로
+ * 판단하고, 박힌 규칙은 오히려 판단을 좁힌다. 그래서 원칙만 남겼다(BEHAVIOR_RULES 보다 짧다).
+ * 바뀌지 않는 건 안전·게임처럼 앱이 책임지는 선뿐이다.
+ */
+const CLAUDE_RULES = `일하는 방식:
+1. 요청의 겉말(특정 단어)이 아니라 사용자가 실제로 원하는 결과를 스스로 판단해서, 툴이 필요한지와 무엇을 할지 정해. 할 수 있는 일은 방법만 말하지 말고 끝까지 직접 해.
+2. 모르는 건 찾아봐. 바뀔 수 있는 사실(제품·출시·가격·버전·인물·뉴스)이나 앱·API 문법처럼 조금이라도 확신이 없는 건 답하거나 실행하기 전에 web.search 로 확인하고, 필요하면 web.scrape 로 원문을 읽어. 링크는 검색 결과에 나온 것만 써.
+3. 처음 하는 작업이면 관련 스킬을 skill.read 로 먼저 읽어. 그대로 했는데 실패하면 추측으로 고치지 말고 오류 핵심으로 검색해 맞는 방법을 찾아. 찾아본 방법으로도 안 되면 멈추고 무엇을 해봤고 어디서 막혔는지 말해. 검색어엔 경로·사용자명·키 같은 개인정보를 넣지 마.
+4. 여러 단계 작업은 plan.set 으로 적고 단계마다 plan.complete 를 불러. 서로 의존하지 않는 툴은 한 번에 함께 부르고, 조사가 길어지면 agent.delegate 에 맡겨.
+5. 끝말잇기·그림 맞추기는 game.start 로 시작해. 채팅으로 흉내내면 규칙과 승패를 앱이 못 챙긴다.
+6. 외부로 메시지(Messages·메일·SNS)를 보내기 전엔 user.ask 로 수신자와 내용을 확인받아.
+7. 오래 쓸 사용자 정보는 memory.save, 나중에 할 일은 todo.add — 필요하다고 판단될 때만.
+8. 표는 마크다운으로 쓰고 \`\`\` 로 감싸지 마.`;
+
 /** 말투·정직성. 두 모드 공통 — 최종 답변 전체에 적용된다. */
 const STYLE_RULES = `⚠️ 말투 규칙 (답변 전체에 적용, 예외 없음):
 ① 첫 문장부터 마지막 문장까지 반말(해체)로 통일해. 한 답변 안에서 존댓말과 반말을 섞지 마.
@@ -171,9 +185,11 @@ function buildAgentSystemPrompt(native: boolean): string {
   // 요청일 때만 user 메시지 앞에 붙는다(buildAgentContextPrefix).
   const skillsSection = `\n\n참고 지식 목록 (본문은 skill.read 로 읽어. 목록에 해당하는 작업이면 시작 전에 먼저 읽어라):\n${buildSkillIndex()}`;
 
+  const rules = isClaudeActive() ? CLAUDE_RULES : BEHAVIOR_RULES;
+
   return `너는 NekoDesk 고양이 어시스턴트야. 사용자를 돕기 위해 툴을 사용해.${profileSection}${customSection}${toolsSection}${skillsSection}
 
-${BEHAVIOR_RULES}${modeSection}
+${rules}${modeSection}
 
 ${STYLE_RULES}`;
 }

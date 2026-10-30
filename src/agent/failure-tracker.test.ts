@@ -105,3 +105,48 @@ describe("FailureTracker 사다리", () => {
     expect(t.summary()).toContain("second");
   });
 });
+
+describe("방법을 바꿔 가며 실패할 때 — 찾아보고, 그래도 안 되면 멈춘다", () => {
+  it("검색 전 두 번째 실패면 추측 말고 web.search 로 찾으라고 한다", () => {
+    const t = new FailureTracker();
+    expect(t.record(execStep("try-1")).hint).toBe("");
+    const advice = t.record(execStep("try-2"));
+    expect(advice.hint).toContain("web.search");
+    expect(advice.toolLocked).toBe(false);
+  });
+
+  it("찾아본 뒤 첫 실패는 다르게 고치되 막히면 멈추라고 한다", () => {
+    const t = new FailureTracker();
+    t.record(execStep("try-1"));
+    t.recordSearch();
+    const advice = t.record(execStep("try-2"));
+    expect(advice.hint).toContain("찾아본 뒤에도 실패");
+    expect(advice.toolLocked).toBe(false);
+  });
+
+  it("찾아본 뒤 두 번째 실패면 그 툴을 잠가 막힌 이유를 말하게 한다", () => {
+    const t = new FailureTracker();
+    t.record(execStep("try-1"));
+    t.recordSearch();
+    t.record(execStep("try-2"));
+    const advice = t.record(execStep("try-3"));
+    expect(advice.toolLocked).toBe(true);
+    expect(t.isLocked("code.exec")).toBe(true);
+    expect(advice.hint).toContain("어디서 막혔는지");
+    expect(advice.stop).toBe(false);
+  });
+
+  it("실패 전에 한 검색은 찾아본 것으로 치지 않는다", () => {
+    const t = new FailureTracker();
+    t.recordSearch();
+    t.record(execStep("try-1"));
+    expect(t.record(execStep("try-2")).hint).toContain("web.search 해서");
+  });
+
+  it("검색 툴 자체의 실패엔 검색하라고 하지 않는다", () => {
+    const t = new FailureTracker();
+    t.record(toolStep("web.search", { query: "a" }, "네트워크 오류"));
+    expect(t.record(toolStep("web.search", { query: "b" }, "네트워크 오류")).hint).toBe("");
+  });
+});
+
