@@ -28,18 +28,37 @@ fn check(key: &str) -> Result<(), AppError> {
     }
 }
 
+/// 한 번 꺼낸 값. 키체인을 매번 읽으면 서명이 바뀌는 dev 빌드(다시 빌드할 때마다 새 바이너리)에선
+/// Claude 요청·검색마다 macOS 가 비밀번호를 물었다. 이제 실행당 항목마다 한 번만 묻는다.
+/// 값은 이 프로세스 메모리에만 있다 — 같은 사용자의 다른 프로그램이 읽을 수 있는 곳이 아니다.
+#[cfg(target_os = "macos")]
+fn cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, Option<String>>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Option<String>>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
 /// 꺼낸다. 없으면 None.
 #[cfg(target_os = "macos")]
 pub fn get(key: &str) -> Result<Option<String>, AppError> {
     check(key)?;
-    keychain_get(SERVICE, key)
+    if let Some(hit) = cache().lock()?.get(key) {
+        return Ok(hit.clone());
+    }
+    // 실패(사용자가 거부)는 담지 않는다 — 다음에 다시 물을 수 있어야 한다.
+    let value = keychain_get(SERVICE, key)?;
+    cache().lock()?.insert(key.to_owned(), value.clone());
+    Ok(value)
 }
 
 /// 넣는다. 빈 값이면 지운다.
 #[cfg(target_os = "macos")]
 pub fn set(key: &str, value: &str) -> Result<(), AppError> {
     check(key)?;
-    keychain_set(SERVICE, key, value)
+    keychain_set(SERVICE, key, value)?;
+    let value = value.trim();
+    cache().lock()?.insert(key.to_owned(), (!value.is_empty()).then(|| value.to_owned()));
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
