@@ -15,6 +15,8 @@ import { isClaudeActive, useSettingsStore } from "../stores/settingsStore";
 import { getFile, getStoredFileNames } from "./file-store";
 import { buildSkillIndex, readKnowledge } from "./knowledge";
 import { saveMemory } from "./memory-merge";
+import { claudeWebSearch } from "./llm-transport";
+import { timeZone } from "../lib/time";
 import type {
   ToolName,
   JsonSchema,
@@ -30,6 +32,7 @@ import type {
   Todo,
   ScheduleEvent,
   SearchResult,
+  NativeSearchResult,
   ScrapResult,
   CodeExecResult,
 } from "./types";
@@ -61,6 +64,40 @@ function summarizeSearch(results: SearchResult[]): string {
   if (results.length === 0) return "검색 결과 없음 — 따옴표와 긴 문구를 빼고, 핵심 낱말 몇 개(앱 이름 + 하려는 일 + 오류 번호)로 다시 검색해.";
   // URL 을 빼면 모델이 web.scrape 할 주소를 지어낸다(404 → 재검색 루프).
   return results.map((r) => `- ${r.title} (${r.url}): ${r.snippet}`).join("\n");
+}
+
+/** 내장 검색이 실패해 DuckDuckGo 로 대신 찾은 결과. 왜 바뀌었는지 모델도 안다. */
+interface FallbackSearch {
+  fallback: string;
+  results: SearchResult[];
+}
+
+type WebSearchResult = SearchResult[] | NativeSearchResult | FallbackSearch;
+
+function summarizeWebSearch(r: WebSearchResult): string {
+  // 작은 모델은 컨텍스트가 빠듯해 셋만 본다. Claude 는 받은 걸 다 본다(검색기가 최대 5개를 준다).
+  if (Array.isArray(r)) return summarizeSearch(r.slice(0, isClaudeActive() ? undefined : 3));
+  if ("fallback" in r) return `[내장 웹 검색 실패 — ${r.fallback}. DuckDuckGo 결과로 대신해]\n${summarizeSearch(r.results)}`;
+  const sources = r.sources
+    .map((s) => `- ${s.title || s.url} (${s.url})${s.page_age ? ` · ${s.page_age}` : ""}`)
+    .join("\n");
+  return `${r.answer.trim() || "정리 없음"}\n\n출처:\n${sources || "없음"}`;
+}
+
+/** 검색이 아무것도 못 찾았는가. 0건은 "찾아봤다" 로 치지 않는다(failure-tracker). */
+export function searchFoundNothing(r: unknown): boolean {
+  if (Array.isArray(r)) return r.length === 0;
+  const o = r as Partial<NativeSearchResult & FallbackSearch> | null;
+  if (o?.sources) return o.sources.length === 0;
+  if (o?.results) return o.results.length === 0;
+  return false;
+}
+
+/** 내장 검색에 넘길 오늘 날짜. "이번 주" 를 어디서부터 셀지 검색하는 쪽이 알아야 한다. */
+function todayForSearch(): string {
+  return new Date().toLocaleDateString("en-US", {
+    timeZone: timeZone(), weekday: "long", year: "numeric", month: "long", day: "numeric",
+  });
 }
 
 function summarizeGrep(hits: FsGrepHit[]): string {
@@ -303,9 +340,19 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["query"],
     },
     readOnly: true,
-    execute: async (p) => invoke<SearchResult[]>("web_search", { query: p["query"] as string }),
-    // 작은 모델은 컨텍스트가 빠듯해 셋만 본다. Claude 는 받은 걸 다 본다(검색기가 최대 5개를 준다).
-    summarize: (r) => summarizeSearch((r as SearchResult[]).slice(0, isClaudeActive() ? undefined : 3)),
+    // Claude 는 Anthropic 의 내장 웹 검색을 쓴다(OpenAI 호환 계층으론 서버 툴을 못 붙여 따로 부른다).
+    // 실패하면(키·콘솔에서 꺼둔 검색·예산·네트워크) 기존 DuckDuckGo 검색으로 되돌아간다.
+    execute: async (p): Promise<WebSearchResult> => {
+      const query = p["query"] as string;
+      if (!isClaudeActive()) return invoke<SearchResult[]>("web_search", { query });
+      try {
+        return await claudeWebSearch(query, todayForSearch());
+      } catch (err) {
+        const results = await invoke<SearchResult[]>("web_search", { query });
+        return { fallback: err instanceof Error ? err.message : String(err), results };
+      }
+    },
+    summarize: (r) => summarizeWebSearch(r as WebSearchResult),
   },
 
   "web.scrape": {

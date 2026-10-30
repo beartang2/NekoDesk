@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { CLAUDE_CONTEXT_CAP, claudeModelOf } from "../lib/claude-models";
+import { WEB_SEARCH_MODEL, WEB_SEARCH_USD, CLAUDE_CONTEXT_CAP, claudeModelOf } from "../lib/claude-models";
+import type { NativeSearchResult } from "./types";
 import { budgetBlockReason, useClaudeBudget } from "../stores/claudeBudget";
 import { useSettingsStore } from "../stores/settingsStore";
 
@@ -265,4 +266,23 @@ export async function llmFetch(path: string, init: RequestInit = {}, base?: stri
   if (!model) return fetch(`${url}${path}`, init);
   if (path === "/v1/chat/completions") return claudeChat(model, init);
   return claudeLocal(model, path);
+}
+
+/**
+ * Claude 의 내장 웹 검색. 지금 프로필이 Claude 일 때만 부른다(web.search 툴).
+ *
+ * 대화와 따로 가는 한 번짜리 요청이라 메인 대화의 전송 방식(OpenAI 호환 계층)은 그대로다.
+ * 본문은 Rust 가 만든다 — 여기서 넘기는 건 모델·검색어·날짜뿐. 쓴 만큼 예산 장부에 적는다.
+ * 실패하면 던진다: 부르는 쪽이 기존 검색으로 되돌아간다.
+ */
+export async function claudeWebSearch(query: string, today: string): Promise<NativeSearchResult> {
+  if (!claudeModelOf(useSettingsStore.getState().llmUrl)) throw new Error("Claude 프로필이 아니야.");
+  const model = WEB_SEARCH_MODEL;
+  const blocked = budgetBlockReason();
+  if (blocked) throw new Error(blocked);
+  const r = await invoke<NativeSearchResult>("claude_web_search", { model, query, today });
+  // 실패로 끝났어도 쓴 건 쓴 것이다. 장부부터 적는다.
+  useClaudeBudget.getState().record(model, r.input_tokens, r.output_tokens, r.searches * WEB_SEARCH_USD);
+  if (r.sources.length === 0 && r.errors.length > 0) throw new Error(`Claude 웹 검색 실패: ${r.errors.join(", ")}`);
+  return r;
 }

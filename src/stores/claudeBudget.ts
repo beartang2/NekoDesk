@@ -100,8 +100,8 @@ interface ClaudeBudgetStore {
   settings: ClaudeBudgetSettings;
   usage: ClaudeUsage;
   setSettings: (s: Partial<ClaudeBudgetSettings>) => void;
-  /** 응답 하나가 끝날 때 부른다. */
-  record: (model: string, promptTokens: number, completionTokens: number) => void;
+  /** 응답 하나가 끝날 때 부른다. extraUsd 는 토큰 밖의 요금(웹 검색 횟수값). */
+  record: (model: string, promptTokens: number, completionTokens: number, extraUsd?: number) => void;
   /** 화면을 다시 그리기 전에 주기가 바뀌었는지 확인한다(앱을 며칠 켜둔 경우). */
   refresh: () => void;
 }
@@ -125,11 +125,11 @@ export const useClaudeBudget = create<ClaudeBudgetStore>((set, get) => ({
     set({ settings, usage });
   },
 
-  record: (model, promptTokens, completionTokens) => {
+  record: (model, promptTokens, completionTokens, extraUsd = 0) => {
     const base = rollover(get().usage, new Date(), get().settings.resetDay);
     const usage: ClaudeUsage = {
       ...base,
-      spentUsd: base.spentUsd + estimateCostUsd(model, promptTokens, completionTokens),
+      spentUsd: base.spentUsd + estimateCostUsd(model, promptTokens, completionTokens) + extraUsd,
       inputTokens: base.inputTokens + promptTokens,
       outputTokens: base.outputTokens + completionTokens,
       requests: base.requests + 1,

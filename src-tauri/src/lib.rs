@@ -1169,6 +1169,7 @@ pub fn run() {
             commands::secret_dev_get,
             claude::claude_chat,
             claude::claude_cancel,
+            claude::claude_web_search,
             commands::conversation_save,
             commands::conversation_load,
             commands::conversation_delete,

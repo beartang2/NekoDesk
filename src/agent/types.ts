@@ -152,6 +152,17 @@ export interface SearchResult {
   snippet: string;
 }
 
+/** Claude 의 내장 웹 검색(claude_web_search)이 돌려주는 것. 검색 결과를 읽은 모델이 쓴 정리 + 출처. */
+export interface NativeSearchResult {
+  answer: string;
+  sources: { title: string; url: string; page_age: string | null }[];
+  searches: number;
+  input_tokens: number;
+  output_tokens: number;
+  /** 검색 오류 코드들. 출처가 하나도 없고 이게 있으면 실패로 본다. */
+  errors: string[];
+}
+
 export interface ScrapResult {
   url: string;
   title: string;

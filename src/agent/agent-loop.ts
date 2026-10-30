@@ -2,7 +2,7 @@ import { agentTurnStream, chatStream, getModelContextLength, textTaskStream, typ
 import { FailureTracker } from "./failure-tracker";
 import { Plan } from "./plan";
 import { runSubagent } from "./subagent";
-import { getTool, isParallelSafe, isStaticTool } from "./tool-registry";
+import { getTool, isParallelSafe, isStaticTool, searchFoundNothing } from "./tool-registry";
 import {
   addWriteRoot,
   execRuleKey,
@@ -753,7 +753,7 @@ export async function* runAgentLoop(
         if (DEDUPE_TOOLS.has(call.name)) {
           seenCalls.add(callKey(call));
           // 0건인 검색은 찾아본 게 아니다 — 사다리가 "찾아봤는데도 실패" 로 넘어가 버린다.
-          const empty = call.name === "web.search" && Array.isArray(step.result) && step.result.length === 0;
+          const empty = call.name === "web.search" && searchFoundNothing(step.result);
           if (!empty) failures.recordSearch();
         }
         continue;

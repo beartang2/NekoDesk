@@ -45,6 +45,16 @@ export const CLAUDE_MODELS: readonly ClaudeModel[] = [
 
 export const DEFAULT_CLAUDE_MODEL = CLAUDE_MODELS[0].id;
 
+/** 내장 웹 검색 1회 값. 토큰값과 따로 붙는다($10 / 1,000회, platform.claude.com 웹 검색 툴 문서). */
+export const WEB_SEARCH_USD = 0.01;
+
+/**
+ * 내장 웹 검색을 돌리는 모델. 메인 대화 모델과 상관없이 가장 싼 Haiku 로 고정한다.
+ * 검색 결과는 통째로 입력 토큰이 돼 한 번에 수만 토큰이 되기도 한다 — Opus 로 돌리면 검색
+ * 한 번에 수십 센트다. 찾아 읽고 정리하는 일이라 Haiku 로 충분하고, 판단은 메인 모델이 한다.
+ */
+export const WEB_SEARCH_MODEL = "claude-haiku-5-5";
+
 /**
  * 네코에게 알려주는 컨텍스트 길이. 모델 자체는 1M 까지 받지만 그대로 알려주면 에이전트가
  * 대화·툴 결과를 그만큼 채운다. Haiku 5.5 는 프롬프트가 10만 토큰을 넘는 순간 그 요청이
