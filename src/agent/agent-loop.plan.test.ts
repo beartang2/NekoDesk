@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { AgentTurn, LoopEvent } from "./types";
+import type { AgentTurn, LlmMessage, LoopEvent } from "./types";
 
 /** plan.* 가 루프 안에서 상태를 들고, 결과가 모델에게 되돌아가는지 확인한다. */
 
@@ -16,9 +16,12 @@ vi.mock("../lib/events", () => ({ appEvents: { emit: vi.fn() }, requestWordchain
 vi.mock("./file-store", () => ({ getFile: vi.fn(), getStoredFileNames: vi.fn(() => []) }));
 
 let turns: AgentTurn[] = [];
+/** 턴마다 모델에게 보낸 메시지. */
+let sent: LlmMessage[][] = [];
 vi.mock("./llm-client", () => ({
   getModelContextLength: () => 32768,
-  agentTurnStream: async function* () {
+  agentTurnStream: async function* (messages: LlmMessage[]) {
+    sent.push(messages);
     yield { type: "turn" as const, turn: turns.shift() ?? { text: "끝", toolCalls: [] } };
   },
   chatStream: async function* () {
@@ -42,6 +45,7 @@ const completeStep = (index: number, id = "p2"): AgentTurn => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sent = [];
   const store = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => store.get(k) ?? null,
@@ -61,7 +65,7 @@ describe("plan 툴", () => {
     expect(step.summary).toContain("남은 단계 2개");
   });
 
-  it("완료하면 UI 용 이벤트가 나가고 done 에도 실린다", async () => {
+  it("완료하면 UI 용 이벤트가 나간다", async () => {
     turns = [setPlan(["a", "b"]), completeStep(1), { text: "했어", toolCalls: [] }];
 
     const events = await run();
@@ -71,9 +75,6 @@ describe("plan 툴", () => {
       { text: "a", status: "done" },
       { text: "b", status: "pending" },
     ]);
-
-    const done = events.find((e) => e.type === "done");
-    expect(done?.plan).toEqual(updates[1].steps);
   });
 
   it("잘못된 번호는 루프를 죽이지 않고 모델에게 이유를 돌려준다", async () => {
@@ -85,9 +86,16 @@ describe("plan 툴", () => {
     expect(events.find((e) => e.type === "done")).toMatchObject({ answer: "다시 할게" });
   });
 
-  it("계획을 안 세운 요청의 done 에는 plan 이 없다", async () => {
-    turns = [{ text: "간단해", toolCalls: [] }];
-    const done = (await run()).find((e) => e.type === "done");
-    expect(done?.plan).toEqual([]);
+  it("남은 계획을 다른 툴 결과 뒤에 다시 붙인다 — 모델이 plan.complete 를 잊지 않게", async () => {
+    const listTodos: AgentTurn = { text: "", toolCalls: [{ id: "t1", name: "todo.list", params: {} }] };
+    turns = [setPlan(["a", "b"]), listTodos, completeStep(2), listTodos, { text: "했어", toolCalls: [] }];
+    await run();
+
+    const lastOf = (i: number) => String(sent[i][sent[i].length - 1].content);
+    // plan.set 결과 자체가 계획이라 겹쳐 붙이지 않는다.
+    expect(lastOf(1).match(/\[계획\]/g)).toBeNull();
+    expect(lastOf(2)).toMatch(/^\[todo\.list 결과\][\s\S]*\[계획\]\n1\. \[ \] a/);
+    // 다 끝났으면 더 붙이지 않는다.
+    expect(lastOf(4)).not.toContain("[계획]");
   });
 });

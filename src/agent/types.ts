@@ -332,7 +332,6 @@ export type LoopEvent =
       steps: AgentStep[];
       promptTokens?: number;
       tokensPerSecond?: number;
-      plan?: PlanStep[];
       /** 앱이 사용자에게 알리는 말(예: 반복돼서 끊음). 답이 아니라 모델에게 다시 안 들어간다. */
       notice?: string;
     }

@@ -388,6 +388,23 @@ export function degenerateAt(text: string): number | null {
 }
 
 /**
+ * 계획이 남아 있으면 마지막 툴 결과 뒤에 계획을 다시 붙인다.
+ *
+ * 모델은 plan.set 만 부르고 plan.complete 는 잊는다 — 몇 턴 지나면 계획이 컨텍스트
+ * 뒤로 밀려서다. 그러면 화면의 체크리스트가 0/N 에 멈춘다. 매 턴 맨 끝에서 다시
+ * 읽게 한다. user 메시지가 아니라 툴 결과에 붙인다 — user 로 넣으면 새 지시로 읽는다.
+ */
+function withPlan(messages: LlmMessage[], plan: Plan): LlmMessage[] {
+  const last = messages[messages.length - 1];
+  if (plan.remaining === 0 || last?.role !== "tool" || typeof last.content !== "string") return messages;
+  // 이번 턴에 계획을 건드렸으면 그 결과가 이미 계획 전체다.
+  for (let i = messages.length - 1; messages[i]?.role === "tool"; i--) {
+    if (String(messages[i].content).startsWith("[plan.")) return messages;
+  }
+  return [...messages.slice(0, -1), { ...last, content: `${last.content}\n\n[계획]\n${plan.render()}` }];
+}
+
+/**
  * 이번 턴에 툴이 만든 그림을 모델에게 보여 줄 메시지. 없으면 null.
  *
  * 그림은 step 에만 담고 컨텍스트엔 "[이미지 생성됨]" 한 줄만 남겼다 — 모델은 자기가 그린 걸
@@ -492,7 +509,7 @@ export async function* runAgentLoop(
     let cut: "interjected" | "repetition" | "thinking-loop" | null = null;
     let streamedThinking = "";
     try {
-      for await (const ev of agentTurnStream(context.toMessages(), userInput, i, memories, trackUsage, signal)) {
+      for await (const ev of agentTurnStream(claude ? context.toMessages() : withPlan(context.toMessages(), plan), userInput, i, memories, trackUsage, signal)) {
         if (ev.type === "thinking") {
           streamedThinking += ev.text;
           yield { type: "thinking_token", token: ev.text };
@@ -535,7 +552,7 @@ export async function* runAgentLoop(
       const at = cut === "repetition" ? degenerateAt(streamedAnswer) : null;
       const answer = (at === null ? streamedAnswer : streamedAnswer.slice(0, at)).trim();
       const notice = cut === "repetition" ? "같은 말이 반복돼서 끊었어" : "생각이 같은 자리를 맴돌아서 끊었어. 다시 물어봐줘";
-      yield { type: "done", answer, notice, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
+      yield { type: "done", answer, notice, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps };
       return;
     }
     if (!turn) {
@@ -562,7 +579,7 @@ export async function* runAgentLoop(
       if (answer.startsWith(streamedAnswer) && answer.length > streamedAnswer.length) {
         yield { type: "streaming_token", token: answer.slice(streamedAnswer.length) };
       }
-      yield { type: "done", answer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
+      yield { type: "done", answer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps };
       return;
     }
 
@@ -719,7 +736,7 @@ export async function* runAgentLoop(
             context.addTurn({ text: turn.text, calls: executed });
             const cancelMsg = "실행을 취소했어.";
             yield { type: "streaming_token", token: cancelMsg };
-            yield { type: "done", answer: cancelMsg, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
+            yield { type: "done", answer: cancelMsg, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps };
             return;
           }
           let resolveConfirm!: (decision: PermissionDecision) => void;
@@ -805,7 +822,7 @@ export async function* runAgentLoop(
     if (shouldStop) {
       const msg = `같은 오류가 반복돼서 멈췄어. 지금까지 시도한 것:\n\n${failures.summary()}`;
       yield { type: "streaming_token", token: msg };
-      yield { type: "done", answer: msg, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
+      yield { type: "done", answer: msg, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps };
       return;
     }
     // Claude 에겐 "이미 읽었어" 만 알리고 맡긴다.
@@ -846,7 +863,7 @@ export async function* runAgentLoop(
     yield { type: "streaming_token", token: finalAnswer };
   }
 
-  yield { type: "done", answer: finalAnswer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps, plan: plan.snapshot() };
+  yield { type: "done", answer: finalAnswer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps };
 }
 
 /**

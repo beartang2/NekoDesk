@@ -54,7 +54,7 @@ export interface ChatMessage {
   thinking?: string; // 답변이 나오기 전 실시간으로 흐르는 "생각"(thought)
   attachments?: AttachedFile[];
   images?: string[];
-  /** 에이전트가 세운 작업 계획. 없으면 계획을 안 세운 요청이다. */
+  /** 에이전트가 세운 작업 계획. 작업 중에만 보이고 저장하지 않는다. */
   plan?: PlanStep[];
   /** 답변 생성 속도(tok/s). 저장하지 않아 불러온 대화엔 없다. */
   tokensPerSecond?: number;
@@ -141,7 +141,6 @@ function clipForStore(value: unknown, max = MAX_STORED_FIELD): unknown {
 /** 답변과 함께 저장하는 것들. 없으면 그 칸을 비운다. */
 export interface MessageMeta {
   steps?: AgentStep[];
-  plan?: PlanStep[];
   thinking?: string;
   images?: string[];
   tokensPerSecond?: number;
@@ -150,7 +149,8 @@ export interface MessageMeta {
 }
 
 /**
- * 답변에 딸린 도구 기록·계획·생각·이미지를 저장용 JSON 으로 만든다.
+ * 답변에 딸린 도구 기록·생각·이미지를 저장용 JSON 으로 만든다. 계획은 작업 중에만
+ * 보이는 것이라 안 담는다.
  *
  * 예전엔 본문만 저장해서 다시 열면 "도구 N개 사용" 패널이 통째로 사라졌다.
  * 긴 칸은 잘라서 넣고, 이미지는 첨부와 같은 총량 안에서만 담는다.
@@ -172,7 +172,6 @@ export function serializeMeta(meta: MessageMeta): string | undefined {
   }));
   const stored: MessageMeta = {
     ...(steps.length ? { steps } : {}),
-    ...(meta.plan?.length ? { plan: meta.plan } : {}),
     ...(meta.thinking ? { thinking: clipForStore(meta.thinking, 8000) as string } : {}),
     ...(images.length ? { images } : {}),
     ...(meta.tokensPerSecond !== undefined ? { tokensPerSecond: meta.tokensPerSecond } : {}),
@@ -516,6 +515,8 @@ export function useAgentPool() {
               content: "",
               time: nowTime(),
               steps: [],
+              // 계획은 루프가 들고 있어 끼어들어도 이어진다. 새 칸으로 옮겨 계속 보인다.
+              plan: closed?.plan,
               isStreaming: true,
               startedAt: Date.now(),
             };
@@ -533,7 +534,6 @@ export function useAgentPool() {
             let chain = keepClosed
               ? conversationApi.save(sessionId, "assistant", "", undefined, serializeMeta({
                   steps: finalSteps,
-                  plan: closed?.plan,
                   thinking: closed?.thinking,
                 }))
               : Promise.resolve();
@@ -620,7 +620,6 @@ export function useAgentPool() {
                       steps: finalSteps,
                       isStreaming: false,
                       images: images.length > 0 ? images : undefined,
-                      plan: event.plan?.length ? event.plan : undefined,
                       tokensPerSecond: event.tokensPerSecond,
                       notice: event.notice,
                     }
@@ -631,7 +630,6 @@ export function useAgentPool() {
             conversationApi
               .save(sessionId, "assistant", clean, undefined, serializeMeta({
                 steps: finalSteps,
-                plan: event.plan,
                 thinking: thinkingBuffer.trimStart(),
                 images,
                 tokensPerSecond: event.tokensPerSecond,
@@ -678,7 +676,6 @@ export function useAgentPool() {
           conversationApi
             .save(sessionId, "assistant", partial?.content ?? "", undefined, serializeMeta({
               steps: finalSteps,
-              plan: partial?.plan,
               thinking: thinkingBuffer.trimStart(),
             }))
             .catch(() => {});

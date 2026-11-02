@@ -513,9 +513,7 @@ function ChatMessages({
       )}
       {messages.map((m) => (
         <div key={m.id} className={`message message--${m.role}`}>
-          {m.role === "assistant" && m.plan && m.plan.length > 0 && (
-            <PlanChecklist steps={m.plan} />
-          )}
+          {m.role === "assistant" && <PlanChecklist steps={m.plan ?? []} open={!!m.isStreaming} />}
 
           {m.role === "assistant" && m.steps && m.steps.length > 0 && (
             <AgentStepAccordion
@@ -1144,7 +1142,6 @@ export default function App() {
           attachments: files,
           time: clock(parseDbTime(m.created_at)),
           steps: meta.steps ?? [],
-          plan: meta.plan,
           thinking: meta.thinking,
           images: meta.images,
           tokensPerSecond: meta.tokensPerSecond,
