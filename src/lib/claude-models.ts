@@ -105,14 +105,6 @@ export function findClaudeModel(id: string): ClaudeModel | undefined {
   return CLAUDE_MODELS.find((m) => m.id === id);
 }
 
-/**
- * 네코에게 알려주는 컨텍스트 길이. 모델 자체는 1M 까지 받지만 그대로 알려주면 에이전트가
- * 대화·툴 결과를 그만큼 채운다. Haiku 5.5 는 프롬프트가 10만 토큰을 넘는 순간 그 요청이
- * 통째로 5배 가격이 되니, 네코의 토큰 추정이 크게 빗나가도(token-estimate 는 실제의
- * 0.6~2배) 그 선 아래에 머물 만큼 묶어둔다.
- */
-export const CLAUDE_CONTEXT_CAP = 64_000;
-
 /** 그 모델로 네코에게 알려줄 컨텍스트 길이. 모르는 모델은 가장 작은 창으로 친다(비싸게 잡는다). */
 export function claudeContextCap(id: string): number {
   return findClaudeModel(id)?.contextCap ?? Math.min(...CLAUDE_MODELS.map((m) => m.contextCap));

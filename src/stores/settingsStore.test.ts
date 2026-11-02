@@ -43,3 +43,16 @@ it("init 시 기존 localStorage 값을 읽는다 (마이그레이션 0)", async
   expect(useSettingsStore.getState().llmUrl).toBe("http://saved:1");
   expect(useSettingsStore.getState().genParams.max_tokens_agent).toBe(999);
 });
+
+it("Claude 로 바꾸면 최대 응답 토큰을 그 모델의 천장(128K) 안으로 맞춘다 — 넘기면 요청이 400", async () => {
+  const { useSettingsStore } = await import("./settingsStore");
+  const s = () => useSettingsStore.getState();
+  s().setGenParams({ max_tokens_agent: 131072, max_tokens_chat: 512 });
+  expect(s().genParams.max_tokens_agent).toBe(131072); // 로컬 서버는 천장이 없다
+  s().setLlmUrl("claude://claude-haiku-5-5");
+  expect(s().genParams).toEqual({ max_tokens_agent: 128_000, max_tokens_chat: 512 });
+  expect(JSON.parse(localStorage.getItem("nekodesk_gen_params")!).max_tokens_agent).toBe(128_000);
+  // Claude 인 동안엔 고쳐도 천장을 못 넘는다.
+  s().setGenParams({ max_tokens_agent: 200_000, max_tokens_chat: 512 });
+  expect(s().genParams.max_tokens_agent).toBe(128_000);
+});

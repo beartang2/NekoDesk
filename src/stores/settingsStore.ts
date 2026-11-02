@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { isClaudeUrl } from "../lib/claude-models";
+import { isClaudeUrl, maxOutputTokensFor } from "../lib/claude-models";
 
 /**
  * LLM 관련 설정 스토어 (llm_url / gen_params / system_prompt / user_profile).
@@ -73,6 +73,17 @@ function loadImageGen(): ImageGenSettings {
   }
 }
 
+/**
+ * 지금 주소가 받는 천장 안으로 맞춘다. 설정의 최대 응답 토큰은 프로필마다 따로가 아니라
+ * 하나라서, 로컬에서 131072 로 쓰다가 Claude(128K)로 바꾸면 그대로 400 이 난다. 프로필을
+ * 바꿀 때와 값을 고칠 때 둘 다 여기를 지나므로 천장을 넘는 값은 아예 저장되지 않는다.
+ */
+export function fitGenParams(p: GenParams, url: string): GenParams {
+  const cap = maxOutputTokensFor(url);
+  if (cap === null || (p.max_tokens_agent <= cap && p.max_tokens_chat <= cap)) return p;
+  return { max_tokens_agent: Math.min(p.max_tokens_agent, cap), max_tokens_chat: Math.min(p.max_tokens_chat, cap) };
+}
+
 function loadGen(): GenParams {
   try {
     const raw = localStorage.getItem(K.genParams);
@@ -104,9 +115,11 @@ interface SettingsStore {
   setNativeToolsDegraded: (v: boolean) => void;
 }
 
-export const useSettingsStore = create<SettingsStore>((set) => ({
-  llmUrl: localStorage.getItem(K.llmUrl) ?? DEFAULT_LLM_URL,
-  genParams: loadGen(),
+const initialUrl = localStorage.getItem(K.llmUrl) ?? DEFAULT_LLM_URL;
+
+export const useSettingsStore = create<SettingsStore>((set, get) => ({
+  llmUrl: initialUrl,
+  genParams: fitGenParams(loadGen(), initialUrl),
   systemPrompt: localStorage.getItem(K.systemPrompt),
   userProfile: localStorage.getItem(K.userProfile),
   toolMode: loadToolMode(),
@@ -116,11 +129,14 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
 
   setLlmUrl: (url) => {
     localStorage.setItem(K.llmUrl, url);
-    set({ llmUrl: url });
+    const genParams = fitGenParams(get().genParams, url);
+    if (genParams !== get().genParams) localStorage.setItem(K.genParams, JSON.stringify(genParams));
+    set({ llmUrl: url, genParams });
   },
   setGenParams: (p) => {
-    localStorage.setItem(K.genParams, JSON.stringify(p));
-    set({ genParams: p });
+    const genParams = fitGenParams(p, get().llmUrl);
+    localStorage.setItem(K.genParams, JSON.stringify(genParams));
+    set({ genParams });
   },
   setSystemPrompt: (v) => {
     if (v === null) localStorage.removeItem(K.systemPrompt);

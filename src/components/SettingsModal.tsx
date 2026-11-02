@@ -16,9 +16,6 @@ import {
 } from "../agent/mcp-registry";
 import {
   DEFAULT_CHAT_SYSTEM_PROMPT,
-  loadGenParams,
-  saveGenParams,
-  type GenParams,
 } from "../agent/llm-client";
 import { getStoredAccent, saveAccentHex, setAccentVars } from "../theme-colors";
 import { CAT_VARIANTS } from "../cat/spriteData";
@@ -40,7 +37,9 @@ import {
   type ModelProfile,
   type ProfileState,
 } from "../stores/modelProfiles";
-import { CLAUDE_CONTEXT_CAP, CLAUDE_MODELS, claudeLabel, claudeModelOf, claudeUrl, findClaudeModel } from "../lib/claude-models";
+import {
+  CLAUDE_MODELS, claudeContextCap, claudeLabel, claudeModelOf, claudeUrl, findClaudeModel, maxOutputTokensFor,
+} from "../lib/claude-models";
 import { CLAUDE_KEY } from "../agent/llm-transport";
 import { ClaudeBudgetFields, ClaudeUsageMeter } from "./ClaudeUsage";
 import {
@@ -395,7 +394,7 @@ function ClaudeProfileFields({
           {info.price.longThreshold
             ? ` (프롬프트 ${info.price.longThreshold / 1000}K 초과 요청은 $${info.price.longInput} / $${info.price.longOutput})`
             : ""}
-          . 컨텍스트는 {CLAUDE_CONTEXT_CAP / 1000}K 로 묶어 둔다.
+          . 컨텍스트는 {claudeContextCap(model) / 1000}K 로 묶어 둔다 — 창이 클수록 요청마다 값이 오른다.
         </p>
       )}
       <div className="settings-field">
@@ -629,18 +628,22 @@ export function ModelProfilesSection() {
 // ── Gen params section ────────────────────────────────────────────────────────
 
 function GenParamsSection() {
-  const [params, setParams] = useState<GenParams>(loadGenParams);
-  const [saved, setSaved] = useState(false);
-
-  function save() {
-    saveGenParams(params);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-  }
+  // 스토어를 직접 읽는다. 위의 프로필 목록에서 Claude 로 바꾸면 스토어가 값을 천장 안으로
+  // 맞추는데, 여기서 따로 들고 있으면 옛 값이 화면에 남고 다시 저장된다.
+  const params = useSettingsStore((s) => s.genParams);
+  const setParams = useSettingsStore((s) => s.setGenParams);
+  const llmUrl = useSettingsStore((s) => s.llmUrl);
+  const cap = maxOutputTokensFor(llmUrl);
+  const claude = claudeModelOf(llmUrl);
 
   return (
     <section className="settings-section">
       <h3 className="settings-section__title">최대 응답 토큰</h3>
+      {cap !== null && claude && (
+        <p className="settings-section__desc">
+          {claudeLabel(claude)} 는 한 번에 {cap.toLocaleString()} 토큰까지 답할 수 있어요. 그보다 크게는 못 넣어요.
+        </p>
+      )}
       <div className="gen-params-grid">
         <label className="gen-param">
           <span className="gen-param__label">에이전트</span>
@@ -649,9 +652,9 @@ function GenParamsSection() {
             type="number"
             step="128"
             min="64"
+            max={cap ?? undefined}
             value={params.max_tokens_agent}
-            onChange={(e) => { saveGenParams({ ...params, max_tokens_agent: parseInt(e.target.value, 10) || 2048 }); setParams((p) => ({ ...p, max_tokens_agent: parseInt(e.target.value, 10) || 2048 })); }}
-            onBlur={save}
+            onChange={(e) => setParams({ ...params, max_tokens_agent: parseInt(e.target.value, 10) || 2048 })}
           />
         </label>
         <label className="gen-param">
@@ -661,9 +664,9 @@ function GenParamsSection() {
             type="number"
             step="128"
             min="64"
+            max={cap ?? undefined}
             value={params.max_tokens_chat}
-            onChange={(e) => { saveGenParams({ ...params, max_tokens_chat: parseInt(e.target.value, 10) || 512 }); setParams((p) => ({ ...p, max_tokens_chat: parseInt(e.target.value, 10) || 512 })); }}
-            onBlur={save}
+            onChange={(e) => setParams({ ...params, max_tokens_chat: parseInt(e.target.value, 10) || 512 })}
           />
         </label>
       </div>
