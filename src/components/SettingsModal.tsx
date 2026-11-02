@@ -5,7 +5,7 @@ import {
   X, Zap, Pencil, Trash2, Settings, Plus, RefreshCw, MapPin, Loader2, ChevronRight, ArrowUpRight, Info, Copy,
 } from "lucide-react";
 import { Accordion, Popover } from "radix-ui";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, Reorder, motion, useDragControls } from "motion/react";
 import type { Memory } from "../agent/types";
 import { Collapse, EASE, IconButton, SavedLabel, Segmented, Select, SwitchRow, Switch, listItem } from "./ui";
 import {
@@ -405,9 +405,115 @@ function ClaudeProfileFields({
         Max 요금제의 월 API 크레딧을 쓰려면 claude.ai 설정 → 결제에서 Console 조직을 연결하고,
         그 조직에서 만든 키를 넣는다. 같은 조직의 다른 키와 잔액을 나눠 쓴다.
       </p>
-      <ClaudeUsageMeter />
       <ClaudeBudgetFields />
     </>
+  );
+}
+
+/** 이만큼 누르고 있으면 끌기가 시작된다. 그보다 짧으면 그냥 클릭(연결). */
+const LONG_PRESS_MS = 350;
+/** 누르는 사이 이보다 많이 움직이면 끌려는 게 아니라 스크롤·선택이다. */
+const PRESS_SLOP_PX = 6;
+
+/**
+ * 프로필 한 줄. 누르면 연결하고, 꾹 누르면 들어 올려 순서를 바꾼다.
+ *
+ * 바로 끌리게 하면 연결하려고 누르다 살짝만 움직여도 줄이 따라 움직인다. 그래서
+ * 끌기는 길게 눌렀을 때만 손으로 시작한다(dragListener 끔 + dragControls).
+ */
+function ProfileRow({
+  profile: p, isDefault, isActive, live, busy, disabled, editing, canRemove, onConnect, onEdit, onRemove,
+}: {
+  profile: ModelProfile;
+  isDefault: boolean;
+  isActive: boolean;
+  live: boolean | null;
+  busy: boolean;
+  disabled: boolean;
+  editing: boolean;
+  canRemove: boolean;
+  onConnect: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  const controls = useDragControls();
+  const press = useRef<{ timer: number; x: number; y: number } | null>(null);
+  // 끌고 나서 손을 떼면 그 자리에 click 이 온다. 연결로 이어지지 않게 한 번 삼킨다.
+  const dragged = useRef(false);
+  const [lifted, setLifted] = useState(false);
+
+  function cancelPress() {
+    if (press.current) window.clearTimeout(press.current.timer);
+    press.current = null;
+  }
+
+  useEffect(() => cancelPress, []);
+
+  function onPointerDown(e: React.PointerEvent) {
+    dragged.current = false;
+    if (e.button !== 0 || (e.target as HTMLElement).closest(".mcp-row__btns")) return;
+    const native = e.nativeEvent;
+    press.current = {
+      x: e.clientX,
+      y: e.clientY,
+      timer: window.setTimeout(() => {
+        press.current = null;
+        dragged.current = true;
+        setLifted(true);
+        controls.start(native);
+      }, LONG_PRESS_MS),
+    };
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    const start = press.current;
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > PRESS_SLOP_PX) cancelPress();
+  }
+
+  return (
+    <Reorder.Item
+      as="div"
+      value={p}
+      {...listItem}
+      dragListener={false}
+      dragControls={controls}
+      onDragEnd={() => setLifted(false)}
+      whileDrag={{ scale: 1.02 }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      // 들어 올리고 움직이지 않은 채 떼면 drag 가 시작되지 않아 onDragEnd 가 안 온다.
+      onPointerUp={() => { cancelPress(); setLifted(false); }}
+      onPointerCancel={() => { cancelPress(); setLifted(false); }}
+      onClickCapture={(e) => {
+        if (!dragged.current) return;
+        dragged.current = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }}
+      className={`profile-row ${isActive ? "profile-row--active" : ""} ${editing ? "profile-row--editing" : ""} ${lifted ? "profile-row--lifted" : ""}`}
+    >
+      <button className="profile-row__main" onClick={onConnect} disabled={disabled}>
+        <span className={`profile-row__dot ${isActive && live ? "profile-row__dot--live" : ""}`} />
+        <span className="profile-row__text">
+          <span className="profile-row__name">
+            {p.name}
+            {isDefault && <span className="profile-row__default">기본</span>}
+          </span>
+          <span className="profile-row__sub">{modelLabel(p)}</span>
+        </span>
+        <span className="profile-row__state">
+          {busy
+            ? <><Loader2 size={11} className="ui-spin" />연결 중</>
+            : isActive
+            ? (live ? "연결됨" : isClaudeProfile(p) ? "키 없음" : "중지됨")
+            : isClaudeProfile(p) ? "Claude" : p.config ? "로컬" : "외부"}
+        </span>
+      </button>
+      <div className="mcp-row__btns">
+        <IconButton label="편집" onClick={onEdit}><Pencil size={12} /></IconButton>
+        <IconButton label="삭제" danger disabled={!canRemove} onClick={onRemove}><Trash2 size={12} /></IconButton>
+      </div>
+    </Reorder.Item>
   );
 }
 
@@ -508,6 +614,12 @@ export function ModelProfilesSection() {
     setEditingId(p.id);
   }
 
+  // 맨 위가 앱을 켤 때 연결되는 기본 프로필이다(App 의 시작 연결). 순서만 바꾸고
+  // 지금 연결은 건드리지 않는다.
+  function reorder(profiles: ModelProfile[]) {
+    commit({ ...state, profiles });
+  }
+
   function removeProfile(id: string) {
     const profiles = state.profiles.filter((p) => p.id !== id);
     if (!profiles.length) return; // 마지막 하나는 남긴다
@@ -516,112 +628,100 @@ export function ModelProfilesSection() {
   }
 
   return (
-    <section className="settings-section">
-      <div className="settings-section__header">
-        <h3 className="settings-section__title">모델 프로필</h3>
-        <button className="settings-btn settings-btn--ghost" onClick={scanModels} disabled={scanning}>
-          <RefreshCw size={12} className={scanning ? "ui-spin" : undefined} />
-          모델 새로고침
-        </button>
-      </div>
-      <p className="settings-section__desc">
-        한 번 설정해두고 목록에서 누르면 연결된다. 로컬 모델은 눌렀을 때 앱이 직접 띄우고,
-        외부 서버는 이미 떠 있는 OpenAI 호환 엔드포인트에 붙는다. Claude 는 API 키로
-        Anthropic 에 묻는다 — 이때는 대화가 맥 밖으로 나간다. 제목 표시줄의 모델 칩에서도 바꿀 수 있다.
-      </p>
-
-      <Collapse open={!!error}>
-        <div className="server-error" onClick={() => setError(null)}>{error}</div>
+    <>
+      {/* Claude 로 묻는 동안엔 이번 주기에 얼마 썼는지가 늘 보여야 한다 — 돈이 나간다. */}
+      <Collapse open={!!active && isClaudeProfile(active)}>
+        <section className="settings-section">
+          <ClaudeUsageMeter />
+        </section>
       </Collapse>
+      <section className="settings-section">
+        <div className="settings-section__header">
+          <h3 className="settings-section__title">모델 프로필</h3>
+          <button className="settings-btn settings-btn--ghost" onClick={scanModels} disabled={scanning}>
+            <RefreshCw size={12} className={scanning ? "ui-spin" : undefined} />
+            모델 새로고침
+          </button>
+        </div>
+        <Collapse open={!!error}>
+          <div className="server-error" onClick={() => setError(null)}>{error}</div>
+        </Collapse>
 
-      <div className="profile-list">
-        <AnimatePresence mode="popLayout" initial={false}>
-          {state.profiles.map((p) => {
-            const isActive = p.id === state.activeId;
-            return (
-              <motion.div key={p.id} {...listItem}
-                className={`profile-row ${isActive ? "profile-row--active" : ""} ${editingId === p.id ? "profile-row--editing" : ""}`}>
-                <button className="profile-row__main" onClick={() => connect(p)} disabled={busyId !== null}>
-                  <span className={`profile-row__dot ${isActive && live ? "profile-row__dot--live" : ""}`} />
-                  <span className="profile-row__text">
-                    <span className="profile-row__name">{p.name}</span>
-                    <span className="profile-row__sub">{modelLabel(p)}</span>
-                  </span>
-                  <span className="profile-row__state">
-                    {busyId === p.id
-                      ? <><Loader2 size={11} className="ui-spin" />연결 중</>
-                      : isActive
-                      ? (live ? "연결됨" : isClaudeProfile(p) ? "키 없음" : "중지됨")
-                      : isClaudeProfile(p) ? "Claude" : p.config ? "로컬" : "외부"}
-                  </span>
-                </button>
-                <div className="mcp-row__btns">
-                  <IconButton label="편집" onClick={() => setEditingId(editingId === p.id ? null : p.id)}>
-                    <Pencil size={12} />
-                  </IconButton>
-                  <IconButton label="삭제" danger disabled={state.profiles.length < 2} onClick={() => removeProfile(p.id)}>
-                    <Trash2 size={12} />
-                  </IconButton>
-                </div>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-      </div>
-
-      <div className="settings-row">
-        <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("local")}><Plus size={12} />로컬 모델</button>
-        <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("external")}><Plus size={12} />외부 서버</button>
-        <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("claude")}><Plus size={12} />Claude</button>
-      </div>
-
-      <Collapse open={!!editing}>
-        {editing && (
-          <div className="profile-editor">
-            <div className="settings-field">
-              <span className="settings-field__label">이름</span>
-              <input className="settings-input" value={editing.name}
-                onChange={(e) => patchProfile(editing.id, { name: e.target.value })} />
-            </div>
-
-            {editing.config ? (
-              <>
-                <LlamaConfigFields
-                  config={editing.config}
-                  models={models}
-                  onChange={(patch) => patchProfile(editing.id, { config: { ...editing.config!, ...patch } })}
-                />
-                <div className="settings-row settings-row--right">
-                  <button className="settings-btn settings-btn--stop"
-                    onClick={() => stopManaged(editing)}
-                    disabled={busyId !== null || !(editing.id === state.activeId && live)}>
-                    중지
-                  </button>
-                  <button className="settings-btn settings-btn--start"
-                    onClick={() => connect(editing)}
-                    disabled={busyId !== null || !editing.config.model}>
-                    {busyId === editing.id ? <Loader2 size={12} className="ui-spin" /> : "실행"}
-                  </button>
-                </div>
-              </>
-            ) : isClaudeProfile(editing) ? (
-              <ClaudeProfileFields
-                profile={editing}
-                onChange={(patch) => patchProfile(editing.id, patch)}
-                onKeySaved={() => { if (editing.id === state.activeId) setLive(true); }}
+        <Reorder.Group as="div" axis="y" values={state.profiles} onReorder={reorder} className="profile-list">
+          <AnimatePresence mode="popLayout" initial={false}>
+            {state.profiles.map((p, i) => (
+              <ProfileRow
+                key={p.id}
+                profile={p}
+                isDefault={i === 0}
+                isActive={p.id === state.activeId}
+                live={live}
+                busy={busyId === p.id}
+                disabled={busyId !== null}
+                editing={editingId === p.id}
+                canRemove={state.profiles.length > 1}
+                onConnect={() => connect(p)}
+                onEdit={() => setEditingId(editingId === p.id ? null : p.id)}
+                onRemove={() => removeProfile(p.id)}
               />
-            ) : (
+            ))}
+          </AnimatePresence>
+        </Reorder.Group>
+
+        <div className="settings-row">
+          <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("local")}><Plus size={12} />로컬 모델</button>
+          <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("external")}><Plus size={12} />외부 서버</button>
+          <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("claude")}><Plus size={12} />Claude</button>
+        </div>
+
+        <Collapse open={!!editing}>
+          {editing && (
+            <div className="profile-editor">
               <div className="settings-field">
-                <span className="settings-field__label">주소</span>
-                <input className="settings-input" value={editing.url}
-                  placeholder="http://192.168.0.10:8080"
-                  onChange={(e) => patchProfile(editing.id, { url: e.target.value })} />
+                <span className="settings-field__label">이름</span>
+                <input className="settings-input" value={editing.name}
+                  onChange={(e) => patchProfile(editing.id, { name: e.target.value })} />
               </div>
-            )}
-          </div>
-        )}
-      </Collapse>
-    </section>
+
+              {editing.config ? (
+                <>
+                  <LlamaConfigFields
+                    config={editing.config}
+                    models={models}
+                    onChange={(patch) => patchProfile(editing.id, { config: { ...editing.config!, ...patch } })}
+                  />
+                  <div className="settings-row settings-row--right">
+                    <button className="settings-btn settings-btn--stop"
+                      onClick={() => stopManaged(editing)}
+                      disabled={busyId !== null || !(editing.id === state.activeId && live)}>
+                      중지
+                    </button>
+                    <button className="settings-btn settings-btn--start"
+                      onClick={() => connect(editing)}
+                      disabled={busyId !== null || !editing.config.model}>
+                      {busyId === editing.id ? <Loader2 size={12} className="ui-spin" /> : "실행"}
+                    </button>
+                  </div>
+                </>
+              ) : isClaudeProfile(editing) ? (
+                <ClaudeProfileFields
+                  profile={editing}
+                  onChange={(patch) => patchProfile(editing.id, patch)}
+                  onKeySaved={() => { if (editing.id === state.activeId) setLive(true); }}
+                />
+              ) : (
+                <div className="settings-field">
+                  <span className="settings-field__label">주소</span>
+                  <input className="settings-input" value={editing.url}
+                    placeholder="http://192.168.0.10:8080"
+                    onChange={(e) => patchProfile(editing.id, { url: e.target.value })} />
+                </div>
+              )}
+            </div>
+          )}
+        </Collapse>
+      </section>
+    </>
   );
 }
 

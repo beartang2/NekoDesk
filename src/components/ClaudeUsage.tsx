@@ -2,8 +2,8 @@ import { useEffect } from "react";
 import { nextResetFor, useClaudeBudget } from "../stores/claudeBudget";
 import "./ClaudeUsage.css";
 
-/** 이번 주기 사용액 / 예산. 제목 표시줄 팝업과 설정에서 같이 쓴다. */
-export function ClaudeUsageMeter({ compact = false }: { compact?: boolean }) {
+/** 이번 주기 사용액 / 예산. */
+export function ClaudeUsageMeter() {
   const settings = useClaudeBudget((s) => s.settings);
   const usage = useClaudeBudget((s) => s.usage);
   const refresh = useClaudeBudget((s) => s.refresh);
@@ -28,11 +28,9 @@ export function ClaudeUsageMeter({ compact = false }: { compact?: boolean }) {
           <span className={`claude-meter__fill claude-meter__fill--${level}`} style={{ width: `${ratio * 100}%` }} />
         </div>
       )}
-      {!compact && (
-        <div className="claude-meter__sub">
-          요청 {usage.requests.toLocaleString()}회 · {nextResetFor(new Date(), settings.resetDay)} 에 0 으로
-        </div>
-      )}
+      <div className="claude-meter__sub">
+        요청 {usage.requests.toLocaleString()}회 · {nextResetFor(new Date(), settings.resetDay)} 에 0 으로
+      </div>
     </div>
   );
 }

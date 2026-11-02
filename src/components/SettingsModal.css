@@ -748,10 +748,39 @@ code.rule-row__key {
   align-items: center;
   gap: 4px;
   padding: 4px 4px 4px 10px;
+  user-select: none; /* 꾹 누르는 동안 글자가 잡히지 않게 */
+}
+
+/* 꾹 눌러 들어 올린 줄. 크기는 motion(whileDrag)이, 그림자는 여기서. 다른 줄 위를
+   지나가므로 바탕을 불투명하게 깐다 — 반투명이면 밑의 글자가 비친다. */
+.profile-row.profile-row--lifted {
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-lg);
+  cursor: grabbing;
+}
+
+.profile-row--lifted .profile-row__main {
+  cursor: grabbing;
+}
+
+.profile-row__default {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 500;
+  vertical-align: 1px;
 }
 
 .profile-row--active {
   background: var(--layer-selected);
+}
+
+.profile-row.profile-row--active.profile-row--lifted {
+  background: color-mix(in oklab, var(--accent) 16%, var(--bg-raised));
+  box-shadow: var(--shadow-lg);
 }
 
 .profile-row--active:hover {
@@ -1145,4 +1174,10 @@ code.rule-row__key {
   line-height: 1.5;
   color: var(--text-secondary);
   word-break: keep-all;
+}
+
+/* 모델 탭 맨 위의 Claude 사용량 카드. 섹션이 이미 면이라 계기판은 면을 겹쳐 깔지 않는다. */
+.settings-section > .claude-meter {
+  padding: 0;
+  background: none;
 }

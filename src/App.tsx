@@ -20,7 +20,6 @@ import { useCatStore } from "./stores/catStore";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPanel";
 import { MenuModal } from "./components/MenuModal";
-import { ModelSwitcher } from "./components/ModelSwitcher";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { useDrawingGame } from "./hooks/useDrawingGame";
 import { useWordChainGame } from "./hooks/useWordChainGame";
@@ -64,7 +63,7 @@ import type {
   Todo,
 } from "./agent/types";
 import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
-import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl } from "./stores/modelProfiles";
+import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl, saveProfiles } from "./stores/modelProfiles";
 import { listen } from "@tauri-apps/api/event";
 import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
 import { clock, parseDbTime, setTimeZone } from "./lib/time";
@@ -196,7 +195,6 @@ function TitleBar({
   onThemeToggle,
   rightPanelVisible,
   onToggleRightPanel,
-  onManageModels,
 }: {
   sessionTitle: string;
   onSettings: () => void;
@@ -204,7 +202,6 @@ function TitleBar({
   onThemeToggle: () => void;
   rightPanelVisible: boolean;
   onToggleRightPanel: () => void;
-  onManageModels: () => void;
 }) {
   return (
     <header
@@ -223,7 +220,6 @@ function TitleBar({
       <span className="titlebar__name">NekoDesk</span>
       <span className="titlebar__sep">/</span>
       <span className="titlebar__session">{sessionTitle}</span>
-      <ModelSwitcher onManage={onManageModels} />
       <button className="titlebar__settings" onClick={onThemeToggle} title={isDark ? "라이트 모드" : "다크 모드"}>
         {isDark ? <Sun size={14} /> : <Moon size={14} />}
       </button>
@@ -1631,13 +1627,14 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pool]);
 
-  // 앱을 켜면 마지막에 쓰던 프로필로 되돌아간다. 로컬 모델이면 서버를 띄우고,
-  // 외부 서버면 주소를 맞춘 뒤 살아 있는지 확인한다 — 꺼져 있다는 걸 첫 질문을
-  // 던지고 나서야 알게 되면 늦다.
+  // 앱을 켜면 목록 맨 위 프로필(설정에서 꾹 눌러 끌어 정한다)로 연결한다. 로컬 모델이면
+  // 서버를 띄우고, 외부 서버면 주소를 맞춘 뒤 살아 있는지 확인한다 — 꺼져 있다는 걸
+  // 첫 질문을 던지고 나서야 알게 되면 늦다.
   useEffect(() => {
-    const { profiles, activeId: profileId } = loadProfiles();
-    const active = profiles.find((p) => p.id === profileId);
+    const state = loadProfiles();
+    const active = state.profiles[0];
     if (!active) return;
+    if (state.activeId !== active.id) saveProfiles({ ...state, activeId: active.id });
     activateProfile(active)
       .then(async () => {
         // 관리형은 llama_start 가 즉시 죽었는지 이미 확인했다. 모델 로딩엔 수십 초가
@@ -1653,8 +1650,6 @@ export default function App() {
   }, []);
 
   const [menuOpen, setMenuOpen] = useState(false);
-  /** 메뉴를 어느 탭으로 열지. 모델 칩의 "모델 관리" 는 모델 탭으로 바로 연다. */
-  const [menuTab, setMenuTab] = useState<React.ComponentProps<typeof MenuModal>["initialTab"]>(undefined);
   // 닫혀도 퇴장 애니메이션이 끝날 때까지 붙여둔다.
   const [menuMounted, setMenuMounted] = useState(false);
   if (menuOpen && !menuMounted) setMenuMounted(true);
@@ -1862,16 +1857,14 @@ export default function App() {
       <BootSplash />
       <TitleBar
         sessionTitle={activeSession?.title ?? ""}
-        onSettings={() => { setMenuTab(undefined); setMenuOpen(true); }}
+        onSettings={() => setMenuOpen(true)}
         isDark={isDark}
         onThemeToggle={toggleTheme}
         rightPanelVisible={rightPanelVisible}
         onToggleRightPanel={() => setRightPanelVisible((v) => !v)}
-        onManageModels={() => { setMenuTab("model"); setMenuOpen(true); }}
       />
       {menuMounted && (
         <MenuModal
-          initialTab={menuTab}
           onClose={() => setMenuOpen(false)}
           isDark={isDark}
           leaving={!menuOpen}
