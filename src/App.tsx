@@ -1928,7 +1928,7 @@ export default function App() {
               <div key={i} className="chat-aurora__lobe" style={style} />
             ))}
           </div>
-          {/* 안내는 오로라 위에 떠 있다. 흐름에 두면 채팅 칸이 밀려 오로라도 같이 내려갔다. */}
+          {/* 안내는 채팅 칸 위에 떠 있고, 오로라가 그 위에 비친다. 흐름에 두면 채팅 칸이 밀려 오로라도 같이 내려갔다. */}
           <div className="chat-banners">
             {connectError && (
               <ErrorBanner message={connectError} onDismiss={() => setConnectError(null)} />

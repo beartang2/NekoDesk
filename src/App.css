@@ -666,7 +666,8 @@ html, body, #root {
   position: absolute;
   inset: -20% -10% auto;
   height: 50%;
-  z-index: 0;
+  /* 맨 위 안내(.chat-banners, 3)보다 위 — 안내에도 빛이 비친다. 클릭은 그대로 지나간다. */
+  z-index: 4;
   pointer-events: none;
   /* 너무 흐리면 띠 아래 가장자리가 지워져 물결이 안 보인다. */
   filter: blur(20px) saturate(1.2);
@@ -703,7 +704,7 @@ html, body, #root {
   .chat-aurora__lobe { animation: none; }
 }
 
-/* 메시지·입력창은 오로라 위에 선다. */
+/* 메시지·입력창은 자리를 갖고 서로 위아래를 정한다. 오로라는 이들 위에 빛만 얹는다. */
 .chat-area > *:not(.chat-aurora) {
   position: relative;
   z-index: 1;
