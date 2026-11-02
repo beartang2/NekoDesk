@@ -15,7 +15,7 @@ import "./ChatEmptyState.css";
 /** 실제로 지금 붙어 있는 툴로 처리되는 것들만 고른다. 못 하는 걸 권하면 안 된다. */
 const SUGGESTIONS = [
   { icon: "📋", label: "오늘 할 일이랑 일정 정리해줘" },
-  { icon: "🔍", label: "이번 주 AI 뉴스 찾아서 요약해줘" },
+  { icon: "🔍", label: "이번 달 AI 뉴스 찾아서 요약해줘" },
   { icon: "🎵", label: "음악 틀어줘" },
   { icon: "🎮", label: "끝말잇기 하자" },
 ];
