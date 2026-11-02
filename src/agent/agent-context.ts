@@ -47,6 +47,8 @@ export interface ContextTurn {
   followUps?: (string | ContentPart[])[];
   /** 루프가 이 턴의 마지막 툴 결과 끝에 붙이는 알림(남은 계획). 한 번 붙으면 안 바뀐다. */
   note?: string;
+  /** Claude 응답의 블록 원본(생각 블록 포함). 있으면 assistant 메시지로 그대로 돌려보낸다. */
+  raw?: unknown[];
 }
 
 /** 내용 맨 앞에 글을 붙인다. 이미지가 섞인 내용이면 맨 앞에 글 조각을 하나 더한다. */
@@ -261,6 +263,7 @@ function nativeTurnMessages(turn: ContextTurn, verbatim: boolean): LlmMessage[] 
       role: "assistant",
       content: turn.text,
       tool_calls: toWireToolCalls(turn.calls.map((c) => c.call)),
+      ...(turn.raw ? { anthropic_content: turn.raw } : {}),
     },
     ...turn.calls.map(
       ({ call, step }): LlmMessage => ({

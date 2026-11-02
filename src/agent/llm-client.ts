@@ -272,6 +272,7 @@ export interface LlmCompletion {
   text: string;
   reasoning: string;
   toolCalls: ToolCall[];
+  raw?: unknown[];
 }
 
 /**
@@ -310,6 +311,7 @@ export async function fetchCompletionMessage(
     }>;
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
     timings?: { predicted_per_second?: number };
+    anthropic_content?: unknown[];
   };
   if (data.usage?.prompt_tokens !== undefined) {
     onUsage?.(data.usage.prompt_tokens, data.timings?.predicted_per_second);
@@ -319,6 +321,7 @@ export async function fetchCompletionMessage(
     text: message?.content ?? "",
     reasoning: message?.reasoning_content ?? "",
     toolCalls: fromWireToolCalls(message?.tool_calls),
+    ...(data.anthropic_content ? { raw: data.anthropic_content } : {}),
   };
 }
 
@@ -470,7 +473,10 @@ export async function* fetchStream(
             usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
             // llama.cpp 는 usage 와 같은 마지막 청크에 timings 를 싣는다.
             timings?: { predicted_per_second?: number };
+            // Claude 전송 계층이 끝에 싣는 블록 원본(claude-messages).
+            anthropic_content?: unknown[];
           };
+          if (chunk.anthropic_content) yield { content: "", done: false, raw: chunk.anthropic_content };
           if (chunk.usage?.prompt_tokens !== undefined) {
             onUsage?.(chunk.usage.prompt_tokens, chunk.timings?.predicted_per_second);
           }
@@ -870,7 +876,7 @@ async function nativeTurn(
   const allMessages = buildAgentMessages(messages, userInput, true, memories);
   const params: LlmParams = { tools: buildToolSchemas() };
 
-  const toTurn = ({ text, toolCalls }: LlmCompletion): AgentTurn => ({ text, toolCalls });
+  const toTurn = ({ text, toolCalls, raw }: LlmCompletion): AgentTurn => ({ text, toolCalls, ...(raw ? { raw } : {}) });
 
   try {
     return toTurn(await fetchCompletionMessage(allMessages, params, onUsage, signal));
@@ -903,6 +909,7 @@ async function* nativeTurnStream(
   const p = loadGenParams();
   const accumulator = new ToolCallAccumulator();
   let text = "";
+  let raw: unknown[] | undefined;
   let emitted = 0;
 
   try {
@@ -917,6 +924,7 @@ async function* nativeTurnStream(
         yield { type: "thinking", text: chunk.reasoning };
       }
       if (chunk.toolCalls) accumulator.push(chunk.toolCalls);
+      if (chunk.raw) raw = chunk.raw;
       if (chunk.content) {
         text += chunk.content;
         emitted++;
@@ -931,7 +939,7 @@ async function* nativeTurnStream(
     return;
   }
 
-  yield { type: "turn", turn: { text: text.trim(), toolCalls: accumulator.finish() } };
+  yield { type: "turn", turn: { text: text.trim(), toolCalls: accumulator.finish(), ...(raw ? { raw } : {}) } };
 }
 
 /**

@@ -796,6 +796,7 @@ export async function* runAgentLoop(
     context.addTurn({
       text: turn.text,
       calls: [...executed, ...repeated],
+      raw: turn.raw,
       followUps: review ? [review] : undefined,
       // Claude 는 남은 계획을 이 턴에 한 번 붙여 두고 다시 안 건드린다(withPlan 은 매 턴 붙였다 뗀다).
       note: claude && !executed.some(({ call }) => call.name.startsWith("plan.")) ? planNote(plan) : undefined,

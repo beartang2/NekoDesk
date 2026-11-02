@@ -11,6 +11,8 @@ export interface LlmMessage {
   tool_calls?: WireToolCall[];
   /** native tool calling: 이 tool 메시지가 어느 호출의 결과인지. */
   tool_call_id?: string;
+  /** Claude 가 이 assistant 턴에 돌려준 블록 원본(생각 블록 포함). 있으면 그대로 다시 보낸다. */
+  anthropic_content?: unknown[];
 }
 
 /** 서버로 오가는 OpenAI 형식의 툴 호출. arguments 는 JSON 문자열이다. */
@@ -47,6 +49,8 @@ export interface LlmStreamChunk {
   reasoning?: string;
   toolCalls?: RawToolCallDelta[];
   finishReason?: string | null;
+  /** Claude 응답의 블록 원본. 스트림 끝에 한 번 온다. */
+  raw?: unknown[];
 }
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
@@ -122,6 +126,8 @@ export interface ToolCall {
 export interface AgentTurn {
   text: string;
   toolCalls: ToolCall[];
+  /** Claude 응답의 블록 원본. 다음 요청에 이 턴을 그대로 돌려보낼 때 쓴다. */
+  raw?: unknown[];
 }
 
 // ── DB records ────────────────────────────────────────────────────────────────

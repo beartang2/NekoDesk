@@ -1,12 +1,12 @@
 //! Claude API 중계.
 //!
-//! 화면(webview)은 OpenAI 호환 `chat/completions` 본문을 만들어 넘기기만 하고, 키는 여기서
+//! 화면(webview)은 Messages API 본문을 만들어 넘기기만 하고(claude-messages.ts), 키는 여기서
 //! 키체인에서 꺼내 붙인다. 키가 화면으로 넘어가지 않으니 secrets.rs 의 원칙("값을 쓰는 건
 //! 백엔드뿐")이 그대로 지켜지고, 주소가 이 파일에 박혀 있으니 프롬프트 인젝션으로 툴이 꼬여도
 //! 키가 다른 호스트로 새지 않는다.
 //!
-//! 응답은 받은 그대로(SSE 든 JSON 이든) 채널로 흘려보낸다. 파싱은 llama-server 응답을 읽던
-//! llm-client 가 똑같이 한다 — Anthropic 의 OpenAI 호환 계층이 같은 모양으로 답하기 때문이다.
+//! 응답 SSE 는 받은 그대로 채널로 흘려보낸다. 화면의 전송 계층이 OpenAI 모양으로 바꿔
+//! llm-client 에 넘긴다 — 그래서 llm-client 는 llama-server 응답을 읽던 그대로다.
 
 use crate::error::AppError;
 use serde::Serialize;
@@ -18,7 +18,9 @@ use tauri::ipc::Channel;
 /// 키체인 항목 이름. secrets::KEYS 에도 올라가 있어야 한다.
 pub const KEY_NAME: &str = "anthropic_api_key";
 
-const ENDPOINT: &str = "https://api.anthropic.com/v1/chat/completions";
+/// 앞쪽 기록이 바뀌어 생각 블록이 안 맞을 때 400 대신 그 블록만 버리는 설정
+/// (`thinking.block_binding`)을 쓰려면 이 beta 가 있어야 한다.
+const CHAT_BETA: &str = "thinking-binding-controls-2026-08-01";
 
 /// 화면으로 보내는 사건. 순서대로 온다: Head → Chunk* → End, 또는 어느 시점에든 Error.
 #[derive(Clone, Serialize)]
@@ -101,8 +103,10 @@ async fn stream_once(body: String, on_event: &Channel<ClaudeEvent>) -> Result<()
         .ok_or_else(|| AppError::msg("Claude API 키가 없어. 설정 → 모델 프로필에서 넣어줘."))?;
 
     let mut res = client()
-        .post(ENDPOINT)
-        .bearer_auth(key.trim())
+        .post(MESSAGES_ENDPOINT)
+        .header("x-api-key", key.trim())
+        .header("anthropic-version", API_VERSION)
+        .header("anthropic-beta", CHAT_BETA)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body(body)
         .send()
@@ -164,8 +168,7 @@ pub fn claude_cancel(id: String) -> Result<(), AppError> {
 
 // ── 내장 웹 검색 ─────────────────────────────────────────────────────────────
 //
-// OpenAI 호환 계층은 Anthropic 서버 툴(web_search)을 못 받는다. 그래서 검색만 따로
-// Messages API 로 한 번 보낸다. 대화는 여기 싣지 않는다 — 검색어 하나짜리 독립 요청이라
+// 검색은 대화와 따로 Messages API 로 한 번 보낸다(web.search 툴). 대화는 여기 싣지 않는다 — 검색어 하나짜리 독립 요청이라
 // 대화 기록과 엮인 생각 블록 검사(preserved thinking)에 걸릴 일이 없다.
 //
 // 본문은 화면이 아니라 여기서 만든다. 화면이 넘기는 건 모델 이름·검색어·오늘 날짜뿐이라,
@@ -353,7 +356,6 @@ mod tests {
         assert!(!valid_model("gpt-5"));
         assert!(!valid_model("claude-haiku-5-5\",\"tools\":[]"));
     }
-
 
     #[test]
     fn joiner_holds_split_hangul_until_complete() {

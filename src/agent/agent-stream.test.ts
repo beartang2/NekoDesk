@@ -206,3 +206,24 @@ describe("agentStepStream", () => {
     expect(answer).not.toContain("숨김");
   });
 });
+
+describe("fetchStream", () => {
+  it("Claude 전송 계층이 끝에 싣는 블록 원본을 raw 로 넘긴다 — 다음 턴에 그대로 돌려보낸다", async () => {
+    const { fetchStream } = await import("./llm-client");
+    const raw = [{ type: "thinking", thinking: "", signature: "sig" }];
+    const encoder = new TextEncoder();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "야옹" }, finish_reason: "stop" }] })}\n\n`));
+        c.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }, anthropic_content: raw })}\n\n`));
+        c.enqueue(encoder.encode("data: [DONE]\n\n"));
+        c.close();
+      },
+    }), { status: 200 })));
+
+    const chunks = [];
+    for await (const ch of fetchStream([{ role: "user", content: "hi" }])) chunks.push(ch);
+    expect(chunks.find((c) => c.raw)?.raw).toEqual(raw);
+    expect(chunks.map((c) => c.content).join("")).toBe("야옹");
+  });
+});

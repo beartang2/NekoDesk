@@ -14,13 +14,7 @@ vi.mock("@tauri-apps/api/core", () => {
   return { invoke, Channel };
 });
 
-import {
-  CLAUDE_MIN_MAX_TOKENS,
-  createUsageTap,
-  explainClaudeError,
-  llmFetch,
-  toClaudeBody,
-} from "./llm-transport";
+import { claudeToolNames, explainClaudeError, llmFetch } from "./llm-transport";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useClaudeBudget } from "../stores/claudeBudget";
 
@@ -44,29 +38,11 @@ beforeEach(() => {
   useClaudeBudget.setState((s) => ({ usage: { ...s.usage, spentUsd: 0, requests: 0, inputTokens: 0, outputTokens: 0 } }));
 });
 
-describe("toClaudeBody", () => {
-  it("llama 전용 필드와 temperature 를 빼고 모델을 넣는다", () => {
-    const out = toClaudeBody(
-      { messages: [], max_tokens: 20, temperature: 0.2, grammar: "root ::= x", chat_template_kwargs: {}, stream: true },
-      "claude-haiku-5-5"
-    );
-    expect(out).toEqual({ messages: [], max_tokens: CLAUDE_MIN_MAX_TOKENS, stream: true, model: "claude-haiku-5-5" });
-  });
-
-  it("큰 max_tokens 는 그대로 둔다", () => {
-    expect(toClaudeBody({ messages: [], max_tokens: 9000 }, "m").max_tokens).toBe(9000);
-  });
-
-  it("툴만 부른 assistant 턴의 빈 본문을 null 로 바꾼다 — 빈 텍스트 블록은 Claude 가 거부한다", () => {
-    const call = { id: "1", type: "function", function: { name: "todo.list", arguments: "{}" } };
-    const out = toClaudeBody({ messages: [
-      { role: "assistant", content: "", tool_calls: [call] },
-      { role: "assistant", content: "안녕" },
-    ] }, "m");
-    expect(out.messages).toEqual([
-      { role: "assistant", content: null, tool_calls: [call] },
-      { role: "assistant", content: "안녕" },
-    ]);
+describe("claudeToolNames", () => {
+  it("점이 든 툴 이름을 Claude 가 받는 이름으로 바꾼다 — 원래 있던 이름과 겹치지 않게", () => {
+    const fn = (name: string) => ({ type: "function", function: { name, parameters: {} } });
+    const map = claudeToolNames({ tools: [fn("todo.list"), fn("fs.read"), fn("fs_read")], messages: [] });
+    expect(Object.fromEntries(map)).toEqual({ "todo.list": "todo_list", "fs.read": "fs_read_2" });
   });
 });
 
@@ -83,44 +59,71 @@ describe("explainClaudeError", () => {
   });
 });
 
-describe("createUsageTap", () => {
-  it("스트림의 마지막 usage 를 쓴다", () => {
-    const tap = createUsageTap(true);
-    tap.push('data: {"choices":[{"delta":{"content":"하"}}],"usage":null}\n\ndata: {"choices":[],"us');
-    tap.push('age":{"prompt_tokens":1200,"completion_tokens":80}}\n\ndata: [DONE]\n\n');
-    expect(tap.end()).toEqual({ prompt: 1200, completion: 80 });
-  });
-  it("비스트림은 끝난 뒤 JSON 에서 읽는다", () => {
-    const tap = createUsageTap(false);
-    tap.push('{"choices":[],"usage":{"prompt_tokens":10,');
-    tap.push('"completion_tokens":5}}');
-    expect(tap.end()).toEqual({ prompt: 10, completion: 5 });
-  });
-});
+/** Messages API 의 SSE 한 사건. */
+const sse = (data: Record<string, unknown>) => ({ event: "chunk", data: { text: `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n` } });
+const start = (usage: Record<string, number> = { input_tokens: 10 }) => sse({ type: "message_start", message: { usage } });
+const stop = (reason = "end_turn", output = 5) => [
+  sse({ type: "message_delta", delta: { stop_reason: reason }, usage: { output_tokens: output } }),
+  sse({ type: "message_stop" }),
+];
 
 describe("llmFetch (Claude 프로필)", () => {
-  it("스트림을 Response 로 감싸 돌려주고 사용액을 장부에 적는다", async () => {
+  it("Messages 스트림을 OpenAI 모양으로 바꿔 돌려주고, 캐시를 반영해 사용액을 적는다", async () => {
     script.events = [
       { event: "head", data: { status: 200 } },
-      { event: "chunk", data: { text: 'data: {"choices":[{"delta":{"content":"야옹"}}]}\n\n' } },
-      { event: "chunk", data: { text: 'data: {"choices":[],"usage":{"prompt_tokens":100000,"completion_tokens":1000}}\n\n' } },
+      start({ input_tokens: 10_000, cache_creation_input_tokens: 0, cache_read_input_tokens: 90_000 }),
+      sse({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+      sse({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "야옹" } }),
+      sse({ type: "content_block_stop", index: 0 }),
+      ...stop("end_turn", 1000),
       { event: "end" },
     ];
     const res = await llmFetch("/v1/chat/completions", {
       method: "POST",
-      body: JSON.stringify({ messages: [{ role: "user", content: "hi" }], stream: true, temperature: 0.3 }),
+      body: JSON.stringify({ messages: [{ role: "system", content: "고양이" }, { role: "user", content: "hi" }], stream: true, temperature: 0.3 }),
     });
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("야옹");
+    const text = await res.text();
+    expect(text).toContain('"content":"야옹"');
+    expect(text).toContain('"prompt_tokens":100000');
+    expect(text).toContain("data: [DONE]");
 
     const sent = JSON.parse((invoke.mock.calls.find((c) => c[0] === "claude_chat")![1] as { body: string }).body);
     expect(sent.model).toBe("claude-haiku-5-5");
     expect(sent.temperature).toBeUndefined();
+    expect(sent.system[0].text).toBe("고양이");
+    expect(sent.messages).toEqual([{ role: "user", content: [{ type: "text", text: "hi" }] }]);
 
-    // 100K 는 구간 안(초과가 아님) — 0.1/0.5 요율: 0.01 + 0.0005
+    // 0.1/0.5 요율: 입력 10K 0.001 + 캐시 읽기 90K × 0.1배 0.0009 + 출력 1K 0.0005
     const u = useClaudeBudget.getState().usage;
     expect(u.requests).toBe(1);
-    expect(u.spentUsd).toBeCloseTo(0.0105, 6);
+    expect(u.spentUsd).toBeCloseTo(0.0024, 6);
+  });
+
+  it("스트림을 원하지 않은 호출엔 끝난 응답을 OpenAI JSON 한 덩이로 준다", async () => {
+    script.events = [
+      { event: "head", data: { status: 200 } },
+      start(),
+      sse({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+      sse({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "끝" } }),
+      ...stop(),
+      { event: "end" },
+    ];
+    const res = await llmFetch("/v1/chat/completions", { method: "POST", body: JSON.stringify({ messages: [] }) });
+    const json = await res.json();
+    expect(json.choices[0].message.content).toBe("끝");
+    expect(json.choices[0].finish_reason).toBe("stop");
+  });
+
+  it("스트림 안에서 온 오류(과부하)는 읽는 쪽에 오류로 올린다", async () => {
+    script.events = [
+      { event: "head", data: { status: 200 } },
+      start(),
+      sse({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }),
+      { event: "end" },
+    ];
+    const res = await llmFetch("/v1/chat/completions", { method: "POST", body: '{"stream":true}' });
+    await expect(res.text()).rejects.toThrow(/Overloaded/);
   });
 
   it("오류 응답은 사람이 읽을 말로 바꿔 같은 상태코드로 돌려준다", async () => {
@@ -132,6 +135,27 @@ describe("llmFetch (Claude 프로필)", () => {
     const res = await llmFetch("/v1/chat/completions", { method: "POST", body: "{}" });
     expect(res.status).toBe(400);
     expect(await res.text()).toMatch(/크레딧이 바닥났어/);
+  });
+
+  it("툴 이름을 바꿔 보내고, 돌아온 호출은 원래 이름으로 받는다", async () => {
+    script.events = [
+      { event: "head", data: { status: 200 } },
+      start(),
+      sse({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "c1", name: "todo_add", input: {} } }),
+      sse({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"content":"우유"}' } }),
+      sse({ type: "content_block_stop", index: 0 }),
+      ...stop("tool_use"),
+      { event: "end" },
+    ];
+    const res = await llmFetch("/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ stream: true, messages: [], tools: [{ type: "function", function: { name: "todo.add", parameters: {} } }] }),
+    });
+    const text = await res.text();
+    expect(text).toContain('"name":"todo.add"');
+    expect(text).toContain('"finish_reason":"tool_calls"');
+    const sent = JSON.parse(invoke.mock.calls.find(([cmd]) => cmd === "claude_chat")![1].body);
+    expect(sent.tools[0].name).toBe("todo_add");
   });
 
   it("응답 전에 실패하면(키 없음) 거절한다", async () => {
@@ -162,8 +186,13 @@ describe("llmFetch (Claude 프로필)", () => {
     expect((await llmFetch("/v1/models")).status).toBe(503);
   });
 
-  it("/props 는 64K 상한을 알려준다", async () => {
-    expect((await (await llmFetch("/props")).json()).n_ctx).toBe(64_000);
+  it("/props 는 모델마다 다른 컨텍스트 상한을 알려준다 — 비싼 모델일수록 창이 작다", async () => {
+    const nCtx = async (model: string) =>
+      (await (await llmFetch("/props", {}, `claude://${model}`)).json()).n_ctx;
+    expect(await nCtx("claude-haiku-5-5")).toBe(64_000);
+    expect(await nCtx("claude-sonnet-5-5")).toBe(32_000);
+    expect(await nCtx("claude-opus-5-5")).toBe(16_000);
+    expect(await nCtx("claude-unknown")).toBe(16_000);
   });
 });
 
