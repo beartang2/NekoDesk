@@ -18,6 +18,7 @@ import {
   DEFAULT_CHAT_SYSTEM_PROMPT,
 } from "../agent/llm-client";
 import { getStoredAccent, saveAccentHex, setAccentVars } from "../theme-colors";
+import { useThemePref } from "../lib/theme";
 import { CAT_VARIANTS } from "../cat/spriteData";
 import { useCatStore } from "../stores/catStore";
 import { useSettingsStore, type ImageProvider, type ToolMode } from "../stores/settingsStore";
@@ -1433,6 +1434,8 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
   const catVariantId = useCatStore((s) => s.variantId);
   const onCatVariantChange = useCatStore((s) => s.setVariant);
   // Accent color (full hex — hue + saturation + lightness 모두 반영)
+  const themePref = useThemePref((s) => s.pref);
+  const setThemePref = useThemePref((s) => s.setPref);
   const [accentHex, setAccentHex] = useState(() => getStoredAccent());
   const accentInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1489,6 +1492,22 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
         <div className="settings-modal__body">
           {tab === "neko" && (
             <>
+              {/* ── 테마 ─────────────────────────────────────────────── */}
+              <section className="settings-section">
+                <div className="settings-section__header">
+                  <h3 className="settings-section__title">테마</h3>
+                  <Segmented
+                    value={themePref}
+                    onChange={setThemePref}
+                    options={[
+                      { value: "light", label: "라이트" },
+                      { value: "dark", label: "다크" },
+                      { value: "system", label: "시스템" },
+                    ]}
+                  />
+                </div>
+              </section>
+
               {/* ── 포인트 색상 ──────────────────────────────────────── */}
               <section className="settings-section">
                 <div className="settings-section__header">

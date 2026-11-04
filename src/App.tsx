@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from "react"
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Sun, Moon, Settings, Paperclip, ArrowUp, Zap, Copy, Check, X, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Sun, Moon, Monitor, Settings, Paperclip, ArrowUp, Zap, Copy, Check, X, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { historyStep, type HistoryPos } from "./lib/input-history";
 import { getCurrentWindow, LogicalPosition } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -53,6 +53,7 @@ function stripThink(text: string): string {
 import { storeFile, removeFile } from "./agent/file-store";
 import { resizeImageForLlm } from "./lib/image";
 import { auroraTints, wave } from "./lib/aurora";
+import { systemDarkQuery, useThemePref, windowTheme, type ThemePref } from "./lib/theme";
 import { applyThemeColors } from "./theme-colors";
 import type { ChatMessage, AttachedFile, PendingConfirm, PendingClarify } from "./hooks/useAgentLoop";
 import type {
@@ -79,27 +80,39 @@ const SLEEPY_AFTER_MS = 5 * 60 * 1000;
 
 // ── Title bar ─────────────────────────────────────────────────────────────────
 
-const THEME_KEY = "nekodesk_theme";
-
 function useTheme() {
-  const [isDark, setIsDark] = useState<boolean>(() => {
-    const saved = localStorage.getItem(THEME_KEY);
-    return saved ? saved === "dark" : false;
-  });
+  const pref = useThemePref((s) => s.pref);
+  const setPref = useThemePref((s) => s.setPref);
+  // 시스템을 고르면 창 테마를 null 로 풀어 준 뒤에야 macOS 값이 들어온다. change 로 받는다.
+  const [systemDark, setSystemDark] = useState(() => systemDarkQuery().matches);
+  useEffect(() => {
+    const q = systemDarkQuery();
+    const onChange = () => setSystemDark(q.matches);
+    q.addEventListener("change", onChange);
+    return () => q.removeEventListener("change", onChange);
+  }, []);
+  const isDark = pref === "system" ? systemDark : pref === "dark";
+
+  useEffect(() => {
+    getCurrentWindow().setTheme(windowTheme(pref)).catch(() => {});
+  }, [pref]);
 
   useEffect(() => {
     const root = document.documentElement;
     root.classList.add("theme-transitioning");
     root.classList.toggle("light", !isDark);
-    localStorage.setItem(THEME_KEY, isDark ? "dark" : "light");
-    getCurrentWindow().setTheme(isDark ? "dark" : "light").catch(() => {});
     applyThemeColors(isDark);
     const t = setTimeout(() => root.classList.remove("theme-transitioning"), 250);
     return () => clearTimeout(t);
   }, [isDark]);
 
-  return { isDark, toggle: () => setIsDark((v) => !v) };
+  return { isDark, pref, cycle: () => setPref(THEME_NEXT[pref]) };
 }
+
+/** 제목 표시줄 테마 버튼. 아이콘은 지금 상태, 누르면 다음 것으로 넘어간다. */
+const THEME_NEXT: Record<ThemePref, ThemePref> = { light: "dark", dark: "system", system: "light" };
+const THEME_LABEL: Record<ThemePref, string> = { light: "라이트", dark: "다크", system: "시스템" };
+const THEME_ICON: Record<ThemePref, typeof Sun> = { light: Sun, dark: Moon, system: Monitor };
 
 // ── Zoom ──────────────────────────────────────────────────────────────────────
 
@@ -191,18 +204,19 @@ function dragWindow(startX: number, startY: number) {
 function TitleBar({
   sessionTitle,
   onSettings,
-  isDark,
+  themePref,
   onThemeToggle,
   rightPanelVisible,
   onToggleRightPanel,
 }: {
   sessionTitle: string;
   onSettings: () => void;
-  isDark: boolean;
+  themePref: ThemePref;
   onThemeToggle: () => void;
   rightPanelVisible: boolean;
   onToggleRightPanel: () => void;
 }) {
+  const ThemeIcon = THEME_ICON[themePref];
   return (
     <header
       className="titlebar"
@@ -220,8 +234,9 @@ function TitleBar({
       <span className="titlebar__name">NekoDesk</span>
       <span className="titlebar__sep">/</span>
       <span className="titlebar__session">{sessionTitle}</span>
-      <button className="titlebar__settings" onClick={onThemeToggle} title={isDark ? "라이트 모드" : "다크 모드"}>
-        {isDark ? <Sun size={14} /> : <Moon size={14} />}
+      <button className="titlebar__settings" onClick={onThemeToggle}
+        title={`테마: ${THEME_LABEL[themePref]} — 누르면 ${THEME_LABEL[THEME_NEXT[themePref]]}`}>
+        <ThemeIcon size={14} />
       </button>
       <button className="titlebar__settings" onClick={onSettings} title="설정">
         <Settings size={14} />
@@ -1734,7 +1749,7 @@ export default function App() {
     setShowScrollBtn(show);
     scrollToBottomRef.current = scrollFn;
   }, []);
-  const { isDark, toggle: toggleTheme } = useTheme();
+  const { isDark, pref: themePref, cycle: cycleTheme } = useTheme();
   useZoom();
   const activeSession = sessions.find((s) => s.id === activeId);
 
@@ -1820,10 +1835,10 @@ export default function App() {
       { id: "settings", icon: "⚙️", label: "설정 열기", keywords: "settings 설정 환경설정", run: () => setMenuOpen(true) },
       {
         id: "theme",
-        icon: isDark ? "☀️" : "🌙",
-        label: isDark ? "라이트 모드로 전환" : "다크 모드로 전환",
-        keywords: "theme dark light 테마 다크 라이트",
-        run: toggleTheme,
+        icon: { light: "☀️", dark: "🌙", system: "🖥️" }[themePref],
+        label: `테마: ${THEME_LABEL[themePref]} → ${THEME_LABEL[THEME_NEXT[themePref]]}`,
+        keywords: "theme dark light system 테마 다크 라이트 시스템",
+        run: cycleTheme,
       },
       {
         id: "rightpanel",
@@ -1847,7 +1862,7 @@ export default function App() {
       }));
     return [...base, ...go];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDark, rightPanelVisible, sessions, activeId]);
+  }, [themePref, rightPanelVisible, sessions, activeId]);
 
   return (
     <div className={`app${isDragging ? " app--resizing" : ""}`} style={appStyle}>
@@ -1855,8 +1870,8 @@ export default function App() {
       <TitleBar
         sessionTitle={activeSession?.title ?? ""}
         onSettings={() => setMenuOpen(true)}
-        isDark={isDark}
-        onThemeToggle={toggleTheme}
+        themePref={themePref}
+        onThemeToggle={cycleTheme}
         rightPanelVisible={rightPanelVisible}
         onToggleRightPanel={() => setRightPanelVisible((v) => !v)}
       />

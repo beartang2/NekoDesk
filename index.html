@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NekoDesk</title>
     <script>
-      // Apply theme before first paint to avoid flash
-      if (localStorage.getItem("nekodesk_theme") === "light") {
-        document.documentElement.classList.add("light");
-      }
+      // Apply theme before first paint to avoid flash (same rule as src/lib/theme.ts)
+      var pref = localStorage.getItem("nekodesk_theme");
+      var dark = pref === "dark" || (pref === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+      if (!dark) document.documentElement.classList.add("light");
     </script>
   </head>
   <body>
