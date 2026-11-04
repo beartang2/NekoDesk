@@ -6,7 +6,8 @@ export type ThemePref = "light" | "dark" | "system";
 const THEME_KEY = "nekodesk_theme";
 
 export function loadThemePref(): ThemePref {
-  const v = localStorage.getItem(THEME_KEY);
+  // 스토어가 import 시점에 읽는다. localStorage 없는 곳(node 테스트)에서도 죽지 않게.
+  const v = globalThis.localStorage?.getItem(THEME_KEY);
   return v === "dark" || v === "system" ? v : "light";
 }
 
