@@ -6,7 +6,7 @@
 import random
 from math import cos, sin, pi
 
-OUTLINE = 18                   # 덩어리 바깥 외곽선
+OUTLINE = 22                   # 덩어리 바깥 외곽선
 DETAIL = round(OUTLINE * 0.6)  # 안쪽 디테일 선 — 외곽선보다 40% 얇게
 FINE = round(OUTLINE * 0.28)   # 빗금·머리결·주름
 INK = "#141414"
@@ -75,16 +75,6 @@ def eye(cx, cy, r, look=(0, 1), iris="#E9E27A", seed=1):
     px, py = cx - look[0] / k * r * 0.16, cy - look[1] / k * r * 0.16
     return (shape(ring(cx, cy, r, seed=seed), iris, w=DETAIL, slip=(0, 0), seed=seed)
             + shape(ring(px, py, r * 0.84, seed=seed + 1), INK, w=0, slip=(0, 0)))
-
-def human_eye(cx, cy, r, iris="#5B8FD9", dark="#2F4E8C", seed=1):
-    """사람 눈: 큰 홍채(위쪽 절반이 어둡다) + 굵은 윗눈꺼풀 + 흰 반사광 둘."""
-    out = shape(ring(cx, cy + r * 0.08, r, r * 1.1, seed=seed), iris, w=DETAIL, slip=(0, 0),
-                dark=dark, light=(0, 0.35), seed=seed)
-    out += stroke([(cx - r * 1.15, cy - r * 0.55), (cx - r * 0.5, cy - r * 1.12),
-                   (cx + r * 0.5, cy - r * 1.12), (cx + r * 1.15, cy - r * 0.5)], w=round(OUTLINE * 1.4), seed=seed + 2)
-    out += shape(ring(cx - r * 0.35, cy - r * 0.35, r * 0.28, r * 0.22, seed=seed + 3), "#FFFFFF", w=0, slip=(0, 0))
-    out += shape(ring(cx + r * 0.38, cy + r * 0.42, r * 0.12, seed=seed + 4), "#FFFFFF", w=0, slip=(0, 0))
-    return out
 
 def save(name, *parts, bg="#FFFFFF", size=1536):
     """조각들을 SVG 한 장으로 저장한다 — 머리말·배경·닫는 태그는 여기서 붙인다(빼먹으면 그림이 깨진다).
