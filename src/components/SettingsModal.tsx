@@ -41,7 +41,7 @@ import {
 import {
   CLAUDE_MODELS, claudeContextCap, claudeLabel, claudeModelOf, claudeUrl, findClaudeModel, maxOutputTokensFor,
 } from "../lib/claude-models";
-import { CLAUDE_KEY } from "../agent/llm-transport";
+import { CLAUDE_KEY, PLAIN_HTTP_HINT, isPlainHttp } from "../agent/llm-transport";
 import { ClaudeBudgetFields, ClaudeUsageMeter } from "./ClaudeUsage";
 import {
   forgetAlwaysRule,
@@ -714,8 +714,11 @@ export function ModelProfilesSection() {
                 <div className="settings-field">
                   <span className="settings-field__label">주소</span>
                   <input className="settings-input" value={editing.url}
-                    placeholder="http://192.168.0.10:8080"
+                    placeholder="https://my-server.example.com"
                     onChange={(e) => patchProfile(editing.id, { url: e.target.value })} />
+                  <Collapse open={isPlainHttp(editing.url)}>
+                    <div className="server-error">{PLAIN_HTTP_HINT} 이 주소로는 연결하지 않아.</div>
+                  </Collapse>
                 </div>
               )}
             </div>

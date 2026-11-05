@@ -14,7 +14,7 @@ vi.mock("@tauri-apps/api/core", () => {
   return { invoke, Channel };
 });
 
-import { claudeToolNames, explainClaudeError, llmFetch } from "./llm-transport";
+import { claudeToolNames, explainClaudeError, isPlainHttp, llmFetch } from "./llm-transport";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useClaudeBudget } from "../stores/claudeBudget";
 
@@ -202,4 +202,23 @@ it("로컬 주소면 그냥 fetch 한다", async () => {
   await llmFetch("/v1/models", {}, "http://127.0.0.1:8803");
   expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8803/v1/models", {});
   vi.unstubAllGlobals();
+});
+
+describe("평문 http 막기", () => {
+  it("맥 안·Tailscale 은 http 여도 괜찮고, 같은 와이파이의 다른 기기는 막는다", () => {
+    for (const ok of ["http://localhost:8803", "http://127.0.0.1:8080", "http://[::1]:8080", "http://100.101.2.3:8080",
+      "http://box.tail1234.ts.net:8080", "https://192.168.0.10:8080", "claude://claude-haiku-5-5"]) {
+      expect(isPlainHttp(ok), ok).toBe(false);
+    }
+    for (const bad of ["http://192.168.0.10:8080", "http://10.0.0.2", "http://my-server.local:8080", "http://100.20.1.1"]) {
+      expect(isPlainHttp(bad), bad).toBe(true);
+    }
+  });
+
+  it("평문 http 주소로는 요청을 내보내지 않는다", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(llmFetch("/v1/models", {}, "http://192.168.0.10:8080")).rejects.toThrow(/보내지 않았어/);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
 });

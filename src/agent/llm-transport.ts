@@ -238,12 +238,31 @@ async function claudeLocal(model: string, path: string): Promise<Response> {
 }
 
 /**
+ * 대화가 평문으로 네트워크를 지나는 주소인가. http 는 이 맥 안(loopback, SSH 터널 포함)과
+ * Tailscale(WireGuard 로 이미 암호화된다)만 괜찮다 — 같은 와이파이의 누구나 대화를 읽는다.
+ */
+export function isPlainHttp(url: string): boolean {
+  let u: URL;
+  try { u = new URL(url); } catch { return false; }
+  if (u.protocol !== "http:") return false;
+  const host = u.hostname.replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host === "::1" || /^127\./.test(host) || host.endsWith(".ts.net")) return false;
+  const m = /^100\.(\d+)\./.exec(host);
+  return !(m && +m[1] >= 64 && +m[1] <= 127); // 100.64.0.0/10 — Tailscale 주소
+}
+
+export const PLAIN_HTTP_HINT =
+  "http 로는 대화가 암호화 없이 네트워크를 지나간다. https 주소를 쓰거나, " +
+  "`ssh -L 8080:localhost:8080 서버` 로 터널을 열고 http://localhost:8080 에 붙거나, Tailscale 주소를 써.";
+
+/**
  * `${base}${path}` 로 보내는 fetch 와 같다. base 를 안 주면 활성 프로필 주소다.
- * Claude 주소면 위의 중계로 돌린다.
+ * Claude 주소면 위의 중계로 돌린다. 평문 http 로 맥 밖에 보내는 건 막는다.
  */
 export async function llmFetch(path: string, init: RequestInit = {}, base?: string): Promise<Response> {
   const url = base ?? useSettingsStore.getState().llmUrl;
   const model = claudeModelOf(url);
+  if (!model && isPlainHttp(url)) throw new Error(`이 주소로는 보내지 않았어. ${PLAIN_HTTP_HINT}`);
   if (!model) return fetch(`${url}${path}`, init);
   if (path === "/v1/chat/completions") return claudeChat(model, init);
   return claudeLocal(model, path);
