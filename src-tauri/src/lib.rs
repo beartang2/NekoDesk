@@ -108,7 +108,13 @@ fn grow_boot_window(window: &tauri::WebviewWindow, max_w: f64, max_h: f64) -> Re
     window.run_on_main_thread(move || {
         let _ = tx.send(unsafe { boot_frames(ns as *mut AnyObject, max_w, max_h) });
     })?;
-    let Some((from, to)) = rx.recv().ok().flatten() else { return Ok(()) };
+    // 창이 놓인 화면을 못 찾으면(켜자마자 최소화·다른 앱으로 넘어감) 애니메이션 없이 그냥 키운다.
+    // 예전엔 여기서 그대로 돌아가, 창이 부팅 크기(360×300)로 남아 최소 크기보다 작았다.
+    let Some((from, to)) = rx.recv().ok().flatten() else {
+        window.set_size(tauri::LogicalSize::new(max_w, max_h))?;
+        window.center()?;
+        return Ok(());
+    };
 
     let start = Instant::now();
     loop {
@@ -464,20 +470,26 @@ mod commands {
         const W: f64 = 1000.0;
         const H: f64 = 650.0;
         #[cfg(target_os = "macos")]
-        {
+        let grown = {
             let win = window.clone();
             tauri::async_runtime::spawn_blocking(move || grow_boot_window(&win, W, H))
                 .await
-                .map_err(|e| AppError::msg(e.to_string()))??;
-        }
+                .map_err(|e| AppError::msg(e.to_string()))
+                .and_then(|r| r)
+        };
         #[cfg(not(target_os = "macos"))]
-        {
-            window.set_size(tauri::LogicalSize::new(W, H))?;
-            window.center()?;
-        }
-        // 부팅 창은 작아야 해서 최소 크기는 다 커진 뒤에 건다.
+        let grown = window.set_size(tauri::LogicalSize::new(W, H)).and_then(|_| window.center()).map_err(AppError::from);
+        // 부팅 창은 작아야 해서 최소 크기는 다 커진 뒤에 건다. 키우다 실패해도 건다 — 예전엔 `?` 로
+        // 먼저 돌아가 최소 크기가 아예 안 걸렸다. 작게 남았으면 최소 크기까지라도 키운다.
         window.set_min_size(Some(tauri::LogicalSize::new(720.0, 520.0)))?;
-        Ok(())
+        if grown.is_err() {
+            let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
+            if size.width < 720.0 || size.height < 520.0 {
+                window.set_size(tauri::LogicalSize::new(size.width.max(720.0), size.height.max(520.0)))?;
+                window.center()?;
+            }
+        }
+        grown
     }
 
     #[tauri::command(async)]
