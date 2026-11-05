@@ -8,7 +8,7 @@ vi.mock("../api/tauri", () => ({
 vi.mock("../agent/agent-loop", () => ({ runAgentLoop: vi.fn() }));
 vi.mock("../lib/notify", () => ({ notifyIfAway: vi.fn(), toNotificationBody: (s: string) => s }));
 
-import { cleanAnswer, parseMeta, serializeAttachments, serializeMeta, splitAttachmentSection } from "./useAgentLoop";
+import { buildHistory, cleanAnswer, parseMeta, serializeAttachments, serializeMeta, splitAttachmentSection } from "./useAgentLoop";
 import type { AgentStep } from "../agent/types";
 import type { AttachedFile } from "./useAgentLoop";
 
@@ -129,5 +129,14 @@ describe("splitAttachmentSection", () => {
   it("새 방식 저장분과 첨부 없는 메시지는 그대로", () => {
     expect(splitAttachmentSection("그냥 글", [img])).toEqual({ content: "그냥 글", files: [img] });
     expect(splitAttachmentSection("---\n첨부 파일:\n\n가짜", undefined).content).toBe("---\n첨부 파일:\n\n가짜");
+  });
+});
+
+describe("buildHistory", () => {
+  it("말풍선이 줄인 글 대신 모델이 받은 글을 싣는다 — 다시 열어도", () => {
+    const full = "a".repeat(800);
+    const prompt = parseMeta(serializeMeta({ label: "번역", prompt: full })).prompt;
+    const [m] = buildHistory([{ id: "1", role: "user", content: "a…", time: "", label: "번역", prompt }]);
+    expect(m.content).toBe(`[번역]\n${full}`);
   });
 });

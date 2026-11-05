@@ -1130,6 +1130,7 @@ export default function App() {
     } catch {
       // ignore — DB may be empty for this session
     }
+          prompt: meta.prompt,
   }
 
   // ── 일정 알림 (60초마다 체크, 15분 이내 시작 일정) ──────────────────────────

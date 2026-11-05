@@ -64,6 +64,11 @@ export interface ChatMessage {
   notice?: string;
   /** 사용자 말풍선 위에 작게 보이는 꼬리표(빠른 질문의 요약·번역·설명). */
   label?: string;
+  /**
+   * 모델이 실제로 받은 글. 말풍선(content)은 긴 선택문을 줄여 보여서, 이게 없으면 다음 질문의
+   * 대화 기록에 잘린 글이 실린다. content 와 같으면 비워 둔다.
+   */
+  prompt?: string;
 }
 
 /** 대화 루프 대신 지시 하나로만 시키는 짧은 글 일(runTextTask). 빠른 질문의 버튼. */
@@ -146,6 +151,7 @@ export interface MessageMeta {
   tokensPerSecond?: number;
   notice?: string;
   label?: string;
+  prompt?: string;
 }
 
 /**
@@ -177,6 +183,7 @@ export function serializeMeta(meta: MessageMeta): string | undefined {
     ...(meta.tokensPerSecond !== undefined ? { tokensPerSecond: meta.tokensPerSecond } : {}),
     ...(meta.notice ? { notice: meta.notice } : {}),
     ...(meta.label ? { label: meta.label } : {}),
+    ...(meta.prompt ? { prompt: meta.prompt } : {}),
   };
   return Object.keys(stored).length ? JSON.stringify(stored) : undefined;
 }
@@ -271,17 +278,20 @@ function buildLlmContent(text: string, files: AttachedFile[]): string | ContentP
   return parts;
 }
 
-function buildHistory(messages: ChatMessage[]): LlmMessage[] {
+export function buildHistory(messages: ChatMessage[]): LlmMessage[] {
   return messages
     .filter((m) => !m.isStreaming)
-    .map((m) => ({
-      role: m.role === "user" ? "user" : ("assistant" as const),
-      content: m.attachments?.length
-        ? buildLlmContent(m.content, m.attachments)
-        : m.label
-          ? `[${m.label}]\n${m.content}`
-          : m.content || toolsOnlyNote(m),
-    }));
+    .map((m) => {
+      const text = m.prompt ?? m.content;
+      return {
+        role: m.role === "user" ? "user" : ("assistant" as const),
+        content: m.attachments?.length
+          ? buildLlmContent(text, m.attachments)
+          : m.label
+            ? `[${m.label}]\n${text}`
+            : text || toolsOnlyNote(m),
+      };
+    });
 }
 
 /**
@@ -396,6 +406,7 @@ export function useAgentPool() {
         time: nowTime(),
         attachments: files.length > 0 ? files : undefined,
         label: task?.label,
+        prompt: userText !== visibleText ? userText : undefined,
       };
       // 사용자가 끼어들면 답 칸을 새로 연다. 그때 바뀐다.
       let assistantId = crypto.randomUUID();
@@ -414,7 +425,7 @@ export function useAgentPool() {
       const textContent = buildTextContent(userText, files);
       const llmContent = buildLlmContent(userText, files);
       conversationApi
-        .save(sessionId, "user", visibleText, serializeAttachments(files), serializeMeta({ label: task?.label }))
+        .save(sessionId, "user", visibleText, serializeAttachments(files), serializeMeta({ label: task?.label, prompt: userMsg.prompt }))
         .catch(() => {});
 
       // 방금 넣은 질문은 빼고 담는다. 루프가 현재 요청으로 따로 싣는다 — 같이 담으면 두 번 간다.
@@ -507,6 +518,7 @@ export function useAgentPool() {
               content: q.displayText ?? q.userText,
               time: nowTime(),
               attachments: q.files.length > 0 ? q.files : undefined,
+              prompt: q.displayText && q.displayText !== q.userText ? q.userText : undefined,
             }));
             assistantId = crypto.randomUUID();
             const next: ChatMessage = {
@@ -543,7 +555,8 @@ export function useAgentPool() {
                   sessionId,
                   "user",
                   q.displayText ?? q.userText,
-                  serializeAttachments(q.files)
+                  serializeAttachments(q.files),
+                  serializeMeta({ prompt: q.displayText && q.displayText !== q.userText ? q.userText : undefined })
                 )
               );
             }
