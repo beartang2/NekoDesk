@@ -127,4 +127,21 @@ describe("Claude 로 나가기 전 확인", () => {
     expect(toModel).not.toContain("1234567");
     expect(toModel).toContain("‹주민등록번호 가림›");
   });
+
+  it("오류로 끝난 결과도 거친다 — stderr 에 읽은 내용이 섞여 나온다", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockImplementation(async (cmd: string) =>
+      cmd === "code_exec" ? { stdout: "", stderr: "파싱 실패: 900101-1234567", exit_code: 1 } : {});
+    nextTurn = (i) => (i === 0 ? call(i, "code.exec", { language: "python", code: "print(1)" }) : { text: "했어", toolCalls: [] });
+    const { runAgentLoop } = await import("./agent-loop");
+    let asked = 0;
+    for await (const ev of runAgentLoop("해줘", [])) {
+      if (ev.type === "confirm_needed") {
+        if (ev.language === "Claude 로 보내기") { asked++; ev.resolve("deny"); } else ev.resolve("allow_once");
+      }
+    }
+    expect(asked).toBe(1);
+    expect(JSON.stringify(sent[1])).not.toContain("1234567");
+    vi.mocked(invoke).mockImplementation(async () => ({}));
+  });
 });

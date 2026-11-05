@@ -3,6 +3,8 @@ import { buildToolSchemas } from "./tool-schemas";
 import { getTool, isStaticTool } from "./tool-registry";
 import { toWireToolCalls } from "./tool-calls";
 import type { LlmMessage, ToolCall, ToolName } from "./types";
+import { outboundConcern } from "./outbound-guard";
+import { isClaudeActive } from "../stores/settingsStore";
 
 /**
  * 조사 전용 하위 에이전트.
@@ -54,11 +56,25 @@ async function runReadOnlyTool(call: ToolCall): Promise<string> {
   if (!entry.readOnly) {
     return `${call.name} 은 조사 단계에서 쓸 수 없어. 조회만 가능해 — 필요하면 알아낸 것만 요약해서 돌려줘.`;
   }
+  let text: string;
   try {
-    return entry.summarize(await entry.execute(call.params));
+    text = entry.summarize(await entry.execute(call.params));
   } catch (err) {
-    return `오류: ${err instanceof Error ? err.message : String(err)}`;
+    text = `오류: ${err instanceof Error ? err.message : String(err)}`;
   }
+  return isClaudeActive() ? withoutPrivate(call, text) : text;
+}
+
+/**
+ * 본 루프는 개인정보·사적인 앱 내용을 Claude 로 보내기 전에 묻는다(guardOutbound). 하위 루프는
+ * 물을 화면이 없으니 묻지 않고 안전한 쪽으로 — 개인정보는 가리고 사적인 앱 내용은 보내지 않는다.
+ */
+function withoutPrivate(call: ToolCall, text: string): string {
+  const concern = outboundConcern(call.name, call.params, text);
+  if (!concern) return text;
+  return concern.source
+    ? `${concern.source} 내용은 조사 단계에서 Claude 로 보내지 않아(사용자에게 물을 수 없다). 필요하면 그렇다고 요약해 — 본 대화에서 물어보고 읽는다.`
+    : concern.withheld;
 }
 
 /** 과제를 조사하고 요약을 돌려준다. 실패해도 던지지 않는다 — 툴 결과로 전달된다. */

@@ -85,13 +85,33 @@ export function maskPersonal(text: string): string {
 
 // ── 민감한 출처 ───────────────────────────────────────────────────────────────
 
-const PRIVATE_APPS: Record<string, string> = { Mail: "메일", Messages: "메시지", Contacts: "연락처", Notes: "메모" };
+/** 앱 이름·번들 ID·데이터 경로 조각 → 무엇. 소문자로 견준다. */
+const PRIVATE: [RegExp, string][] = [
+  [/^(mail|com\.apple\.mail)$|library\/mail\b/, "메일"],
+  [/^(messages|com\.apple\.mobilesms)$|library\/messages\b|chat\.db\b/, "메시지"],
+  [/^(contacts|address book|com\.apple\.addressbook)$|application support\/addressbook/, "연락처"],
+  [/^(notes|com\.apple\.notes)$|group\.com\.apple\.notes/, "메모"],
+];
 
-/** 이 호출이 사적인 앱의 내용을 읽었나(AppleScript 로 메일·메시지·연락처·메모를 열었나). */
+/** AppleScript `tell app[lication] [id] "X"`, JXA `Application("X")` — 셸의 osascript 안에 있어도. */
+const APP_REF = /(?:\btell\s+(?:application|app)\s+(?:id\s+)?|\bApplication\(\s*)["']([^"']+)["']/gi;
+const DATA_PATH = /library\/(?:mail|messages)\b|chat\.db\b|application support\/addressbook|group\.com\.apple\.notes/gi;
+
+/**
+ * 이 호출이 사적인 앱의 내용을 읽었나. 코드 실행은 언어와 상관없이 코드 전체를, 다른 툴은
+ * 인자(경로)를 본다. 어느 쪽이든 사적인 데이터 경로가 보이면 그 앱으로 친다.
+ */
 export function privateSource(name: string, params: Record<string, unknown>): string | null {
-  if (name !== "code.exec" || params["language"] !== "applescript") return null;
-  const m = /tell\s+application\s+"(Mail|Messages|Contacts|Notes)"/.exec(String(params["code"] ?? ""));
-  return m ? PRIVATE_APPS[m[1]] : null;
+  const text = name === "code.exec" ? String(params["code"] ?? "") : JSON.stringify(params);
+  const refs = [
+    ...(name === "code.exec" ? [...text.matchAll(APP_REF)].map((m) => m[1]) : []),
+    ...[...text.matchAll(DATA_PATH)].map((m) => m[0]),
+  ].map((s) => s.toLowerCase());
+  for (const ref of refs) {
+    const hit = PRIVATE.find(([re]) => re.test(ref));
+    if (hit) return hit[1];
+  }
+  return null;
 }
 
 /** 사용자에게 물어야 할 것. 없으면 null. */
@@ -102,6 +122,8 @@ export interface OutboundConcern {
   preview: string;
   /** 거부했을 때 모델에게 대신 줄 결과. */
   withheld: string;
+  /** 사적인 앱에서 읽은 결과면 그 앱(메일·메시지·…). 개인정보 때문이면 없다. */
+  source?: string;
 }
 
 export function outboundConcern(name: string, params: Record<string, unknown>, summary: string): OutboundConcern | null {
@@ -109,6 +131,7 @@ export function outboundConcern(name: string, params: Record<string, unknown>, s
   if (source) {
     return {
       ruleKey: `outbound:${source}`,
+      source,
       preview: `${source} 내용을 Claude(Anthropic)로 보내려고 해.\n거부하면 이 결과는 보내지 않아.`,
       withheld: `사용자가 이 ${source} 내용을 Claude 로 보내지 않기로 했어. 내용 없이 할 수 있는 만큼만 하고, 안 되면 그렇다고 말해.`,
     };

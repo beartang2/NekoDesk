@@ -41,4 +41,16 @@ describe("개인정보 찾기", () => {
     expect(outboundConcern("code.exec", { language: "applescript", code: 'tell application "Music" to play' }, "ok")).toBeNull();
     expect(outboundConcern("todo.list", {}, "할 일 없음")).toBeNull();
   });
+
+  it("앱 이름 대소문자·app·번들 ID·JXA·셸 osascript·데이터 경로도 사적인 출처로 친다", () => {
+    const exec = (language: string, code: string) => outboundConcern("code.exec", { language, code }, "x")?.source;
+    expect(exec("applescript", 'tell app "mail" to get messages')).toBe("메일");
+    expect(exec("applescript", 'tell application id "com.apple.MobileSMS" to get chats')).toBe("메시지");
+    expect(exec("javascript", 'Application("Contacts").people()')).toBe("연락처");
+    expect(exec("shell", `osascript -e 'tell application "Notes" to get body of note 1'`)).toBe("메모");
+    expect(exec("shell", "sqlite3 ~/Library/Messages/chat.db 'select text from message'")).toBe("메시지");
+    expect(exec("python", "open(os.path.expanduser('~/Library/Mail/V10/x.emlx')).read()")).toBe("메일");
+    expect(outboundConcern("fs.read", { path: "~/Library/Group Containers/group.com.apple.notes/x" }, "x")?.source).toBe("메모");
+    expect(exec("shell", `osascript -e 'tell application "Music" to play'`)).toBeUndefined();
+  });
 });

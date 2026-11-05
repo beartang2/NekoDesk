@@ -99,4 +99,22 @@ describe("조사 하위 에이전트", () => {
     const second = completion.mock.calls[1][0] as LlmMessage[];
     expect(second.find((m) => m.role === "tool")?.content).toContain("오류");
   });
+
+  it("Claude 프로필이면 물을 화면이 없으니 개인정보는 가려서 넘긴다", async () => {
+    const { useSettingsStore } = await import("../stores/settingsStore");
+    useSettingsStore.setState({ llmUrl: "claude://claude-haiku-5-5" });
+    const { todosApi } = await import("../api/tauri");
+    vi.mocked(todosApi.list).mockResolvedValueOnce([
+      { id: 1, content: "서류에 900101-1234567 적기", completed: false, created_at: "2026-11-05 00:00:00" },
+    ] as never);
+    completion
+      .mockResolvedValueOnce(turn("", [{ id: "a", name: "todo.list", params: {} }]))
+      .mockResolvedValueOnce(turn("찾았어"));
+
+    await runSubagent("검색");
+    const tool = (completion.mock.calls[1][0] as LlmMessage[]).find((m) => m.role === "tool");
+    expect(tool?.content).not.toContain("1234567");
+    expect(tool?.content).toContain("‹주민등록번호 가림›");
+    useSettingsStore.setState({ llmUrl: "http://localhost:8803" });
+  });
 });

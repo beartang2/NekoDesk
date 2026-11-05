@@ -407,7 +407,6 @@ function withPlan(messages: LlmMessage[], plan: Plan): LlmMessage[] {
 
 /** 개인정보·사적인 앱 내용이 Claude 로 나가기 전에 묻는다. 거부하면 그 결과만 바꿔 보낸다. */
 async function* guardOutbound(call: ToolCall, step: AgentStep): AsyncGenerator<LoopEvent, void> {
-  if (step.status === "error") return;
   const concern = outboundConcern(call.name, call.params, step.summary);
   if (!concern || isAllowed(concern.ruleKey)) return;
   let resolve!: (decision: PermissionDecision) => void;
@@ -832,7 +831,12 @@ export async function* runAgentLoop(
 
     // Claude 로 넘기기 전 마지막 확인. 비밀은 전송 계층이 알아서 가리고, 여기선 사용자가
     // 정할 것(개인정보, 메일·메시지 내용)만 묻는다.
-    if (claude) for (const { call, step } of executed) yield* guardOutbound(call, step);
+    // 오류 결과도 거친다 — stderr 에 읽은 내용이 섞여 나온다. 루프가 직접 쓴 문장(거부·잠금)만 뺀다.
+    if (claude) {
+      for (const { call, step } of executed) {
+        if (!deniedSteps.has(step) && !lockedSteps.some((l) => l.step === step)) yield* guardOutbound(call, step);
+      }
+    }
 
     // native 모드는 tool_call 마다 결과 메시지가 짝으로 있어야 하므로 반복분도 싣는다.
     const review = native && claude ? await imagesToReview(executed) : null;
