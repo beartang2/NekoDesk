@@ -5,6 +5,7 @@
 
 use rusqlite::Connection;
 
+pub mod cipher;
 pub mod models;
 pub mod todos;
 pub mod events;

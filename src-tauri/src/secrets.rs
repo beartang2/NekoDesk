@@ -84,6 +84,31 @@ fn keychain_set(service: &str, key: &str, value: &str) -> Result<(), AppError> {
         .map_err(|e| AppError::msg(format!("키체인에 못 넣었어: {e}")))
 }
 
+/// 대화 DB 열쇠의 키체인 이름. `KEYS` 밖이라 화면에서 읽거나 바꿀 수 없다 — 바뀌면 DB 를 못 연다.
+#[cfg(target_os = "macos")]
+const DB_KEY: &str = "db_key";
+
+/// 대화 DB 열쇠(32바이트 hex). 처음이면 만들어 넣는다. 꺼내다 실패하면(거부 등) 새로 만들지
+/// 않고 실패를 돌려준다 — 새 열쇠로는 이미 암호화된 DB 를 못 연다.
+#[cfg(target_os = "macos")]
+pub fn db_key() -> Result<String, AppError> {
+    if let Some(key) = keychain_get(SERVICE, DB_KEY)? {
+        return Ok(key);
+    }
+    let mut buf = [0u8; 32];
+    security_framework::random::SecRandom::default()
+        .copy_bytes(&mut buf)
+        .map_err(|e| AppError::msg(format!("DB 열쇠를 못 만들었어: {e}")))?;
+    let key: String = buf.iter().map(|b| format!("{b:02x}")).collect();
+    keychain_set(SERVICE, DB_KEY, &key)?;
+    Ok(key)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn db_key() -> Result<String, AppError> {
+    Err(AppError::msg("키체인은 macOS 에서만 쓸 수 있어."))
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn get(key: &str) -> Result<Option<String>, AppError> {
     check(key)?;

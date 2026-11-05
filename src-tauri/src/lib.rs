@@ -210,7 +210,7 @@ unsafe fn copy_png_to_pasteboard(png: &[u8]) -> bool {
     ok.as_bool()
 }
 
-fn open_db(data_dir: PathBuf) -> rusqlite::Result<Connection> {
+fn open_db(data_dir: PathBuf) -> Result<Connection, String> {
     // dev 빌드는 별도 디렉토리로 분리
     let dir = if cfg!(debug_assertions) {
         data_dir.parent()
@@ -221,8 +221,11 @@ fn open_db(data_dir: PathBuf) -> rusqlite::Result<Connection> {
     };
     let path = dir.join("nekodesk.sqlite");
     std::fs::create_dir_all(&dir).ok();
-    let conn = Connection::open(&path)?;
-    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+    // 대화는 암호화해 둔다(db::cipher). 열쇠를 못 꺼내면 평문으로 열지 않고 멈춘다 —
+    // 몰래 평문으로 돌아가면 암호화한 의미가 없고, 새 열쇠를 만들면 기존 DB 를 못 연다.
+    let key = secrets::db_key().map_err(|e| format!("대화 DB 열쇠: {e}"))?;
+    let conn = db::cipher::open(&path, &key).map_err(|e| format!("대화 DB 열기: {e}"))?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;").map_err(|e| e.to_string())?;
     Ok(conn)
 }
 

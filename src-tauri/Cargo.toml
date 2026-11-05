@@ -23,7 +23,9 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.10.3", features = ["macos-private-api"] }
 tauri-plugin-log = "2"
-rusqlite = { version = "0.31", features = ["bundled"] }
+# bundled-sqlcipher: 대화 DB 암호화. OPENSSL_DIR 이 없으면 macOS 내장 CommonCrypto 로 빌드된다
+# (Homebrew openssl 에 링크되면 다른 맥에서 안 뜬다 — OPENSSL_DIR 을 설정하지 마라).
+rusqlite = { version = "0.31", features = ["bundled-sqlcipher"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 scraper = "0.22"
 dirs = "5"
