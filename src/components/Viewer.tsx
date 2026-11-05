@@ -28,6 +28,12 @@ export function imageName(base: string, dataUrl: string): string {
   return `${base}.${kind === "jpeg" ? "jpg" : kind.replace("svg+xml", "svg")}`;
 }
 
+/** 이름에 붙일 지금 시각("2026-11-06 14.03.21"). 번호만 붙이면 답마다 "네코 그림 1" 이라 저장할 때 겹쳤다. */
+export function nowStamp(d = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}.${p(d.getMinutes())}.${p(d.getSeconds())}`;
+}
+
 const isImage = (item: ViewerItem) => !!item.dataUrl?.startsWith("data:image/");
 
 /** 다른 앱이 가장 잘 받는 PNG 로 바꾼다. JPEG 를 그대로 올리면 붙여넣기를 못 하는 앱이 있다. */

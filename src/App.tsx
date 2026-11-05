@@ -27,7 +27,7 @@ import { useAgentPool, makeInitialMessages, parseMeta, splitAttachmentSection, t
 import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UpdatePrompt } from "./components/Update";
-import { openViewer, imageName } from "./components/Viewer";
+import { openViewer, imageName, nowStamp } from "./components/Viewer";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
@@ -567,7 +567,7 @@ function ChatMessages({
                       src={url}
                       alt="생성된 이미지"
                       className="message__image"
-                      onClick={() => openViewer({ name: imageName(`네코 그림 ${i + 1}`, url), dataUrl: url })}
+                      onClick={() => openViewer({ name: imageName(`네코 그림 ${nowStamp()}${m.images!.length > 1 ? ` ${i + 1}` : ""}`, url), dataUrl: url })}
                     />
                   ))}
                 </div>
