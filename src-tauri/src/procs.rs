@@ -105,7 +105,8 @@ fn parse_args(out: &str) -> HashMap<u32, String> {
 }
 
 /// 명령 줄은 모델(외부 서버일 수도 있다)에 그대로 간다. 비밀 같아 보이는 값은 가린다 —
-/// `--api-key x`, `--token=x`, `API_KEY=x`, `postgres://user:pass@host`. 넘치게 가려도 괜찮다.
+/// `--api-key x`, `--token=x`, `API_KEY=x`, `postgres://user:pass@host`, 그리고 짧은 `-p`/`-P`
+/// (`mysql -pX`, `sshpass -p X`). 넘치게 가려도 괜찮다 — `ssh -p 22` 의 포트도 가려진다.
 fn redact(args: &str) -> String {
     let secret = |s: &str| {
         let s = s.to_ascii_lowercase();
@@ -120,6 +121,12 @@ fn redact(args: &str) -> String {
         }
         match w.split_once('=') {
             Some((k, _)) if secret(k) => out.push(format!("{k}=***")),
+            // 짧은 비밀번호 플래그. 붙여 쓴 값(-pX)은 그 자리에서, 띄운 값은 다음 칸을 가린다.
+            _ if w == "-p" || w == "-P" => {
+                hide_next = true;
+                out.push(w.to_string());
+            }
+            _ if (w.starts_with("-p") || w.starts_with("-P")) && w.len() > 2 => out.push(format!("{}***", &w[..2])),
             _ => {
                 hide_next = w.starts_with('-') && !w.contains('=') && secret(w);
                 out.push(match (w.find("://"), w.rfind('@')) {
@@ -178,6 +185,8 @@ mod tests {
         assert_eq!(redact("node app.js --token=abc API_KEY=xyz"), "node app.js --token=*** API_KEY=***");
         assert_eq!(redact("psql postgres://me:pw@db:5432/x"), "psql postgres://***@db:5432/x");
         assert_eq!(redact("node vite --port 3000"), "node vite --port 3000");
+        assert_eq!(redact("mysql -u root -phunter2 db"), "mysql -u root -p*** db");
+        assert_eq!(redact("sshpass -p hunter2 ssh host"), "sshpass -p *** ssh host");
     }
 
     #[test]
