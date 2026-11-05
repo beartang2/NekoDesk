@@ -121,6 +121,23 @@ fn truncate_chars(s: String, max_chars: usize) -> (String, bool) {
 /// fs_write/fs_edit 과 같은 계약이다. 확인 다이얼로그를 띄우는 판단은 렌더러가
 /// 하지만, **거치지 않은 호출은 백엔드가 거부한다** — 게이트를 빠뜨린 코드 경로가
 /// 조용히 실행되는 대신 실패하도록. 하드 차단은 `approved` 와 무관하게 항상 막는다.
+/// 실행할 폴더. 없으면 출력 폴더. `~` 는 홈으로 푼다 — 모델은 `~/…` 로 자주 넘기는데, 그대로
+/// 두면 없는 폴더라 실행이 시작도 못 하고 "python3 가 없다" 는 엉뚱한 오류가 났다.
+fn run_dir(work_dir: Option<&str>) -> Result<PathBuf, AppError> {
+    let Some(raw) = work_dir.map(str::trim).filter(|d| !d.is_empty()) else { return Ok(output_dir()) };
+    let dir = match raw.strip_prefix("~") {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => {
+            dirs::home_dir().unwrap_or_default().join(rest.trim_start_matches('/'))
+        }
+        _ => PathBuf::from(raw),
+    };
+    if dir.is_dir() {
+        Ok(dir)
+    } else {
+        Err(AppError::msg(format!("work_dir 폴더가 없어: {}. 빼면 출력 폴더에서 실행해.", dir.display())))
+    }
+}
+
 pub fn run(
     code: &str,
     language: Option<&str>,
@@ -150,10 +167,7 @@ pub fn run(
         std::fs::write(&tmp_path, code.as_bytes())
             .map_err(|e| AppError::msg(format!("AppleScript 임시 파일 생성 실패: {e}")))?;
 
-        let dir = work_dir
-            .filter(|d| !d.is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(output_dir);
+        let dir = run_dir(work_dir)?;
 
         let mut child = Command::new("osascript")
             .arg(&tmp_path)
@@ -213,10 +227,7 @@ pub fn run(
         other => return Err(AppError::msg(format!("지원하지 않는 언어: {other}. python, shell 또는 applescript를 사용해줘."))),
     };
 
-    let dir = work_dir
-        .filter(|d| !d.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(output_dir);
+    let dir = run_dir(work_dir)?;
 
     let mut child = Command::new(interpreter)
         .arg(flag)
@@ -278,8 +289,21 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_output_image, prune_old, truncate_chars, OUTPUT_TTL};
+    use super::{collect_output_image, prune_old, run_dir, truncate_chars, OUTPUT_TTL};
     use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn work_dir_expands_tilde_and_rejects_missing() {
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(run_dir(Some("~")).unwrap(), home);
+        assert_eq!(run_dir(Some(" ~/ ")).unwrap(), home);
+        let tmp = std::env::temp_dir();
+        assert_eq!(run_dir(Some(tmp.to_str().unwrap())).unwrap(), tmp);
+        let err = run_dir(Some("~/no-such-nekodesk-dir")).unwrap_err().to_string();
+        assert!(err.contains("work_dir 폴더가 없어"), "{err}");
+        assert!(!err.contains('~'), "홈을 푼 경로를 보여 준다: {err}");
+        assert!(run_dir(None).unwrap().ends_with(".nekodesk/output"));
+    }
 
     /// 30일 넘은 파일만 지우고, 새 파일과 하위 폴더는 남긴다.
     #[test]
