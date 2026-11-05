@@ -85,3 +85,16 @@ def human_eye(cx, cy, r, iris="#5B8FD9", dark="#2F4E8C", seed=1):
     out += shape(ring(cx - r * 0.35, cy - r * 0.35, r * 0.28, r * 0.22, seed=seed + 3), "#FFFFFF", w=0, slip=(0, 0))
     out += shape(ring(cx + r * 0.38, cy + r * 0.42, r * 0.12, seed=seed + 4), "#FFFFFF", w=0, slip=(0, 0))
     return out
+
+def save(name, *parts, bg="#FFFFFF", size=1536):
+    """조각들을 SVG 한 장으로 저장한다 — 머리말·배경·닫는 태그는 여기서 붙인다(빼먹으면 그림이 깨진다).
+    parts 는 shape()·stroke() 등이 돌려준 문자열(리스트도 된다). 저장한 경로를 돌려준다."""
+    flat = []
+    for p in parts:
+        flat.extend(p if isinstance(p, (list, tuple)) else [p])
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" width="{size}" height="{size}">'
+           f'<rect width="{size}" height="{size}" fill="{bg}"/>' + "".join(flat) + "</svg>")
+    path = name if name.endswith(".svg") else name + ".svg"
+    with open(path, "w") as f:
+        f.write(svg)
+    return path

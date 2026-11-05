@@ -94,14 +94,17 @@ stroke(pts, w=DETAIL, seed=3)  # 열린 손그림 선 — 입·눈썹·팔 경�
 ring(cx, cy, rx, ry=None, n=10, seed=1)      # 손으로 그린 동그라미의 점들 → shape·smooth 에
 eye(cx, cy, r, look=(0, 1), iris="#E9E27A", seed=1)   # 동물 눈: 큰 검은 원 + 초승달 홍채(시선)
 human_eye(cx, cy, r, iris="#5B8FD9", dark="#2F4E8C", seed=1)   # 사람 눈: 눈꺼풀·2톤 홍채·반사광
+save(name, *parts, bg="#FFFFFF")   # 조각들을 1536 SVG 한 장으로 저장. <svg>·배경·</svg> 는 직접 쓰지 마라
 ```
 
 쓰는 법(조각 — 모양·색·구도는 매번 새로 구상한다. 완성 예시를 따라 그리면 다 똑같아진다):
 
 ```python
-svg += shape(ear_pts, "#DCDCDC", gaps=[4], seed=4)        # 뒤의 것 먼저. 귀 밑동에서 끊는다
-svg += shape(head_pts, "#DCDCDC", dark="#A9A7B5", gaps=[2, 8, 11])   # 끊긴 외곽선 + 오른쪽 아래 초승달 그림자
-svg += eye(510, 915, 177, look=(-0.4, 1))                  # 초승달이 아래 → 올려다보는 눈
+parts = []
+parts.append(shape(ear_pts, "#DCDCDC", gaps=[4], seed=4))            # 뒤의 것 먼저. 귀 밑동에서 끊는다
+parts.append(shape(head_pts, "#DCDCDC", dark="#A9A7B5", gaps=[2, 8, 11]))   # 끊긴 외곽선 + 초승달 그림자
+parts.append(eye(510, 915, 177, look=(-0.4, 1)))                      # 초승달이 아래 → 올려다보는 눈
+save("cat_surprised", parts)                                          # 머리말·배경·닫는 태그는 save 가
 ```
 
 빛이 오른쪽 위면 `light=(0.12, -0.12)` — 그림자는 왼쪽 아래로 간다. 털 무늬로 반을 가를 땐
