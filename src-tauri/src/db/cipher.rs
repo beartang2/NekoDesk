@@ -111,6 +111,23 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// 실제 DB 의 **복사본**으로 바꿔 끼우기를 돌려 본다. 배포 전 손으로:
+    /// NEKO_DB_COPY=<복사본 경로> cargo test --lib cipher::tests::real_copy -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn real_copy() {
+        let path = std::path::PathBuf::from(std::env::var("NEKO_DB_COPY").expect("NEKO_DB_COPY"));
+        let c = open(&path, KEY).unwrap();
+        println!("user_version {}", c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).unwrap());
+        let mut q = c.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").unwrap();
+        let tables: Vec<String> = q.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        for t in tables {
+            let n: i64 = c.query_row(&format!("SELECT count(*) FROM \"{t}\""), [], |r| r.get(0)).unwrap();
+            println!("{t} {n}");
+        }
+        assert!(!is_plain(&path));
+    }
+
     #[test]
     fn new_db_starts_encrypted() {
         let dir = std::env::temp_dir().join(format!("nekodesk-cipher-new-{}", std::process::id()));

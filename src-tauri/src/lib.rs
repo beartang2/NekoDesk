@@ -223,10 +223,23 @@ fn open_db(data_dir: PathBuf) -> Result<Connection, String> {
     std::fs::create_dir_all(&dir).ok();
     // 대화는 암호화해 둔다(db::cipher). 열쇠를 못 꺼내면 평문으로 열지 않고 멈춘다 —
     // 몰래 평문으로 돌아가면 암호화한 의미가 없고, 새 열쇠를 만들면 기존 DB 를 못 연다.
-    let key = secrets::db_key().map_err(|e| format!("대화 DB 열쇠: {e}"))?;
-    let conn = db::cipher::open(&path, &key).map_err(|e| format!("대화 DB 열기: {e}"))?;
+    // 실패 문구는 그대로 사용자에게 보인다(fatal_alert).
+    let key = secrets::db_key().map_err(|e| {
+        format!("키체인에서 대화 DB 열쇠를 못 꺼냈어. 다시 켜고 키체인 창이 뜨면 \"항상 허용\"을 눌러줘.\n\n({e})")
+    })?;
+    let conn = db::cipher::open(&path, &key).map_err(|e| {
+        format!("대화 DB 를 열지 못했어. 디스크 공간이 부족하면 비우고 다시 켜줘. 대화 파일은 그대로 있어.\n\n({e})")
+    })?;
     conn.execute_batch("PRAGMA journal_mode=WAL;").map_err(|e| e.to_string())?;
     Ok(conn)
+}
+
+/// 창이 뜨기 전에 멈출 때 이유를 보여 준다. 그냥 죽으면 사용자는 앱이 왜 안 뜨는지 모른다.
+fn fatal_alert(message: &str) {
+    let quoted = message.replace('\\', "\\\\").replace('"', "\\\"");
+    let _ = std::process::Command::new("/usr/bin/osascript")
+        .args(["-e", &format!("display alert \"NekoDesk 를 열 수 없어\" message \"{quoted}\" as critical")])
+        .status();
 }
 
 // init_schema 는 db::init_schema 로 이동했다(DB 계층 소속).
@@ -1101,7 +1114,13 @@ pub fn run() {
             // 빌드: ~/Library/Application Support/com.nekodesk.desktop
             let data_dir = app.path().app_data_dir()
                 .expect("Failed to resolve app data dir");
-            let conn = open_db(data_dir).expect("Failed to open database");
+            let conn = match open_db(data_dir) {
+                Ok(conn) => conn,
+                Err(message) => {
+                    fatal_alert(&message);
+                    std::process::exit(1);
+                }
+            };
             db::init_schema(&conn).expect("Failed to initialize schema");
             // 예전 버전이 표에 적어 둔 API 키를 키체인으로 옮긴다.
             secrets::migrate(&conn);
