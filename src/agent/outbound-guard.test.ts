@@ -60,5 +60,14 @@ describe("개인정보 찾기", () => {
     expect(exec("shell", "cat ~/Library//Messages/chat.db")).toBe("메시지");
     expect(exec("shell", "ls ~/Library/Containers/com.apple.mail/Data")).toBe("메일");
     expect(exec("applescript", 'tell application "Mailchimp" to activate')).toBeUndefined();
+    // tell 없이 지정해도, 모르는 앱과 같이 있어도 아는 앱이 이긴다(모르는 앱 규칙으로 못 연다).
+    expect(exec("applescript", `get subject of first message of inbox of application "Mail"`)).toBe("메일");
+    expect(exec("applescript", 'tell application x\nend tell\ntell application "Mail" to get messages')).toBe("메일");
+    expect(exec("applescript", 'tell application "Messages" to get chats\ntell application "Mail" to get messages')).toBe("메시지·메일");
+    expect(exec("applescript", 'tell application "System Events" to get value of static text 1 of window 1 of application process "Mail"')).toBe("메일");
+    expect(exec("applescript", 'tell application "System Events" to keystroke "a"')).toBeUndefined();
+    expect(exec("applescript", `tell application " Mail.app/ " to get messages`)).toBe("메일");
+    // 스크립트가 아닌 코드의 "application" 이라는 낱말은 앱 지정이 아니다.
+    expect(exec("python", "# this application is great\nprint(1)")).toBeUndefined();
   });
 });

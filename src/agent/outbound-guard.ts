@@ -91,44 +91,58 @@ const PRIVATE: [RegExp, string][] = [
   [/^(messages|com\.apple\.mobilesms)$|library\/(messages|containers\/com\.apple\.mobilesms)\b|chat\.db\b/, "메시지"],
   [/^(contacts|address book|com\.apple\.addressbook)$|application support\/addressbook|containers\/com\.apple\.addressbook/, "연락처"],
   [/^(notes|com\.apple\.notes)$|group\.com\.apple\.notes|containers\/com\.apple\.notes/, "메모"],
-  [/^\?$/, "어떤 앱인지 모르는 앱"],
 ];
 
+const UNKNOWN_APP = "어떤 앱인지 모르는 앱";
+
 /**
- * AppleScript `tell app[lication] [id] X`, JXA `Application(X)` — 셸의 osascript 안에 있어도.
- * 이름이 따옴표 글자가 아니면(변수·식) 무슨 앱인지 모르니 "?" 로 쳐서 묻는다.
+ * AppleScript 의 앱 지정(`tell app X`, `application id "…"`, `application "Mail"'s inbox`), JXA
+ * `Application(X)` — 셸의 osascript 안에 있어도. 이름이 따옴표 글자가 아니면(변수·식) 무슨
+ * 앱인지 모르니 묻는다 — 단 스크립트일 때만(파이썬 글의 "application is …" 는 앱 지정이 아니다).
+ * `application process "Mail"`(System Events 화면 조작)도 그 앱으로 친다 — 창의 글자를 읽을 수 있다.
  *
  * ponytail: 코드 속 패턴 찾기라 일부러 숨기면(글자 쪼개 붙이기·base64) 못 잡는다. 막으려는 건
  * 모르는 새 나가는 것이지 작정한 우회가 아니다. 그것까지 막으려면 앱별 TCC 권한을 네코에서
  * 빼는 수밖에 없다.
  */
-const APP_REF = /(?:\btell\s+(?:application|app)\s+(?:id\s+)?|\bApplication\(\s*)(["'][^"']+["']|[^\s)]+)/gi;
+const APP_REF = /\b(?:application|app)\s+(?:id\s+|process\s+)?(["'][^"']+["']|[^\s)"']+)|\bApplication\(\s*(["'][^"']+["']|[^\s)]+)/gi;
+const SCRIPT = /\bosascript\b|\bApplication\(/;
 const DATA_PATH = /library\/(?:mail|messages|containers\/com\.apple\.(?:mail|mobilesms|notes|addressbook))\b|chat\.db\b|application support\/addressbook|group\.com\.apple\.notes/gi;
 
-/** `"/System/Applications/Mail.app"` · `'Mail.app'` → `mail`. 따옴표 없는 건 "?" . */
-function appName(ref: string): string {
-  if (!/^["']/.test(ref)) return "?";
-  const name = ref.slice(1, -1).toLowerCase().replace(/\.app\/?$/, "");
-  return name.split(/[/:]/).filter(Boolean).pop() ?? name;
+/** `"/System/Applications/Mail.app/"` · `' Mail.app '` → 경로 조각마다 `.app` 을 뗀 이름들. 따옴표 없으면 null(모름). */
+function appNames(ref: string): string[] | null {
+  if (!/^["']/.test(ref)) return null;
+  return ref.slice(1, -1).toLowerCase().split(/[/:]/).map((s) => s.trim().replace(/\.app$/, "")).filter(Boolean);
 }
 
 /**
  * 이 호출이 사적인 앱의 내용을 읽었나. 코드 실행은 언어와 상관없이 코드 전체를, 다른 툴은
  * 인자(경로)를 본다. 어느 쪽이든 사적인 데이터 경로가 보이면 그 앱으로 친다.
+ *
+ * 걸린 걸 **전부** 모은다. 여럿이면 하나로 묶은 이름(메시지·메일)이 돼 규칙도 따로다 — "메일 항상
+ * 허용" 이나 "모르는 앱 항상 허용" 이 메시지까지 열어 주면 안 된다. 모르는 앱은 아는 게 없을 때만.
  */
 export function privateSource(name: string, params: Record<string, unknown>): string | null {
   const raw = name === "code.exec" ? String(params["code"] ?? "") : JSON.stringify(params);
   // `~/Library//Mail`, JSON 의 `\/` 같은 겹친·이스케이프된 슬래시를 하나로.
   const text = raw.replace(/\\\//g, "/").replace(/\/{2,}/g, "/");
-  const refs = [
-    ...(name === "code.exec" ? [...text.matchAll(APP_REF)].map((m) => appName(m[1])) : []),
-    ...[...text.matchAll(DATA_PATH)].map((m) => m[0].toLowerCase()),
-  ];
-  for (const ref of refs) {
+  const script = name === "code.exec" && (params["language"] === "applescript" || SCRIPT.test(text));
+  const found = new Set<string>();
+  let unknown = false;
+  const add = (ref: string) => {
     const hit = PRIVATE.find(([re]) => re.test(ref));
-    if (hit) return hit[1];
+    if (hit) found.add(hit[1]);
+  };
+  if (name === "code.exec") {
+    for (const m of text.matchAll(APP_REF)) {
+      const names = appNames(m[1] ?? m[2]);
+      if (names) names.forEach(add);
+      else if (script) unknown = true;
+    }
   }
-  return null;
+  for (const m of text.matchAll(DATA_PATH)) add(m[0].toLowerCase());
+  if (found.size) return [...found].sort().join("·");
+  return unknown ? UNKNOWN_APP : null;
 }
 
 /** 사용자에게 물어야 할 것. 없으면 null. */
