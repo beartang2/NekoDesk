@@ -87,26 +87,43 @@ export function maskPersonal(text: string): string {
 
 /** 앱 이름·번들 ID·데이터 경로 조각 → 무엇. 소문자로 견준다. */
 const PRIVATE: [RegExp, string][] = [
-  [/^(mail|com\.apple\.mail)$|library\/mail\b/, "메일"],
-  [/^(messages|com\.apple\.mobilesms)$|library\/messages\b|chat\.db\b/, "메시지"],
-  [/^(contacts|address book|com\.apple\.addressbook)$|application support\/addressbook/, "연락처"],
-  [/^(notes|com\.apple\.notes)$|group\.com\.apple\.notes/, "메모"],
+  [/^(mail|com\.apple\.mail)$|library\/(mail|containers\/com\.apple\.mail)\b/, "메일"],
+  [/^(messages|com\.apple\.mobilesms)$|library\/(messages|containers\/com\.apple\.mobilesms)\b|chat\.db\b/, "메시지"],
+  [/^(contacts|address book|com\.apple\.addressbook)$|application support\/addressbook|containers\/com\.apple\.addressbook/, "연락처"],
+  [/^(notes|com\.apple\.notes)$|group\.com\.apple\.notes|containers\/com\.apple\.notes/, "메모"],
+  [/^\?$/, "어떤 앱인지 모르는 앱"],
 ];
 
-/** AppleScript `tell app[lication] [id] "X"`, JXA `Application("X")` — 셸의 osascript 안에 있어도. */
-const APP_REF = /(?:\btell\s+(?:application|app)\s+(?:id\s+)?|\bApplication\(\s*)["']([^"']+)["']/gi;
-const DATA_PATH = /library\/(?:mail|messages)\b|chat\.db\b|application support\/addressbook|group\.com\.apple\.notes/gi;
+/**
+ * AppleScript `tell app[lication] [id] X`, JXA `Application(X)` — 셸의 osascript 안에 있어도.
+ * 이름이 따옴표 글자가 아니면(변수·식) 무슨 앱인지 모르니 "?" 로 쳐서 묻는다.
+ *
+ * ponytail: 코드 속 패턴 찾기라 일부러 숨기면(글자 쪼개 붙이기·base64) 못 잡는다. 막으려는 건
+ * 모르는 새 나가는 것이지 작정한 우회가 아니다. 그것까지 막으려면 앱별 TCC 권한을 네코에서
+ * 빼는 수밖에 없다.
+ */
+const APP_REF = /(?:\btell\s+(?:application|app)\s+(?:id\s+)?|\bApplication\(\s*)(["'][^"']+["']|[^\s)]+)/gi;
+const DATA_PATH = /library\/(?:mail|messages|containers\/com\.apple\.(?:mail|mobilesms|notes|addressbook))\b|chat\.db\b|application support\/addressbook|group\.com\.apple\.notes/gi;
+
+/** `"/System/Applications/Mail.app"` · `'Mail.app'` → `mail`. 따옴표 없는 건 "?" . */
+function appName(ref: string): string {
+  if (!/^["']/.test(ref)) return "?";
+  const name = ref.slice(1, -1).toLowerCase().replace(/\.app\/?$/, "");
+  return name.split(/[/:]/).filter(Boolean).pop() ?? name;
+}
 
 /**
  * 이 호출이 사적인 앱의 내용을 읽었나. 코드 실행은 언어와 상관없이 코드 전체를, 다른 툴은
  * 인자(경로)를 본다. 어느 쪽이든 사적인 데이터 경로가 보이면 그 앱으로 친다.
  */
 export function privateSource(name: string, params: Record<string, unknown>): string | null {
-  const text = name === "code.exec" ? String(params["code"] ?? "") : JSON.stringify(params);
+  const raw = name === "code.exec" ? String(params["code"] ?? "") : JSON.stringify(params);
+  // `~/Library//Mail`, JSON 의 `\/` 같은 겹친·이스케이프된 슬래시를 하나로.
+  const text = raw.replace(/\\\//g, "/").replace(/\/{2,}/g, "/");
   const refs = [
-    ...(name === "code.exec" ? [...text.matchAll(APP_REF)].map((m) => m[1]) : []),
-    ...[...text.matchAll(DATA_PATH)].map((m) => m[0]),
-  ].map((s) => s.toLowerCase());
+    ...(name === "code.exec" ? [...text.matchAll(APP_REF)].map((m) => appName(m[1])) : []),
+    ...[...text.matchAll(DATA_PATH)].map((m) => m[0].toLowerCase()),
+  ];
   for (const ref of refs) {
     const hit = PRIVATE.find(([re]) => re.test(ref));
     if (hit) return hit[1];

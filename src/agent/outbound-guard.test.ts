@@ -52,5 +52,13 @@ describe("개인정보 찾기", () => {
     expect(exec("python", "open(os.path.expanduser('~/Library/Mail/V10/x.emlx')).read()")).toBe("메일");
     expect(outboundConcern("fs.read", { path: "~/Library/Group Containers/group.com.apple.notes/x" }, "x")?.source).toBe("메모");
     expect(exec("shell", `osascript -e 'tell application "Music" to play'`)).toBeUndefined();
+    // .app·경로로 부르기, 변수로 부르기, 겹친 슬래시, 샌드박스 컨테이너 경로.
+    expect(exec("applescript", 'tell application "/System/Applications/Mail.app" to get messages')).toBe("메일");
+    expect(exec("applescript", 'tell application "Notes.app" to get notes')).toBe("메모");
+    expect(exec("applescript", 'set a to "Ma" & "il"\ntell application a to get messages')).toBe("어떤 앱인지 모르는 앱");
+    expect(exec("javascript", "Application(name).messages()")).toBe("어떤 앱인지 모르는 앱");
+    expect(exec("shell", "cat ~/Library//Messages/chat.db")).toBe("메시지");
+    expect(exec("shell", "ls ~/Library/Containers/com.apple.mail/Data")).toBe("메일");
+    expect(exec("applescript", 'tell application "Mailchimp" to activate')).toBeUndefined();
   });
 });
