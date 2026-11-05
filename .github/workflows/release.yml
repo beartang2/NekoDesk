@@ -45,6 +45,15 @@ jobs:
       - run: npm ci
       - run: npm test
 
+      # 대화 DB 암호화(SQLCipher)는 OPENSSL_* 가 없을 때만 macOS 내장 CommonCrypto 로 빌드된다
+      # (libsqlite3-sys build.rs). 있으면 Homebrew openssl 에 링크돼 openssl 없는 맥에서 앱이 안 뜬다.
+      - name: SQLCipher 가 내장 암호 라이브러리를 쓰는지
+        run: |
+          if env | grep -qE '(^|_)OPENSSL_(DIR|LIB_DIR|INCLUDE_DIR)='; then
+            echo "::error::OPENSSL_* 환경 변수가 잡혀 있어 SQLCipher 가 Homebrew openssl 에 링크된다."
+            exit 1
+          fi
+
       # 지난 배포 이후 feat/fix 커밋 제목을 변경 내역으로. 앱의 새 버전 창에도 뜬다.
       - name: 변경 내역
         id: notes
