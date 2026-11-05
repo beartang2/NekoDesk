@@ -62,7 +62,10 @@ describe("개인정보 찾기", () => {
     expect(exec("applescript", 'tell application "Mailchimp" to activate')).toBeUndefined();
     // tell 없이 지정해도, 모르는 앱과 같이 있어도 아는 앱이 이긴다(모르는 앱 규칙으로 못 연다).
     expect(exec("applescript", `get subject of first message of inbox of application "Mail"`)).toBe("메일");
-    expect(exec("applescript", 'tell application x\nend tell\ntell application "Mail" to get messages')).toBe("메일");
+    // 모르는 앱도 묶음에 들어간다 — "메일 항상 허용" 으로 변수로 부른 앱까지 열리면 안 된다.
+    expect(exec("applescript", 'tell application x\nend tell\ntell application "Mail" to get messages')).toBe("메일·어떤 앱인지 모르는 앱");
+    expect(exec("osascript", 'tell application x to get messages')).toBe("어떤 앱인지 모르는 앱");
+    expect(exec("python", `subprocess.run(["osascript", "-e", f"tell application {app} to get messages"])`)).toBe("어떤 앱인지 모르는 앱");
     expect(exec("applescript", 'tell application "Messages" to get chats\ntell application "Mail" to get messages')).toBe("메시지·메일");
     expect(exec("applescript", 'tell application "System Events" to get value of static text 1 of window 1 of application process "Mail"')).toBe("메일");
     expect(exec("applescript", 'tell application "System Events" to keystroke "a"')).toBeUndefined();
