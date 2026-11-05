@@ -137,6 +137,26 @@ describe("llmFetch (Claude 프로필)", () => {
     expect(await res.text()).toMatch(/크레딧이 바닥났어/);
   });
 
+  it("나가기 전에 툴 결과·사용자 글의 비밀을 가리고, Claude 가 돌려준 블록 원본은 건드리지 않는다", async () => {
+    script.events = [{ event: "head", data: { status: 200 } }, start(), ...stop("end_turn"), { event: "end" }];
+    const raw = [{ type: "text", text: "키는 sk-ant-api03-abcdefghijklmnopqrstuvwxyz" }];
+    await (await llmFetch("/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        stream: true,
+        messages: [
+          { role: "user", content: [{ type: "text", text: "이거 봐 ghp_abcdefghijklmnopqrstuvwxyz0123456789" }] },
+          { role: "assistant", content: "", anthropic_content: raw },
+          { role: "tool", tool_call_id: "c1", content: "API_TOKEN=supersecretvalue" },
+        ],
+      }),
+    })).text();
+    const body = invoke.mock.calls.find(([cmd]) => cmd === "claude_chat")![1].body as string;
+    expect(body).not.toContain("ghp_abcdefghij");
+    expect(body).not.toContain("supersecretvalue");
+    expect(JSON.parse(body).messages[1].content).toEqual(raw);
+  });
+
   it("툴 이름을 바꿔 보내고, 돌아온 호출은 원래 이름으로 받는다", async () => {
     script.events = [
       { event: "head", data: { status: 200 } },

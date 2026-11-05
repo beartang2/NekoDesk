@@ -104,3 +104,27 @@ describe("Claude 프로필 루프", () => {
     expect(events.find((e) => e.type === "done")).toMatchObject({ answer: "상한에 걸려 정리했어" });
   });
 });
+
+describe("Claude 로 나가기 전 확인", () => {
+  it("툴 결과에 주민등록번호가 있으면 묻고, 거부하면 그 값만 가려서 보낸다", async () => {
+    const { todosApi } = await import("../api/tauri");
+    vi.mocked(todosApi.list).mockResolvedValueOnce([
+      { id: 1, content: "서류에 900101-1234567 적기", completed: false, created_at: "2026-11-05 00:00:00" },
+    ] as never);
+    nextTurn = (i) => (i === 0 ? call(i, "todo.list") : { text: "했어", toolCalls: [] });
+
+    const { runAgentLoop } = await import("./agent-loop");
+    const confirms: string[] = [];
+    for await (const ev of runAgentLoop("해줘", [])) {
+      if (ev.type === "confirm_needed") {
+        confirms.push(ev.code);
+        ev.resolve("deny");
+      }
+    }
+    expect(confirms).toHaveLength(1);
+    expect(confirms[0]).toContain("주민등록번호처럼 보이는 값 1개");
+    const toModel = JSON.stringify(sent[1]);
+    expect(toModel).not.toContain("1234567");
+    expect(toModel).toContain("‹주민등록번호 가림›");
+  });
+});

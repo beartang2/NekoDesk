@@ -1,6 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { WEB_SEARCH_MODEL, WEB_SEARCH_USD, claudeContextCap, claudeModelOf, findClaudeModel } from "../lib/claude-models";
 import { createMessagesStreamAdapter, toMessagesRequest, type MessagesUsage } from "./claude-messages";
+import { redactSecrets } from "./outbound-guard";
 import type { NativeSearchResult } from "./types";
 import { budgetBlockReason, useClaudeBudget } from "../stores/claudeBudget";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -98,11 +99,26 @@ async function hasClaudeKey(): Promise<boolean> {
 }
 
 /** Rust 중계로 chat/completions 를 보내고, 그 응답을 표준 Response 로 돌려준다. */
+/**
+ * 나가기 전에 비밀을 가린다(outbound-guard). Claude 가 돌려준 블록 원본이 있는 턴은 손대지
+ * 않는다 — 한 글자라도 바뀌면 생각 블록 서명이 깨진다. 거기 있는 건 Claude 가 이미 본 것이다.
+ */
+function redactMessage(m: Json): Json {
+  if (m.anthropic_content) return m;
+  if (typeof m.content === "string") return { ...m, content: redactSecrets(m.content) };
+  if (!Array.isArray(m.content)) return m;
+  return {
+    ...m,
+    content: (m.content as Json[]).map((p) => (p?.type === "text" && typeof p.text === "string" ? { ...p, text: redactSecrets(p.text) } : p)),
+  };
+}
+
 async function claudeChat(model: string, init: RequestInit): Promise<Response> {
   const blocked = budgetBlockReason();
   if (blocked) throw new Error(blocked);
 
   const raw = JSON.parse(String(init.body ?? "{}")) as Json;
+  if (Array.isArray(raw.messages)) raw.messages = (raw.messages as Json[]).map(redactMessage);
   const names = claudeToolNames(raw);
   const body = toMessagesRequest(raw, model, names);
   // Anthropic 쪽은 늘 스트림으로 받는다. 부른 쪽이 스트림을 안 원하면 끝에 JSON 한 덩이로 모아 준다.

@@ -16,6 +16,7 @@ import { fsApi, memoryApi } from "../api/tauri";
 import { isMcpTool, executeMcpTool } from "./mcp-registry";
 import { AgentContext, prefixContent, type ExecutedCall } from "./agent-context";
 import { findDangerReason, findExternalSendReason, isSafeReadOnly } from "./danger-patterns";
+import { outboundConcern } from "./outbound-guard";
 import { isClaudeActive, shouldUseNativeTools } from "../stores/settingsStore";
 import { rasterizeForLlm } from "../lib/image";
 import type {
@@ -402,6 +403,27 @@ function withPlan(messages: LlmMessage[], plan: Plan): LlmMessage[] {
     if (String(messages[i].content).startsWith("[plan.")) return messages;
   }
   return [...messages.slice(0, -1), { ...last, content: `${last.content}\n\n[계획]\n${plan.render()}` }];
+}
+
+/** 개인정보·사적인 앱 내용이 Claude 로 나가기 전에 묻는다. 거부하면 그 결과만 바꿔 보낸다. */
+async function* guardOutbound(call: ToolCall, step: AgentStep): AsyncGenerator<LoopEvent, void> {
+  if (step.status === "error") return;
+  const concern = outboundConcern(call.name, call.params, step.summary);
+  if (!concern || isAllowed(concern.ruleKey)) return;
+  let resolve!: (decision: PermissionDecision) => void;
+  const decision = new Promise<PermissionDecision>((res) => { resolve = res; });
+  yield {
+    type: "confirm_needed",
+    language: "Claude 로 보내기",
+    code: concern.preview,
+    isDangerous: false,
+    dangerReason: "",
+    ruleKey: concern.ruleKey,
+    resolve,
+  };
+  const d = await decision;
+  if (d === "deny") step.summary = concern.withheld;
+  else await remember(concern.ruleKey, d);
 }
 
 /**
@@ -807,6 +829,10 @@ export async function* runAgentLoop(
       if (advice.hint) step.summary += advice.hint;
       if (advice.stop) shouldStop = true;
     }
+
+    // Claude 로 넘기기 전 마지막 확인. 비밀은 전송 계층이 알아서 가리고, 여기선 사용자가
+    // 정할 것(개인정보, 메일·메시지 내용)만 묻는다.
+    if (claude) for (const { call, step } of executed) yield* guardOutbound(call, step);
 
     // native 모드는 tool_call 마다 결과 메시지가 짝으로 있어야 하므로 반복분도 싣는다.
     const review = native && claude ? await imagesToReview(executed) : null;
