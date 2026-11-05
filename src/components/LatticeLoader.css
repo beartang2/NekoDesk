@@ -21,6 +21,10 @@
   font-family: inherit;
   font-size: var(--ll-font);
   line-height: 1;
+  /* 라벨 셋(진행·끝·실패)이 겹쳐 놓여 있어, 대화를 복사하면 숨은 것까지 "생각하는 중생각 과정Failed after"
+     로 딸려 왔다. 상태 표시일 뿐이라 선택에서 뺀다. */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .lattice-loader__grid {
