@@ -28,6 +28,30 @@ fn output_dir() -> PathBuf {
     dir
 }
 
+/// 그림 도구 모듈. 코드 실행마다 PYTHONPATH 에 넣어, 그림 스킬 문서가 함수 본문 70줄 대신
+/// `from neko_draw import *` 한 줄만 쓰게 한다 — 모델이 매번 읽고 베껴 쓰던 분량이다.
+const NEKO_DRAW: &str = include_str!("neko_draw.py");
+
+/// neko_draw.py 가 있는 폴더(~/.nekodesk/lib). 앱에 든 것과 다르면(업데이트·누가 고침) 다시 쓴다.
+/// 출력 폴더와 따로 둔다 — 그쪽은 30일 지나면 지운다.
+fn lib_dir() -> PathBuf {
+    let dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".nekodesk/lib");
+    let file = dir.join("neko_draw.py");
+    if std::fs::read_to_string(&file).ok().as_deref() != Some(NEKO_DRAW) {
+        let _ = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&file, NEKO_DRAW));
+    }
+    dir
+}
+
+/// lib_dir 을 앞에 둔 PYTHONPATH. 사용자가 원래 쓰던 값은 뒤에 남긴다.
+fn python_path() -> std::ffi::OsString {
+    let mut paths = vec![lib_dir()];
+    if let Some(old) = std::env::var_os("PYTHONPATH") {
+        paths.extend(std::env::split_paths(&old));
+    }
+    std::env::join_paths(paths).unwrap_or_default()
+}
+
 /// 출력 폴더에서 이만큼 안 바뀐 파일은 지운다. 채팅은 이미지를 data URL 로 들고 있어서
 /// 파일이 없어져도 옛 대화가 안 깨진다.
 const OUTPUT_TTL: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -233,6 +257,7 @@ pub fn run(
         .arg(flag)
         .arg(&code)
         .current_dir(&dir)
+        .env("PYTHONPATH", python_path())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -289,8 +314,21 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_output_image, prune_old, run_dir, truncate_chars, OUTPUT_TTL};
+    use super::{collect_output_image, prune_old, python_path, run_dir, truncate_chars, OUTPUT_TTL};
     use std::time::{Duration, SystemTime};
+
+    /// 앱에 든 그림 모듈이 실제로 import 되고, 도형 태그 없이 path 만 만든다.
+    #[test]
+    fn neko_draw_imports_on_python_path() {
+        let out = std::process::Command::new("python3")
+            .args(["-c", "from neko_draw import *\nprint(shape(ring(50, 50, 20), '#fff', dark='#ccc', gaps=[2]) + eye(50, 50, 20) + human_eye(50, 50, 20))"])
+            .env("PYTHONPATH", python_path())
+            .output()
+            .expect("python3");
+        let svg = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(svg.contains("<path") && !svg.contains("<circle"), "{svg}");
+    }
 
     #[test]
     fn work_dir_expands_tilde_and_rejects_missing() {
