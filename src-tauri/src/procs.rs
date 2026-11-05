@@ -126,7 +126,11 @@ fn redact(args: &str) -> String {
                 hide_next = true;
                 out.push(w.to_string());
             }
-            _ if (w.starts_with("-p") || w.starts_with("-P")) && w.len() > 2 => out.push(format!("{}***", &w[..2])),
+            // `-password x`·`-pass pass:x` 는 플래그 이름이다 — 이름을 가려도 다음 값은 그대로 가린다.
+            _ if (w.starts_with("-p") || w.starts_with("-P")) && w.len() > 2 => {
+                hide_next = secret(w);
+                out.push(format!("{}***", &w[..2]));
+            }
             _ => {
                 hide_next = w.starts_with('-') && !w.contains('=') && secret(w);
                 out.push(match (w.find("://"), w.rfind('@')) {
@@ -187,6 +191,8 @@ mod tests {
         assert_eq!(redact("node vite --port 3000"), "node vite --port 3000");
         assert_eq!(redact("mysql -u root -phunter2 db"), "mysql -u root -p*** db");
         assert_eq!(redact("sshpass -p hunter2 ssh host"), "sshpass -p *** ssh host");
+        assert_eq!(redact("openssl enc -pass pass:hunter2 -in f"), "openssl enc -p*** *** -in f");
+        assert_eq!(redact("tool -password hunter2"), "tool -p*** ***");
     }
 
     #[test]
