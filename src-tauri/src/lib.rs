@@ -856,13 +856,13 @@ mod commands {
 
     // ── 보안 점검 (security 모듈 위임) ────────────────────────────────────────
 
-    /// 읽기 전용. 명령은 DB 잠금 밖에서 돌리고, 자동 실행 목록을 견줄 때만 잠근다.
+    /// 읽기 전용(`remember` 면 자동 실행 목록만 기억). 명령은 DB 잠금 밖에서 돌리고, 목록을 견줄 때만 잠근다.
     #[tauri::command(async)]
-    pub fn security_check(db: State<'_, DbState>) -> Result<crate::security::Report, AppError> {
+    pub fn security_check(db: State<'_, DbState>, remember: bool) -> Result<crate::security::Report, AppError> {
         let checks = crate::security::checks();
         let autostart = crate::security::autostart();
         let conn = db.0.lock()?;
-        let new_autostart = crate::security::new_autostart(&conn, &autostart)?;
+        let new_autostart = crate::security::new_autostart(&conn, &autostart, remember)?;
         Ok(crate::security::Report { checks, autostart, new_autostart })
     }
 

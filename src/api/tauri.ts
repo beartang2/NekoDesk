@@ -114,7 +114,8 @@ export const processApi = {
 
 /** 읽기 전용 보안 점검. 새 자동 실행 항목은 한 번 알리면 다음엔 안 실린다. */
 export const securityApi = {
-  check: () => invoke<SecurityReport>("security_check"),
+  /** `remember` 는 사용자가 직접 보는 브리핑만 켠다 — 새 자동 실행 항목을 "알렸다" 로 친다. */
+  check: (remember = false) => invoke<SecurityReport>("security_check", { remember }),
 };
 
 /** 사용자가 `~/.nekodesk/skills/*.md` 에 넣어둔 지식. */

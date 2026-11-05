@@ -158,11 +158,14 @@ pub fn autostart() -> Vec<String> {
 
 const AUTOSTART_KEY: &str = "security_autostart";
 
-/// 지난 점검과 견줘 새로 생긴 자동 실행 항목을 돌려주고, 지금 목록을 기억해 둔다.
-/// 그래서 새 항목은 한 번만 알린다.
-pub fn new_autostart(conn: &Connection, now: &[String]) -> AppResult<Vec<String>> {
+/// 지난 점검과 견줘 새로 생긴 자동 실행 항목을 돌려준다. `remember` 면 지금 목록을 기억해
+/// 새 항목을 한 번만 알린다 — 사용자가 직접 보는 브리핑만 그렇게 한다. 모델이 부르는 점검이
+/// 기억하면, 속은 모델 한 번에 새 항목이 사용자 눈에 띄기 전에 "본 것" 이 돼 버린다.
+pub fn new_autostart(conn: &Connection, now: &[String], remember: bool) -> AppResult<Vec<String>> {
     let before = crate::db::settings::get(conn, AUTOSTART_KEY)?;
-    crate::db::settings::set(conn, AUTOSTART_KEY, &now.join("\n"))?;
+    if remember {
+        crate::db::settings::set(conn, AUTOSTART_KEY, &now.join("\n"))?;
+    }
     Ok(added(before.as_deref(), now))
 }
 
@@ -199,11 +202,13 @@ mod tests {
         let a = vec!["~/Library/LaunchAgents/a.plist".to_string()];
         let ab = vec![a[0].clone(), "/Library/LaunchDaemons/b.plist".to_string()];
         // 처음엔 무엇이 새것인지 모른다.
-        assert!(new_autostart(&c, &a).unwrap().is_empty());
-        assert_eq!(new_autostart(&c, &ab).unwrap(), vec!["/Library/LaunchDaemons/b.plist"]);
-        assert!(new_autostart(&c, &ab).unwrap().is_empty());
+        assert!(new_autostart(&c, &a, true).unwrap().is_empty());
+        // 기억하지 않는 점검은 몇 번을 봐도 새 항목이 남는다.
+        assert_eq!(new_autostart(&c, &ab, false).unwrap(), vec!["/Library/LaunchDaemons/b.plist"]);
+        assert_eq!(new_autostart(&c, &ab, true).unwrap(), vec!["/Library/LaunchDaemons/b.plist"]);
+        assert!(new_autostart(&c, &ab, true).unwrap().is_empty());
         // 지운 건 알리지 않는다.
-        assert!(new_autostart(&c, &a).unwrap().is_empty());
+        assert!(new_autostart(&c, &a, true).unwrap().is_empty());
     }
 
     /// 이 맥에서 실제로 돌려 본다. 명령이 없거나 출력이 바뀌면 판정이 빠진다.

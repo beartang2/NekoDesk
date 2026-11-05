@@ -1239,7 +1239,7 @@ export default function App() {
           invoke<string>("weather_get", { location: location || "서울" }).catch(() => null),
           scheduleApi.list("today").catch(() => [] as ScheduleEvent[]),
           todosApi.list().catch(() => [] as Todo[]),
-          securityApi.check().catch(() => null),
+          securityApi.check(true).catch(() => null),
         ]);
 
         const weatherLine = weatherRaw
