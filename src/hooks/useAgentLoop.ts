@@ -289,18 +289,23 @@ export function buildHistory(messages: ChatMessage[]): LlmMessage[] {
           ? buildLlmContent(text, m.attachments)
           : m.label
             ? `[${m.label}]\n${text}`
-            : text || toolsOnlyNote(m),
+            : withToolsNote(text, m),
       };
     });
 }
 
 /**
- * 사용자가 중간에 끼어들면 그때까지의 답 칸은 글 없이 도구 기록만 남기고 닫힌다.
- * 빈 assistant 메시지를 그대로 보내면 템플릿에 따라 거부되므로 한 줄로 적어 준다.
+ * 답 글 끝에 그 답을 쓰기 전에 실제로 쓴 도구를 적는다. 기록엔 답 글만 실려서, 다음 요청에서
+ * 모델이 "그림을 그려 저장했어" 라는 제 말을 확인할 길이 없었다 — 툴 호출이 안 보이니 지어낸
+ * 말이라고 사과까지 했다. 사용자가 끼어들어 글 없이 닫힌 칸도 이 한 줄이 내용이 된다
+ * (빈 assistant 메시지는 템플릿에 따라 거부된다). 한 번 정해지면 안 바뀌어 프롬프트 캐시도 그대로다.
  */
-function toolsOnlyNote(m: ChatMessage): string {
-  if (m.role !== "assistant" || !m.steps?.length) return m.content;
-  return `(도구 사용: ${[...new Set(m.steps.map((s) => s.tool))].join(", ")})`;
+function withToolsNote(text: string, m: ChatMessage): string {
+  if (m.role !== "assistant" || !m.steps?.length) return text;
+  const ok = new Map<string, boolean>();
+  for (const s of m.steps) ok.set(s.tool, (ok.get(s.tool) ?? false) || s.status !== "error");
+  const note = `(도구 사용: ${[...ok].map(([tool, done]) => (done ? tool : `${tool} 실패`)).join(", ")})`;
+  return text ? `${text}\n\n${note}` : note;
 }
 
 function deriveFinalEmotion(steps: AgentStep[]): CatEmotion {

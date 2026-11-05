@@ -139,4 +139,15 @@ describe("buildHistory", () => {
     const [m] = buildHistory([{ id: "1", role: "user", content: "a…", time: "", label: "번역", prompt }]);
     expect(m.content).toBe(`[번역]\n${full}`);
   });
+
+  it("답 글 뒤에 실제로 쓴 도구를 적는다 — 다음 요청에서 제가 한 일을 부정하지 않게", () => {
+    const step = (tool: string, status: AgentStep["status"]) => ({ tool, status }) as AgentStep;
+    const [m] = buildHistory([{
+      id: "1", role: "assistant", content: "곰을 그렸어", time: "",
+      steps: [step("skill.read", "done"), step("code.exec", "error"), step("code.exec", "done"), step("web.search", "error")],
+    }]);
+    expect(m.content).toBe("곰을 그렸어\n\n(도구 사용: skill.read, code.exec, web.search 실패)");
+    expect(buildHistory([{ id: "2", role: "assistant", content: "", time: "", steps: [step("todo.list", "done")] }])[0].content)
+      .toBe("(도구 사용: todo.list)");
+  });
 });
