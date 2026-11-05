@@ -413,6 +413,14 @@ function ChatMessages({
   onPickSuggestion?: (text: string) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  // 긴 선택문을 줄여 보인 말풍선 중 원문을 펼친 것.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const toggleExpanded = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   const containerRef = useRef<HTMLDivElement>(null);
   const isUserScrolledUp = useRef(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -538,8 +546,13 @@ function ChatMessages({
                     ),
                   }}
                 >
-                  {stripThink(m.content)}
+                  {stripThink(expanded.has(m.id) && m.prompt ? m.prompt : m.content)}
                 </ReactMarkdown>
+              )}
+              {m.role === "user" && m.prompt && (
+                <button type="button" className="message__more" onClick={() => toggleExpanded(m.id)}>
+                  {expanded.has(m.id) ? "접기" : "더보기"}
+                </button>
               )}
               {m.images && m.images.length > 0 && (
                 <div className="message__images">
@@ -1117,6 +1130,7 @@ export default function App() {
           tokensPerSecond: meta.tokensPerSecond,
           notice: meta.notice,
           label: meta.label,
+          prompt: meta.prompt,
           isStreaming: false,
         };
       });
@@ -1130,7 +1144,6 @@ export default function App() {
     } catch {
       // ignore — DB may be empty for this session
     }
-          prompt: meta.prompt,
   }
 
   // ── 일정 알림 (60초마다 체크, 15분 이내 시작 일정) ──────────────────────────
