@@ -9,8 +9,16 @@ import { loadThemePref, resolveDark, windowTheme } from "./theme";
  */
 export function syncWindowTheme(nativeTitle = true) {
   const pref = loadThemePref();
-  const isDark = resolveDark(pref);
-  document.documentElement.classList.toggle("light", !isDark);
-  applyThemeColors(isDark);
-  if (nativeTitle) getCurrentWindow().setTheme(windowTheme(pref)).catch(() => {});
+  const apply = (isDark: boolean) => {
+    document.documentElement.classList.toggle("light", !isDark);
+    applyThemeColors(isDark);
+  };
+  apply(resolveDark(pref));
+  if (!nativeTitle) return;
+  // 시스템이면 창 테마를 풀고 나서 창에 다시 묻는다 — 웹뷰의 matchMedia 는 늦거나 틀린다(App 의 useTheme).
+  const w = getCurrentWindow();
+  w.setTheme(windowTheme(pref))
+    .then(() => (pref === "system" ? w.theme() : null))
+    .then((t) => { if (t) apply(t === "dark"); })
+    .catch(() => {});
 }

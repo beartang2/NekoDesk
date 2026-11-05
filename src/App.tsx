@@ -83,18 +83,23 @@ const SLEEPY_AFTER_MS = 5 * 60 * 1000;
 function useTheme() {
   const pref = useThemePref((s) => s.pref);
   const setPref = useThemePref((s) => s.setPref);
-  // 시스템을 고르면 창 테마를 null 로 풀어 준 뒤에야 macOS 값이 들어온다. change 로 받는다.
+  // macOS 값은 웹뷰(matchMedia)가 아니라 창에 묻는다. 창 설정의 "theme": "Dark" 로 켜진 웹뷰는
+  // setTheme(null) 뒤에도 다크라고 답해서, 라이트 맥에서 시스템으로 둬도 다크로 켜졌다.
+  // 첫 값은 깜빡임을 줄이려는 어림값이고, 아래 theme() 가 곧 바로잡는다.
   const [systemDark, setSystemDark] = useState(() => systemDarkQuery().matches);
   useEffect(() => {
-    const q = systemDarkQuery();
-    const onChange = () => setSystemDark(q.matches);
-    q.addEventListener("change", onChange);
-    return () => q.removeEventListener("change", onChange);
+    // macOS 설정이 바뀌면 온다. 라이트·다크로 박아 둔 동안엔 그 값이 오지만 그땐 쓰지 않는다.
+    const off = getCurrentWindow().onThemeChanged(({ payload }) => setSystemDark(payload === "dark"));
+    return () => void off.then((f) => f()).catch(() => {});
   }, []);
   const isDark = pref === "system" ? systemDark : pref === "dark";
 
   useEffect(() => {
-    getCurrentWindow().setTheme(windowTheme(pref)).catch(() => {});
+    const w = getCurrentWindow();
+    w.setTheme(windowTheme(pref))
+      .then(() => (pref === "system" ? w.theme() : null))
+      .then((t) => { if (t) setSystemDark(t === "dark"); })
+      .catch(() => {});
   }, [pref]);
 
   useEffect(() => {
