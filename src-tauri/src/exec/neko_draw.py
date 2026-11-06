@@ -3,6 +3,7 @@
 앱이 코드 실행 때 PYTHONPATH 에 넣어 둔다. `from neko_draw import *` 로 쓴다.
 상수(OUTLINE·DETAIL·FINE·INK)는 모듈 값이라, 바꾸려면 `import neko_draw as nd; nd.INK = "#2A2340"`.
 """
+import os
 import random
 from math import cos, sin, pi
 
@@ -81,7 +82,7 @@ def eye(cx, cy, r, look=(0, 1), iris="#E9E27A", seed=1,
     """큰 검은 눈. 홍채는 look 쪽 가장자리에 초승달로만 보인다. 두 눈의 look 을 같은 쪽으로.
     lid = 위 눈꺼풀이 덮는 비율(0~1), tilt = 눈꺼풀 기울기(+ 면 오른쪽이 낮다), under = 아래에서
     밀어 올린 웃는 눈꺼풀, pupil = 검은자 크기(작으면 놀란 눈), flat = 세로 납작함(작으면 가는 눈),
-    shine = 흰 반짝이 두 점. 표정별 값은 eyes() 가 정해 준다."""
+    shine = 흰 반짝이 두 점. 값을 섞어 표정을 직접 만든다."""
     k = (look[0] ** 2 + look[1] ** 2) ** 0.5 or 1
     off = r * (0.16 if pupil > 0.6 else 0.1)
     ry = r * 0.94 * flat
@@ -113,41 +114,33 @@ def eye(cx, cy, r, look=(0, 1), iris="#E9E27A", seed=1,
     return (f'<clipPath id="{cid}"><path d="{keep}"/></clipPath><g clip-path="url(#{cid})">{out}</g>'
             + _line(line, DETAIL))
 
-# 표정 → eye() 값. tilt 는 왼쪽 눈 기준(오른쪽 눈은 거울로 뒤집힌다). size = 눈 크기 배율,
-# size2 = 오른쪽 눈만 더 곱한다(짝짝이 — 갸웃).
-MOODS = {
-    "calm": {},                                  # 기본 — 동그란 큰 눈
-    "shine": {"shine": True},                    # 신남·감동 — 반짝이
-    "shock": {"pupil": 0.45},                    # 놀람·겁 — 검은자가 작아진다
-    "curious": {"lid": 0.2, "size2": 0.85},      # 궁금함 — 윗부분이 평평한 짝짝이 눈
-    "sleepy": {"lid": 0.5},                      # 졸림·귀찮음 — 반쯤 감은 눈
-    "slit": {"flat": 0.36, "size": 1.25},         # 시큰둥·의심 — 가늘고 긴 눈
-    "angry": {"lid": 0.32, "tilt": 0.5},         # 화남 — 안쪽이 내려간 눈꺼풀
-    "sad": {"lid": 0.3, "tilt": -0.45},          # 슬픔·미안 — 바깥쪽이 내려간 눈꺼풀
-    "happy": {"under": 0.5},                     # 웃음 — 아래가 둥글게 밀려 올라간 눈
-}
-
-def eyes(x1, x2, y, r, mood="calm", look=(0, 1), iris="#E9E27A", seed=1):
-    """두 눈을 한 번에(x1 = 왼쪽 눈). mood: calm·shine·shock·curious·sleepy·slit·angry·sad·happy·closed."""
-    if mood == "closed":  # 기쁨·만족 — 휜 실눈(∩)
-        return "".join(stroke([(x - r * 0.8, y + r * 0.15), (x, y - r * 0.4), (x + r * 0.8, y + r * 0.15)],
-                              seed=seed + i) for i, x in enumerate((x1, x2)))
-    m = dict(MOODS[mood])
-    r *= m.pop("size", 1)
-    r2 = r * m.pop("size2", 1)
-    tilt = m.pop("tilt", 0)
-    return (eye(x1, y, r, look, iris, seed, tilt=tilt, **m)
-            + eye(x2, y + (r - r2) * 0.3, r2, look, iris, seed + 10, tilt=-tilt, **m))
+def eyes(x1, x2, y, r, look=(0, 1), iris="#E9E27A", seed=1, size2=1.0, **kw):
+    """두 눈을 한 번에(x1 = 왼쪽 눈). kw 는 eye() 의 표정 값(lid·tilt·under·pupil·flat·shine) —
+    tilt 는 왼쪽 눈 기준이고 오른쪽 눈은 거울로 뒤집는다. size2 = 오른쪽 눈 크기 배율(짝짝이)."""
+    tilt = kw.pop("tilt", 0.0)
+    r2 = r * size2
+    return (eye(x1, y, r, look, iris, seed, tilt=tilt, **kw)
+            + eye(x2, y + (r - r2) * 0.3, r2, look, iris, seed + 10, tilt=-tilt, **kw))
 
 def save(name, *parts, bg="#FFFFFF", size=1536):
     """조각들을 SVG 한 장으로 저장한다 — 머리말·배경·닫는 태그는 여기서 붙인다(빼먹으면 그림이 깨진다).
-    parts 는 shape()·stroke() 등이 돌려준 문자열(리스트도 된다). 저장한 경로를 돌려준다."""
+    parts 는 shape()·stroke() 등이 돌려준 문자열(리스트도 된다). 저장한 경로를 돌려준다.
+    같은 이름이 있으면 덮지 않고 _2·_3 을 붙인다 — 고치다 앞 버전을 잃지 않게. 그린 코드도 같은 이름의
+    .py 로 남긴다 — SVG 한 줄에선 부분만 고칠 수 없어, 다음에 그 코드를 고쳐 다시 돌린다."""
     flat = []
     for p in parts:
         flat.extend(p if isinstance(p, (list, tuple)) else [p])
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" width="{size}" height="{size}">'
            f'<rect width="{size}" height="{size}" fill="{bg}"/>' + "".join(flat) + "</svg>")
-    path = name if name.endswith(".svg") else name + ".svg"
+    base = name[:-4] if name.endswith(".svg") else name
+    path, n = base + ".svg", 2
+    while os.path.exists(path):
+        path, n = f"{base}_{n}.svg", n + 1
     with open(path, "w") as f:
         f.write(svg)
+    src = os.environ.get("NEKO_SOURCE")  # 앱의 코드 실행이 넣어 준 이번 코드
+    if src:
+        with open(path[:-4] + ".py", "w") as f:
+            f.write(src)
+    print(f"저장: {path}" + (f" (코드: {path[:-4]}.py)" if src else ""))
     return path

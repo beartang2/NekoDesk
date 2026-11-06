@@ -253,7 +253,12 @@ pub fn run(
 
     let dir = run_dir(work_dir)?;
 
-    let mut child = Command::new(interpreter)
+    let mut cmd = Command::new(interpreter);
+    if interpreter == "python3" {
+        // neko_draw.save() 가 그림 옆에 그린 코드를 남긴다(-c 로 돌면 파이썬이 소스를 모른다).
+        cmd.env("NEKO_SOURCE", &code);
+    }
+    let mut child = cmd
         .arg(flag)
         .arg(&code)
         .current_dir(&dir)
@@ -322,13 +327,36 @@ mod tests {
     fn neko_draw_imports_on_python_path() {
         let out = std::process::Command::new("python3")
             // 점 두 개짜리 선도 제어점이 직선(y=0) 밖에 있어야 — 자로 그은 직선은 못 그린다
-            .args(["-c", "from neko_draw import *\nimport re\nc = [float(v) for v in re.findall(r'-?[0-9.]+', smooth([(0, 0), (1000, 0)], False))]\nassert c[3] != 0 and c[5] != 0, c\nprint(shape(ring(50, 50, 20), '#fff', dark='#ccc', gaps=[2]) + eye(50, 50, 20) + ''.join(eyes(50, 150, 50, 30, m) for m in [*MOODS, 'closed']))"])
+            .args(["-c", "from neko_draw import *\nimport re\nc = [float(v) for v in re.findall(r'-?[0-9.]+', smooth([(0, 0), (1000, 0)], False))]\nassert c[3] != 0 and c[5] != 0, c\nprint(shape(ring(50, 50, 20), '#fff', dark='#ccc', gaps=[2]) + eye(50, 50, 20) + eyes(50, 150, 50, 30, lid=0.3, tilt=0.4, size2=0.8) + eyes(50, 150, 50, 30, under=0.5) + eyes(50, 150, 50, 30, flat=0.3, shine=True))"])
             .env("PYTHONPATH", python_path())
             .output()
             .expect("python3");
         let svg = String::from_utf8_lossy(&out.stdout);
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         assert!(svg.contains("<path") && !svg.contains("<circle"), "{svg}");
+    }
+
+    /// 같은 이름으로 다시 저장해도 앞 그림을 덮지 않고, 그린 코드를 옆에 남긴다.
+    #[test]
+    fn neko_draw_save_keeps_versions_and_source() {
+        let dir = std::env::temp_dir().join(format!("neko_save_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let code = "from neko_draw import *\nsave('a', stroke([(0, 0), (9, 9)]))";
+        for _ in 0..2 {
+            let out = std::process::Command::new("python3")
+                .args(["-c", code])
+                .current_dir(&dir)
+                .env("PYTHONPATH", python_path())
+                .env("NEKO_SOURCE", code)
+                .output()
+                .expect("python3");
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        }
+        for f in ["a.svg", "a_2.svg", "a.py", "a_2.py"] {
+            assert!(dir.join(f).exists(), "{f}");
+        }
+        assert_eq!(std::fs::read_to_string(dir.join("a.py")).unwrap(), code);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
