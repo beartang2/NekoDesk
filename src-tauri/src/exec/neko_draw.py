@@ -76,12 +76,68 @@ def ring(cx, cy, rx, ry=None, n=10, seed=1):
     return [(cx + rx * cos(2 * pi * i / n) * (1 + rnd.uniform(-0.05, 0.05)),
              cy + ry * sin(2 * pi * i / n) * (1 + rnd.uniform(-0.05, 0.05))) for i in range(n)]
 
-def eye(cx, cy, r, look=(0, 1), iris="#E9E27A", seed=1):
-    """큰 검은 눈. 홍채는 look 쪽 가장자리에 초승달로만 보인다. 두 눈의 look 을 같은 쪽으로."""
+def eye(cx, cy, r, look=(0, 1), iris="#E9E27A", seed=1,
+        lid=0.0, tilt=0.0, under=0.0, pupil=0.84, flat=1.0, shine=False):
+    """큰 검은 눈. 홍채는 look 쪽 가장자리에 초승달로만 보인다. 두 눈의 look 을 같은 쪽으로.
+    lid = 위 눈꺼풀이 덮는 비율(0~1), tilt = 눈꺼풀 기울기(+ 면 오른쪽이 낮다), under = 아래에서
+    밀어 올린 웃는 눈꺼풀, pupil = 검은자 크기(작으면 놀란 눈), flat = 세로 납작함(작으면 가는 눈),
+    shine = 흰 반짝이 두 점. 표정별 값은 eyes() 가 정해 준다."""
     k = (look[0] ** 2 + look[1] ** 2) ** 0.5 or 1
-    px, py = cx - look[0] / k * r * 0.16, cy - look[1] / k * r * 0.16
-    return (shape(ring(cx, cy, r, seed=seed), iris, w=DETAIL, slip=(0, 0), seed=seed)
-            + shape(ring(px, py, r * 0.84, seed=seed + 1), INK, w=0, slip=(0, 0)))
+    off = r * (0.16 if pupil > 0.6 else 0.1)
+    ry = r * 0.94 * flat
+    if flat < 1:  # 가는 눈: 검은자를 거의 꽉 채워 위로 밀고, 홍채는 아래 가장자리에만
+        px, py, prx, pry = cx - look[0] / k * r * 0.08, cy - look[1] / k * ry * 0.3, r * 0.92, ry * 0.8
+    else:
+        px, py, prx, pry = cx - look[0] / k * off, cy - look[1] / k * off, r * pupil, ry * pupil
+    out = (shape(ring(cx, cy, r, ry, seed=seed), iris, w=DETAIL, slip=(0, 0), seed=seed)
+           + shape(ring(px, py, prx, pry, seed=seed + 1), INK, w=0, slip=(0, 0)))
+    if shine:
+        out += (shape(ring(px - r * 0.3, py - r * 0.3, r * 0.2, seed=seed + 2), "#FFFFFF", w=0, slip=(0, 0))
+                + shape(ring(px + r * 0.28, py + r * 0.14, r * 0.11, n=7, seed=seed + 3), "#FFFFFF", w=0, slip=(0, 0)))
+    if not (lid or under):
+        return out
+    R = r * 1.4
+    if lid:  # 위 눈꺼풀: 선 아래만 남긴다
+        yc = cy - r + 2 * r * lid
+        hw = max(r * r - (yc - cy) ** 2, (0.3 * r) ** 2) ** 0.5 * 1.06
+        line = smooth([(cx - hw, yc - tilt * r * 0.5), (cx, yc + r * 0.04), (cx + hw, yc + tilt * r * 0.5)],
+                      False, 1.5, seed + 4)
+        keep = f"{line} L{cx + R:.1f} {cy + R:.1f} L{cx - R:.1f} {cy + R:.1f} Z"
+    else:     # 웃는 눈: 아래에서 둥글게 밀어 올린 선 위만 남긴다
+        top, end = cy + r - 2 * r * under, cy + r * 0.62
+        mid = top + (end - top) * 0.3
+        line = smooth([(cx - r * 1.02, end), (cx - r * 0.55, mid), (cx, top), (cx + r * 0.55, mid), (cx + r * 1.02, end)],
+                      False, 1.5, seed + 4)
+        keep = f"{line} L{cx + R:.1f} {cy - R:.1f} L{cx - R:.1f} {cy - R:.1f} Z"
+    cid = f"e{seed}_{int(cx)}_{int(cy)}"
+    return (f'<clipPath id="{cid}"><path d="{keep}"/></clipPath><g clip-path="url(#{cid})">{out}</g>'
+            + _line(line, DETAIL))
+
+# 표정 → eye() 값. tilt 는 왼쪽 눈 기준(오른쪽 눈은 거울로 뒤집힌다). size = 눈 크기 배율,
+# size2 = 오른쪽 눈만 더 곱한다(짝짝이 — 갸웃).
+MOODS = {
+    "calm": {},                                  # 기본 — 동그란 큰 눈
+    "shine": {"shine": True},                    # 신남·감동 — 반짝이
+    "shock": {"pupil": 0.45},                    # 놀람·겁 — 검은자가 작아진다
+    "curious": {"lid": 0.2, "size2": 0.85},      # 궁금함 — 윗부분이 평평한 짝짝이 눈
+    "sleepy": {"lid": 0.5},                      # 졸림·귀찮음 — 반쯤 감은 눈
+    "slit": {"flat": 0.36, "size": 1.25},         # 시큰둥·의심 — 가늘고 긴 눈
+    "angry": {"lid": 0.32, "tilt": 0.5},         # 화남 — 안쪽이 내려간 눈꺼풀
+    "sad": {"lid": 0.3, "tilt": -0.45},          # 슬픔·미안 — 바깥쪽이 내려간 눈꺼풀
+    "happy": {"under": 0.5},                     # 웃음 — 아래가 둥글게 밀려 올라간 눈
+}
+
+def eyes(x1, x2, y, r, mood="calm", look=(0, 1), iris="#E9E27A", seed=1):
+    """두 눈을 한 번에(x1 = 왼쪽 눈). mood: calm·shine·shock·curious·sleepy·slit·angry·sad·happy·closed."""
+    if mood == "closed":  # 기쁨·만족 — 휜 실눈(∩)
+        return "".join(stroke([(x - r * 0.8, y + r * 0.15), (x, y - r * 0.4), (x + r * 0.8, y + r * 0.15)],
+                              seed=seed + i) for i, x in enumerate((x1, x2)))
+    m = dict(MOODS[mood])
+    r *= m.pop("size", 1)
+    r2 = r * m.pop("size2", 1)
+    tilt = m.pop("tilt", 0)
+    return (eye(x1, y, r, look, iris, seed, tilt=tilt, **m)
+            + eye(x2, y + (r - r2) * 0.3, r2, look, iris, seed + 10, tilt=-tilt, **m))
 
 def save(name, *parts, bg="#FFFFFF", size=1536):
     """조각들을 SVG 한 장으로 저장한다 — 머리말·배경·닫는 태그는 여기서 붙인다(빼먹으면 그림이 깨진다).
