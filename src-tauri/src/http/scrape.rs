@@ -31,6 +31,11 @@ pub async fn run(url: &str) -> Result<ScrapResult, AppError> {
     Ok(extract_readable(url, &html))
 }
 
+/// 본문 글자 상한. 모델별로 얼마나 넘길지는 화면 쪽(web.scrape summarize)이 정한다.
+const MAX_CHARS: usize = 20_000;
+/// 페이지 대표 이미지 주소 몇 개까지 돌려줄지.
+const MAX_IMAGES: usize = 3;
+
 /// scraper::Html 은 여기 동기 함수 안에서만 산다(await 없음) → 미래가 Send 유지.
 fn extract_readable(url: &str, html: &str) -> ScrapResult {
     let document = scraper::Html::parse_document(html);
@@ -48,15 +53,102 @@ fn extract_readable(url: &str, html: &str) -> ScrapResult {
             .unwrap();
     let content: String = document
         .select(&content_sel)
-        .map(|n| n.text().collect::<String>().trim().to_string())
+        .map(|n| own_text(n, &content_sel).trim().to_string())
         .filter(|s| s.len() > 15)
         .collect::<Vec<_>>()
         .join("\n")
         .chars()
-        .take(6000)
+        .take(MAX_CHARS)
         .collect();
 
-    ScrapResult { url: url.to_string(), title, content }
+    let images = reqwest::Url::parse(url).map(|base| page_images(&base, &document)).unwrap_or_default();
+    ScrapResult { url: url.to_string(), title, content, images }
+}
+
+/// 이 태그가 직접 품은 글만 — 안에 든 다른 본문 태그(article 안의 p 등)의 글은 그 태그 몫이다.
+/// 통째로 모으면 article 이 본문 전체를 한 번, 그 안의 p 가 또 한 번 담아 같은 글이 두 번 들어갔다.
+fn own_text(n: scraper::ElementRef, sel: &scraper::Selector) -> String {
+    n.descendants()
+        .filter_map(|d| d.value().as_text().map(|t| (d, t)))
+        .filter(|(d, _)| {
+            d.ancestors()
+                .filter_map(scraper::ElementRef::wrap)
+                .find(|a| sel.matches(a))
+                .is_some_and(|a| a.id() == n.id())
+        })
+        .map(|(_, t)| &**t)
+        .collect()
+}
+
+/// 대표 이미지 주소: og:image·twitter:image 먼저, 그다음 본문 img. 아이콘·로고·SVG·작은 그림은 뺀다.
+fn page_images(base: &reqwest::Url, doc: &scraper::Html) -> Vec<String> {
+    let meta = scraper::Selector::parse(
+        r#"meta[property="og:image"], meta[property="og:image:url"], meta[name="twitter:image"]"#,
+    )
+    .unwrap();
+    let img = scraper::Selector::parse("img").unwrap();
+    let small = |e: &scraper::ElementRef| {
+        ["width", "height"]
+            .iter()
+            .any(|k| e.value().attr(k).and_then(|v| v.trim_end_matches("px").parse::<u32>().ok()).is_some_and(|v| v < 120))
+    };
+    let metas = doc.select(&meta).filter_map(|m| m.value().attr("content"));
+    let imgs = doc
+        .select(&img)
+        .filter(|e| !small(e))
+        .filter_map(|e| e.value().attr("src").or_else(|| e.value().attr("data-src")));
+    let mut out: Vec<String> = Vec::new();
+    for raw in metas.chain(imgs) {
+        let Ok(u) = base.join(raw.trim()) else { continue };
+        let path = u.path().to_ascii_lowercase();
+        if !matches!(u.scheme(), "http" | "https")
+            || path.ends_with(".svg")
+            || ["logo", "icon", "avatar", "sprite", "pixel", "badge", "emoji"].iter().any(|w| path.contains(w))
+        {
+            continue;
+        }
+        let s = u.to_string();
+        if !out.contains(&s) {
+            out.push(s);
+        }
+        if out.len() == MAX_IMAGES {
+            break;
+        }
+    }
+    out
+}
+
+/// 이미지 한 장을 data URL 로 받는다 — 모델이 페이지 대표 이미지를 직접 볼 때.
+/// 주소는 모델이 고르므로 SSRF 가드를 거치고, 래스터 이미지만·4MB 까지만 받는다.
+pub async fn image(url: &str) -> Result<String, AppError> {
+    use base64::Engine;
+    const MAX_BYTES: usize = 4 * 1024 * 1024;
+    validate_public_url(url)?;
+    let res = client().get(url).header("User-Agent", SCRAPE_UA).send().await?;
+    if !res.status().is_success() {
+        return Err(AppError::msg(format!("이미지를 못 받았어({}).", res.status().as_u16())));
+    }
+    let mime = res
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if !matches!(mime.as_str(), "image/png" | "image/jpeg" | "image/webp" | "image/gif") {
+        return Err(AppError::msg("사진 이미지(png·jpeg·webp·gif)가 아니야."));
+    }
+    if res.content_length().is_some_and(|n| n as usize > MAX_BYTES) {
+        return Err(AppError::msg("이미지가 너무 커."));
+    }
+    let bytes = res.bytes().await?;
+    if bytes.len() > MAX_BYTES {
+        return Err(AppError::msg("이미지가 너무 커."));
+    }
+    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes)))
 }
 
 /// github.com URL 이면 API 로 가져온다. github 가 아니거나 실패하면 None →
@@ -121,6 +213,7 @@ async fn github_user(url: &str, username: &str) -> Option<ScrapResult> {
         url: url.to_string(),
         title: format!("{username}'s GitHub repositories"),
         content: lines.join("\n"),
+        images: Vec::new(),
     })
 }
 
@@ -175,5 +268,29 @@ async fn github_repo(url: &str, username: &str, repo_name: &str) -> Option<Scrap
         url: url.to_string(),
         title: format!("{username}/{repo_name}"),
         content: lines.join("\n"),
+        images: Vec::new(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn article_text_is_not_doubled_and_images_are_picked() {
+        let html = r#"<html><head><title>T</title>
+            <meta property="og:image" content="/hero.jpg"></head><body>
+            <article>Article intro text that sits outside paragraphs.
+              <p>First paragraph with enough words.</p><p>Second paragraph with enough words.</p></article>
+            <img src="/site-logo.png"><img src="https://cdn.example/a.svg"><img src="/tiny.jpg" width="16">
+            <img src="photo.webp"><img data-src="/lazy.jpg"><img src="/more.jpg">
+            </body></html>"#;
+        let r = extract_readable("https://example.com/post/1", html);
+        assert_eq!(r.content.matches("First paragraph").count(), 1, "{}", r.content);
+        assert!(r.content.contains("Article intro text"), "{}", r.content);
+        assert_eq!(
+            r.images,
+            ["https://example.com/hero.jpg", "https://example.com/post/photo.webp", "https://example.com/lazy.jpg"]
+        );
+    }
 }

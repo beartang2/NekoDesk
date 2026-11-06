@@ -266,6 +266,9 @@ pub struct ScrapResult {
     pub url: String,
     pub title: String,
     pub content: String,
+    /// 페이지 대표 이미지 주소(최대 3개). 모델이 보고 싶을 때 web_image 로 받는다.
+    #[serde(default)]
+    pub images: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -385,6 +388,11 @@ mod commands {
     #[tauri::command]
     pub async fn web_scrape(url: String) -> Result<ScrapResult, AppError> {
         crate::http::scrape::run(&url).await
+    }
+
+    #[tauri::command]
+    pub async fn web_image(url: String) -> Result<String, AppError> {
+        crate::http::scrape::image(&url).await
     }
 
     #[tauri::command(async)]
@@ -1195,6 +1203,7 @@ pub fn run() {
             commands::code_exec,
             commands::web_search,
             commands::web_scrape,
+            commands::web_image,
             commands::image_generate,
             commands::settings_set,
             commands::settings_get,

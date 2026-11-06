@@ -168,7 +168,7 @@ export function serializeMeta(meta: MessageMeta): string | undefined {
     budget -= url.length;
     return true;
   });
-  const steps = (meta.steps ?? []).map(({ imageDataUrl: _image, ...s }) => ({
+  const steps = (meta.steps ?? []).map(({ imageDataUrl: _image, pageImages: _pages, ...s }) => ({
     ...s,
     // 중단돼서 "실행 중" 으로 남은 스텝을 다시 열면 영원히 돈다.
     ...(s.status === "running" ? { status: "error" as const, errorMessage: "중단됨" } : {}),

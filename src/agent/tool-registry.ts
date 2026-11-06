@@ -360,16 +360,29 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     description: "특정 URL의 페이지 내용을 가져온다. web.search 결과에 나온 URL만 사용할 것",
     params: {
       type: "object",
-      properties: { url: { type: "string", description: "web.search 결과에서 그대로 복사한 URL" } },
+      properties: {
+        url: { type: "string", description: "web.search 결과에서 그대로 복사한 URL" },
+        images: { type: "boolean", description: "true 면 페이지 대표 이미지(최대 3장)도 직접 본다. 생김새를 확인해야 할 때만" },
+      },
       required: ["url"],
     },
     readOnly: true,
-    execute: async (p) => invoke<ScrapResult>("web_scrape", { url: p["url"] as string }),
+    execute: async (p) => {
+      const res = await invoke<ScrapResult>("web_scrape", { url: p["url"] as string });
+      // 이미지는 볼 수 있는 Claude 에게만. 못 받은 이미지는 건너뛴다.
+      if (p["images"] !== true || !isClaudeActive() || !res.images?.length) return res;
+      const got = await Promise.allSettled(res.images.map((url) => invoke<string>("web_image", { url })));
+      const page_images = got.flatMap((g) => (g.status === "fulfilled" ? [g.value] : []));
+      return { ...res, page_images };
+    },
     summarize: (r) => {
       const res = r as ScrapResult;
       // 500자면 기사 첫 문단도 다 못 담는다 — Claude 는 "본문이 잘려서 확인 못 했어" 를 되풀이했다.
-      // 본문은 Rust 가 이미 6000자로 자른다. 작은 모델만 예전처럼 짧게.
-      return `[${res.title}]\n${isClaudeActive() ? res.content : res.content.slice(0, 500)}`;
+      // Rust 는 2만 자까지 준다. 작은 모델만 예전처럼 짧게.
+      if (!isClaudeActive()) return `[${res.title}]\n${res.content.slice(0, 500)}`;
+      const n = res.page_images?.length ?? 0;
+      const note = n ? `\n[대표 이미지 ${n}장 — 다음에 보인다]` : res.images?.length ? `\n[대표 이미지 ${res.images.length}장 있음]` : "";
+      return `[${res.title}]\n${res.content}${note}`;
     },
   },
 

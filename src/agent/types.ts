@@ -173,6 +173,10 @@ export interface ScrapResult {
   url: string;
   title: string;
   content: string;
+  /** 페이지 대표 이미지 주소(최대 3개). */
+  images?: string[];
+  /** images: true 로 불렀을 때 받아 온 이미지(data URL). 모델에게만 보이고 저장하지 않는다. */
+  page_images?: string[];
 }
 
 export interface CodeExecResult {
@@ -314,6 +318,8 @@ export interface AgentStep {
   status: StepStatus;
   errorMessage?: string;
   imageDataUrl?: string;
+  /** web.scrape 가 받아 온 페이지 이미지 — 다음 호출에 모델에게만 보인다(화면·저장 X). */
+  pageImages?: string[];
 }
 
 /** Emitted during the loop so React can show live progress */
