@@ -12,7 +12,8 @@ FINE = round(OUTLINE * 0.28)   # 빗금·머리결·주름
 INK = "#141414"
 
 def smooth(pts, closed=True, wobble=0.0, seed=1):
-    """점들을 지나는 매끈한 곡선 path(Catmull-Rom). 같은 점을 연달아 두 번 넣으면 그 자리가 꺾인다."""
+    """점들을 지나는 매끈한 곡선 path(Catmull-Rom). 같은 점을 연달아 두 번 넣으면 그 자리가 꺾인다.
+    구간마다 살짝 휘게 한다 — 점 두 개짜리 선이나 꺾인 꼭짓점 사이도 자로 그은 직선이 되지 않게."""
     rnd, jit = random.Random(seed), {}
     for p in pts:  # 같은 자리는 같은 떨림 — 두 번 넣은 꼭짓점이 서로 어긋나지 않게
         jit.setdefault(p, (rnd.uniform(-wobble, wobble), rnd.uniform(-wobble, wobble)))
@@ -27,6 +28,12 @@ def smooth(pts, closed=True, wobble=0.0, seed=1):
         p3 = P[(i + 2) % n] if (closed or i + 2 < n) else p2
         c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
         c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
+        # 손으로 그은 선의 휨: 구간에 수직으로, 길이의 2~4%. 한쪽으로 기울어 고르지 않게
+        s = rnd.choice((-1, 1))
+        b1, b2 = s * rnd.uniform(0.02, 0.04), s * rnd.uniform(0.005, 0.03)
+        nx, ny = p1[1] - p2[1], p2[0] - p1[0]
+        c1 = (c1[0] + nx * b1, c1[1] + ny * b1)
+        c2 = (c2[0] + nx * b2, c2[1] + ny * b2)
         d += f" C{c1[0]:.1f} {c1[1]:.1f} {c2[0]:.1f} {c2[1]:.1f} {p2[0]:.1f} {p2[1]:.1f}"
     return d + (" Z" if closed else "")
 

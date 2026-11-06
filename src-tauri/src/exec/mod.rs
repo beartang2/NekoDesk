@@ -321,7 +321,8 @@ mod tests {
     #[test]
     fn neko_draw_imports_on_python_path() {
         let out = std::process::Command::new("python3")
-            .args(["-c", "from neko_draw import *\nprint(shape(ring(50, 50, 20), '#fff', dark='#ccc', gaps=[2]) + eye(50, 50, 20))"])
+            // 점 두 개짜리 선도 제어점이 직선(y=0) 밖에 있어야 — 자로 그은 직선은 못 그린다
+            .args(["-c", "from neko_draw import *\nimport re\nc = [float(v) for v in re.findall(r'-?[0-9.]+', smooth([(0, 0), (1000, 0)], False))]\nassert c[3] != 0 and c[5] != 0, c\nprint(shape(ring(50, 50, 20), '#fff', dark='#ccc', gaps=[2]) + eye(50, 50, 20))"])
             .env("PYTHONPATH", python_path())
             .output()
             .expect("python3");
