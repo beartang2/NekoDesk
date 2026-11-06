@@ -21,8 +21,7 @@
   font-family: inherit;
   font-size: var(--ll-font);
   line-height: 1;
-  /* 라벨 셋(진행·끝·실패)이 겹쳐 놓여 있어, 대화를 복사하면 숨은 것까지 "생각하는 중생각 과정Failed after"
-     로 딸려 왔다. 상태 표시일 뿐이라 선택에서 뺀다. */
+  /* 상태 표시일 뿐이라 선택에서 뺀다. */
   -webkit-user-select: none;
   user-select: none;
 }
@@ -136,6 +135,13 @@
   transition:
     opacity 200ms ease,
     filter 200ms ease;
+}
+
+/* 라벨 셋(진행·끝·실패)이 겹쳐 놓여 있어, 대화를 복사하면 숨은 것까지 "생각하는 중생각 과정Failed after"
+   로 딸려 왔다. WebKit 은 user-select: none 이어도 앞뒤를 같이 고르면 복사한다 — 글을 글자 노드가 아닌
+   생성 콘텐츠로 그려, 복사에 아예 안 들어가게 한다. */
+.lattice-loader__text::before {
+  content: attr(data-text);
 }
 
 .lattice-loader__text[data-active] {

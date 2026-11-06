@@ -98,7 +98,8 @@ export function cleanAnswer(text: string): string {
 function stripSpecialTokens(text: string): { clean: string; emotion: CatEmotion | null } {
   const match = text.match(/\[\[PET_STATE:(\w+)\]\]/);
   const emotion = match ? (match[1] as CatEmotion) : null;
-  return { clean: cleanAnswer(text).trim(), emotion };
+  // 기록의 답 끝에 붙여 둔 "(도구 사용: …)" 를 모델이 흉내 내 제 답에 쓰곤 한다 — 그 줄은 지운다.
+  return { clean: cleanAnswer(text).replace(/\s*\(도구 사용: [^)\n]*\)\s*$/, "").trim(), emotion };
 }
 
 /**
