@@ -22,6 +22,7 @@ pub fn client() -> &'static reqwest::Client {
         reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
             .connect_timeout(Duration::from_secs(8))
+            .dns_resolver(std::sync::Arc::new(PublicOnly))
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
                 if attempt.previous().len() >= 5 || host_is_blocked(attempt.url()) {
                     attempt.stop() // 따라가지 않고 현재 응답을 반환
@@ -63,16 +64,42 @@ fn host_is_blocked(url: &reqwest::Url) -> bool {
     lower == "localhost" || lower.ends_with(".localhost")
 }
 
+/// 이름을 풀 때 내부/사설 주소는 버린다. URL 검사(validate_public_url)는 호스트 글자만 보므로,
+/// 공개 이름이 127.0.0.1 로 풀리게 해 두는 수(DNS 리바인딩)는 여기서 막힌다. 실제로 붙는 주소가
+/// 이 목록에서 나오고, 리다이렉트 홉도 같은 리졸버를 거친다.
+struct PublicOnly;
+
+impl reqwest::dns::Resolve for PublicOnly {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_string();
+        Box::pin(async move {
+            use std::net::ToSocketAddrs;
+            let found = tauri::async_runtime::spawn_blocking(move || (host.as_str(), 0).to_socket_addrs())
+                .await
+                .map_err(|e| e.to_string())??;
+            let addrs: Vec<std::net::SocketAddr> = found.filter(|a| !ip_is_blocked(a.ip())).collect();
+            if addrs.is_empty() {
+                return Err("내부/사설 주소로 풀리는 이름이라 접근하지 않아.".into());
+            }
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
 fn ip_is_blocked(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
+            let o = v4.octets();
             v4.is_loopback()
                 || v4.is_private()
                 || v4.is_link_local()
                 || v4.is_broadcast()
                 || v4.is_unspecified()
-                || v4.octets()[0] == 0
+                || o[0] == 0
+                || (o[0] == 100 && (o[1] & 0xc0) == 64) // CGNAT 100.64.0.0/10
         }
+        // ::ffff:127.0.0.1 처럼 IPv4 를 품은 주소는 그 IPv4 로 판단한다.
+        IpAddr::V6(v6) if v6.to_ipv4_mapped().is_some() => ip_is_blocked(IpAddr::V4(v6.to_ipv4_mapped().unwrap())),
         IpAddr::V6(v6) => {
             v6.is_loopback()
                 || v6.is_unspecified()
@@ -108,6 +135,8 @@ mod tests {
         assert!(validate_public_url("http://169.254.169.254/latest/meta-data").is_err());
         assert!(validate_public_url("http://10.0.0.5").is_err());
         assert!(validate_public_url("http://192.168.1.1").is_err());
+        assert!(validate_public_url("http://100.100.1.1").is_err());
+        assert!(validate_public_url("http://[::ffff:127.0.0.1]").is_err());
         assert!(validate_public_url("http://[::1]/").is_err());
     }
 

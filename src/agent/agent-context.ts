@@ -269,7 +269,13 @@ function nativeTurnMessages(turn: ContextTurn, verbatim: boolean): LlmMessage[] 
       ({ call, step }): LlmMessage => ({
         role: "tool",
         tool_call_id: call.id,
-        content: resultText(call, step, verbatim),
+        // 페이지 이미지는 그 툴 결과 안에 — 사용자의 말(user 메시지)로 올리지 않는다.
+        content: step.pageImages?.length
+          ? [
+              { type: "text", text: resultText(call, step, verbatim) },
+              ...step.pageImages.map((url): ContentPart => ({ type: "image_url", image_url: { url } })),
+            ]
+          : resultText(call, step, verbatim),
       })
     ),
   ]);
@@ -279,7 +285,10 @@ function nativeTurnMessages(turn: ContextTurn, verbatim: boolean): LlmMessage[] 
 function withNote(turn: ContextTurn, messages: LlmMessage[]): LlmMessage[] {
   const last = messages[messages.length - 1];
   if (!turn.note || last?.role !== "tool") return messages;
-  return [...messages.slice(0, -1), { ...last, content: `${last.content}\n\n${turn.note}` }];
+  const content: LlmMessage["content"] = typeof last.content === "string"
+    ? `${last.content}\n\n${turn.note}`
+    : [...last.content, { type: "text", text: turn.note }];
+  return [...messages.slice(0, -1), { ...last, content }];
 }
 
 /** json 폴백 모드: 예전 형식 그대로 — assistant 가 JSON 한 덩이, tool 이 결과. */

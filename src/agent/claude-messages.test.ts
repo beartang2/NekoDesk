@@ -66,6 +66,23 @@ describe("toMessagesRequest", () => {
     ]);
   });
 
+  it("이미지가 든 툴 결과는 user 말이 아니라 tool_result 안에 블록으로 싣는다", () => {
+    const out = toMessagesRequest({
+      messages: [
+        { role: "assistant", content: "", tool_calls: [call("t1", "web.scrape", '{"url":"https://a.example"}')] },
+        { role: "tool", tool_call_id: "t1", content: [{ type: "text", text: "본문" }, { type: "image_url", image_url: { url: "data:image/png;base64,QUJD" } }] },
+      ],
+    }, "m");
+    expect((out.messages as unknown[])[1]).toEqual({
+      role: "user",
+      content: [{
+        type: "tool_result",
+        tool_use_id: "t1",
+        content: [{ type: "text", text: "본문" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "QUJD" } }],
+      }],
+    });
+  });
+
   it("Claude 가 돌려준 블록 원본이 있으면 그 턴은 한 글자도 안 바꾸고 다시 보낸다", () => {
     const raw = [
       { type: "thinking", thinking: "요약", signature: "sig" },

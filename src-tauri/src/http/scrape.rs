@@ -141,12 +141,14 @@ pub async fn image(url: &str) -> Result<String, AppError> {
     if !matches!(mime.as_str(), "image/png" | "image/jpeg" | "image/webp" | "image/gif") {
         return Err(AppError::msg("사진 이미지(png·jpeg·webp·gif)가 아니야."));
     }
-    if res.content_length().is_some_and(|n| n as usize > MAX_BYTES) {
-        return Err(AppError::msg("이미지가 너무 커."));
-    }
-    let bytes = res.bytes().await?;
-    if bytes.len() > MAX_BYTES {
-        return Err(AppError::msg("이미지가 너무 커."));
+    // 길이 머리는 거짓일 수 있다 — 받는 동안 세다가 넘으면 바로 끊는다.
+    let mut res = res;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = res.chunk().await? {
+        bytes.extend_from_slice(&chunk);
+        if bytes.len() > MAX_BYTES {
+            return Err(AppError::msg("이미지가 너무 커."));
+        }
     }
     Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes)))
 }

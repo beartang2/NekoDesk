@@ -101,7 +101,12 @@ export function toMessagesRequest(body: Json, model: string, names: Map<string, 
         break;
       }
       case "tool":
-        push("user", [{ type: "tool_result", tool_use_id: m.tool_call_id, content: textOf(m.content) }]);
+        // 이미지가 든 결과(web.scrape 의 페이지 이미지)는 블록 그대로 — tool_result 는 글과 이미지를 받는다.
+        push("user", [{
+          type: "tool_result",
+          tool_use_id: m.tool_call_id,
+          content: Array.isArray(m.content) ? contentBlocks(m.content) : textOf(m.content),
+        }]);
         break;
     }
   }
