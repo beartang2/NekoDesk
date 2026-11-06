@@ -96,15 +96,29 @@ fn ip_is_blocked(ip: IpAddr) -> bool {
                 || v4.is_broadcast()
                 || v4.is_unspecified()
                 || o[0] == 0
+                || v4.is_multicast()
+                || o[0] >= 240 // 예약·브로드캐스트
                 || (o[0] == 100 && (o[1] & 0xc0) == 64) // CGNAT 100.64.0.0/10
         }
-        // ::ffff:127.0.0.1 처럼 IPv4 를 품은 주소는 그 IPv4 로 판단한다.
-        IpAddr::V6(v6) if v6.to_ipv4_mapped().is_some() => ip_is_blocked(IpAddr::V4(v6.to_ipv4_mapped().unwrap())),
         IpAddr::V6(v6) => {
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || (v6.segments()[0] & 0xfe00) == 0xfc00 // ULA fc00::/7
-                || (v6.segments()[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
+            // ::ffff:127.0.0.1 처럼 IPv4 를 품은 주소는 그 IPv4 로 판단한다.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return ip_is_blocked(IpAddr::V4(v4));
+            }
+            let s = v6.segments();
+            // 막을 대역을 늘어놓는 대신 공개 유니캐스트(2000::/3)만 허용한다 — 루프백·ULA·링크로컬·
+            // 멀티캐스트·IPv4 호환(::a.b.c.d)·NAT64(64:ff9b::) 는 전부 이 밖이다.
+            if s[0] & 0xe000 != 0x2000 {
+                return true;
+            }
+            // 6to4(2002::/16)는 안에 든 IPv4 로 판단한다. Teredo(2001::/32)는 IPv4 를 숨겨 담고,
+            // 2001:db8::/32 는 문서용이라 둘 다 막는다.
+            if s[0] == 0x2002 {
+                let [a, b] = s[1].to_be_bytes();
+                let [c, d] = s[2].to_be_bytes();
+                return ip_is_blocked(IpAddr::V4(std::net::Ipv4Addr::new(a, b, c, d)));
+            }
+            s[0] == 0x2001 && (s[1] == 0 || s[1] == 0x0db8)
         }
     }
 }
@@ -137,6 +151,12 @@ mod tests {
         assert!(validate_public_url("http://192.168.1.1").is_err());
         assert!(validate_public_url("http://100.100.1.1").is_err());
         assert!(validate_public_url("http://[::ffff:127.0.0.1]").is_err());
+        for ip in ["::127.0.0.1", "64:ff9b::7f00:1", "2002:7f00:1::", "2001::1", "fec0::1", "ff02::1", "224.0.0.1"] {
+            assert!(ip_is_blocked(ip.parse().unwrap()), "{ip}");
+        }
+        for ip in ["2606:4700::1111", "2002:808:808::", "8.8.8.8", "::ffff:8.8.8.8"] {
+            assert!(!ip_is_blocked(ip.parse().unwrap()), "{ip}");
+        }
         assert!(validate_public_url("http://[::1]/").is_err());
     }
 
