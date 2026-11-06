@@ -15,7 +15,7 @@ pub async fn run(url: &str) -> Result<ScrapResult, AppError> {
 
     validate_public_url(url)?; // 내부/사설 주소·비 http 스킴 차단
 
-    let html = client()
+    let res = client()
         .get(url)
         .header("User-Agent", SCRAPE_UA)
         .header(
@@ -24,11 +24,28 @@ pub async fn run(url: &str) -> Result<ScrapResult, AppError> {
         )
         .header("Accept-Language", "en-US,en;q=0.9,ko;q=0.8")
         .send()
-        .await?
-        .text()
         .await?;
+    let status = res.status();
+    let html = res.text().await?;
+    // 봇 차단·오류 페이지를 본문인 양 넘기면 모델이 "Just a moment…" 를 읽고 헤맨다.
+    // 뚫으려 하지 않고, 다른 출처로 가라고 알린다.
+    if is_bot_wall(status.as_u16(), &html) {
+        return Err(AppError::msg("이 사이트는 자동 접근을 막아 뒀어(봇 차단). 다른 출처(공식 사이트·위키백과 등)를 찾아."));
+    }
+    if !status.is_success() {
+        return Err(AppError::msg(format!("페이지를 못 가져왔어({}).", status.as_u16())));
+    }
 
     Ok(extract_readable(url, &html))
+}
+
+/// Cloudflare 등 사람 확인 화면인가.
+fn is_bot_wall(status: u16, html: &str) -> bool {
+    let head: String = html.chars().take(4000).collect::<String>().to_ascii_lowercase();
+    matches!(status, 403 | 429 | 503)
+        && ["just a moment", "cf-chl", "challenge-platform", "attention required", "verify you are human", "captcha"]
+            .iter()
+            .any(|m| head.contains(m))
 }
 
 /// 본문 글자 상한. 모델별로 얼마나 넘길지는 화면 쪽(web.scrape summarize)이 정한다.
@@ -277,6 +294,15 @@ async fn github_repo(url: &str, username: &str, repo_name: &str) -> Option<Scrap
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bot_wall_is_detected_only_on_blocked_status() {
+        let wall = "<html><head><title>Just a moment...</title></head><body><div id=cf-chl-widget></div></body></html>";
+        assert!(is_bot_wall(403, wall));
+        assert!(!is_bot_wall(200, wall), "정상 응답의 글에 같은 말이 있어도 막지 않는다");
+        assert!(!is_bot_wall(404, wall));
+        assert!(!is_bot_wall(403, "<html><body>Forbidden</body></html>"));
+    }
 
     #[test]
     fn article_text_is_not_doubled_and_images_are_picked() {
