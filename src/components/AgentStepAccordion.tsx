@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { maskHome } from "../lib/home";
 import {
   Activity,
   Brain,
@@ -81,7 +82,7 @@ function summarizeParams(step: AgentStep): string {
 }
 
 function formatValue(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  return maskHome(typeof value === "string" ? value : JSON.stringify(value, null, 2));
 }
 
 // ── 상태 표시 ─────────────────────────────────────────────────────────────────
@@ -217,7 +218,7 @@ function AgentStepItem({ step, isOpen, onToggle, showThought }: StepProps) {
   const meta = TOOL_META[step.tool];
   const Icon = meta?.icon ?? Wrench;
   const label = step.tool === "none" ? "최종 답변" : meta?.label ?? step.tool;
-  const summary = summarizeParams(step);
+  const summary = maskHome(summarizeParams(step));
   // 파라미터가 하나뿐이고 이미 행에 요약으로 보이면 펼쳐도 또 보여줄 필요 없다.
   const allParams = Object.entries(step.params ?? {});
   const paramEntries =
@@ -226,7 +227,7 @@ function AgentStepItem({ step, isOpen, onToggle, showThought }: StepProps) {
   return (
     <div className={`step-item step-item--${step.status} ${isOpen ? "step-item--open" : ""}`}>
       {/* 최종 답변 스텝의 생각은 바로 아래 말풍선과 같은 말이라 빼둔다. */}
-      {showThought && step.thought && step.tool !== "none" && <p className="step-thought">{step.thought}</p>}
+      {showThought && step.thought && step.tool !== "none" && <p className="step-thought">{maskHome(step.thought)}</p>}
 
       <button
         ref={rowRef}
@@ -247,7 +248,7 @@ function AgentStepItem({ step, isOpen, onToggle, showThought }: StepProps) {
       </button>
 
       {step.status === "error" && step.errorMessage && (
-        <p className="step-row__error">{step.errorMessage}</p>
+        <p className="step-row__error">{maskHome(step.errorMessage)}</p>
       )}
 
       <div className={`step-body ${isOpen ? "step-body--open" : ""}`}>

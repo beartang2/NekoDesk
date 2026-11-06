@@ -28,6 +28,7 @@ import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UpdatePrompt } from "./components/Update";
 import { openViewer, imageName, nowStamp } from "./components/Viewer";
+import { maskHome } from "./lib/home";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
@@ -551,7 +552,7 @@ function ChatMessages({
                     ),
                   }}
                 >
-                  {stripThink(expanded.has(m.id) && m.prompt ? m.prompt : m.content)}
+                  {maskHome(stripThink(expanded.has(m.id) && m.prompt ? m.prompt : m.content))}
                 </ReactMarkdown>
               )}
               {m.role === "user" && m.prompt && (
@@ -588,7 +589,7 @@ function ChatMessages({
             {m.tokensPerSecond !== undefined && ` | ${m.tokensPerSecond.toFixed(1)} tok/s`}
             {m.notice && ` | ${m.notice}`}
             {m.role === "assistant" && m.content && !m.isStreaming && (
-              <CopyButton text={stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim()} />
+              <CopyButton text={maskHome(stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim())} />
             )}
           </span>
         </div>

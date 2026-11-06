@@ -8,6 +8,10 @@ import { CaptureOverlay } from "./components/CaptureOverlay";
 import { ViewerWindow } from "./components/Viewer";
 import { GlowAlert } from "./components/GlowAlert";
 import "./App.css";
+import { loadHome } from "./lib/home";
+
+// 홈 경로를 화면·Claude 에서 ~ 로 가리려고 켤 때 한 번 가져온다(lib/home).
+void loadHome();
 
 // 같은 번들을 여러 창이 쓴다. ⌃⇧N 창("quick")은 입력만 받고, 캡처 막("capture-N")은
 // 고르기만 하고, 뷰어("viewer")는 그림·파일만 보여 주고, 빛 창("glow")은 일정 알림 때 테두리만

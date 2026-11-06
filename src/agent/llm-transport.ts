@@ -2,6 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { WEB_SEARCH_MODEL, WEB_SEARCH_USD, claudeContextCap, claudeModelOf, findClaudeModel } from "../lib/claude-models";
 import { createMessagesStreamAdapter, toMessagesRequest, type MessagesUsage } from "./claude-messages";
 import { redactSecrets } from "./outbound-guard";
+import { maskHome } from "../lib/home";
 import type { NativeSearchResult } from "./types";
 import { budgetBlockReason, useClaudeBudget } from "../stores/claudeBudget";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -100,16 +101,17 @@ async function hasClaudeKey(): Promise<boolean> {
 
 /** Rust 중계로 chat/completions 를 보내고, 그 응답을 표준 Response 로 돌려준다. */
 /**
- * 나가기 전에 비밀을 가린다(outbound-guard). Claude 가 돌려준 블록 원본이 있는 턴은 손대지
+ * 나가기 전에 비밀을 가리고 홈 경로를 ~ 로 바꾼다(outbound-guard, lib/home). Claude 가 돌려준 블록 원본이 있는 턴은 손대지
  * 않는다 — 한 글자라도 바뀌면 생각 블록 서명이 깨진다. 거기 있는 건 Claude 가 이미 본 것이다.
  */
 function redactMessage(m: Json): Json {
   if (m.anthropic_content) return m;
-  if (typeof m.content === "string") return { ...m, content: redactSecrets(m.content) };
+  const clean = (t: string) => redactSecrets(maskHome(t));
+  if (typeof m.content === "string") return { ...m, content: clean(m.content) };
   if (!Array.isArray(m.content)) return m;
   return {
     ...m,
-    content: (m.content as Json[]).map((p) => (p?.type === "text" && typeof p.text === "string" ? { ...p, text: redactSecrets(p.text) } : p)),
+    content: (m.content as Json[]).map((p) => (p?.type === "text" && typeof p.text === "string" ? { ...p, text: clean(p.text) } : p)),
   };
 }
 
