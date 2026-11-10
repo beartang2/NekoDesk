@@ -10,8 +10,6 @@ import { GlowAlert } from "./components/GlowAlert";
 import "./App.css";
 import { loadHome } from "./lib/home";
 
-// 홈 경로를 화면·Claude 에서 ~ 로 가리려고 켤 때 한 번 가져온다(lib/home).
-void loadHome();
 
 // 같은 번들을 여러 창이 쓴다. ⌃⇧N 창("quick")은 입력만 받고, 캡처 막("capture-N")은
 // 고르기만 하고, 뷰어("viewer")는 그림·파일만 보여 주고, 빛 창("glow")은 일정 알림 때 테두리만
@@ -50,10 +48,14 @@ window.addEventListener(
   true,
 );
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      {isCapture ? <CaptureOverlay /> : isQuick ? <QuickAsk /> : isViewer ? <ViewerWindow /> : isGlow ? <GlowAlert /> : <App />}
-    </ErrorBoundary>
-  </React.StrictMode>
+// 홈 경로를 화면·Claude 에서 ~ 로 가리려고 켤 때 한 번 가져온다(lib/home). 받은 뒤에 그린다 —
+// 말풍선은 메모라 한 번 그린 뒤 다시 안 그리므로, 먼저 그리면 가리기 전 경로가 그대로 남는다.
+void loadHome().finally(() =>
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        {isCapture ? <CaptureOverlay /> : isQuick ? <QuickAsk /> : isViewer ? <ViewerWindow /> : isGlow ? <GlowAlert /> : <App />}
+      </ErrorBoundary>
+    </React.StrictMode>
+  )
 );

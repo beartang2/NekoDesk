@@ -838,6 +838,12 @@ html, body, #root {
 }
 
 /* ── Chat messages ── */
+/* 맨 위에 닿았는지 보는 표지. 보이면 앞 메시지를 더 붙인다(ChatMessages). */
+.chat-messages__more {
+  height: 1px;
+  flex: none;
+}
+
 .chat-messages {
   flex: 1;
   overflow-y: auto;

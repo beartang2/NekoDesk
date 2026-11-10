@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -407,6 +407,126 @@ function Sidebar({
 
 // ── Chat messages ─────────────────────────────────────────────────────────────
 
+/** 처음에 그리는 말풍선 수, 그리고 위로 올릴 때마다 더 붙이는 수. */
+const MESSAGE_PAGE = 60;
+
+/**
+ * 말풍선 하나. 메모라서 답이 흘러나오는 동안엔 그 말풍선만 다시 그린다 — 예전엔 글자 하나마다
+ * 대화 전체의 마크다운을 다시 해석해서 대화가 길수록 느려졌다. 메시지 저장소는 바뀐 메시지만
+ * 새 객체로 바꾸므로 나머지는 그대로 건너뛴다.
+ */
+const MessageItem = React.memo(function MessageItem({
+  m,
+  running,
+  expanded,
+  onToggle,
+}: {
+  m: ChatMessage;
+  running: boolean;
+  expanded: boolean;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className={`message message--${m.role}`}>
+      {m.role === "assistant" && <PlanChecklist steps={m.plan ?? []} open={!!m.isStreaming} />}
+
+      {m.role === "assistant" && m.steps && m.steps.length > 0 && (
+        <AgentStepAccordion
+          steps={m.steps}
+          isRunning={running}
+        />
+      )}
+
+      {(m.content || m.isStreaming || (m.attachments && m.attachments.length > 0) || (m.images && m.images.length > 0)) && (
+        <div className="message__bubble">
+          {m.label && <span className="message__label">{m.label}</span>}
+          {m.thinking && (
+            // 생각 텍스트는 접어둔다. 길게 흘러 화면을 밀어내서, 로더·타이머만 보이고 펼쳐야 읽힌다.
+            <details className="message__thinking">
+              <summary>
+                {/* 타이머는 생각하는 동안만. 끝난 뒤 다시 마운트되면 마지막 값을 몰라 0.0s 로 보인다.
+                    도는 동안은 since 로 답 칸을 연 시각부터 세서, 대화를 오가도 이어진다. */}
+                <LatticeLoader
+                  since={m.startedAt}
+                  label="생각하는 중"
+                  doneLabel="생각 과정"
+                  status={m.isStreaming && !m.content ? "working" : "done"}
+                  showTimer={!!m.isStreaming && !m.content}
+                  fontSize={12}
+                  cellSize={3}
+                  gap={1}
+                  doneColor="var(--accent)"
+                />
+              </summary>
+              {m.thinking}
+            </details>
+          )}
+          {m.content && (
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                table: ({ children }) => (
+                  <div className="table-wrapper"><table>{children}</table></div>
+                ),
+                a: ({ href, children }) => (
+                  // Tauri webview 는 <a> 클릭을 자기 창에서 처리해 브라우저를 안 띄운다.
+                  // 가로채서 기본 브라우저로 연다(http/https 만, Rust 에서 재검증).
+                  <a
+                    href={href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (href) invoke("open_external_url", { url: href }).catch(() => {});
+                    }}
+                  >
+                    {children}
+                  </a>
+                ),
+              }}
+            >
+              {maskHome(stripThink(expanded && m.prompt ? m.prompt : m.content))}
+            </ReactMarkdown>
+          )}
+          {m.role === "user" && m.prompt && (
+            <button type="button" className="message__more" onClick={() => onToggle(m.id)}>
+              {expanded ? "접기" : "더보기"}
+            </button>
+          )}
+          {m.images && m.images.length > 0 && (
+            <div className="message__images">
+              {m.images.map((url, i) => (
+                <img
+                  key={i}
+                  src={url}
+                  alt="생성된 이미지"
+                  className="message__image"
+                  onClick={() => openViewer({ name: imageName(`네코 그림 ${nowStamp()}${m.images!.length > 1 ? ` ${i + 1}` : ""}`, url), dataUrl: url })}
+                />
+              ))}
+            </div>
+          )}
+          {m.attachments && m.attachments.length > 0 && (
+            <Attachments files={m.attachments} />
+          )}
+          {/* 생각 토큰을 안 내는 모델도 있다. 그땐 첫 글자가 올 때까지 로더만 띄운다. */}
+          {m.isStreaming && !m.content && !m.thinking && (
+            <LatticeLoader since={m.startedAt} label="생각하는 중" fontSize={12} cellSize={3} gap={1} color="var(--text-secondary)" />
+          )}
+          {m.isStreaming && m.content && <span className="message__cursor" />}
+        </div>
+      )}
+
+      <span className="message__meta">
+        {m.time}
+        {m.tokensPerSecond !== undefined && ` | ${m.tokensPerSecond.toFixed(1)} tok/s`}
+        {m.notice && ` | ${m.notice}`}
+        {m.role === "assistant" && m.content && !m.isStreaming && (
+          <CopyButton text={maskHome(stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim())} />
+        )}
+      </span>
+    </div>
+  );
+});
+
 function ChatMessages({
   messages,
   isRunning,
@@ -421,13 +541,45 @@ function ChatMessages({
   const bottomRef = useRef<HTMLDivElement>(null);
   // 긴 선택문을 줄여 보인 말풍선 중 원문을 펼친 것.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  const toggleExpanded = (id: string) =>
+  // 말풍선(MessageItem)이 메모라서 함수가 매번 새로 생기면 다 다시 그린다.
+  const toggleExpanded = useCallback((id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
       if (!next.delete(id)) next.add(id);
       return next;
-    });
+    }), []);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // 긴 대화는 최근 것만 그리고, 맨 위에 닿으면 앞을 더 붙인다. 수백 개를 한 번에 그리면
+  // 세션을 열 때 마크다운 해석만으로 멈칫한다. `from` 이 null 이면 "끝에서 PAGE 개" 를 따라간다.
+  const [from, setFrom] = useState<number | null>(null);
+  const start = from === null || from > messages.length ? Math.max(0, messages.length - MESSAGE_PAGE) : from;
+  const shown = start > 0 ? messages.slice(start) : messages;
+  const topRef = useRef<HTMLDivElement>(null);
+  /** 앞을 붙이기 직전의 높이·위치. 붙인 뒤 보던 자리를 그대로 두는 데 쓴다. */
+  const prepend = useRef<{ height: number; top: number } | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    const top = topRef.current;
+    if (!el || !top) return;
+    const io = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      prepend.current = { height: el.scrollHeight, top: el.scrollTop };
+      setFrom(Math.max(0, start - MESSAGE_PAGE));
+    }, { root: el, rootMargin: "400px 0px 0px 0px" });
+    io.observe(top);
+    return () => io.disconnect();
+  }, [start]);
+
+  // 앞에 붙인 만큼 내려서, 보던 말풍선이 제자리에 있게 한다(WebKit 은 스크롤 고정을 안 해 준다).
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    const p = prepend.current;
+    if (!el || !p) return;
+    prepend.current = null;
+    el.scrollTop = p.top + (el.scrollHeight - p.height);
+  }, [start]);
   const isUserScrolledUp = useRef(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
@@ -495,104 +647,15 @@ function ChatMessages({
       {messages.length === 0 && onPickSuggestion && (
         <ChatEmptyState onPick={onPickSuggestion} />
       )}
-      {messages.map((m) => (
-        <div key={m.id} className={`message message--${m.role}`}>
-          {m.role === "assistant" && <PlanChecklist steps={m.plan ?? []} open={!!m.isStreaming} />}
-
-          {m.role === "assistant" && m.steps && m.steps.length > 0 && (
-            <AgentStepAccordion
-              steps={m.steps}
-              isRunning={isRunning && !!m.isStreaming}
-            />
-          )}
-
-          {(m.content || m.isStreaming || (m.attachments && m.attachments.length > 0) || (m.images && m.images.length > 0)) && (
-            <div className="message__bubble">
-              {m.label && <span className="message__label">{m.label}</span>}
-              {m.thinking && (
-                // 생각 텍스트는 접어둔다. 길게 흘러 화면을 밀어내서, 로더·타이머만 보이고 펼쳐야 읽힌다.
-                <details className="message__thinking">
-                  <summary>
-                    {/* 타이머는 생각하는 동안만. 끝난 뒤 다시 마운트되면 마지막 값을 몰라 0.0s 로 보인다.
-                        도는 동안은 since 로 답 칸을 연 시각부터 세서, 대화를 오가도 이어진다. */}
-                    <LatticeLoader
-                      since={m.startedAt}
-                      label="생각하는 중"
-                      doneLabel="생각 과정"
-                      status={m.isStreaming && !m.content ? "working" : "done"}
-                      showTimer={!!m.isStreaming && !m.content}
-                      fontSize={12}
-                      cellSize={3}
-                      gap={1}
-                      doneColor="var(--accent)"
-                    />
-                  </summary>
-                  {m.thinking}
-                </details>
-              )}
-              {m.content && (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    table: ({ children }) => (
-                      <div className="table-wrapper"><table>{children}</table></div>
-                    ),
-                    a: ({ href, children }) => (
-                      // Tauri webview 는 <a> 클릭을 자기 창에서 처리해 브라우저를 안 띄운다.
-                      // 가로채서 기본 브라우저로 연다(http/https 만, Rust 에서 재검증).
-                      <a
-                        href={href}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          if (href) invoke("open_external_url", { url: href }).catch(() => {});
-                        }}
-                      >
-                        {children}
-                      </a>
-                    ),
-                  }}
-                >
-                  {maskHome(stripThink(expanded.has(m.id) && m.prompt ? m.prompt : m.content))}
-                </ReactMarkdown>
-              )}
-              {m.role === "user" && m.prompt && (
-                <button type="button" className="message__more" onClick={() => toggleExpanded(m.id)}>
-                  {expanded.has(m.id) ? "접기" : "더보기"}
-                </button>
-              )}
-              {m.images && m.images.length > 0 && (
-                <div className="message__images">
-                  {m.images.map((url, i) => (
-                    <img
-                      key={i}
-                      src={url}
-                      alt="생성된 이미지"
-                      className="message__image"
-                      onClick={() => openViewer({ name: imageName(`네코 그림 ${nowStamp()}${m.images!.length > 1 ? ` ${i + 1}` : ""}`, url), dataUrl: url })}
-                    />
-                  ))}
-                </div>
-              )}
-              {m.attachments && m.attachments.length > 0 && (
-                <Attachments files={m.attachments} />
-              )}
-              {/* 생각 토큰을 안 내는 모델도 있다. 그땐 첫 글자가 올 때까지 로더만 띄운다. */}
-              {m.isStreaming && !m.content && !m.thinking && (
-                <LatticeLoader since={m.startedAt} label="생각하는 중" fontSize={12} cellSize={3} gap={1} color="var(--text-secondary)" />
-              )}
-              {m.isStreaming && m.content && <span className="message__cursor" />}
-            </div>
-          )}
-
-          <span className="message__meta">
-            {m.time}
-            {m.tokensPerSecond !== undefined && ` | ${m.tokensPerSecond.toFixed(1)} tok/s`}
-            {m.notice && ` | ${m.notice}`}
-            {m.role === "assistant" && m.content && !m.isStreaming && (
-              <CopyButton text={maskHome(stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim())} />
-            )}
-          </span>
-        </div>
+      {start > 0 && <div ref={topRef} className="chat-messages__more" aria-hidden="true" />}
+      {shown.map((m) => (
+        <MessageItem
+          key={m.id}
+          m={m}
+          running={isRunning && !!m.isStreaming}
+          expanded={expanded.has(m.id)}
+          onToggle={toggleExpanded}
+        />
       ))}
       <div ref={bottomRef} />
     </div>
@@ -1951,6 +2014,7 @@ export default function App() {
 
           <ErrorBoundary label="채팅">
             <ChatMessages
+              key={activeId}
               messages={activeMessages}
               isRunning={isRunning}
               onScrollChange={handleScrollChange}
