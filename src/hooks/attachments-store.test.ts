@@ -8,7 +8,7 @@ vi.mock("../api/tauri", () => ({
 vi.mock("../agent/agent-loop", () => ({ runAgentLoop: vi.fn() }));
 vi.mock("../lib/notify", () => ({ notifyIfAway: vi.fn(), toNotificationBody: (s: string) => s }));
 
-import { buildHistory, cleanAnswer, parseMeta, serializeAttachments, serializeMeta, splitAttachmentSection } from "./useAgentLoop";
+import { buildHistory, cleanAnswer, needsCompaction, parseMeta, serializeAttachments, serializeMeta, splitAttachmentSection } from "./useAgentLoop";
 import type { AgentStep } from "../agent/types";
 import type { AttachedFile } from "./useAgentLoop";
 
@@ -133,6 +133,20 @@ describe("splitAttachmentSection", () => {
 });
 
 describe("buildHistory", () => {
+  it("마지막 자동 요약 앞 대화는 그 요약으로 대신 싣는다 — 저장했다 다시 열어도", () => {
+    const msg = (id: string, role: "user" | "assistant", content: string) => ({ id, role, content, time: "" });
+    const marker = { ...msg("s", "assistant", "고양이 그림 얘기를 했다"), ...parseMeta(serializeMeta({ compacted: true })) };
+    const out = buildHistory([msg("1", "user", "옛날 말"), msg("2", "assistant", "옛날 답"), marker, msg("3", "user", "새 말"), msg("4", "assistant", "새 답")]);
+    expect(out.map((m) => m.content)).toEqual(["[이전 대화 요약]\n고양이 그림 얘기를 했다", "알겠어, 이전 내용 참고할게.", "새 말", "새 답"]);
+    expect(out[0].role).toBe("user");
+  });
+
+  it("자동 요약은 기록이 예산의 80% 를 넘을 때만 한다", () => {
+    const history = [{ role: "user" as const, content: "가".repeat(400) }];
+    expect(needsCompaction(history, 100_000)).toBe(false);
+    expect(needsCompaction(history, 10)).toBe(true);
+  });
+
   it("말풍선이 줄인 글 대신 모델이 받은 글을 싣는다 — 다시 열어도", () => {
     const full = "a".repeat(800);
     const prompt = parseMeta(serializeMeta({ label: "번역", prompt: full })).prompt;

@@ -7,9 +7,9 @@ use rusqlite::{params, Connection};
 /// 세션당 보관할 최대 메시지 수. 초과분은 저장할 때마다 잘라낸다.
 ///
 /// 예전엔 40개라 스무 번쯤 주고받으면 앞부분이 소리 없이 지워졌다. 글은 주고받기
-/// 한 번에 1KB 남짓이라 1000개여도 세션당 1MB 안팎이다. 더 늘리기 전에 볼 것은 용량이
-/// 아니라 화면이다 — 대화를 열 때 전부 한 번에 그린다.
-const MAX_PER_SESSION: i64 = 1000;
+/// 한 번에 1KB 남짓이라 5000개여도 세션당 5MB 안팎이다. 화면은 최근 것부터 나눠 그리고
+/// (ChatMessages), 모델에는 자동 요약 뒤쪽만 가서 길어도 무겁지 않다.
+const MAX_PER_SESSION: i64 = 5000;
 
 const COLS: &str = "id, session_id, role, content, created_at, attachments, meta";
 

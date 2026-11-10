@@ -17,6 +17,11 @@ const BUDGET_RATIO = 0.35;
  */
 const CLAUDE_BUDGET_RATIO = 0.5;
 
+/** 대화·툴 결과에 쓸 토큰 예산. 자동 요약도 이 선을 보고 정한다(useAgentLoop). */
+export function historyBudget(contextLength: number, claude: boolean): number {
+  return Math.max(512, Math.floor(contextLength * (claude ? CLAUDE_BUDGET_RATIO : BUDGET_RATIO)));
+}
+
 /** 이만큼의 최근 턴은 요약하지 않고 전문을 싣는다. */
 const VERBATIM_TURNS = 3;
 
@@ -95,7 +100,7 @@ export class AgentContext {
     this.userContent = userContent;
     this.chatHistory = chatHistory;
     this.native = native;
-    this.budget = Math.max(512, Math.floor(contextLength * (appendOnly ? CLAUDE_BUDGET_RATIO : BUDGET_RATIO)));
+    this.budget = historyBudget(contextLength, appendOnly);
     this.appendOnly = appendOnly;
   }
 

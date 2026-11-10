@@ -58,6 +58,7 @@ const K = {
   imageGen: "nekodesk_image_gen",
   weatherLocation: "nekodesk_weather_location",
   claudeContext: "nekodesk_claude_context",
+  autoCompact: "nekodesk_auto_compact",
 } as const;
 
 function loadClaudeContext(): Record<string, number> {
@@ -114,6 +115,8 @@ interface SettingsStore {
   weatherLocation: string;
   /** Claude 모델별로 고른 컨텍스트 길이(모델 id → 토큰). 없으면 모델 기본값. */
   claudeContext: Record<string, number>;
+  /** 대화가 예산에 차 가면 앞 대화를 혼자 요약한다(useAgentLoop.autoCompact). */
+  autoCompact: boolean;
   /** auto 모드에서 서버가 `tools` 를 거부해 json 으로 내려앉았다. 영속화하지 않는다. */
   nativeToolsDegraded: boolean;
   setLlmUrl: (url: string) => void;
@@ -125,6 +128,7 @@ interface SettingsStore {
   setImageGen: (p: ImageGenSettings) => void;
   setWeatherLocation: (v: string) => void;
   setClaudeContext: (model: string, tokens: number) => void;
+  setAutoCompact: (on: boolean) => void;
   setNativeToolsDegraded: (v: boolean) => void;
 }
 
@@ -139,6 +143,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   imageGen: loadImageGen(),
   weatherLocation: localStorage.getItem(K.weatherLocation) ?? "Seoul",
   claudeContext: loadClaudeContext(),
+  autoCompact: localStorage.getItem(K.autoCompact) !== "off",
   nativeToolsDegraded: false,
 
   setLlmUrl: (url) => {
@@ -179,6 +184,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const claudeContext = { ...get().claudeContext, [model]: tokens };
     localStorage.setItem(K.claudeContext, JSON.stringify(claudeContext));
     set({ claudeContext });
+  },
+  setAutoCompact: (on) => {
+    localStorage.setItem(K.autoCompact, on ? "on" : "off");
+    set({ autoCompact: on });
   },
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));

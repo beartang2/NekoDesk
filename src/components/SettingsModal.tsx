@@ -830,6 +830,26 @@ function ToolModeSection() {
   );
 }
 
+function MemorySection() {
+  const autoCompact = useSettingsStore((s) => s.autoCompact);
+  const setAutoCompact = useSettingsStore((s) => s.setAutoCompact);
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">자동 요약</h3>
+      <p className="settings-section__desc">
+        대화가 길어져 모델에 다 못 실을 때가 되면, 네코가 앞 대화를 요약해 두고 그 요약으로 기억한다.
+        끄면 넘친 오래된 말은 그냥 빠진다. 앞 대화는 어느 쪽이든 화면에 그대로 남는다.
+        Claude 는 Anthropic 의 서버 요약을 쓴다(요약 한 번에 일반 요청 한 번쯤 든다).
+      </p>
+      <Segmented
+        value={autoCompact ? "on" : "off"}
+        onChange={(v) => setAutoCompact(v === "on")}
+        options={[{ value: "on", label: "켬" }, { value: "off", label: "끔" }]}
+      />
+    </section>
+  );
+}
+
 // ── User profile section ──────────────────────────────────────────────────────
 
 const USER_PROFILE_KEY = "nekodesk_user_profile";
@@ -1613,6 +1633,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
 
               {/* ── 툴 호출 방식 ──────────────────────────────────────── */}
               <ToolModeSection />
+              <MemorySection />
             </>
           )}
           {tab === "connect" && (

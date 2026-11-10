@@ -15,6 +15,10 @@ import type {
 } from "../agent/types";
 import type { PlanStep } from "../agent/plan";
 import { clock } from "../lib/time";
+import { estimateMessagesTokens } from "../agent/token-estimate";
+import { historyBudget } from "../agent/agent-context";
+import { getModelContextLength, summarizeConversation } from "../agent/llm-client";
+import { isClaudeActive, useSettingsStore } from "../stores/settingsStore";
 
 export interface PendingConfirm {
   sessionId: string;
@@ -69,6 +73,11 @@ export interface ChatMessage {
    * 대화 기록에 잘린 글이 실린다. content 와 같으면 비워 둔다.
    */
   prompt?: string;
+  /**
+   * 자동 요약 표시. content 는 이 앞 대화의 요약이고, 모델에는 이 앞 대화 대신 이 요약이 간다
+   * (buildHistory). 화면엔 구분선으로 보이고 앞 대화는 그대로 남는다.
+   */
+  compacted?: boolean;
 }
 
 /** 대화 루프 대신 지시 하나로만 시키는 짧은 글 일(runTextTask). 빠른 질문의 버튼. */
@@ -153,6 +162,7 @@ export interface MessageMeta {
   notice?: string;
   label?: string;
   prompt?: string;
+  compacted?: boolean;
 }
 
 /**
@@ -185,6 +195,7 @@ export function serializeMeta(meta: MessageMeta): string | undefined {
     ...(meta.notice ? { notice: meta.notice } : {}),
     ...(meta.label ? { label: meta.label } : {}),
     ...(meta.prompt ? { prompt: meta.prompt } : {}),
+    ...(meta.compacted ? { compacted: true } : {}),
   };
   return Object.keys(stored).length ? JSON.stringify(stored) : undefined;
 }
@@ -279,20 +290,73 @@ function buildLlmContent(text: string, files: AttachedFile[]): string | ContentP
   return parts;
 }
 
+/** 요약 메시지를 모델에 싣는 모양. 밥 주기 요약(summaryContext)과 같다. */
+export function summaryMessages(summary: string): LlmMessage[] {
+  return [{ role: "user", content: `[이전 대화 요약]\n${summary}` }, { role: "assistant", content: "알겠어, 이전 내용 참고할게." }];
+}
+
+/** 자동 요약은 대화가 예산의 이만큼 찼을 때 한다 — 오래된 말이 예산에 밀려 빠지기 전에. */
+const AUTO_COMPACT_AT = 0.8;
+
+/** 지금 대화 기록이 자동 요약할 만큼 찼는가. */
+export function needsCompaction(history: LlmMessage[], budget: number): boolean {
+  return estimateMessagesTokens(history) >= budget * AUTO_COMPACT_AT;
+}
+
+/** 요약 중인 세션. 같은 세션을 두 번 겹쳐 요약하지 않는다. */
+const compacting = new Set<string>();
+
+/**
+ * 답이 끝난 뒤, 대화 기록이 예산에 차 가면 앞 대화를 요약해 요약 메시지를 붙인다(밥 주기를 혼자 하는 셈).
+ * 예전엔 넘친 오래된 말이 조용히 빠졌다. 앞 대화는 화면·저장소에 그대로 남고, 모델에만 요약으로 간다.
+ */
+async function autoCompact(sessionId: string): Promise<void> {
+  if (!useSettingsStore.getState().autoCompact || compacting.has(sessionId)) return;
+  const messages = useMessageStore.getState().get(sessionId);
+  const last = messages[messages.length - 1];
+  if (!last || last.isStreaming || last.compacted) return;
+  const history = buildHistory(messages);
+  if (!needsCompaction(history, historyBudget(getModelContextLength(), isClaudeActive()))) return;
+  compacting.add(sessionId);
+  try {
+    const summary = (await summarizeConversation(history)).trim();
+    const now = useMessageStore.getState().get(sessionId);
+    // 요약하는 사이 새 말이 오갔으면 버린다 — 요약 뒤에 붙으면 그 말이 기록에서 빠진다. 다음 답 뒤에 다시 한다.
+    if (!summary || now[now.length - 1]?.id !== last.id) return;
+    const marker: ChatMessage = { id: crypto.randomUUID(), role: "assistant", content: summary, time: nowTime(), compacted: true };
+    useMessageStore.getState().patch(sessionId, (prev) => [...prev, marker]);
+    await conversationApi.save(sessionId, "assistant", summary, undefined, serializeMeta({ compacted: true }));
+  } catch {
+    // 요약은 덤이다. 실패하면 예전처럼 오래된 말부터 빠질 뿐이고, 다음 답 뒤에 다시 해 본다.
+  } finally {
+    compacting.delete(sessionId);
+  }
+}
+
 export function buildHistory(messages: ChatMessage[]): LlmMessage[] {
-  return messages
+  // 마지막 요약 앞은 그 요약으로 대신한다.
+  let from = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].compacted) {
+      from = i;
+      break;
+    }
+  }
+  const marker = messages[from]?.compacted ? messages[from] : null;
+  const rest = marker ? messages.slice(from + 1) : messages;
+  return [...(marker ? summaryMessages(marker.content) : []), ...rest
     .filter((m) => !m.isStreaming)
-    .map((m) => {
+    .map((m): LlmMessage => {
       const text = m.prompt ?? m.content;
       return {
-        role: m.role === "user" ? "user" : ("assistant" as const),
+        role: m.role === "user" ? "user" : "assistant",
         content: m.attachments?.length
           ? buildLlmContent(text, m.attachments)
           : m.label
             ? `[${m.label}]\n${text}`
             : withToolsNote(text, m),
       };
-    });
+    })];
 }
 
 /**
@@ -436,9 +500,7 @@ export function useAgentPool() {
 
       // 방금 넣은 질문은 빼고 담는다. 루프가 현재 요청으로 따로 싣는다 — 같이 담으면 두 번 간다.
       const rawHistory = buildHistory(useMessageStore.getState().get(sessionId).filter((m) => m.id !== userMsg.id));
-      const history: LlmMessage[] = summaryContext
-        ? [{ role: "user", content: `[이전 대화 요약]\n${summaryContext}` }, { role: "assistant", content: "알겠어, 이전 내용 참고할게." }, ...rawHistory]
-        : rawHistory;
+      const history: LlmMessage[] = summaryContext ? [...summaryMessages(summaryContext), ...rawHistory] : rawHistory;
       // 루프가 도구 사이에 대기열을 비워 간다. 무엇을 가져갔는지는 곧이어 오는
       // user_interjected 에서 말풍선으로 옮긴다.
       // 버튼 일(task)은 끼워 넣지 않는다 — 지시 없이 고른 글만 들어가 무엇을 하라는 건지
@@ -657,6 +719,7 @@ export function useAgentPool() {
               .catch(() => {});
             appEvents.emit("agentDone");
             void notifyIfAway("네코", toNotificationBody(clean));
+            void autoCompact(sessionId);
             break;
           }
 

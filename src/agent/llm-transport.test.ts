@@ -14,7 +14,7 @@ vi.mock("@tauri-apps/api/core", () => {
   return { invoke, Channel };
 });
 
-import { claudeToolNames, explainClaudeError, isPlainHttp, llmFetch } from "./llm-transport";
+import { claudeCompact, claudeToolNames, explainClaudeError, isPlainHttp, llmFetch } from "./llm-transport";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useClaudeBudget } from "../stores/claudeBudget";
 
@@ -221,6 +221,38 @@ describe("llmFetch (Claude 프로필)", () => {
     expect((await ok.json()).data[0].id).toBe("claude-haiku-5-5");
     script.hasKey = false;
     expect((await llmFetch("/v1/models")).status).toBe(503);
+  });
+
+  it("서버 요약은 compaction 을 달고 보내, 요약 글을 꺼내고 사용량은 iterations 에서 센다", async () => {
+    const json = (body: unknown) => [
+      { event: "head", data: { status: 200, headers: [["content-type", "application/json"]] } },
+      { event: "chunk", data: { text: JSON.stringify(body) } },
+      { event: "end" },
+    ];
+    script.events = json({
+      id: "m", type: "message", role: "assistant", model: "claude-haiku-5-5",
+      content: [{ type: "compaction", content: "요약: 고양이 얘기", signature: "sig" }],
+      stop_reason: "compaction",
+      usage: { input_tokens: 0, output_tokens: 0, iterations: [{ type: "compaction", input_tokens: 2000, output_tokens: 300 }] },
+    });
+    const summary = await claudeCompact("claude-haiku-5-5", [
+      { role: "user", content: "키는 sk-ant-api03-abcdefghijklmnopqrstuvwxyz" },
+      { role: "assistant", content: "알았어" },
+    ]);
+    expect(summary).toBe("요약: 고양이 얘기");
+    const args = invoke.mock.calls.find(([cmd]) => cmd === "claude_proxy")![1] as { body: string; headers: Record<string, string> };
+    const sent = JSON.parse(args.body);
+    expect(sent.compaction).toEqual({ type: "summarize" });
+    expect(args.headers["anthropic-beta"]).toContain("compact-2026-09-04");
+    expect(args.body).not.toContain("abcdefghij");
+    expect(useClaudeBudget.getState().usage.requests).toBe(1);
+    expect(useClaudeBudget.getState().usage.inputTokens).toBe(2000);
+
+    script.events = json({
+      id: "m", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [], stop_reason: "refusal",
+      usage: { input_tokens: 0, output_tokens: 0, iterations: [] },
+    });
+    expect(await claudeCompact("claude-haiku-5-5", [{ role: "user", content: "a" }])).toBeNull();
   });
 
   it("/props 는 모델 기본 창을, 설정에서 고르면 그 값을 알려준다 — 선택지에 없는 값은 무시한다", async () => {

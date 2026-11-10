@@ -64,7 +64,7 @@ import type {
   ScheduleEvent,
   Todo,
 } from "./agent/types";
-import { compactMessages, fetchLoadedModel } from "./agent/llm-client";
+import { fetchLoadedModel, summarizeConversation } from "./agent/llm-client";
 import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl, saveProfiles } from "./stores/modelProfiles";
 import { listen } from "@tauri-apps/api/event";
 import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
@@ -426,6 +426,16 @@ const MessageItem = React.memo(function MessageItem({
   expanded: boolean;
   onToggle: (id: string) => void;
 }) {
+  if (m.compacted) {
+    return (
+      <details className="message-compacted">
+        <summary>여기까지 요약했어 — 네코는 이 위 대화를 요약으로 기억해</summary>
+        <div className="message-compacted__body">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{maskHome(m.content)}</ReactMarkdown>
+        </div>
+      </details>
+    );
+  }
   return (
     <div className={`message message--${m.role}`}>
       {m.role === "assistant" && <PlanChecklist steps={m.plan ?? []} open={!!m.isStreaming} />}
@@ -1202,6 +1212,7 @@ export default function App() {
           notice: meta.notice,
           label: meta.label,
           prompt: meta.prompt,
+          compacted: meta.compacted,
           isStreaming: false,
         };
       });
@@ -1464,7 +1475,7 @@ export default function App() {
       }));
 
       const previousSummary = compactSummaries[activeId] || undefined;
-      const summary = await compactMessages(llmMessages, previousSummary);
+      const summary = await summarizeConversation(llmMessages, previousSummary);
 
       // 요약은 챗버블이 아닌 상단 요약 바에 표시
       setCompactSummaries((prev) => ({ ...prev, [activeId]: summary }));

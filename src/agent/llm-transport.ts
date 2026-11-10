@@ -6,7 +6,7 @@ import { WEB_SEARCH_MODEL, WEB_SEARCH_USD, claudeModelOf, findClaudeModel } from
 import { createMessagesStreamAdapter, toMessagesRequest, type MessagesUsage } from "./claude-messages";
 import { redactSecrets } from "./outbound-guard";
 import { maskHome } from "../lib/home";
-import type { NativeSearchResult } from "./types";
+import type { LlmMessage, NativeSearchResult } from "./types";
 import { budgetBlockReason, useClaudeBudget } from "../stores/claudeBudget";
 import { claudeContextFor, useSettingsStore } from "../stores/settingsStore";
 
@@ -238,6 +238,40 @@ export async function llmFetch(path: string, init: RequestInit = {}, base?: stri
   if (!model) return fetch(`${url}${path}`, init);
   if (path === "/v1/chat/completions") return claudeChat(model, init);
   return claudeLocal(model, path);
+}
+
+/** 서버 요약(on-demand compaction)의 beta. */
+const COMPACT_BETA = "compact-2026-09-04";
+
+/**
+ * Anthropic 의 서버 요약으로 대화를 요약한다(밥 주기·자동 요약). 요약하는 프롬프트도 Anthropic 것이다.
+ *
+ * 돌아온 `compaction` 블록은 글만 꺼내 쓴다 — 네코는 요청마다 대화 기록을 글로 다시 짜므로, 블록을
+ * 서명째 맨 앞에 붙여 다니는 대신 요약 글을 "이전 대화 요약" 메시지로 싣는다(로컬 모델로 바꿔도 같은
+ * 요약이 쓰인다). 요약이 안 나오면(거절·잘림·도구 호출) null — 부르는 쪽이 다른 길로 요약한다.
+ * 비밀·홈 경로는 다른 요청처럼 가리고 보낸다. 쓴 만큼 장부에 적는다.
+ */
+export async function claudeCompact(model: string, messages: LlmMessage[]): Promise<string | null> {
+  const blocked = budgetBlockReason();
+  if (blocked) throw new Error(blocked);
+  const raw = { messages: (messages as unknown as Json[]).map(redactMessage) };
+  const converted = toMessagesRequest(raw, model).messages;
+  const res = await claudeClient().beta.messages.create({
+    model,
+    // 요약 앞의 생각까지 이 안에서 쓴다. 넉넉히.
+    max_tokens: 8192,
+    betas: [COMPACT_BETA],
+    messages: converted,
+    compaction: { type: "summarize" },
+  } as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming);
+  // 요약 호출의 사용량은 usage.iterations 의 compaction 칸에 온다(맨 위 칸은 0).
+  const iterations = (((res.usage as unknown as Json).iterations ?? []) as Json[]);
+  const sum = (k: string) => iterations.reduce((n, it) => n + Number(it[k] ?? 0), 0);
+  useClaudeBudget.getState().record(model, sum("input_tokens"), sum("output_tokens"), 0);
+  if ((res.stop_reason as string) !== "compaction") return null;
+  const block = (res.content as unknown as Json[]).find((b) => b.type === "compaction");
+  const text = typeof block?.content === "string" ? block.content.trim() : "";
+  return text || null;
 }
 
 /** 요청 하나에서 검색할 수 있는 횟수. 결과가 전부 입력 토큰이 되니 넉넉히 주지 않는다. */

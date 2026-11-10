@@ -838,6 +838,42 @@ html, body, #root {
 }
 
 /* ── Chat messages ── */
+/* 자동 요약 구분선. 펼치면 요약이 보인다. */
+.message-compacted {
+  align-self: stretch;
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.message-compacted summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.message-compacted summary::-webkit-details-marker {
+  display: none;
+}
+
+.message-compacted summary::before,
+.message-compacted summary::after {
+  content: "";
+  flex: 1;
+  border-top: 1px dashed var(--border, rgba(128, 128, 128, 0.35));
+}
+
+.message-compacted__body {
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--bg-secondary, rgba(128, 128, 128, 0.08));
+  color: var(--text-primary);
+}
+
 /* 맨 위에 닿았는지 보는 표지. 보이면 앞 메시지를 더 붙인다(ChatMessages). */
 .chat-messages__more {
   height: 1px;

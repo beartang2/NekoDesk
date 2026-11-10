@@ -20,7 +20,7 @@ import {
   useSettingsStore,
   type GenParams,
 } from "../stores/settingsStore";
-import { llmFetch } from "./llm-transport";
+import { claudeCompact, llmFetch } from "./llm-transport";
 import { claudeModelOf } from "../lib/claude-models";
 import { prefixContent } from "./agent-context";
 import { timeZone } from "../lib/time";
@@ -1027,6 +1027,22 @@ export function textTaskStream(
 // ── Context compaction ────────────────────────────────────────────────────────
 
 /** Claude Code 방식의 컨텍스트 compact: 대화를 요약해서 반환한다. */
+/**
+ * 대화를 요약한다(밥 주기·자동 요약). Claude 프로필이면 Anthropic 의 서버 요약을 먼저 쓰고,
+ * 요약이 안 나오면(거절·실패) 네코의 요약 프롬프트로 지금 모델에 시킨다.
+ */
+export async function summarizeConversation(messages: LlmMessage[], previousSummary?: string): Promise<string> {
+  const claude = claudeModelOf(useSettingsStore.getState().llmUrl);
+  if (claude) {
+    const withPrevious: LlmMessage[] = previousSummary
+      ? [{ role: "user", content: `[이전 대화 요약]\n${previousSummary}` }, { role: "assistant", content: "알겠어, 이전 내용 참고할게." }, ...messages]
+      : messages;
+    const summary = await claudeCompact(claude, withPrevious).catch(() => null);
+    if (summary) return summary;
+  }
+  return compactMessages(messages, previousSummary);
+}
+
 export async function compactMessages(messages: LlmMessage[], previousSummary?: string): Promise<string> {
   const conversationText = messages
     .filter((m) => m.role === "user" || m.role === "assistant")
