@@ -184,8 +184,11 @@
 }
 
 /* ── Segmented ── */
+/* 칸은 모두 가장 긴 글자에 맞춘 같은 너비. flex 로 나누면 칸 합을 똑같이 쪼개서 긴 글자가 여백을 잃는다. */
 .ui-seg {
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 2px;
   padding: 2px;
   background: var(--field-bg);
@@ -194,8 +197,6 @@
 
 .ui-seg__item {
   position: relative;
-  flex: 1;
-  min-width: 0;
   padding: 5px 8px;
   background: none;
   border: none;

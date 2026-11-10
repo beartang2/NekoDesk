@@ -406,11 +406,17 @@ function ClaudeProfileFields({
           <div className="settings-field">
             <span className="settings-field__label">컨텍스트</span>
             <Segmented value={String(context)} onChange={(v) => setClaudeContext(model, Number(v))}
-              options={info.contextOptions.map((n) => ({ value: String(n), label: `${n / 1000}K` }))} />
+              options={info.contextOptions.map((n) => ({
+                value: String(n),
+                label: n >= 1_000_000 ? `${n / 1_000_000}M` : `${n / 1000}K`,
+              }))} />
           </div>
           <p className="settings-section__desc">
             창을 가득 채운 요청 한 번은 입력값만 최대 ${full < 0.01 ? full.toFixed(4) : full.toFixed(3)} 이야. 앞쪽은 캐시로
             0.1배에 읽혀서, 보통은 그보다 훨씬 덜 나와. 대화 기록은 이 창의 절반까지 실어.
+            {info.price.longThreshold && context > info.price.longThreshold
+              ? ` 프롬프트가 ${info.price.longThreshold / 1000}K 를 넘는 요청은 입력·출력 모두 ${info.price.longInput! / info.price.input}배 값이야.`
+              : ""}
           </p>
         </>
       )}
