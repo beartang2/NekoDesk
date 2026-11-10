@@ -8,7 +8,7 @@ vi.mock("../api/tauri", () => ({
 vi.mock("../agent/agent-loop", () => ({ runAgentLoop: vi.fn() }));
 vi.mock("../lib/notify", () => ({ notifyIfAway: vi.fn(), toNotificationBody: (s: string) => s }));
 
-import { buildHistory, cleanAnswer, needsCompaction, parseMeta, serializeAttachments, serializeMeta, splitAttachmentSection } from "./useAgentLoop";
+import { buildHistory, cleanAnswer, modelSwitches, needsCompaction, parseMeta, serializeAttachments, serializeMeta, splitAttachmentSection } from "./useAgentLoop";
 import type { AgentStep } from "../agent/types";
 import type { AttachedFile } from "./useAgentLoop";
 
@@ -163,5 +163,14 @@ describe("buildHistory", () => {
     expect(m.content).toBe("곰을 그렸어\n\n(도구 사용: skill.read, code.exec, web.search 실패)");
     expect(buildHistory([{ id: "2", role: "assistant", content: "", time: "", steps: [step("todo.list", "done")] }])[0].content)
       .toBe("(도구 사용: todo.list)");
+  });
+  it("모델이 바뀐 답 앞의 질문에 새 모델 이름을 단다 — 이름 없는 예전 답은 비교하지 않는다", () => {
+    const u = (id: string) => ({ id, role: "user" as const, content: "", time: "" });
+    const a = (id: string, model?: string) => ({ id, role: "assistant" as const, content: "", time: "", model });
+    const at = modelSwitches([
+      a("old"), u("q1"), a("r1", "Haiku"), u("q2"), u("q2b"), a("r2", "Sonnet"), u("q3"), a("r3", "Sonnet"),
+    ]);
+    expect([...at]).toEqual([["q2", "Sonnet"]]);
+    expect(parseMeta(serializeMeta({ model: "Sonnet" })).model).toBe("Sonnet");
   });
 });

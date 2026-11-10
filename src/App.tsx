@@ -23,7 +23,7 @@ import { MenuModal } from "./components/MenuModal";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { useDrawingGame } from "./hooks/useDrawingGame";
 import { useWordChainGame } from "./hooks/useWordChainGame";
-import { useAgentPool, makeInitialMessages, parseMeta, splitAttachmentSection, type QueuedMessage } from "./hooks/useAgentLoop";
+import { useAgentPool, makeInitialMessages, modelSwitches, parseMeta, splitAttachmentSection, type QueuedMessage } from "./hooks/useAgentLoop";
 import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UpdatePrompt } from "./components/Update";
@@ -565,6 +565,8 @@ function ChatMessages({
   const [from, setFrom] = useState<number | null>(null);
   const start = from === null || from > messages.length ? Math.max(0, messages.length - MESSAGE_PAGE) : from;
   const shown = start > 0 ? messages.slice(start) : messages;
+  // 잘라 그려도 앞 답과 비교해야 하니 전체에서 찾는다.
+  const switches = useMemo(() => modelSwitches(messages), [messages]);
   const topRef = useRef<HTMLDivElement>(null);
   /** 앞을 붙이기 직전의 높이·위치. 붙인 뒤 보던 자리를 그대로 두는 데 쓴다. */
   const prepend = useRef<{ height: number; top: number } | null>(null);
@@ -659,13 +661,15 @@ function ChatMessages({
       )}
       {start > 0 && <div ref={topRef} className="chat-messages__more" aria-hidden="true" />}
       {shown.map((m) => (
-        <MessageItem
-          key={m.id}
-          m={m}
-          running={isRunning && !!m.isStreaming}
-          expanded={expanded.has(m.id)}
-          onToggle={toggleExpanded}
-        />
+        <React.Fragment key={m.id}>
+          {switches.has(m.id) && <div className="message-model-switch">여기부터 {switches.get(m.id)}</div>}
+          <MessageItem
+            m={m}
+            running={isRunning && !!m.isStreaming}
+            expanded={expanded.has(m.id)}
+            onToggle={toggleExpanded}
+          />
+        </React.Fragment>
       ))}
       <div ref={bottomRef} />
     </div>
@@ -1213,6 +1217,7 @@ export default function App() {
           label: meta.label,
           prompt: meta.prompt,
           compacted: meta.compacted,
+          model: meta.model,
           isStreaming: false,
         };
       });

@@ -19,6 +19,7 @@ import { estimateMessagesTokens } from "../agent/token-estimate";
 import { historyBudget } from "../agent/agent-context";
 import { getModelContextLength, summarizeConversation } from "../agent/llm-client";
 import { isClaudeActive, useSettingsStore } from "../stores/settingsStore";
+import { activeModelName } from "../stores/modelProfiles";
 
 export interface PendingConfirm {
   sessionId: string;
@@ -78,6 +79,8 @@ export interface ChatMessage {
    * (buildHistory). 화면엔 구분선으로 보이고 앞 대화는 그대로 남는다.
    */
   compacted?: boolean;
+  /** 이 답을 쓴 모델 이름(activeModelName). 직전 답과 다르면 화면에 "여기부터 …" 줄을 긋는다. */
+  model?: string;
 }
 
 /** 대화 루프 대신 지시 하나로만 시키는 짧은 글 일(runTextTask). 빠른 질문의 버튼. */
@@ -163,6 +166,7 @@ export interface MessageMeta {
   label?: string;
   prompt?: string;
   compacted?: boolean;
+  model?: string;
 }
 
 /**
@@ -196,6 +200,7 @@ export function serializeMeta(meta: MessageMeta): string | undefined {
     ...(meta.label ? { label: meta.label } : {}),
     ...(meta.prompt ? { prompt: meta.prompt } : {}),
     ...(meta.compacted ? { compacted: true } : {}),
+    ...(meta.model ? { model: meta.model } : {}),
   };
   return Object.keys(stored).length ? JSON.stringify(stored) : undefined;
 }
@@ -331,6 +336,25 @@ async function autoCompact(sessionId: string): Promise<void> {
   } finally {
     compacting.delete(sessionId);
   }
+}
+
+/**
+ * 대화 중 모델이 바뀐 곳. 바뀐 뒤 첫 답을 부른 질문(바로 앞에 이어진 사용자 말 중 첫 칸)의 id →
+ * 새 모델 이름. 모델 이름이 없는 예전 답은 건너뛴다 — 무엇과 비교할지 모른다.
+ */
+export function modelSwitches(messages: ChatMessage[]): Map<string, string> {
+  const at = new Map<string, string>();
+  let last: string | undefined;
+  messages.forEach((m, i) => {
+    if (m.role !== "assistant" || !m.model) return;
+    if (last && m.model !== last) {
+      let j = i;
+      while (j > 0 && messages[j - 1].role === "user") j--;
+      at.set(messages[j].id, m.model);
+    }
+    last = m.model;
+  });
+  return at;
 }
 
 export function buildHistory(messages: ChatMessage[]): LlmMessage[] {
@@ -480,6 +504,7 @@ export function useAgentPool() {
       };
       // 사용자가 끼어들면 답 칸을 새로 연다. 그때 바뀐다.
       let assistantId = crypto.randomUUID();
+      const model = activeModelName();
       const placeholder: ChatMessage = {
         id: assistantId,
         role: "assistant",
@@ -488,6 +513,7 @@ export function useAgentPool() {
         steps: [],
         isStreaming: true,
         startedAt: Date.now(),
+        model,
       };
 
       patchSessionMessages(sessionId, (prev) => [...prev, userMsg, placeholder]);
@@ -599,6 +625,7 @@ export function useAgentPool() {
               plan: closed?.plan,
               isStreaming: true,
               startedAt: Date.now(),
+              model,
             };
             // 도구를 하나도 안 쓴 칸은 생성 도중 끊긴 것이다. 새 칸에서 처음부터 다시 답하니
             // 남기면 빈 칸이 된다 — 지운다.
@@ -615,6 +642,7 @@ export function useAgentPool() {
               ? conversationApi.save(sessionId, "assistant", "", undefined, serializeMeta({
                   steps: finalSteps,
                   thinking: closed?.thinking,
+                  model,
                 }))
               : Promise.resolve();
             for (const q of interjected) {
@@ -715,6 +743,7 @@ export function useAgentPool() {
                 images,
                 tokensPerSecond: event.tokensPerSecond,
                 notice: event.notice,
+                model,
               }))
               .catch(() => {});
             appEvents.emit("agentDone");
@@ -727,7 +756,7 @@ export function useAgentPool() {
             // 화면에 남는 것과 같게 저장한다. 안 하면 다시 열었을 때 질문만 덩그러니 남는다.
             saved = true;
             conversationApi
-              .save(sessionId, "assistant", `연결 실패: ${event.message}`, undefined, serializeMeta({ steps: finalSteps }))
+              .save(sessionId, "assistant", `연결 실패: ${event.message}`, undefined, serializeMeta({ steps: finalSteps, model }))
               .catch(() => {});
             setCatEmotion(sessionId, "error");
             setRunning(sessionId, false);
@@ -759,6 +788,7 @@ export function useAgentPool() {
             .save(sessionId, "assistant", partial?.content ?? "", undefined, serializeMeta({
               steps: finalSteps,
               thinking: thinkingBuffer.trimStart(),
+              model,
             }))
             .catch(() => {});
         }

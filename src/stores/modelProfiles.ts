@@ -110,6 +110,17 @@ export function modelLabel(p: ModelProfile): string {
   return p.config.model ? (p.config.model.split("/").pop() ?? "") : "(모델 미선택)";
 }
 
+/**
+ * 지금 답하는 모델의 이름. 답마다 남겨 대화 중 모델이 바뀐 곳에 줄을 긋는다.
+ * Claude 는 프로필 하나 안에서 모델을 바꾸므로 모델 이름을, 로컬은 사용자가 붙인 프로필 이름을 쓴다.
+ */
+export function activeModelName(): string | undefined {
+  const { profiles, activeId } = loadProfiles();
+  const p = profiles.find((x) => x.id === activeId);
+  if (!p) return undefined;
+  return isClaudeProfile(p) ? modelLabel(p) : p.name || modelLabel(p);
+}
+
 function sanitize(c: Partial<LlamaConfig>): LlamaConfig {
   const merged = { ...DEFAULT_LLAMA_CONFIG, ...c };
   // 0.0.0.0 은 llama-server 를 모든 네트워크 인터페이스에 연다. 같은 와이파이의

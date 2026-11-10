@@ -874,6 +874,24 @@ html, body, #root {
   color: var(--text-primary);
 }
 
+/* 대화 중 모델이 바뀐 곳(modelSwitches). 요약 구분선과 헷갈리지 않게 실선. */
+.message-model-switch {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.message-model-switch::before,
+.message-model-switch::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.35));
+}
+
 /* 맨 위에 닿았는지 보는 표지. 보이면 앞 메시지를 더 붙인다(ChatMessages). */
 .chat-messages__more {
   height: 1px;
