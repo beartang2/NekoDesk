@@ -223,13 +223,18 @@ describe("llmFetch (Claude 프로필)", () => {
     expect((await llmFetch("/v1/models")).status).toBe(503);
   });
 
-  it("/props 는 모델마다 다른 컨텍스트 상한을 알려준다 — 비싼 모델일수록 창이 작다", async () => {
+  it("/props 는 모델 기본 창을, 설정에서 고르면 그 값을 알려준다 — 선택지에 없는 값은 무시한다", async () => {
     const nCtx = async (model: string) =>
       (await (await llmFetch("/props", {}, `claude://${model}`)).json()).n_ctx;
     expect(await nCtx("claude-haiku-5-5")).toBe(64_000);
-    expect(await nCtx("claude-sonnet-5-5")).toBe(32_000);
-    expect(await nCtx("claude-opus-5-5")).toBe(16_000);
-    expect(await nCtx("claude-unknown")).toBe(16_000);
+    expect(await nCtx("claude-sonnet-5-5")).toBe(64_000);
+    expect(await nCtx("claude-opus-5-5")).toBe(32_000);
+    expect(await nCtx("claude-unknown")).toBe(32_000);
+    useSettingsStore.getState().setClaudeContext("claude-opus-5-5", 128_000);
+    expect(await nCtx("claude-opus-5-5")).toBe(128_000);
+    // Haiku 는 10만 토큰을 넘으면 5배 요금이라 128K 를 열지 않는다.
+    useSettingsStore.getState().setClaudeContext("claude-haiku-5-5", 128_000);
+    expect(await nCtx("claude-haiku-5-5")).toBe(64_000);
   });
 });
 

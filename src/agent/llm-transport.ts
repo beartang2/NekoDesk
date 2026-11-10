@@ -2,13 +2,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Stream } from "@anthropic-ai/sdk/core/streaming";
 import { invoke } from "@tauri-apps/api/core";
 import { abortError, claudeClient } from "./claude-sdk";
-import { WEB_SEARCH_MODEL, WEB_SEARCH_USD, claudeContextCap, claudeModelOf, findClaudeModel } from "../lib/claude-models";
+import { WEB_SEARCH_MODEL, WEB_SEARCH_USD, claudeModelOf, findClaudeModel } from "../lib/claude-models";
 import { createMessagesStreamAdapter, toMessagesRequest, type MessagesUsage } from "./claude-messages";
 import { redactSecrets } from "./outbound-guard";
 import { maskHome } from "../lib/home";
 import type { NativeSearchResult } from "./types";
 import { budgetBlockReason, useClaudeBudget } from "../stores/claudeBudget";
-import { useSettingsStore } from "../stores/settingsStore";
+import { claudeContextFor, useSettingsStore } from "../stores/settingsStore";
 
 /**
  * LLM 요청이 나가는 단 하나의 문.
@@ -203,7 +203,7 @@ async function claudeLocal(model: string, path: string): Promise<Response> {
     case "/health":
       return (await hasClaudeKey()) ? jsonResponse({ status: "ok" }) : jsonResponse({ status: "no key" }, 503);
     case "/props":
-      return jsonResponse({ n_ctx: claudeContextCap(model) });
+      return jsonResponse({ n_ctx: claudeContextFor(model) });
     default:
       return jsonResponse({ error: `Claude 프로필에선 ${path} 를 쓸 수 없어.` }, 404);
   }

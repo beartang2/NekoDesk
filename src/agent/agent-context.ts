@@ -11,6 +11,12 @@ import type { AgentStep, CatEmotion, ContentPart, LlmMessage, ToolCall } from ".
  */
 const BUDGET_RATIO = 0.35;
 
+/**
+ * Claude 는 더 쓴다. 넘쳐도 모델의 실제 창(1M)이 훨씬 커서 오류가 나지 않고, 정한 창은
+ * 요금을 위한 선이다. 시스템 프롬프트·툴은 캐시로 0.1배에 읽힌다.
+ */
+const CLAUDE_BUDGET_RATIO = 0.5;
+
 /** 이만큼의 최근 턴은 요약하지 않고 전문을 싣는다. */
 const VERBATIM_TURNS = 3;
 
@@ -89,7 +95,7 @@ export class AgentContext {
     this.userContent = userContent;
     this.chatHistory = chatHistory;
     this.native = native;
-    this.budget = Math.max(512, Math.floor(contextLength * BUDGET_RATIO));
+    this.budget = Math.max(512, Math.floor(contextLength * (appendOnly ? CLAUDE_BUDGET_RATIO : BUDGET_RATIO)));
     this.appendOnly = appendOnly;
   }
 

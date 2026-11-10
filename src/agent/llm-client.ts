@@ -14,12 +14,14 @@ import { ToolCallAccumulator, fromWireToolCalls } from "./tool-calls";
 import { buildKnowledgeSection, buildSkillIndex } from "./knowledge";
 import { createJsonStringFieldStreamer } from "./json-stream";
 import {
+  claudeContextFor,
   isClaudeActive,
   shouldUseNativeTools,
   useSettingsStore,
   type GenParams,
 } from "../stores/settingsStore";
 import { llmFetch } from "./llm-transport";
+import { claudeModelOf } from "../lib/claude-models";
 import { prefixContent } from "./agent-context";
 import { timeZone } from "../lib/time";
 
@@ -1093,6 +1095,9 @@ let cachedContextLength: number | null = null;
 const DEFAULT_CONTEXT_LENGTH = 8192;
 
 export function getModelContextLength(): number {
+  // Claude 는 설정에서 고른 값을 바로 읽는다 — 바꾼 뒤 /props 를 다시 묻기 전에도 맞게.
+  const claude = claudeModelOf(useSettingsStore.getState().llmUrl);
+  if (claude) return claudeContextFor(claude);
   return cachedContextLength ?? DEFAULT_CONTEXT_LENGTH;
 }
 

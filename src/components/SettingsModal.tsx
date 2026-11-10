@@ -39,7 +39,7 @@ import {
   type ProfileState,
 } from "../stores/modelProfiles";
 import {
-  CLAUDE_MODELS, claudeContextCap, claudeLabel, claudeModelOf, claudeUrl, findClaudeModel, maxOutputTokensFor,
+  CLAUDE_MODELS, claudeContextCap, claudeLabel, claudeModelOf, claudeUrl, findClaudeModel, fullRequestUsd, maxOutputTokensFor,
 } from "../lib/claude-models";
 import { CLAUDE_KEY, PLAIN_HTTP_HINT, isPlainHttp } from "../agent/llm-transport";
 import { ClaudeBudgetFields, ClaudeUsageMeter } from "./ClaudeUsage";
@@ -376,6 +376,10 @@ function ClaudeProfileFields({
 }) {
   const model = claudeModelOf(profile.url) ?? CLAUDE_MODELS[0].id;
   const info = findClaudeModel(model);
+  const chosen = useSettingsStore((s) => s.claudeContext[model]);
+  const setClaudeContext = useSettingsStore((s) => s.setClaudeContext);
+  const context = claudeContextCap(model, chosen);
+  const full = fullRequestUsd(model, context);
 
   function setModel(next: string) {
     const renamed = profile.name === claudeLabel(model) ? { name: claudeLabel(next) } : {};
@@ -395,8 +399,20 @@ function ClaudeProfileFields({
           {info.price.longThreshold
             ? ` (프롬프트 ${info.price.longThreshold / 1000}K 초과 요청은 $${info.price.longInput} / $${info.price.longOutput})`
             : ""}
-          . 컨텍스트는 {claudeContextCap(model) / 1000}K 로 묶어 둔다 — 창이 클수록 요청마다 값이 오른다.
         </p>
+      )}
+      {info && (
+        <>
+          <div className="settings-field">
+            <span className="settings-field__label">컨텍스트</span>
+            <Segmented value={String(context)} onChange={(v) => setClaudeContext(model, Number(v))}
+              options={info.contextOptions.map((n) => ({ value: String(n), label: `${n / 1000}K` }))} />
+          </div>
+          <p className="settings-section__desc">
+            창을 가득 채운 요청 한 번은 입력값만 최대 ${full < 0.01 ? full.toFixed(4) : full.toFixed(3)} 이야. 앞쪽은 캐시로
+            0.1배에 읽혀서, 보통은 그보다 훨씬 덜 나와. 대화 기록은 이 창의 절반까지 실어.
+          </p>
+        </>
       )}
       <div className="settings-field">
         <span className="settings-field__label">API 키</span>

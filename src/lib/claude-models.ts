@@ -26,25 +26,22 @@ export interface ClaudeModel {
   label: string;
   hint: string;
   price: ClaudePrice;
-  /** 네코에게 알려주는 컨텍스트 길이(토큰). 아래 CLAUDE_MODELS 위 주석 참고. */
+  /** 네코에게 알려주는 컨텍스트 길이(토큰)의 기본값. 아래 CLAUDE_MODELS 위 주석 참고. */
   contextCap: number;
+  /** 설정에서 고를 수 있는 컨텍스트 길이. */
+  contextOptions: readonly number[];
   /** 응답 한 번에 받을 수 있는 max_tokens 의 천장. 넘기면 요청 전체가 400 이다. */
   maxOutput: number;
 }
 
 /**
  * 2026-10 공식 가격표(platform.claude.com/docs/en/about-claude/pricing) 기준.
- * OpenAI 호환 계층은 프롬프트 캐싱을 안 하므로 캐시 가격은 쓸 일이 없다.
  *
- * contextCap — 모델 자체는 1M 까지 받지만 그대로 알려주면 에이전트가 대화·툴 결과를
- * 그만큼 채우고(agent-context), 캐싱이 없으니 요청마다 그 전부가 입력 요금이다. 그래서
- * 창 크기가 곧 요청 한 번의 값이다. 월 크레딧 $80 로 한 달에 요청 2,000번쯤(하루 65번,
- * 에이전트 단계 포함)을 쓴다고 치고, 프롬프트가 평균 창의 절반쯤 찬다고 보면:
- *  - Sonnet 32K: 입력 2,000 × 16K × $2 ≈ $64 + 출력(500토큰) ≈ $10 → $74
- *  - Opus   16K: 입력 2,000 ×  8K × $4 ≈ $64 + 출력(500토큰) ≈ $20 → $84 (예산 상한이 막는다)
- *  - Haiku 는 돈이 아니라 가격 구간이 한계다. 프롬프트가 10만 토큰을 넘는 순간 그 요청이
- *    통째로 5배 가격이 되니, 네코의 토큰 추정이 크게 빗나가도(token-estimate 는 실제의
- *    0.6~2배) 그 선 아래에 머물 만큼 64K 로 묶는다. 이때도 한 달 $7 남짓이다.
+ * contextCap — 모델 자체는 1M 까지 받지만 그대로 알려주면 에이전트가 대화·툴 결과를 그만큼
+ * 채운다(agent-context). 프롬프트 캐시로 앞쪽(시스템·툴·지난 대화)은 0.1배에 읽혀서, 창을 키워도
+ * 값이 창 크기만큼 오르진 않는다 — 새로 붙는 부분만 제값이다. 설정에서 contextOptions 중에 고른다.
+ * Haiku 만 다르다: 프롬프트가 10만 토큰을 넘는 순간 그 요청이 통째로 5배 가격이 된다. 네코의
+ * 토큰 추정이 크게 빗나가도(token-estimate 는 실제의 0.6~2배) 그 선 아래에 머물게 80K 까지만 연다.
  */
 export const CLAUDE_MODELS: readonly ClaudeModel[] = [
   {
@@ -53,6 +50,7 @@ export const CLAUDE_MODELS: readonly ClaudeModel[] = [
     hint: "제일 싸고 빠름",
     price: { input: 0.1, output: 0.5, longThreshold: 100_000, longInput: 0.5, longOutput: 2.5 },
     contextCap: 64_000,
+    contextOptions: [32_000, 64_000, 80_000],
     maxOutput: 128_000,
   },
   {
@@ -60,7 +58,8 @@ export const CLAUDE_MODELS: readonly ClaudeModel[] = [
     label: "Sonnet 5.5",
     hint: "균형",
     price: { input: 2, output: 10 },
-    contextCap: 32_000,
+    contextCap: 64_000,
+    contextOptions: [32_000, 64_000, 128_000, 200_000],
     maxOutput: 128_000,
   },
   {
@@ -68,7 +67,8 @@ export const CLAUDE_MODELS: readonly ClaudeModel[] = [
     label: "Opus 5.5",
     hint: "가장 똑똑함 · 비쌈",
     price: { input: 4, output: 20 },
-    contextCap: 16_000,
+    contextCap: 32_000,
+    contextOptions: [32_000, 64_000, 128_000, 200_000],
     maxOutput: 128_000,
   },
 ];
@@ -105,9 +105,22 @@ export function findClaudeModel(id: string): ClaudeModel | undefined {
   return CLAUDE_MODELS.find((m) => m.id === id);
 }
 
-/** 그 모델로 네코에게 알려줄 컨텍스트 길이. 모르는 모델은 가장 작은 창으로 친다(비싸게 잡는다). */
-export function claudeContextCap(id: string): number {
-  return findClaudeModel(id)?.contextCap ?? Math.min(...CLAUDE_MODELS.map((m) => m.contextCap));
+/**
+ * 그 모델로 네코에게 알려줄 컨텍스트 길이. `chosen` 은 설정에서 고른 값 — 그 모델의 선택지에 없으면
+ * 기본값을 쓴다. 모르는 모델은 가장 작은 기본 창으로 친다(비싸게 잡는다).
+ */
+export function claudeContextCap(id: string, chosen?: number): number {
+  const m = findClaudeModel(id);
+  if (!m) return Math.min(...CLAUDE_MODELS.map((x) => x.contextCap));
+  return chosen !== undefined && m.contextOptions.includes(chosen) ? chosen : m.contextCap;
+}
+
+/** 창을 가득 채운 요청 한 번의 입력값(캐시 없이 전부 제값일 때, USD). 설정의 값 안내용. */
+export function fullRequestUsd(id: string, context: number): number {
+  const p = findClaudeModel(id)?.price;
+  if (!p) return 0;
+  const rate = p.longThreshold !== undefined && context > p.longThreshold ? p.longInput ?? p.input : p.input;
+  return (context * rate) / 1_000_000;
 }
 
 /**

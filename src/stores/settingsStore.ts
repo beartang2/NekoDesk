@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { isClaudeUrl, maxOutputTokensFor } from "../lib/claude-models";
+import { claudeContextCap, isClaudeUrl, maxOutputTokensFor } from "../lib/claude-models";
 
 /**
  * LLM 관련 설정 스토어 (llm_url / gen_params / system_prompt / user_profile).
@@ -57,7 +57,17 @@ const K = {
   toolMode: "nekodesk_tool_mode",
   imageGen: "nekodesk_image_gen",
   weatherLocation: "nekodesk_weather_location",
+  claudeContext: "nekodesk_claude_context",
 } as const;
+
+function loadClaudeContext(): Record<string, number> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(K.claudeContext) ?? "{}") as unknown;
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
 
 function loadToolMode(): ToolMode {
   const raw = localStorage.getItem(K.toolMode);
@@ -102,6 +112,8 @@ interface SettingsStore {
   imageGen: ImageGenSettings;
   /** 고양이 옆에 띄울 날씨의 지역. 빈 문자열이면 숨긴다. */
   weatherLocation: string;
+  /** Claude 모델별로 고른 컨텍스트 길이(모델 id → 토큰). 없으면 모델 기본값. */
+  claudeContext: Record<string, number>;
   /** auto 모드에서 서버가 `tools` 를 거부해 json 으로 내려앉았다. 영속화하지 않는다. */
   nativeToolsDegraded: boolean;
   setLlmUrl: (url: string) => void;
@@ -112,6 +124,7 @@ interface SettingsStore {
   setToolMode: (m: ToolMode) => void;
   setImageGen: (p: ImageGenSettings) => void;
   setWeatherLocation: (v: string) => void;
+  setClaudeContext: (model: string, tokens: number) => void;
   setNativeToolsDegraded: (v: boolean) => void;
 }
 
@@ -125,6 +138,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   toolMode: loadToolMode(),
   imageGen: loadImageGen(),
   weatherLocation: localStorage.getItem(K.weatherLocation) ?? "Seoul",
+  claudeContext: loadClaudeContext(),
   nativeToolsDegraded: false,
 
   setLlmUrl: (url) => {
@@ -161,8 +175,18 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     localStorage.setItem(K.weatherLocation, v);
     set({ weatherLocation: v });
   },
+  setClaudeContext: (model, tokens) => {
+    const claudeContext = { ...get().claudeContext, [model]: tokens };
+    localStorage.setItem(K.claudeContext, JSON.stringify(claudeContext));
+    set({ claudeContext });
+  },
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));
+
+/** 그 Claude 모델로 쓸 컨텍스트 길이(설정에서 고른 값, 없으면 기본값). */
+export function claudeContextFor(model: string): number {
+  return claudeContextCap(model, useSettingsStore.getState().claudeContext[model]);
+}
 
 /** 이번 호출에 native tool calling 을 쓸 것인가. */
 /** 지금 Claude 프로필로 묻고 있는가. 큰 모델에게만 주는 것(원칙 규칙·그림 확인·스킬 본문)을 가를 때 본다. */

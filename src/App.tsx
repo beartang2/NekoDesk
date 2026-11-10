@@ -1138,6 +1138,8 @@ export default function App() {
   // /v1/models 가 503 이다. 한 번만 물으면 "--" 로 굳고 에이전트도 기본값(8192)으로
   // 예산을 짠다. 서버가 답할 때까지 다시 묻고, 주소가 바뀌면(프로필 전환) 처음부터.
   const llmUrl = useSettingsStore((s) => s.llmUrl);
+  // Claude 컨텍스트를 설정에서 바꿔도 게이지의 분모가 따라가게.
+  const claudeContext = useSettingsStore((s) => s.claudeContext);
   useEffect(() => {
     setModelContextLength(null);
     let alive = true;
@@ -1149,7 +1151,7 @@ export default function App() {
     });
     poll();
     return () => { alive = false; clearTimeout(timer); };
-  }, [llmUrl]);
+  }, [llmUrl, claudeContext]);
   useEffect(() => {
     return appEvents.on("agentDone", () => {
       fetchLoadedModel().then((info) => {
