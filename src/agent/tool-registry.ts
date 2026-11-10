@@ -340,7 +340,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["query"],
     },
     readOnly: true,
-    // Claude 는 Anthropic 의 내장 웹 검색을 쓴다(OpenAI 호환 계층으론 서버 툴을 못 붙여 따로 부른다).
+    // Claude 는 Anthropic 의 내장 웹 검색을 쓴다(대화와 따로 가는 한 번짜리 요청 — llm-transport 의 claudeWebSearch).
     // 실패하면(키·콘솔에서 꺼둔 검색·예산·네트워크) 기존 DuckDuckGo 검색으로 되돌아간다.
     execute: async (p): Promise<WebSearchResult> => {
       const query = p["query"] as string;

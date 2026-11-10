@@ -1,4 +1,7 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import Anthropic from "@anthropic-ai/sdk";
+import type { Stream } from "@anthropic-ai/sdk/core/streaming";
+import { invoke } from "@tauri-apps/api/core";
+import { abortError, claudeClient } from "./claude-sdk";
 import { WEB_SEARCH_MODEL, WEB_SEARCH_USD, claudeContextCap, claudeModelOf, findClaudeModel } from "../lib/claude-models";
 import { createMessagesStreamAdapter, toMessagesRequest, type MessagesUsage } from "./claude-messages";
 import { redactSecrets } from "./outbound-guard";
@@ -11,9 +14,9 @@ import { useSettingsStore } from "../stores/settingsStore";
  * LLM 요청이 나가는 단 하나의 문.
  *
  * 로컬·외부 프로필이면 지금까지처럼 그 주소로 `fetch` 한다. Claude 프로필(`claude://모델`)이면
- * OpenAI 모양 요청을 Messages API 모양으로 바꿔(claude-messages) Rust 의 `claude_chat` 에 넘기고,
- * Rust 가 키체인의 키를 붙여 api.anthropic.com/v1/messages 로 중계한다. 받은 스트림은 다시
- * OpenAI 모양으로 바꿔 표준 `Response` 로 돌려준다 — llm-client 의 파싱은 어느 쪽이든 같다.
+ * OpenAI 모양 요청을 Messages API 모양으로 바꿔(claude-messages) 공식 SDK 로 보낸다(claude-sdk —
+ * 키는 Rust 중계가 붙인다). 받은 이벤트는 다시 OpenAI 모양으로 바꿔 표준 `Response` 로 돌려준다
+ * — llm-client 의 파싱은 어느 쪽이든 같다.
  */
 
 /** 키체인 항목 이름. src-tauri/src/claude.rs 의 KEY_NAME 과 같아야 한다. */
@@ -75,18 +78,6 @@ export function explainClaudeError(status: number, raw: string): string {
   return head ? `${head}\n(${detail})` : detail;
 }
 
-type ClaudeEvent =
-  | { event: "head"; data: { status: number } }
-  | { event: "chunk"; data: { text: string } }
-  | { event: "end"; data?: undefined }
-  | { event: "error"; data: { message: string } };
-
-function abortError(signal: AbortSignal): Error {
-  const reason = signal.reason;
-  if (reason instanceof Error) return reason;
-  return new DOMException("요청을 멈췄어.", "AbortError");
-}
-
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 }
@@ -115,6 +106,14 @@ function redactMessage(m: Json): Json {
   };
 }
 
+/** 생각 블록이 앞쪽 기록과 안 맞을 때 400 대신 그 블록만 버리는 설정(`thinking.block_binding`)의 beta. */
+const CHAT_BETA = "thinking-binding-controls-2026-08-01";
+
+/** SDK 오류의 본문(있으면 API 가 준 JSON, 없으면 메시지). explainClaudeError 가 읽는다. */
+function errorText(e: InstanceType<typeof Anthropic.APIError>): string {
+  return e.error ? JSON.stringify(e.error) : e.message;
+}
+
 async function claudeChat(model: string, init: RequestInit): Promise<Response> {
   const blocked = budgetBlockReason();
   if (blocked) throw new Error(blocked);
@@ -126,101 +125,56 @@ async function claudeChat(model: string, init: RequestInit): Promise<Response> {
   // Anthropic 쪽은 늘 스트림으로 받는다. 부른 쪽이 스트림을 안 원하면 끝에 JSON 한 덩이로 모아 준다.
   const stream = raw.stream === true;
   const adapter = createMessagesStreamAdapter(new Map([...names].map(([orig, enc]) => [enc, orig])));
-  const id = crypto.randomUUID();
   const signal = init.signal ?? undefined;
-  const encoder = new TextEncoder();
 
-  let ctrl!: ReadableStreamDefaultController<Uint8Array>;
-  let settled = false;
-  const cancel = () => void invoke("claude_cancel", { id }).catch(() => {});
-  const bodyStream = new ReadableStream<Uint8Array>({
-    start(c) { ctrl = c; },
+  // 본문은 우리가 만든 Messages 모양 그대로다(block_binding 처럼 SDK 타입에 아직 없는 칸도 있다).
+  const params = { ...body, stream: true, betas: [CHAT_BETA] } as unknown as Anthropic.Beta.Messages.MessageCreateParamsStreaming;
+  let events: Stream<Anthropic.Beta.Messages.BetaRawMessageStreamEvent>;
+  try {
+    events = await claudeClient().beta.messages.create(params, { signal });
+  } catch (e) {
+    if (signal?.aborted) throw abortError(signal);
+    // HTTP 오류는 지금까지처럼 상태코드가 붙은 응답으로 돌려준다 — llm-client 가 그걸 읽어 안내한다.
+    if (e instanceof Anthropic.APIError && e.status) return new Response(explainClaudeError(e.status, errorText(e)), { status: e.status });
+    throw e;
+  }
+
+  const encoder = new TextEncoder();
+  let recorded = false;
+  const record = () => {
+    if (recorded) return;
+    recorded = true;
+    recordUsage(model, adapter.usage);
+  };
+  const out = new ReadableStream<Uint8Array>({
+    async start(ctrl) {
+      try {
+        for await (const ev of events) {
+          const chunk = adapter.event(ev);
+          if (stream && chunk) ctrl.enqueue(encoder.encode(chunk));
+        }
+        // SDK 스트림은 멈추면 오류 없이 그냥 끝난다. 읽는 쪽은 멈춘 걸 알아야 한다.
+        if (signal?.aborted) throw abortError(signal);
+        record();
+        if (import.meta.env.DEV && adapter.transformations.length) {
+          // 생각 블록이 버려졌다 — 앞쪽 기록이 바뀌었다는 뜻이다(agent-context 의 appendOnly).
+          console.warn("[claude] input_transformations", adapter.transformations);
+        }
+        if (adapter.error) throw new Error(adapter.error);
+        if (!stream) ctrl.enqueue(encoder.encode(JSON.stringify(adapter.completion())));
+        ctrl.close();
+      } catch (e) {
+        // 멈췄거나 중간에 끊겨도 받은 만큼은 청구된다. 장부부터 적는다.
+        record();
+        ctrl.error(signal?.aborted ? abortError(signal) : e);
+      }
+    },
     // 소비자가 중간에 그만 읽으면(멈춤 버튼, generator return) 서버 쪽 생성도 끊는다.
     cancel() {
-      if (!settled) cancel();
-      settled = true;
+      events.controller.abort();
     },
   });
-
-  return new Promise<Response>((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(abortError(signal));
-      return;
-    }
-    let status = 0;
-    // 오류 응답은 본문을 끝까지 모아 사람이 읽을 말로 바꿔서 한 번에 돌려준다.
-    let errorBody = "";
-
-    const finish = () => {
-      settled = true;
-      signal?.removeEventListener("abort", onAbort);
-    };
-    const fail = (err: Error) => {
-      if (settled) return;
-      finish();
-      if (status && status < 400) ctrl.error(err);
-      else reject(err);
-    };
-    const onAbort = () => {
-      cancel();
-      fail(abortError(signal!));
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-
-    const channel = new Channel<ClaudeEvent>();
-    channel.onmessage = (ev) => {
-      if (settled) return;
-      switch (ev.event) {
-        case "head":
-          status = ev.data.status;
-          if (status < 400) {
-            resolve(new Response(bodyStream, {
-              status,
-              headers: { "Content-Type": stream ? "text/event-stream" : "application/json" },
-            }));
-          }
-          break;
-        case "chunk":
-          if (status >= 400) {
-            errorBody += ev.data.text;
-          } else {
-            const out = adapter.push(ev.data.text);
-            if (stream && out) ctrl.enqueue(encoder.encode(out));
-          }
-          break;
-        case "end": {
-          finish();
-          if (status >= 400) {
-            resolve(new Response(explainClaudeError(status, errorBody), { status }));
-            break;
-          }
-          const rest = adapter.end();
-          recordUsage(model, adapter.usage);
-          if (import.meta.env.DEV && adapter.transformations.length) {
-            // 생각 블록이 버려졌다 — 앞쪽 기록이 바뀌었다는 뜻이다(agent-context 의 appendOnly).
-            console.warn("[claude] input_transformations", adapter.transformations);
-          }
-          if (adapter.error) {
-            ctrl.error(new Error(adapter.error));
-            break;
-          }
-          if (stream) {
-            if (rest) ctrl.enqueue(encoder.encode(rest));
-          } else {
-            ctrl.enqueue(encoder.encode(JSON.stringify(adapter.completion())));
-          }
-          ctrl.close();
-          break;
-        }
-        case "error":
-          fail(new Error(ev.data.message));
-          break;
-      }
-    };
-
-    invoke("claude_chat", { id, body: JSON.stringify(body), onEvent: channel })
-      .catch((e) => fail(new Error(String(e))));
-  });
+  return new Response(out, { status: 200, headers: { "Content-Type": stream ? "text/event-stream" : "application/json" } });
 }
 
 /**
@@ -286,21 +240,86 @@ export async function llmFetch(path: string, init: RequestInit = {}, base?: stri
   return claudeLocal(model, path);
 }
 
+/** 요청 하나에서 검색할 수 있는 횟수. 결과가 전부 입력 토큰이 되니 넉넉히 주지 않는다. */
+const MAX_SEARCHES = 3;
+/** 긴 검색은 pause_turn 으로 멈췄다 이어진다. 이만큼만 이어 보낸다. */
+const MAX_CONTINUATIONS = 3;
+const MAX_SOURCES = 10;
+
+function searchSystem(today: string): string {
+  return (
+    `You are a web research helper for another assistant. Today is ${today}. ` +
+    "Search the web for the user's query and report only facts found in the results, " +
+    "each with its source title, URL and date when known. Prefer recent and primary sources. " +
+    "If nothing relevant is found, say so plainly. Do not add facts from memory. " +
+    "Answer in the language of the query."
+  );
+}
+
+/** 응답 하나를 읽어 결과에 보탠다. 반환: 이어 보내야 하는가(pause_turn). */
+export function absorbSearch(res: Json, out: NativeSearchResult): boolean {
+  for (const block of (Array.isArray(res.content) ? res.content : []) as Json[]) {
+    if (block.type === "text" && typeof block.text === "string") out.answer += block.text;
+    if (block.type !== "web_search_tool_result") continue;
+    if (!Array.isArray(block.content)) {
+      // 실패는 200 안에 오류 객체로 온다(max_uses_exceeded·too_many_requests 등).
+      out.errors.push(String((block.content as Json | undefined)?.error_code ?? "unknown"));
+      continue;
+    }
+    for (const r of block.content as Json[]) {
+      const url = String(r.url ?? "");
+      if (!url || out.sources.some((s) => s.url === url) || out.sources.length >= MAX_SOURCES) continue;
+      out.sources.push({ title: String(r.title ?? ""), url, page_age: typeof r.page_age === "string" ? r.page_age : null });
+    }
+  }
+  const u = (res.usage ?? {}) as Json;
+  out.input_tokens += Number(u.input_tokens ?? 0);
+  out.output_tokens += Number(u.output_tokens ?? 0);
+  out.searches += Number(((u.server_tool_use ?? {}) as Json).web_search_requests ?? 0);
+  return res.stop_reason === "pause_turn";
+}
+
 /**
  * Claude 의 내장 웹 검색. 지금 프로필이 Claude 일 때만 부른다(web.search 툴).
  *
- * 대화와 따로 가는 한 번짜리 요청이라 메인 대화의 전송 방식(OpenAI 호환 계층)은 그대로다.
- * 본문은 Rust 가 만든다 — 여기서 넘기는 건 모델·검색어·날짜뿐. 쓴 만큼 예산 장부에 적는다.
- * 실패하면 던진다: 부르는 쪽이 기존 검색으로 되돌아간다.
+ * 대화와 따로 가는 한 번짜리 요청이다 — 검색어 하나짜리라 대화 기록과 엮인 생각 블록 검사에
+ * 걸릴 일이 없다. 쓴 만큼 예산 장부에 적는다. 첫 요청부터 실패하면 던진다: 부르는 쪽이 기존
+ * 검색으로 되돌아간다. 그 뒤의 실패는 errors 에 담아 쓴 만큼과 함께 돌려준다.
  */
 export async function claudeWebSearch(query: string, today: string): Promise<NativeSearchResult> {
   if (!claudeModelOf(useSettingsStore.getState().llmUrl)) throw new Error("Claude 프로필이 아니야.");
   const model = WEB_SEARCH_MODEL;
   const blocked = budgetBlockReason();
   if (blocked) throw new Error(blocked);
-  const r = await invoke<NativeSearchResult>("claude_web_search", { model, query, today });
+  const q = query.trim().slice(0, 500);
+  if (!q) throw new Error("검색어가 비어 있어.");
+
+  const out: NativeSearchResult = { answer: "", sources: [], searches: 0, input_tokens: 0, output_tokens: 0, errors: [] };
+  const messages: Anthropic.MessageParam[] = [{ role: "user", content: q }];
+  for (let i = 0; i < MAX_CONTINUATIONS; i++) {
+    let res: Anthropic.Message;
+    try {
+      res = await claudeClient().messages.create({
+        model,
+        max_tokens: 8000,
+        system: searchSystem(today.slice(0, 60)),
+        messages,
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: MAX_SEARCHES }],
+      });
+    } catch (e) {
+      const status = e instanceof Anthropic.APIError && e.status ? e.status : 0;
+      const msg = `Claude 웹 검색 실패(${status || "연결"}): ${e instanceof Error ? e.message : String(e)}`;
+      // HTTP 오류 응답은 청구되지 않는다. 앞서 받은 게 있으면 그것만 돌려준다.
+      if (out.input_tokens === 0) throw new Error(msg);
+      out.errors.push(msg);
+      break;
+    }
+    if (!absorbSearch(res as unknown as Json, out)) break;
+    // 멈춘 턴은 받은 그대로 돌려보내야 이어진다(검색 결과의 암호화 본문 포함).
+    messages.push({ role: "assistant", content: res.content });
+  }
   // 실패로 끝났어도 쓴 건 쓴 것이다. 장부부터 적는다.
-  useClaudeBudget.getState().record(model, r.input_tokens, r.output_tokens, r.searches * WEB_SEARCH_USD);
-  if (r.sources.length === 0 && r.errors.length > 0) throw new Error(`Claude 웹 검색 실패: ${r.errors.join(", ")}`);
-  return r;
+  useClaudeBudget.getState().record(model, out.input_tokens, out.output_tokens, out.searches * WEB_SEARCH_USD);
+  if (out.sources.length === 0 && out.errors.length > 0) throw new Error(`Claude 웹 검색 실패: ${out.errors.join(", ")}`);
+  return out;
 }

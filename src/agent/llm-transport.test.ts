@@ -2,7 +2,7 @@
 
 import { it, expect, beforeEach, vi, describe } from "vitest";
 
-/** Rust 쪽 claude_chat 을 흉내 낸다. 테스트마다 어떤 사건을 흘릴지 정한다. */
+/** Rust 쪽 claude_proxy 를 흉내 낸다. 테스트마다 어떤 사건을 흘릴지 정한다. */
 type Ev = { event: string; data?: unknown };
 const script = vi.hoisted(() => ({ events: [] as Ev[], hasKey: true }));
 const invoke = vi.hoisted(() => vi.fn());
@@ -25,7 +25,7 @@ beforeEach(() => {
   invoke.mockReset();
   invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => {
     if (cmd === "secret_has") return script.hasKey;
-    if (cmd === "claude_chat") {
+    if (cmd === "claude_proxy") {
       const ch = args.onEvent as { onmessage: (e: Ev) => void };
       // 실제 채널처럼 커맨드가 돌아온 뒤에 사건이 도착한다.
       queueMicrotask(() => script.events.forEach((e) => ch.onmessage(e)));
@@ -70,7 +70,7 @@ const stop = (reason = "end_turn", output = 5) => [
 describe("llmFetch (Claude 프로필)", () => {
   it("Messages 스트림을 OpenAI 모양으로 바꿔 돌려주고, 캐시를 반영해 사용액을 적는다", async () => {
     script.events = [
-      { event: "head", data: { status: 200 } },
+      { event: "head", data: { status: 200, headers: [["content-type", "text/event-stream"]] } },
       start({ input_tokens: 10_000, cache_creation_input_tokens: 0, cache_read_input_tokens: 90_000 }),
       sse({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
       sse({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "야옹" } }),
@@ -88,7 +88,7 @@ describe("llmFetch (Claude 프로필)", () => {
     expect(text).toContain('"prompt_tokens":100000');
     expect(text).toContain("data: [DONE]");
 
-    const sent = JSON.parse((invoke.mock.calls.find((c) => c[0] === "claude_chat")![1] as { body: string }).body);
+    const sent = JSON.parse((invoke.mock.calls.find((c) => c[0] === "claude_proxy")![1] as { body: string }).body);
     expect(sent.model).toBe("claude-haiku-5-5");
     expect(sent.temperature).toBeUndefined();
     expect(sent.system[0].text).toBe("고양이");
@@ -102,7 +102,7 @@ describe("llmFetch (Claude 프로필)", () => {
 
   it("스트림을 원하지 않은 호출엔 끝난 응답을 OpenAI JSON 한 덩이로 준다", async () => {
     script.events = [
-      { event: "head", data: { status: 200 } },
+      { event: "head", data: { status: 200, headers: [["content-type", "text/event-stream"]] } },
       start(),
       sse({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
       sse({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "끝" } }),
@@ -117,7 +117,7 @@ describe("llmFetch (Claude 프로필)", () => {
 
   it("스트림 안에서 온 오류(과부하)는 읽는 쪽에 오류로 올린다", async () => {
     script.events = [
-      { event: "head", data: { status: 200 } },
+      { event: "head", data: { status: 200, headers: [["content-type", "text/event-stream"]] } },
       start(),
       sse({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }),
       { event: "end" },
@@ -128,7 +128,7 @@ describe("llmFetch (Claude 프로필)", () => {
 
   it("오류 응답은 사람이 읽을 말로 바꿔 같은 상태코드로 돌려준다", async () => {
     script.events = [
-      { event: "head", data: { status: 400 } },
+      { event: "head", data: { status: 400, headers: [["content-type", "application/json"]] } },
       { event: "chunk", data: { text: '{"error":{"message":"Your credit balance is too low"}}' } },
       { event: "end" },
     ];
@@ -138,7 +138,7 @@ describe("llmFetch (Claude 프로필)", () => {
   });
 
   it("나가기 전에 툴 결과·사용자 글의 비밀을 가리고, Claude 가 돌려준 블록 원본은 건드리지 않는다", async () => {
-    script.events = [{ event: "head", data: { status: 200 } }, start(), ...stop("end_turn"), { event: "end" }];
+    script.events = [{ event: "head", data: { status: 200, headers: [["content-type", "text/event-stream"]] } }, start(), ...stop("end_turn"), { event: "end" }];
     const raw = [{ type: "text", text: "키는 sk-ant-api03-abcdefghijklmnopqrstuvwxyz" }];
     await (await llmFetch("/v1/chat/completions", {
       method: "POST",
@@ -151,7 +151,7 @@ describe("llmFetch (Claude 프로필)", () => {
         ],
       }),
     })).text();
-    const body = invoke.mock.calls.find(([cmd]) => cmd === "claude_chat")![1].body as string;
+    const body = invoke.mock.calls.find(([cmd]) => cmd === "claude_proxy")![1].body as string;
     expect(body).not.toContain("ghp_abcdefghij");
     expect(body).not.toContain("supersecretvalue");
     expect(JSON.parse(body).messages[1].content).toEqual(raw);
@@ -159,7 +159,7 @@ describe("llmFetch (Claude 프로필)", () => {
 
   it("툴 이름을 바꿔 보내고, 돌아온 호출은 원래 이름으로 받는다", async () => {
     script.events = [
-      { event: "head", data: { status: 200 } },
+      { event: "head", data: { status: 200, headers: [["content-type", "text/event-stream"]] } },
       start(),
       sse({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "c1", name: "todo_add", input: {} } }),
       sse({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"content":"우유"}' } }),
@@ -174,23 +174,40 @@ describe("llmFetch (Claude 프로필)", () => {
     const text = await res.text();
     expect(text).toContain('"name":"todo.add"');
     expect(text).toContain('"finish_reason":"tool_calls"');
-    const sent = JSON.parse(invoke.mock.calls.find(([cmd]) => cmd === "claude_chat")![1].body);
+    const sent = JSON.parse(invoke.mock.calls.find(([cmd]) => cmd === "claude_proxy")![1].body);
     expect(sent.tools[0].name).toBe("todo_add");
   });
 
-  it("응답 전에 실패하면(키 없음) 거절한다", async () => {
-    script.events = [{ event: "error", data: { message: "Claude API 키가 없어." } }];
-    await expect(llmFetch("/v1/chat/completions", { method: "POST", body: "{}" })).rejects.toThrow(/키가 없어/);
+  it("키가 없으면 Rust 가 인증 오류로 답하고, 재시도 없이 그 안내를 돌려준다", async () => {
+    script.events = [
+      { event: "head", data: { status: 401, headers: [["content-type", "application/json"]] } },
+      { event: "chunk", data: { text: '{"type":"error","error":{"type":"authentication_error","message":"Claude API 키가 없어."}}' } },
+      { event: "end" },
+    ];
+    const res = await llmFetch("/v1/chat/completions", { method: "POST", body: "{}" });
+    expect(res.status).toBe(401);
+    expect(await res.text()).toMatch(/키가/);
+    expect(invoke.mock.calls.filter(([cmd]) => cmd === "claude_proxy")).toHaveLength(1);
+  });
+
+  it("SDK 가 보낸 요청은 가짜 키와 beta 헤더를 달고 Rust 로 간다", async () => {
+    script.events = [{ event: "head", data: { status: 200, headers: [["content-type", "text/event-stream"]] } }, start(), ...stop(), { event: "end" }];
+    await (await llmFetch("/v1/chat/completions", { method: "POST", body: '{"stream":true}' })).text();
+    const args = invoke.mock.calls.find(([cmd]) => cmd === "claude_proxy")![1] as { path: string; headers: Record<string, string> };
+    expect(args.path).toBe("/v1/messages");
+    expect(args.headers["anthropic-beta"]).toContain("thinking-binding-controls-2026-08-01");
+    // 키 자리엔 가짜가 들어간다. Rust 가 이 헤더를 버리고 키체인의 키를 붙인다.
+    expect(args.headers.authorization).toBe("Bearer set-by-rust-proxy");
   });
 
   it("예산을 다 썼으면 보내지도 않는다", async () => {
     useClaudeBudget.setState((s) => ({ usage: { ...s.usage, spentUsd: 80 } }));
     await expect(llmFetch("/v1/chat/completions", { method: "POST", body: "{}" })).rejects.toThrow(/예산/);
-    expect(invoke).not.toHaveBeenCalledWith("claude_chat", expect.anything());
+    expect(invoke).not.toHaveBeenCalledWith("claude_proxy", expect.anything());
   });
 
   it("멈추면 Rust 쪽 요청도 끊는다", async () => {
-    script.events = [{ event: "head", data: { status: 200 } }];
+    script.events = [{ event: "head", data: { status: 200, headers: [["content-type", "text/event-stream"]] } }];
     const ctl = new AbortController();
     const res = await llmFetch("/v1/chat/completions", { method: "POST", body: '{"stream":true}', signal: ctl.signal });
     const reading = res.text();

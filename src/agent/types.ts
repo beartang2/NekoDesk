@@ -158,7 +158,7 @@ export interface SearchResult {
   snippet: string;
 }
 
-/** Claude 의 내장 웹 검색(claude_web_search)이 돌려주는 것. 검색 결과를 읽은 모델이 쓴 정리 + 출처. */
+/** Claude 의 내장 웹 검색(claudeWebSearch)이 돌려주는 것. 검색 결과를 읽은 모델이 쓴 정리 + 출처. */
 export interface NativeSearchResult {
   answer: string;
   sources: { title: string; url: string; page_age: string | null }[];

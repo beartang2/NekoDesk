@@ -154,8 +154,8 @@ export interface MessagesUsage {
 }
 
 /**
- * Messages SSE → OpenAI SSE(`data: {...}` 줄). 조각이 이벤트 중간에서 끊겨 와도 되게
- * 줄이 다 찰 때까지 붙든다. 비스트리밍 호출을 위해 끝난 응답을 OpenAI JSON 한 덩이로도 만든다.
+ * Messages 스트림 이벤트 → OpenAI SSE(`data: {...}` 줄). SDK 가 해석한 이벤트는 `event` 로,
+ * 날 SSE 글은 `push` 로 넣는다(조각이 이벤트 중간에서 끊겨 와도 되게 줄이 다 찰 때까지 붙든다). 비스트리밍 호출을 위해 끝난 응답을 OpenAI JSON 한 덩이로도 만든다.
  * `back` 은 보낸 이름 → 원래 툴 이름.
  */
 export function createMessagesStreamAdapter(back: Map<string, string> = new Map()) {
@@ -266,6 +266,10 @@ export function createMessagesStreamAdapter(back: Map<string, string> = new Map(
   };
 
   return {
+    /** SDK 가 해석한 이벤트 하나 → 지금 내보낼 OpenAI SSE. */
+    event(ev: unknown): string {
+      return ev && typeof ev === "object" ? handle(ev as Json) : "";
+    },
     /** 받은 조각 → 지금 내보낼 OpenAI SSE. */
     push(text: string): string {
       buf += text;
