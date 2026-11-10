@@ -71,6 +71,11 @@ export function ViewerWindow() {
   /** 창에 맞춘 상태. 창 크기가 바뀌면 다시 맞춘다. 직접 확대·축소하면 풀린다. */
   const [fit, setFit] = useState(true);
   const [status, setStatus] = useState<{ text: string; path?: string } | null>(null);
+  /**
+   * 받을 때마다 <img> 를 새로 만든다(key). 크기(natural)는 지우는데 같은 그림이면 그대로 둔 <img> 가
+   * load 를 다시 안 쏴서, 크기를 못 받고 숨긴 채로 남았다 — 개발 모드는 처음 열 때도 두 번 받는다.
+   */
+  const [rev, setRev] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
   const scaleRef = useRef(scale);
   scaleRef.current = scale;
@@ -80,6 +85,7 @@ export function ViewerWindow() {
       syncWindowTheme();
       invoke<ViewerItem | null>("viewer_item").then((next) => {
         setItem(next);
+        setRev((r) => r + 1);
         setNatural(null);
         setFit(true);
         setScale(1);
@@ -323,6 +329,7 @@ export function ViewerWindow() {
               style={natural ? { width: natural.w * scale, height: natural.h * scale } : undefined}
             >
               <img
+                key={rev}
                 className={`vw__image ${zooming ? "vw__image--zooming" : ""}`}
                 src={item.dataUrl}
                 alt={item.name}
