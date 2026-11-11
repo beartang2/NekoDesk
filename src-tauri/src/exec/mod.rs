@@ -28,6 +28,28 @@ fn output_dir() -> PathBuf {
     dir
 }
 
+/// image.trace 가 뽑은 선 경로의 파일 이름. 첨부 이름에서 글자·숫자·-_ 만 남긴다 — 경로를 못 타게.
+fn trace_file_name(name: &str) -> String {
+    let stem = std::path::Path::new(name).file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let safe: String = stem
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .take(40)
+        .collect();
+    let safe = if safe.trim_matches('_').is_empty() { "ref".to_string() } else { safe };
+    format!("{safe}_trace.json")
+}
+
+/// 선 경로를 출력 폴더에 둔다. 코드 실행이 거기서 돌아 파일 이름만으로 읽는다. 돌려주는 것도 이름뿐.
+pub fn save_trace(name: &str, json: &str) -> Result<String, AppError> {
+    if json.len() > 2_000_000 {
+        return Err(AppError::msg("선 경로가 너무 커. 더 단순한 그림이어야 해."));
+    }
+    let file = trace_file_name(name);
+    std::fs::write(output_dir().join(&file), json)?;
+    Ok(file)
+}
+
 /// 그림 도구 모듈. 코드 실행마다 PYTHONPATH 에 넣어, 그림 스킬 문서가 함수 본문 70줄 대신
 /// `from neko_draw import *` 한 줄만 쓰게 한다 — 모델이 매번 읽고 베껴 쓰던 분량이다.
 const NEKO_DRAW: &str = include_str!("neko_draw.py");
@@ -319,15 +341,24 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_output_image, prune_old, python_path, run_dir, truncate_chars, OUTPUT_TTL};
+    use super::{collect_output_image, prune_old, python_path, run_dir, trace_file_name, truncate_chars, OUTPUT_TTL};
     use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn trace_file_name_stays_in_folder() {
+        assert_eq!(trace_file_name("고양이 그림.png"), "고양이_그림_trace.json");
+        assert_eq!(trace_file_name("../../etc/passwd"), "passwd_trace.json");
+        assert_eq!(trace_file_name("..."), "ref_trace.json");
+        assert_eq!(trace_file_name(""), "ref_trace.json");
+    }
 
     /// 앱에 든 그림 모듈이 실제로 import 되고, 도형 태그 없이 path 만 만든다.
     #[test]
     fn neko_draw_imports_on_python_path() {
         let out = std::process::Command::new("python3")
-            // 점 두 개짜리 선도 제어점이 직선(y=0) 밖에 있어야 — 자로 그은 직선은 못 그린다
-            .args(["-c", "from neko_draw import *\nimport re\nc = [float(v) for v in re.findall(r'-?[0-9.]+', smooth([(0, 0), (1000, 0)], False))]\nassert c[3] != 0 and c[5] != 0, c\nprint(shape(ring(50, 50, 20), '#fff', dark='#ccc', gaps=[2]) + eye(50, 50, 20) + eyes(50, 150, 50, 30, lid=0.3, tilt=0.4, size2=0.8) + eyes(50, 150, 50, 30, under=0.5) + eyes(50, 150, 50, 30, flat=0.3, shine=True))"])
+            // 점 두 개짜리 선도 제어점이 직선(y=0) 밖에 있어야 — 자로 그은 직선은 못 그린다.
+            // image.trace 의 JSON 점([x, y] 리스트)도 받아야 한다. 그림자 밝은 면은 오목한 곳을 건너뛴 껍질로.
+            .args(["-c", "from neko_draw import *\nimport re\nc = [float(v) for v in re.findall(r'-?[0-9.]+', smooth([(0, 0), (1000, 0)], False))]\nassert c[3] != 0 and c[5] != 0, c\nimport neko_draw as nd\nassert len(nd._hull([(0,0),(10,0),(10,2),(2,2),(2,8),(10,8),(10,10),(0,10)])) == 4\nprint(shape(ring(50, 50, 20), '#fff', dark='#ccc', gaps=[2]) + eye(50, 50, 20) + eyes(50, 150, 50, 30, lid=0.3, tilt=0.4, size2=0.8) + eyes(50, 150, 50, 30, under=0.5) + eyes(50, 150, 50, 30, flat=0.3, shine=True) + stroke([[0, 0], [9, 9], [20, 4]]) + shape([[0, 0], [9, 9], [20, 4]], '#000', gaps=[1]))"])
             .env("PYTHONPATH", python_path())
             .output()
             .expect("python3");

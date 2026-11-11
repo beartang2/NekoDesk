@@ -16,6 +16,7 @@ def smooth(pts, closed=True, wobble=0.0, seed=1):
     """점들을 지나는 매끈한 곡선 path(Catmull-Rom). 같은 점을 연달아 두 번 넣으면 그 자리가 꺾인다.
     구간마다 살짝 휘게 한다 — 점 두 개짜리 선이나 꺾인 꼭짓점 사이도 자로 그은 직선이 되지 않게."""
     rnd, jit = random.Random(seed), {}
+    pts = [tuple(p) for p in pts]  # JSON 에서 읽은 [x, y] 도 받는다
     for p in pts:  # 같은 자리는 같은 떨림 — 두 번 넣은 꼭짓점이 서로 어긋나지 않게
         jit.setdefault(p, (rnd.uniform(-wobble, wobble), rnd.uniform(-wobble, wobble)))
     P = [(x + jit[(x, y)][0], y + jit[(x, y)][1]) for x, y in pts]
@@ -38,6 +39,20 @@ def smooth(pts, closed=True, wobble=0.0, seed=1):
         d += f" C{c1[0]:.1f} {c1[1]:.1f} {c2[0]:.1f} {c2[1]:.1f} {p2[0]:.1f} {p2[1]:.1f}"
     return d + (" Z" if closed else "")
 
+def _hull(pts):
+    """볼록 껍질(monotone chain) — 점들을 고무줄로 두른 모양."""
+    P = sorted({(float(x), float(y)) for x, y in pts})
+    if len(P) < 3:
+        return P
+    def half(seq):
+        out = []
+        for p in seq:
+            while len(out) >= 2 and (out[-1][0] - out[-2][0]) * (p[1] - out[-2][1]) - (out[-1][1] - out[-2][1]) * (p[0] - out[-2][0]) <= 0:
+                out.pop()
+            out.append(p)
+        return out[:-1]
+    return half(P) + half(P[::-1])
+
 def _line(d, w):
     return (f'<path d="{d}" fill="none" stroke="{INK}" stroke-width="{w}" '
             'stroke-linecap="round" stroke-linejoin="round"/>')
@@ -51,9 +66,12 @@ def shape(pts, fill, w=OUTLINE, gaps=(), slip=(-5, 4), dark=None, light=(-0.12, 
         xs, ys = [x for x, _ in pts], [y for _, y in pts]
         lx, ly = light[0] * (max(xs) - min(xs)), light[1] * (max(ys) - min(ys))
         cid = f"c{seed}_{len(pts)}_{int(xs[0])}_{int(ys[0])}"
+        # 밝은 면은 볼록 껍질을 옮겨 깐다 — 모양 그대로 옮기면 오목하게 파인 곳(다른 것에 가려 잘린
+        # 자리)마다 그림자가 생겨 얼룩졌다. 그림자는 바깥 실루엣의 빛 반대쪽에만 남는다.
+        lit = smooth(_hull(pts), True, 2.5, seed)
         out = (f'<g transform="translate{slip}"><clipPath id="{cid}"><path d="{d}"/></clipPath>'
                f'<path d="{d}" fill="{dark}"/><g clip-path="url(#{cid})">'
-               f'<path d="{d}" fill="{fill}" transform="translate({lx:.0f} {ly:.0f})"/></g></g>')
+               f'<path d="{lit}" fill="{fill}" transform="translate({lx:.0f} {ly:.0f})"/></g></g>')
     else:
         out = f'<path d="{d}" fill="{fill}" transform="translate{slip}"/>'
     if not w:

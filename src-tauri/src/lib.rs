@@ -395,6 +395,12 @@ mod commands {
         crate::http::scrape::image(&url).await
     }
 
+    /// image.trace 의 선 경로를 출력 폴더에 두고 파일 이름을 돌려준다.
+    #[tauri::command(async)]
+    pub fn trace_save(name: String, json: String) -> Result<String, AppError> {
+        crate::exec::save_trace(&name, &json)
+    }
+
     #[tauri::command(async)]
     pub fn settings_set(db: State<'_, DbState>, key: String, value: String) -> Result<(), AppError> {
         // 비밀은 표에 안 적는다 — secret_set 으로 키체인에.
@@ -1204,6 +1210,7 @@ pub fn run() {
             commands::web_search,
             commands::web_scrape,
             commands::web_image,
+            commands::trace_save,
             commands::image_generate,
             commands::settings_set,
             commands::settings_get,

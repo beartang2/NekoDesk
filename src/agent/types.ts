@@ -69,6 +69,7 @@ export type ToolName =
   | "file.upload"
   | "weather.get"
   | "image.generate"
+  | "image.trace"
   | "game.start"
   | "game.judge"
   | "fs.read"

@@ -13,6 +13,8 @@ import {
 import { appEvents, requestWordchainFirstWord } from "../lib/events";
 import { isClaudeActive, useSettingsStore } from "../stores/settingsStore";
 import { getFile, getStoredFileNames } from "./file-store";
+import { drawTraceMap, traceLineArt } from "./line-trace";
+import { useMessageStore } from "../stores/messageStore";
 import { buildSkillIndex, readKnowledge } from "./knowledge";
 import { saveMemory } from "./memory-merge";
 import { claudeWebSearch } from "./llm-transport";
@@ -416,6 +418,58 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       return { image_data_url: url };
     },
     summarize: () => "그림 완성",
+  },
+
+  "image.trace": {
+    name: "image.trace",
+    description:
+      "사용자가 첨부한 그림의 먹선·면을 1536 캔버스 좌표의 점 경로로 뽑아 출력 폴더에 JSON 으로 둔다. " +
+      "그 그림을 따라 그릴 때 쓴다 — 선마다 번호를 단 지도 그림도 보여 준다",
+    params: {
+      type: "object",
+      properties: { filename: { type: "string", description: "첨부된 그림 파일 이름" } },
+      required: ["filename"],
+    },
+    readOnly: true,
+    execute: async (p) => {
+      const name = p["filename"] as string;
+      const file = await findAttachedImage(name);
+      if (!file) {
+        throw new Error(
+          `첨부 그림을 찾을 수 없어: "${name}". 대화에 있는 그림: ${attachedImageNames().join(", ") || "없음"}`
+        );
+      }
+      const bitmap = await createImageBitmap(file);
+      // 늘 480px 로 맞춘다. 작은 그림(캡처한 스티커 200px)을 그대로 두면 선이 2px 라 굵기를 못 재고
+      // 선이 겹친 곳마다 덩어리로 잘못 읽혀 토막 났다. 키우면 선이 4~5px 가 돼 뼈대가 깔끔하다.
+      const s = 480 / Math.max(bitmap.width, bitmap.height);
+      const w = Math.max(1, Math.round(bitmap.width * s));
+      const h = Math.max(1, Math.round(bitmap.height * s));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+      ctx.imageSmoothingQuality = "high";
+      ctx.fillStyle = "#fff"; // 투명한 곳은 흰 바탕으로
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(bitmap, 0, 0, w, h);
+      const trace = traceLineArt(ctx.getImageData(0, 0, w, h), 1536, Math.max(1, s));
+      const saved = await invoke<string>("trace_save", { name, json: JSON.stringify(trace) });
+      return {
+        file: saved, lines: trace.lines.length, fills: trace.fills.length, blobs: trace.blobs.length, colors: trace.colors,
+        image_data_url: drawTraceMap(trace, bitmap),
+      };
+    },
+    summarize: (r) => {
+      const t = r as { file: string; lines: number; fills: number; blobs: number; colors: string[] };
+      return [
+        `선 ${t.lines}개·면 ${t.fills}개·덩어리 ${t.blobs}개를 ${t.file} 에 저장했다. 코드에서 t = json.load(open("${t.file}")) — ` +
+          't["fills"][i] 와 t["blobs"][i] 는 {"color", "points"}(면은 큰 것부터), t["lines"][i] 는 선 i 의 [x, y] 점들. ' +
+          '점은 솎지 말고 그대로 넘긴다. 번호는 지도 그림 참고.',
+        `주요 색: ${t.colors.join(" ") || "없음"}`,
+        ...(t.lines > 150 ? ["선이 너무 많다 — 사진이나 복잡한 그림이라 따라 그리기에 안 맞는다."] : []),
+      ].join("\n");
+    },
   },
 
   "game.start": {
@@ -849,6 +903,35 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     summarize: (r) => `사용자 답변: ${String(r)}`,
   },
 };
+
+/** 모델이 옮겨 적은 파일 이름은 한글 자모 분리(NFD)·공백 종류가 원본과 달라 그대로 맞춰 보면 빗나간다. */
+const sameName = (a: string, b: string) => {
+  const norm = (s: string) => s.normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
+  return norm(a) === norm(b);
+};
+
+/** 대화에 남은 첨부 그림들(앱을 다시 켠 뒤에도 있다). 오래된 것부터. */
+function savedImages() {
+  return Object.values(useMessageStore.getState().messages).flat().flatMap((m) => m.attachments ?? []).filter((a) => a.dataUrl);
+}
+
+function attachedImageNames(): string[] {
+  const live = getStoredFileNames().filter((n) => getFile(n)?.type.startsWith("image/"));
+  return [...new Set([...live, ...savedImages().map((a) => a.name)])];
+}
+
+/**
+ * image.trace 가 볼 첨부 그림. 이번 실행에 첨부한 원본 → 대화에 남은 그림(줄인 사본) → 이름이 안 맞으면
+ * 마지막으로 첨부한 그림. 원본 File 은 앱을 끄면 사라져서, 다시 켠 뒤 "아까 그 그림" 은 대화 쪽에서 찾는다.
+ */
+export async function findAttachedImage(name: string): Promise<Blob | null> {
+  const live = getStoredFileNames().map(getFile).filter((f): f is File => !!f?.type.startsWith("image/"));
+  const file = live.find((f) => sameName(f.name, name));
+  if (file) return file;
+  const saved = savedImages().filter((a) => sameName(a.name, name)).pop();
+  if (saved?.dataUrl) return (await fetch(saved.dataUrl)).blob();
+  return live.pop() ?? null;
+}
 
 export function getTool(name: ToolName): ToolEntry {
   return REGISTRY[name];
