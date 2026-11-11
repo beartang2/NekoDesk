@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import { getMcpTools } from "./mcp-registry";
 import { buildToolSchemas, describeToolsForPrompt } from "./tool-schemas";
+import { isStaticTool } from "./tool-registry";
 import { ToolCallAccumulator, fromWireToolCalls } from "./tool-calls";
 import { buildKnowledgeSection, buildSkillIndex } from "./knowledge";
 import { createJsonStringFieldStreamer } from "./json-stream";
@@ -638,17 +639,13 @@ function parseAgentResponse(raw: string): ParsedAgentStep {
   }
 }
 
-const STATIC_TOOL_NAMES = new Set([
-  "todo.list", "todo.add", "todo.complete",
-  "schedule.list", "schedule.add", "schedule.delete", "code.exec", "web.search", "web.scrape",
-  "file.upload", "weather.get", "user.ask", "game.start", "none",
-]);
-
+/**
+ * json 모드에서 모델이 고른 툴이 있는 툴인가. 내장 툴은 registry 하나만 안다 — 여기 목록을
+ * 따로 적어뒀더니 새 툴(fs.*·image.*·memory.*·plan.* 등)이 빠져 "none" 으로 바뀌고 호출이 버려졌다.
+ */
 function isValidTool(val: unknown): val is string {
   if (typeof val !== "string") return false;
-  if (STATIC_TOOL_NAMES.has(val)) return true;
-  // Also accept any loaded MCP tool
-  return getMcpTools().some((e) => e.tool.name === val);
+  return val === "none" || isStaticTool(val) || getMcpTools().some((e) => e.tool.name === val);
 }
 
 function stripImageParts(messages: LlmMessage[]): { messages: LlmMessage[]; hadImages: boolean } {

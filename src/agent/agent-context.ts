@@ -1,6 +1,6 @@
 import { toWireToolCalls } from "./tool-calls";
 import { estimateMessagesTokens, estimateTokens } from "./token-estimate";
-import type { AgentStep, CatEmotion, ContentPart, LlmMessage, ToolCall } from "./types";
+import type { AgentStep, ContentPart, LlmMessage, ToolCall } from "./types";
 
 /**
  * 컨텍스트 중 대화·툴 결과에 쓸 비율.
@@ -236,18 +236,6 @@ export class AgentContext {
       parts.unshift(text);
     }
     return parts.join("\n\n");
-  }
-
-  /** Derive final cat emotion from what happened in the loop */
-  deriveCatEmotion(): CatEmotion {
-    const steps = this.steps;
-    if (steps.some((s) => s.status === "error")) return "error";
-    const successful = steps.filter((s) => s.status === "done");
-    if (successful.length === 0) return "idle";
-    // If a write operation succeeded, show proud/happy
-    const writeTools = ["todo.add", "todo.complete", "schedule.add", "code.exec", "fs.write", "fs.edit"];
-    if (successful.some((s) => writeTools.includes(s.tool))) return "happy";
-    return "curious";
   }
 }
 

@@ -4,6 +4,7 @@ import { appEvents } from "../lib/events";
 import { notifyIfAway, toNotificationBody } from "../lib/notify";
 import { useMessageStore } from "../stores/messageStore";
 import { runAgentLoop, runTextTask } from "../agent/agent-loop";
+import { getTool, isStaticTool } from "../agent/tool-registry";
 import type {
   AgentStep,
   CatEmotion,
@@ -397,10 +398,14 @@ function withToolsNote(text: string, m: ChatMessage): string {
   return text ? `${text}\n\n${note}` : note;
 }
 
+/** 무언가를 바꾼 툴인가. registry 의 readOnly 로 판단한다(MCP 는 모르니 아니라고 본다). */
+function changedSomething(tool: string): boolean {
+  return isStaticTool(tool) && !getTool(tool).readOnly;
+}
+
 function deriveFinalEmotion(steps: AgentStep[]): CatEmotion {
   if (steps.some((s) => s.status === "error")) return "error";
-  const writes = ["todo.add", "todo.complete", "schedule.add", "code.exec"];
-  if (steps.some((s) => writes.includes(s.tool) && s.status === "done")) return "happy";
+  if (steps.some((s) => changedSomething(s.tool) && s.status === "done")) return "happy";
   if (steps.length > 0) return "proud";
   return "idle";
 }

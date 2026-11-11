@@ -2,19 +2,24 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { maskHome } from "../lib/home";
 import {
   Activity,
+  BookOpen,
   Brain,
   CalendarDays,
   Check,
+  CheckCheck,
   ChevronRight,
+  ClipboardList,
   CloudSun,
   FileSearch,
   FileText,
   FolderOpen,
   Gamepad2,
   Globe,
+  ImagePlus,
   ListChecks,
   MessageCircleQuestion,
   PencilLine,
+  ScanLine,
   Search,
   Send,
   ShieldCheck,
@@ -25,16 +30,22 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import type { AgentStep } from "../agent/types";
+import type { AgentStep, ToolName } from "../agent/types";
 import "./AgentStepAccordion.css";
 
 // ── Tool presentation ─────────────────────────────────────────────────────────
 
+interface ToolMeta {
+  label: string;
+  icon: LucideIcon;
+}
+
 /**
  * 툴 이름(`fs.read`)은 모델을 위한 식별자다. 사람에게는 무엇을 했는지로 보여준다.
- * 표에 없는 툴(MCP 등)은 이름 그대로 나온다.
+ * 내장 툴은 빠짐없이 적는다 — ToolName 에 툴을 더하고 여기를 빠뜨리면 tsc 가 잡는다.
+ * 표에 없는 툴(MCP)은 이름 그대로 나온다.
  */
-const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
+const TOOL_META: Record<ToolName, ToolMeta> = {
   "todo.list": { label: "할 일 확인", icon: ListChecks },
   "todo.list_done": { label: "끝낸 일 확인", icon: ListChecks },
   "todo.add": { label: "할 일 추가", icon: ListChecks },
@@ -46,6 +57,9 @@ const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   "web.search": { label: "웹 검색", icon: Search },
   "web.scrape": { label: "페이지 읽기", icon: Globe },
   "weather.get": { label: "날씨 확인", icon: CloudSun },
+  "image.generate": { label: "그림 그리기", icon: ImagePlus },
+  "image.trace": { label: "윤곽 따기", icon: ScanLine },
+  "skill.read": { label: "방법 찾아보기", icon: BookOpen },
   "game.start": { label: "게임 시작", icon: Gamepad2 },
   "game.judge": { label: "판정", icon: Gamepad2 },
   "file.upload": { label: "파일 업로드", icon: Upload },
@@ -62,6 +76,8 @@ const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   "airdrop.send": { label: "AirDrop 보내기", icon: Send },
   "agent.delegate": { label: "조사 맡기기", icon: Users },
   "user.ask": { label: "물어보기", icon: MessageCircleQuestion },
+  "plan.set": { label: "계획 세우기", icon: ClipboardList },
+  "plan.complete": { label: "단계 완료", icon: CheckCheck },
 };
 
 /** 행 옆에 붙일 한 줄 요약 — 파라미터 중 사람이 알아볼 만한 첫 번째. */
@@ -215,7 +231,8 @@ function AgentStepItem({ step, isOpen, onToggle, showThought }: StepProps) {
     return () => anim.cancel();
   }, [step.status]);
 
-  const meta = TOOL_META[step.tool];
+  // MCP 툴은 표에 없다 — 문자열로 찾아 없으면 이름 그대로 보인다.
+  const meta = (TOOL_META as Partial<Record<string, ToolMeta>>)[step.tool];
   const Icon = meta?.icon ?? Wrench;
   const label = step.tool === "none" ? "최종 답변" : meta?.label ?? step.tool;
   const summary = maskHome(summarizeParams(step));
