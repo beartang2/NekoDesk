@@ -70,7 +70,6 @@ import { listen } from "@tauri-apps/api/event";
 import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
 import { clock, parseDbTime, setTimeZone } from "./lib/time";
 
-const QUICK_SESSION_KEY = "nekodesk_quick_session";
 import "./App.css";
 
 // ── Session types ─────────────────────────────────────────────────────────────
@@ -1666,26 +1665,21 @@ export default function App() {
   // 사용자가 ~/.nekodesk/skills/ 에 넣어둔 지식을 읽어둔다.
   useEffect(() => { reloadUserSkills(); }, []);
 
-  // ⌃⇧N 빠른 질문 — 입력은 빠른 질문 창이 받고, 여기서 전용 대화로 보낸다.
-  // 대화를 새로 만들지 않고 한 곳에 쌓는다. 매번 새로 만들면 사이드바가 금방 "빠른 질문"
-  // 으로 도배되고, 지금 보던 대화에 섞으면 상관없는 맥락이 모델에 들어간다.
+  // ⌃⇧N 빠른 질문 — 입력은 빠른 질문 창이 받고, 여기서 보낸다. 물을 때마다 새 대화를 연다 —
+  // 예전엔 한 "빠른 질문" 대화에 쌓아서, 상관없는 앞 질문들이 맥락으로 따라붙었다.
+  // 제목은 질문 앞부분이라 사이드바에서 서로 구별된다.
   useEffect(() => {
-    const unlisten = listen<QuickAskPayload>(QUICK_ASK_EVENT, async ({ payload }) => {
-      const { sessions: current } = useSessionStore.getState();
-      let quickId = localStorage.getItem(QUICK_SESSION_KEY);
-      if (!quickId || !current.some((s) => s.id === quickId)) {
-        const session = { ...makeSession(), title: "⚡ 빠른 질문" };
-        quickId = session.id;
-        localStorage.setItem(QUICK_SESSION_KEY, quickId);
-        setSessions((prev) => [session, ...prev]);
-        setAllMessages((prev) => ({ ...prev, [session.id]: makeInitialMessages() }));
-      }
-      // 예전 빠른 질문 기록을 **먼저** 불러온다. 대화를 전환하면 불러오기가 도는데,
-      // 그게 질문을 보낸 뒤에 끝나면 순서가 뒤엉킨다. 여기서 끝내 두면 전환 쪽은 할 일이 없다.
-      await loadSessionMessages(quickId);
+    const unlisten = listen<QuickAskPayload>(QUICK_ASK_EVENT, ({ payload }) => {
+      const { userText, displayText, task } = buildQuickPrompt(payload);
+      const head = (displayText ?? userText).replace(/\s+/g, " ").trim().slice(0, 22);
+      const session = { ...makeSession(), title: `⚡ ${head || "빠른 질문"}` };
+      const quickId = session.id;
+      // 갓 만든 대화라 DB 에 읽을 게 없다 — 전환하며 도는 불러오기가 보낸 질문과 엇갈리지 않게 건너뛴다.
+      loadedSessionsRef.current.add(quickId);
+      setSessions((prev) => [session, ...prev]);
+      setAllMessages((prev) => ({ ...prev, [session.id]: makeInitialMessages() }));
       // 창을 열었을 때 답이 바로 보이게. 사용자는 지금 다른 앱에 있다.
       setActiveId(quickId);
-      const { userText, displayText, task } = buildQuickPrompt(payload);
       const files: AttachedFile[] = payload.image
         ? [{ name: "화면 캡처.jpg", content: "", dataUrl: payload.image, size: payload.image.length, type: "image/jpeg" }]
         : [];
