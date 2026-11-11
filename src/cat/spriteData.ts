@@ -36,6 +36,11 @@ export interface CatVariant {
   dir: string | null;
   /** 그림이 없는 상태를 다른 그림으로 때운다. */
   overrides?: Partial<Record<CatState, { state: CatState; frames: number[] }>>;
+  /**
+   * 네코가 자기 모습을 그릴 때 읽는 생김새(그림그리기 지식의 {{NEKO_LOOK}}).
+   * 스프라이트 픽셀에서 뽑은 색이다 — 그림을 바꾸면 같이 고친다.
+   */
+  look: string;
 }
 
 /** 그림에 있는 상태들. 감정(CatEmotion)보다 적어서 여럿이 한 그림을 나눠 쓴다. */
@@ -140,36 +145,54 @@ export const CAT_VARIANTS: CatVariant[] = [
     // 이 아이만 Idle 그림이 없다. 쓰다듬기 그림에서 하트가 없는 칸(0·1·7)만 골라
     // 꼬리만 살랑이는 평소 모습으로 쓴다. Idle.png 가 생기면 이 줄을 지우면 된다.
     overrides: { Idle: { state: "Pet", frames: [0, 1, 7] } },
+    look:
+      "머리·등은 연한 살구색 #fdd5b5, 이마에 진한 살구색 #e6b4a0 세로 줄무늬, 꼬리도 #e6b4a0. " +
+      "주둥이·가슴·배·발은 크림색 #fef5e6, 귀 안쪽 #d78c77, 눈은 검정, 볼에 분홍 #eb9486",
   },
   {
     id: "tabby",
     name: "고등어",
     swatchCss: "linear-gradient(135deg, #eeeff3 0%, #eeeff3 50%, #acaeb6 50%, #acaeb6 100%)",
     dir: "Tabby",
+    look:
+      "머리·등·꼬리는 회색 #acaeb6, 이마와 꼬리에 짙은 회색 #626470 줄무늬. " +
+      "주둥이·가슴·배·발은 흰색 #eeeff3, 눈은 검정, 볼에 분홍 #e8a0a5",
   },
   {
     id: "tuxedo",
     name: "턱시도",
     swatchCss: "linear-gradient(135deg, #fafafc 0%, #fafafc 50%, #4a4854 50%, #4a4854 100%)",
     dir: "Tuxedo",
+    look:
+      "머리·등·꼬리는 먹색 #4a4854(이마에 더 짙은 #3c3a46 줄). 주둥이·가슴·배·발은 흰색 #fafafc — " +
+      "턱시도 앞판처럼 흰 부분이 가슴 가운데로 내려온다. 눈은 노랑 #d6c846, 볼에 분홍 #d78c96",
   },
   {
     id: "calico",
     name: "삼색",
     swatchCss: "linear-gradient(135deg, #fcfaf6 0%, #fcfaf6 40%, #f2a860 40%, #f2a860 70%, #48424a 70%, #48424a 100%)",
     dir: "Calico",
+    look:
+      "바탕은 흰색 #fcfaf6(주둥이·가슴·배·발). 얼굴 왼쪽과 왼쪽 귀는 주황 #f2a860, 머리 오른쪽과 " +
+      "오른쪽 귀·등 뒤쪽엔 검은 얼룩 #48424a, 꼬리는 뿌리가 검고 끝이 주황. 눈은 검정, 볼에 분홍 #ee968c",
   },
   {
     id: "siamese",
     name: "샴",
     swatchCss: "linear-gradient(135deg, #f9f3e8 0%, #f9f3e8 50%, #5c4032 50%, #5c4032 100%)",
     dir: "Siamese",
+    look:
+      "몸은 크림색 #f9f3e8, 머리는 연베이지 #f2e4d0. 귀 끝·꼬리·뒷발은 짙은 갈색 포인트 #5c4032, " +
+      "코와 입 둘레엔 갈색 마스크 #765442(가장자리 #b08a70). 눈은 파랑 #4682dc, 볼에 분홍 #ecaaa0",
   },
   {
     id: "russianblue",
     name: "러시안블루",
     swatchCss: "linear-gradient(135deg, #acb4c4 0%, #acb4c4 50%, #8e98aa 50%, #8e98aa 100%)",
     dir: "RussianBlue",
+    look:
+      "머리·등·꼬리는 청회색 #8e98aa(이마에 아주 옅은 #828ca0 줄), 주둥이·가슴·배·발은 밝은 청회색 #acb4c4. " +
+      "눈은 초록 #46aa5a, 볼에 분홍 #c498a8",
   },
 ];
 

@@ -10,6 +10,8 @@ import messagesKnowledge     from "./applescript/messages.md?raw";
 import drawingKnowledge      from "./drawing.md?raw";
 import drawingProKnowledge   from "./drawing-pro.md?raw";
 import { isClaudeActive } from "../../stores/settingsStore";
+import { useCatStore } from "../../stores/catStore";
+import { getCatVariant } from "../../cat/spriteData";
 
 interface KnowledgeEntry {
   name: string;
@@ -24,7 +26,17 @@ interface KnowledgeEntry {
 }
 
 function bodyOf(e: KnowledgeEntry): string {
-  return (isClaudeActive() && e.strongContent) || e.content;
+  return fillNekoLook((isClaudeActive() && e.strongContent) || e.content);
+}
+
+/**
+ * `{{NEKO_LOOK}}` 를 지금 고른 털색의 생김새로 바꾼다. 읽을 때마다 바꿔서, 설정에서 털색을
+ * 바꾸면 다음 그림부터 따른다. 시스템 프롬프트가 아니라 이 지식을 읽을 때만 실린다.
+ */
+export function fillNekoLook(text: string): string {
+  if (!text.includes("{{NEKO_LOOK}}")) return text;
+  const v = getCatVariant(useCatStore.getState().variantId);
+  return text.split("{{NEKO_LOOK}}").join(`지금 털색은 ${v.name} — ${v.look}. 외곽선은 #212121.`);
 }
 
 const KNOWLEDGE_MAP: KnowledgeEntry[] = [

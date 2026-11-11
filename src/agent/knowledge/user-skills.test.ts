@@ -6,7 +6,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { load } = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("../../api/tauri", () => ({ skillsApi: { load } }));
 
-import { buildKnowledgeSection, buildSkillIndex, readKnowledge, reloadUserSkills } from "./index";
+import { buildKnowledgeSection, buildSkillIndex, fillNekoLook, readKnowledge, reloadUserSkills } from "./index";
+import { useCatStore } from "../../stores/catStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { claudeUrl } from "../../lib/claude-models";
 
@@ -99,3 +100,22 @@ describe("모델에 맞는 본문", () => {
   });
 });
 
+
+describe("네코 모습", () => {
+  it("{{NEKO_LOOK}} 은 읽는 순간의 털색으로 바뀐다", () => {
+    const before = useCatStore.getState().variantId;
+    try {
+      useCatStore.setState({ variantId: "tuxedo" });
+      const out = fillNekoLook("네 모습을 따른다: {{NEKO_LOOK}}");
+      expect(out).toContain("턱시도");
+      expect(out).toContain("#d6c846");
+      expect(out).not.toContain("{{NEKO_LOOK}}");
+
+      // 설정에서 털색을 바꾸면 다음에 읽을 때 따라온다.
+      useCatStore.setState({ variantId: "siamese" });
+      expect(fillNekoLook("{{NEKO_LOOK}}")).toContain("#4682dc");
+    } finally {
+      useCatStore.setState({ variantId: before });
+    }
+  });
+});
