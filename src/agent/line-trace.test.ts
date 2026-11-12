@@ -73,6 +73,26 @@ describe("traceLineArt", () => {
     expect(t.lines).toHaveLength(2);
   });
 
+  it("먹선으로 갈린 면은 색이 비슷해도 따로 남는다 — 얼굴(연회색)과 눈의 초승달 홍채(연미색)", () => {
+    const t = traceLineArt(image((x, y) => {
+      const r = Math.hypot(x - 100, y - 100);
+      if (Math.abs(r - 70) <= 2 || Math.abs(r - 30) <= 2) return [20, 20, 20];
+      if (r < 28) return [232, 228, 212]; // 연미색
+      if (r < 68) return [228, 228, 234]; // 연회색, 위와 거리 ~23
+      return null;
+    }));
+    expect(t.fills.map((f) => f.color)).toEqual(["#E4E4EA", "#E8E4D4"]);
+  });
+
+  it("옅어져 끊긴 틈(점선처럼 된 원)은 한 획으로 잇는다", () => {
+    const dashed = traceLineArt(image((x, y) => {
+      const r = Math.hypot(x - 100, y - 100);
+      const deg = ((Math.atan2(y - 100, x - 100) * 180) / Math.PI + 360) % 360;
+      return Math.abs(r - 60) <= 2 && deg % 45 > 3 ? [20, 20, 20] : null; // 45° 마다 3px 쯤 빈다
+    }));
+    expect(dashed.lines).toHaveLength(1);
+  });
+
   it("빈 그림은 빈 결과", () => {
     expect(traceLineArt(image(() => null))).toEqual({ lines: [], blobs: [], colors: [], fills: [] });
   });

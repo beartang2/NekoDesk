@@ -103,13 +103,59 @@ function relax(P: [number, number][], k: number): [number, number][] {
  * 갈림길마다 경로를 끊어서, 컵 외곽선처럼 뚜껑 선이 붙은 곡선도 토막으로 나왔다. 두 갈래가 서로
  * 반대쪽(135° 넘게 벌어짐)으로 나갈 때만 잇는다 — 꺾인 모서리까지 이으면 모양이 뭉개진다.
  */
+/** 경로 끝에서 경로 안쪽으로 6점 들어간 방향(단위 벡터). 바깥으로 이어질 방향은 이것의 반대다. */
+function away(p: number[], atStart: boolean, w: number): [number, number] {
+  const k = Math.min(6, p.length - 1);
+  const [a, b] = atStart ? [p[0], p[k]] : [p[p.length - 1], p[p.length - 1 - k]];
+  const dx = (b % w) - (a % w), dy = Math.floor(b / w) - Math.floor(a / w), len = Math.hypot(dx, dy) || 1;
+  return [dx / len, dy / len];
+}
+
+/**
+ * 먹선이 잠깐 옅어져 끊긴 틈을 잇는다(제자리에서 고친다). 작은 그림을 키우면 1px 선이 군데군데 기준보다
+ * 밝아져 한 획이 점선처럼 토막 났다. 두 끝이 maxGap 안(거의 일직선이면 두 배까지)에서 서로를 향해 뻗을 때만 — 옆 글자 획처럼
+ * 나란히 있거나 등을 돌린 끝은 잇지 않는다. 한 경로의 두 끝이 마주보면 고리로 닫는다.
+ */
+function bridgeGaps(paths: number[][], w: number, maxGap: number): void {
+  for (;;) {
+    const ends: { path: number; atStart: boolean; x: number; y: number; ox: number; oy: number }[] = [];
+    paths.forEach((p, i) => {
+      if (p.length < 2 || p[0] === p[p.length - 1]) return;
+      for (const atStart of [true, false]) {
+        const node = atStart ? p[0] : p[p.length - 1];
+        const [dx, dy] = away(p, atStart, w);
+        ends.push({ path: i, atStart, x: node % w, y: Math.floor(node / w), ox: -dx, oy: -dy });
+      }
+    });
+    let best: [number, number] | null = null;
+    let bestD = maxGap * 2;
+    for (let a = 0; a < ends.length; a++)
+      for (let b = a + 1; b < ends.length; b++) {
+        const A = ends[a], B = ends[b];
+        if (A.path === B.path && paths[A.path].length < 20) continue;
+        const vx = B.x - A.x, vy = B.y - A.y, d = Math.hypot(vx, vy);
+        if (d < 1 || d > bestD) continue;
+        // 마주보는 정도. maxGap 안이면 대충 마주봐도(0.5), 그 두 배까지는 거의 일직선(0.9)일 때만.
+        const facing = Math.min((A.ox * vx + A.oy * vy) / d, -(B.ox * vx + B.oy * vy) / d);
+        if (facing < (d > maxGap ? 0.9 : 0.5)) continue;
+        best = [a, b];
+        bestD = d;
+      }
+    if (!best) return;
+    const A = ends[best[0]], B = ends[best[1]];
+    if (A.path === B.path) {
+      const p = paths[A.path];
+      paths[A.path] = [...p, p[0]];
+      continue;
+    }
+    const pa = A.atStart ? [...paths[A.path]].reverse() : paths[A.path]; // 틈이 끝에 오게
+    const pb = B.atStart ? paths[B.path] : [...paths[B.path]].reverse(); // 틈이 처음에 오게
+    paths[A.path] = [...pa, ...pb];
+    paths[B.path] = [];
+  }
+}
+
 function joinThroughJunctions(paths: number[][], w: number): void {
-  const away = (p: number[], atStart: boolean): [number, number] => {
-    const k = Math.min(6, p.length - 1);
-    const [a, b] = atStart ? [p[0], p[k]] : [p[p.length - 1], p[p.length - 1 - k]];
-    const dx = (b % w) - (a % w), dy = Math.floor(b / w) - Math.floor(a / w), len = Math.hypot(dx, dy) || 1;
-    return [dx / len, dy / len];
-  };
   for (let merged = true; merged; ) {
     merged = false;
     const ends = new Map<number, { path: number; atStart: boolean }[]>();
@@ -126,8 +172,8 @@ function joinThroughJunctions(paths: number[][], w: number): void {
       for (let a = 0; a < list.length; a++)
         for (let b = a + 1; b < list.length; b++) {
           if (list[a].path === list[b].path) continue;
-          const [ax, ay] = away(paths[list[a].path], list[a].atStart);
-          const [bx, by] = away(paths[list[b].path], list[b].atStart);
+          const [ax, ay] = away(paths[list[a].path], list[a].atStart, w);
+          const [bx, by] = away(paths[list[b].path], list[b].atStart, w);
           const dot = ax * bx + ay * by;
           if (dot < -bestDot) { bestDot = -dot; best = [a, b]; }
         }
@@ -286,7 +332,12 @@ export function traceLineArt(img: TraceImage, canvas = 1536, upscale = 1): LineT
   for (let i = 0; i < n; i++) if (line[i] && isNode(i)) starts.push(i);
   for (let i = 0; i < n; i++) if (line[i] && !isNode(i)) starts.push(i); // 끝점 없는 고리
   for (const a of starts) for (const b of neighbors(a)) if (!used.has(key(a, b))) raw.push(walk(a, b));
+  // 끝에 붙은 짧은 잔가지를 먼저 걷는다 — 남아 있으면 진짜 선 끝이 갈림길이 돼 잇기도, 틈 메우기도 못 한다.
+  for (let i = 0; i < raw.length; i++) if (raw[i].length < MIN_PATH && raw[i][0] !== raw[i][raw[i].length - 1]) raw[i] = [];
   joinThroughJunctions(raw, w);
+  // 1px 쯤 끊긴 틈 — 원본 1px 이 작업 해상도에선 upscale px 다. 뼈대로 깎으면 끝이 선 반폭만큼씩 물러나
+  // 틈이 그만큼 더 벌어진다.
+  bridgeGaps(raw, w, Math.max(4, 1.6 * upscale) + 2.5 * half);
 
   const lines = raw
     .filter((p) => p.length >= MIN_PATH)
@@ -365,6 +416,12 @@ export function drawTraceMap(trace: LineTrace, source: CanvasImageSource & { wid
     g.fillStyle = color;
     g.fillText(text, x * k + 4, y * k - 4);
   };
+  // 면 번호(F0, F1…)는 면 한가운데에 — 변주에서 털색을 바꿀 면을 빠짐없이 고르게.
+  trace.fills.forEach((f, i) => {
+    const cx = f.points.reduce((a, p) => a + p[0], 0) / f.points.length;
+    const cy = f.points.reduce((a, p) => a + p[1], 0) / f.points.length;
+    label(`F${i}`, [cx, cy], "#666");
+  });
   trace.blobs.forEach((b, i) => {
     g.fillStyle = b.color;
     g.beginPath();
@@ -429,9 +486,29 @@ function regions(img: TraceImage, ink: Uint8Array): { color: string; points: [nu
     found.push({ area, rgb: sum, edge });
   }
 
-  // 먹선·자투리 픽셀은 가장 가까운 큰 면에 붙인다(여러 출발점 너비 우선).
+  // 같은 색으로 쪼개진 면을 합친다 — 먹선 없이 바로 맞닿은 면끼리만. 선으로 갈린 면(눈의 초승달 홍채와
+  // 얼굴처럼)은 색이 비슷해도 따로 둔다. 예전엔 먹선 자리를 이웃 면에 나눠 준 뒤에 합쳐서, 선 너머의 비슷한
+  // 색까지 붙어 홍채가 얼굴에 묻혔다.
+  const parent = found.map((_, i) => i);
+  const root = (i: number): number => (parent[i] === i ? i : (parent[i] = root(parent[i])));
+  const mean = (f: { area: number; rgb: number[] }) => f.rgb.map((v) => v / f.area);
+  for (let i = 0; i < n; i++) {
+    const x = i % w;
+    for (const j of [x < w - 1 ? i + 1 : -1, i + w < n ? i + w : -1]) {
+      if (j < 0 || label[i] < 0 || label[j] < 0) continue;
+      const a = root(label[i]), b = root(label[j]);
+      if (a === b) continue;
+      const [ma, mb] = [mean(found[a]), mean(found[b])];
+      if (Math.hypot(ma[0] - mb[0], ma[1] - mb[1], ma[2] - mb[2]) > MERGE_FILL) continue;
+      parent[b] = a;
+      found[a] = { area: found[a].area + found[b].area, rgb: found[a].rgb.map((v, k) => v + found[b].rgb[k]), edge: found[a].edge || found[b].edge };
+    }
+  }
+  for (let i = 0; i < n; i++) if (label[i] >= 0) label[i] = root(label[i]);
+
+  // 먹선·자투리 픽셀은 가장 가까운 큰 면에 붙인다(여러 출발점 너비 우선) — 면들이 빈틈없이 맞물리게.
   // 작은 그림의 반짝이 속·부리도 남게 0.05%. 선 가장자리 번짐 조각은 이보다 작거나, 남아도 선 밑에 묻힌다.
-  const big = found.map((f) => f.area >= n * 0.0005);
+  const big = found.map((f, id) => root(id) === id && f.area >= n * 0.0005);
   let queue: number[] = [];
   for (let i = 0; i < n; i++) {
     if (label[i] >= 0 && big[label[i]]) queue.push(i);
@@ -449,24 +526,6 @@ function regions(img: TraceImage, ink: Uint8Array): { color: string; points: [nu
     }
     queue = next;
   }
-
-  // 맞닿은 같은 색 면을 합친다.
-  const parent = found.map((_, i) => i);
-  const root = (i: number): number => (parent[i] === i ? i : (parent[i] = root(parent[i])));
-  const mean = (f: { area: number; rgb: number[] }) => f.rgb.map((v) => v / f.area);
-  for (let i = 0; i < n; i++) {
-    const x = i % w;
-    for (const j of [x < w - 1 ? i + 1 : -1, i + w < n ? i + w : -1]) {
-      if (j < 0 || label[i] < 0 || label[j] < 0) continue;
-      const a = root(label[i]), b = root(label[j]);
-      if (a === b) continue;
-      const [ma, mb] = [mean(found[a]), mean(found[b])];
-      if (Math.hypot(ma[0] - mb[0], ma[1] - mb[1], ma[2] - mb[2]) > MERGE_FILL) continue;
-      parent[b] = a;
-      found[a] = { area: found[a].area + found[b].area, rgb: found[a].rgb.map((v, k) => v + found[b].rgb[k]), edge: found[a].edge || found[b].edge };
-    }
-  }
-  for (let i = 0; i < n; i++) if (label[i] >= 0) label[i] = root(label[i]);
 
   return found
     .map((f, id) => ({ ...f, id, color: mean(f) }))
