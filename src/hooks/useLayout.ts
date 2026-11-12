@@ -19,6 +19,8 @@ const MAX_W = 400;
 // 카드 왼쪽 틈(--gutter 8px)을 더한 값. ⌘0 이 여기로 돌아온다.
 export const DEFAULT_SIDEBAR_W = 228;
 const DEFAULT_RIGHT_W = 210;
+/** 가운데 대화 칸이 이보다 좁아지면 오른쪽 패널을 접는다 — 한 줄에 열 글자 남짓이라 읽기 힘들었다. */
+const CHAT_MIN_W = 420;
 
 type DragType = "sidebar" | "right";
 
@@ -63,6 +65,31 @@ export function useLayout() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // 창이 좁아져 가운데 대화 칸이 너무 좁아지면 오른쪽 패널을 접고, 다시 넓어지면 접기 전 모습으로 편다.
+  // 열고 닫힘은 .app 의 grid-template-columns 전환이 그대로 움직여 준다. 경계에서 깜빡이지 않게 접는 선과
+  // 펴는 선을 40px 벌려 두고, 사용자가 손으로 열고 닫은 건 건드리지 않는다(창 폭이 경계를 넘을 때만 바꾼다).
+  const live = useRef({ visible: rightPanelVisible, sidebarW, rightPanelW });
+  live.current = { visible: rightPanelVisible, sidebarW, rightPanelW };
+  useEffect(() => {
+    const room = () => window.innerWidth - live.current.sidebarW - live.current.rightPanelW;
+    let narrow = false;
+    let autoClosed = false;
+    function onResize() {
+      if (!narrow && room() < CHAT_MIN_W) {
+        narrow = true;
+        autoClosed = live.current.visible;
+        setRightPanelVisible(false);
+      } else if (narrow && room() >= CHAT_MIN_W + 40) {
+        narrow = false;
+        if (autoClosed) setRightPanelVisible(true);
+        autoClosed = false;
+      }
+    }
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
   function startDrag(type: DragType, e: ReactMouseEvent) {
