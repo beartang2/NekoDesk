@@ -86,4 +86,12 @@
   line-height: 0;
   pointer-events: none;
   filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.35));
+  /* 자리는 1초마다 바뀐다(MapCard) — 그 사이를 이어 걸어가게 */
+  transition: left 1s linear, top 1s linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-card__neko {
+    transition: none;
+  }
 }

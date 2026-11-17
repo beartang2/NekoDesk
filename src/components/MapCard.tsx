@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Map as MapIcon } from "lucide-react";
 import { mapApi, type MapSnapshot } from "../api/tauri";
 import { useSettingsStore } from "../stores/settingsStore";
-import { NekoPortrait } from "../neko/NekoPortrait";
+import { NekoWalker } from "../neko/NekoWalker";
 import { positionAt, toMeters, walkEnd, walkedAt, type LatLon, type Pt, type Walk } from "../lib/walk";
 import "./MapCard.css";
 
@@ -93,6 +93,10 @@ export function MapCard({ walk, isDark }: { walk: Walk | null; isDark: boolean }
 
   const at = live ? positionAt(live.path, now) : ([0, 0] as Pt);
   const neko = px(at);
+  // 1초 뒤 자리와 견줘 걷는 중인지·어느 쪽으로 가는지. 들른 곳에 머무는 동안은 자리가 그대로다.
+  const ahead = live ? px(positionAt(live.path, now + 1000)) : neko;
+  const stepping = Math.hypot(ahead[0] - neko[0], ahead[1] - neko[1]) > 0.3;
+  const facingLeft = stepping && ahead[0] < neko[0];
   const trail = live ? walkedAt(live.path, now).map(px) : [];
   const stops = map && center && walk?.onMap && !walk.done ? walk.places.map((p) => ({ name: p.name, at: px(toMeters(center, p.lat, p.lon)) })) : [];
   const ring = Math.max(size.w, size.h) / 8;
@@ -120,7 +124,7 @@ export function MapCard({ walk, isDark }: { walk: Walk | null; isDark: boolean }
         )}
         {visible && (
           <div className="map-card__neko" style={{ left: neko[0], top: neko[1] }}>
-            <NekoPortrait size={24} />
+            <NekoWalker size={24} walking={stepping} facingLeft={facingLeft} />
           </div>
         )}
       </div>
