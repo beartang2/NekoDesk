@@ -24,10 +24,20 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   const ctx = canvas.getContext("2d");
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
   // 앱에선 패널 배경 위에 투명하게 그린다(바닥선·그림자만). 시안처럼 무대 배경을 그리려면 transparent: false
-  const DESKTOP = options.transparent !== false;
+  // 화면 모드(docs/neko-screen-mode.md §2·§9): 세계는 창 전체, 캔버스는 고양이 둘레만 덮고 고양이를 따라간다.
+  // 앱 안의 네코(사이드바·채팅 바 아래)는 이 옵션 없이 예전 그대로다.
+  const WORLD = !!options.world;
+  const DESKTOP = WORLD || options.transparent !== false;
   // 크기: "height" 면 무대 높이로(앱 패널), "stage" 면 시안 공식(폭·높이 중 작은 쪽)
   const SCALE_MODE = options.scaleMode || "height";
   const MAX_DPR = options.maxDpr || 2;
+  // E2: 크기를 높이에서 정하지 않고 고정(화면 모드의 크기 슬라이더). null 이면 예전처럼 무대 크기로
+  let FIXED_S = Number.isFinite(options.scale) ? Math.min(1.4, Math.max(0.35, options.scale)) : null;
+  // E3: 바닥(세계 좌표). 화면 모드에선 visibleFrame 바닥(Dock 위). null 이면 무대 아래쪽
+  let GROUND_Y = null;
+  // 그리는 영역(세계 좌표). 앱 안에선 무대 전체, 화면 모드에선 고양이 둘레 600×440 단위
+  const REGION = [600, 440];
+  let RX = 0, RY = 0, RW = 0, RH = 0;
   // 컨트롤러 이벤트: pet · nyang · grab · drop · activity · label · annoyed
   const listeners = new Map();
   const emit = (ev, p) => { const s = listeners.get(ev); if (s) for (const fn of [...s]) { try { fn(p); } catch (err) { console.error(err); } } };
@@ -143,7 +153,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   const NECK = [26, -17];    // 목: 몸통 쪽 끝 (몸통 로컬)
   const TAIL_ROOT = [-37, -10]; // 엉덩이 외곽에서 충분히 안쪽: 뿌리 동그라미가 엉덩이 뒤로 튀어나오지 않게
   const WALK = 74, STRIDE = 44, BETA = 0.62, LIFTH = 7.5;
-  const GRAV = 2050, JUMPV = 770;
+  const GRAV = 2050, JUMPV = 770, FALL_VMAX = 1500;
   // 꼬리 마디: 20개(예전 10개를 반씩 쪼갬, 길이는 그대로). 굽힘이 마디 두세 개에 몰리지 않고 고르게 퍼져서 유체처럼 휜다.
   // 모양 값(curl·hook 등)은 예전 10마디 기준 '가상 번호'(tailGoal 의 v)로 적어 두어, 마디 수를 바꿔도 같은 모양이 나온다.
   const TAIL_N = 21, TAIL_SEG = 3.7, TAIL_K = (TAIL_N - 1) / 10;
@@ -357,6 +367,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function land() {
     const c = cat, imp = c.vy;
     c.y = floorY - standH() * S; c.vy = 0; c.climbFall = false;
+    c.hardLand = imp / S > 1100; // 높이서 떨어졌으면 웅크린 채 조금 더 버틴다
     c.crouch.x = 0; c.crouch.v = clamp((imp / S) * 0.045, 0, 70);
     c.squash.v -= clamp(imp / (S * 300), 0, 5) * lerp(0.6, 1.5, c.soft);
     c.ears.forEach((e) => (e.v += clamp(imp / (S * 230), 0, 6)));
@@ -478,13 +489,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         if (c.modeT > (c.pounce ? 0.62 : 0.17)) launch(); // 사냥: 엉덩이를 씰룩이며 더 오래 노린다
         break;
       case "air": case "fall":
-        c.vy += GRAV * S * dt; c.x += c.vx * dt; c.y += c.vy * dt;
+        // E5: 화면 위쪽에서 놓으면 수백 단위를 떨어진다. 끝없이 빨라지면 한두 프레임 만에 바닥을 뚫고 지나가 보여,
+        // 몸을 펴고 떨어지는 고양이처럼 속도 상한을 둔다(이 속도면 착지 반응도 이미 가장 크다)
+        c.vy = Math.min(c.vy + GRAV * S * dt, FALL_VMAX * S); c.x += c.vx * dt; c.y += c.vy * dt;
         walls();
         if (c.y >= standY && c.vy > 0) land();
         break;
       case "land":
         c.vx *= Math.exp(-dt * 10); c.x += c.vx * dt; walls();
-        if (c.modeT > 0.3) {
+        if (c.modeT > (c.hardLand ? 0.5 : 0.3)) {
           if (c.afterGrab) { c.afterGrab = false; setMode("shake"); }
           else if (c.jumpFromWalk && c.target != null && Math.abs(c.target - c.x) > 12 * S) { c.speed = WALK * S * 0.6; setMode("walk"); }
           else setMode("idle");
@@ -1866,9 +1879,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   };
   const headMatrix = () => affineOf(H2W);
   function drawTex(g, t, m) {
-    g.setTransform(m[0] * DPR, m[1] * DPR, m[2] * DPR, m[3] * DPR, m[4] * DPR, m[5] * DPR);
+    g.setTransform(m[0] * DPR, m[1] * DPR, m[2] * DPR, m[3] * DPR, (m[4] - RX) * DPR, (m[5] - RY) * DPR);
     g.drawImage(t.canvas, t.x0, t.y0, t.w, t.h);
-    g.setTransform(DPR, 0, 0, DPR, 0, 0);
+    baseXf();
   }
   /** 뿌리→끝 색 띠를 동그라미로 찍는다. 같은 색이 이어지면 한 번에 칠한다. */
   function stamp(g, items, colors) {
@@ -2422,9 +2435,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
   /* ----- 나비 쫓기 ----- */
   const WINGS = [["#ffb3c7", "#ffd9a0"], ["#a8d8ff", "#d6c1ff"], ["#ffe08a", "#ffb38a"]];
+  /** 나비가 날 수 있는 가로 폭. 화면 모드에선 고양이 둘레 영역 안으로 묶는다(캔버스 밖으로 나가면 안 보인다) */
+  function flyX() { return WORLD ? [cat.x - REGION[0] * 0.45 * S, cat.x + REGION[0] * 0.45 * S] : [0, W]; }
+  /** 나비가 올라갈 수 있는 가장 위(y). 화면 모드에선 영역 위쪽 안까지만 */
+  const flyTop = (m) => (WORLD ? floorY - REGION[1] * 0.65 * S : m * S);
   function spawnButterfly() {
-    const c = cat, left = c.x > W / 2, w = WINGS[Math.floor(Math.random() * WINGS.length)];
-    return { x: left ? 40 * S : W - 40 * S, y: floorY - 170 * S, vx: 0, vy: 0, tx: c.x, ty: floorY - 120 * S, rt: 1.5, flap: 0, seed: Math.random() * 9, boost: 0, c1: w[0], c2: w[1] };
+    const c = cat, [fx0, fx1] = flyX(), left = c.x > (fx0 + fx1) / 2, w = WINGS[Math.floor(Math.random() * WINGS.length)];
+    return { x: left ? fx0 + 40 * S : fx1 - 40 * S, y: floorY - 170 * S, vx: 0, vy: 0, tx: c.x, ty: floorY - 120 * S, rt: 1.5, flap: 0, seed: Math.random() * 9, boost: 0, c1: w[0], c2: w[1] };
   }
   function butterflyStep(b, dt) {
     const c = cat;
@@ -2432,7 +2449,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (b.rt <= 0 || Math.hypot(b.tx - b.x, b.ty - b.y) < 12 * S) {
       b.rt = rand(1.6, 3.2);
       if (Math.random() < 0.45) { b.tx = c.x + c.face * rand(40, 110) * S; b.ty = floorY - rand(50, 125) * S; } // 고양이 앞 낮은 곳으로 놀리듯
-      else { b.tx = rand(50 * S, W - 50 * S); b.ty = rand(40 * S, floorY - 90 * S); }
+      else { const [fx0, fx1] = flyX(); b.tx = rand(fx0 + 50 * S, fx1 - 50 * S); b.ty = rand(flyTop(40), floorY - 90 * S); }
     }
     // 덮치려 하면 위로 훌쩍 달아난다
     if (b.rt < 99 && (c.mode === "air" || c.mode === "crouch") && Math.hypot(b.x - c.head.x, b.y - c.head.y) < 95 * S && b.boost <= 0) {
@@ -2445,7 +2462,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     b.vy = lerp(b.vy, (dy / d) * sp + Math.sin(time * 7 + b.seed) * 60 * S, k); // 팔랑팔랑 위아래로 흔들리며
     b.x += b.vx * dt; b.y += b.vy * dt;
     // 날개가 몸통 위로 24 남짓 솟는다: 위쪽은 그만큼 띄워야 낮은 자리(채팅 바 아래 150px)에서 날개 끝이 안 잘린다
-    if (b.rt < 99) { b.x = clamp(b.x, 20 * S, W - 20 * S); b.y = clamp(b.y, 27 * S, floorY - 25 * S); }
+    if (b.rt < 99) { const [fx0, fx1] = flyX(); b.x = clamp(b.x, fx0 + 20 * S, fx1 - 20 * S); b.y = clamp(b.y, flyTop(27), floorY - 25 * S); }
     b.flap += dt * (b.boost > 0 ? 24 : 15);
   }
   /** 나비 쪽으로: 멀면 걸어가고, 가까이 낮게 내려오면 엉덩이를 씰룩이다 덮친다. */
@@ -3422,8 +3439,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
   function draw() {
     const c = cat;
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    if (DESKTOP) ctx.clearRect(0, 0, W, H);
+    if (WORLD) placeRegion();
+    baseXf();
+    if (DESKTOP) ctx.clearRect(RX, RY, RW, RH);
     else {
       const g = ctx.createRadialGradient(W / 2, floorY - 80 * S, 20, W / 2, floorY - 80 * S, Math.max(W, H) * 0.75);
       g.addColorStop(0, theme["stage-hi"]); g.addColorStop(1, theme["stage-lo"]);
@@ -3448,16 +3466,34 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
 
   /* ---------- 크기 · 초기화 ---------- */
+  /** 세계 좌표 → 캔버스 픽셀. 앱 안에선 원점이 무대 왼쪽 위, 화면 모드에선 그리는 영역 왼쪽 위 */
+  function baseXf() { ctx.setTransform(DPR, 0, 0, DPR, -RX * DPR, -RY * DPR); }
+  /**
+   * 화면 모드: 그리는 영역을 고양이 둘레로 다시 잡고(고양이가 영역 아래쪽 70% 에 오게) 캔버스를 그만큼 옮긴다.
+   * 그리기와 같은 rAF 안이라 그림과 자리가 어긋나지 않는다. 기기 픽셀에 맞춰 반올림해 옮길 때 번지지 않게.
+   */
+  function placeRegion() {
+    RX = Math.round((cat.x - RW / 2) * DPR) / DPR;
+    RY = Math.round((cat.y - RH * 0.7) * DPR) / DPR;
+    canvas.style.transform = `translate(${RX}px, ${RY}px)`;
+  }
   function resize() {
-    const r = canvas.getBoundingClientRect();
     const W0 = W, S0 = S, F0 = floorY;
-    W = Math.max(1, r.width); H = Math.max(1, r.height); DPR = Math.min(window.devicePixelRatio || 1, MAX_DPR);
-    canvas.width = Math.round(W * DPR);
-    canvas.height = Math.round(H * DPR);
-    floorY = DESKTOP ? H - 6 : Math.round(H * 0.84);
+    if (WORLD) { W = Math.max(1, window.innerWidth); H = Math.max(1, window.innerHeight); }
+    else { const r = canvas.getBoundingClientRect(); W = Math.max(1, r.width); H = Math.max(1, r.height); }
+    DPR = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+    floorY = WORLD ? (GROUND_Y ?? H - 6) : DESKTOP ? H - 6 : Math.round(H * 0.84);
     // 앱 패널: 높이로 크기를 정하고(높이 200px → 몸 약 80px), 폭이 좁으면 몸이 무대에 들어오게만 줄인다
     // 폭 제한: 꼬리를 뒤로 뻗고 수염까지 무대 안에 들어오는 만큼(W/250). 사이드바가 좁으면 폭을 넓혀야 더 커진다
-    S = SCALE_MODE === "height" ? clamp(Math.min(floorY / 240, W / 250), 0.35, 1.4) : clamp(Math.min(W / 600, floorY / 300), 0.55, 1.4);
+    S = FIXED_S ?? (SCALE_MODE === "height" ? clamp(Math.min(floorY / 240, W / 250), 0.35, 1.4) : clamp(Math.min(W / 600, floorY / 300), 0.55, 1.4));
+    if (WORLD) { // 캔버스는 고양이 둘레만: 크기는 S 를 따르고 자리는 그릴 때마다(placeRegion)
+      RW = Math.round(REGION[0] * S); RH = Math.round(REGION[1] * S);
+      canvas.style.width = RW + "px"; canvas.style.height = RH + "px";
+      canvas.width = Math.round(RW * DPR); canvas.height = Math.round(RH * DPR);
+    } else {
+      RX = 0; RY = 0; RW = W; RH = H;
+      canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+    }
     if (W0 > 1 && (S !== S0 || W !== W0 || floorY !== F0)) rescaleWorld(W0, S0, F0);
     cat.x = clamp(cat.x || W * 0.45, 70 * S, W - 70 * S);
     if (GROUND.has(cat.mode)) cat.y = floorY - standH() * S;
@@ -3510,7 +3546,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const lx = (lx0 / S) * c.face, ly = ly0 / S;
     return (lx / 50) ** 2 + (ly / 34) ** 2 < 1;
   }
-  function toStage(e) { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+  // E4: 화면 모드는 창이 곧 세계라 clientX·clientY 가 그대로 세계 좌표다(캔버스는 움직이는 작은 영역일 뿐)
+  function toStage(e) {
+    if (WORLD) return [e.clientX, e.clientY];
+    const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top];
+  }
   let press = null;
   canvas.addEventListener("pointerdown", (e) => {
     const [x, y] = toStage(e);
@@ -3596,8 +3636,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     return true;
   }
 
+  // 화면 모드는 캔버스 크기를 엔진이 정하니 창 크기를 본다(캔버스를 보면 제가 바꾼 크기에 다시 불린다)
   const ro = new ResizeObserver(() => resize());
-  ro.observe(canvas);
+  if (WORLD) window.addEventListener("resize", resize); else ro.observe(canvas);
 
   /* ---------- 외형 ---------- */
   const appearance = { coat: "black", color: "#c8a27a", patterns: [], seed: 1, eye: "yellow", fur: "short", ear: "pointy", tail: "long", build: "normal", legs: "normal", soft: 0.6 };
@@ -3691,7 +3732,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     resize,
     pause() { paused = true; },
     resume() { if (paused) { paused = false; last = performance.now(); } },
-    destroy() { cancelAnimationFrame(raf); paused = true; listeners.clear(); ro.disconnect(); },
+    destroy() { cancelAnimationFrame(raf); paused = true; listeners.clear(); ro.disconnect(); window.removeEventListener("resize", resize); },
+    // 화면 모드(docs/neko-screen-mode.md §9): E2 크기 고정 · E3 바닥
+    setScale(v) { FIXED_S = Number.isFinite(v) ? clamp(v, 0.35, 1.4) : null; resize(); },
+    setGround(y) { GROUND_Y = Number.isFinite(y) ? y : null; resize(); },
+    get region() { return { x: RX, y: RY, w: RW, h: RH }; },
     hit: hitCat,
     // 입에 물기(docs/neko-gifts.md §6)
     carry(items) {

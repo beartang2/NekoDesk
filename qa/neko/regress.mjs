@@ -259,6 +259,42 @@ try {
     await p.close();
   }
 
+  // 9-e) 화면 모드(docs/neko-screen-mode.md §9 E1~E5): 세계 = 창 전체, 캔버스는 고양이 둘레만 따라간다.
+  //      크기 고정·바닥 지정·세계 좌표 hit·높이서 떨어지기·나비는 영역 안
+  {
+    const p = await browser.newPage({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, cv = document.getElementById("stage"), c = n.cat, o = {};
+      n.setGround(760); n.step(200); n.draw();
+      const follows = () => { const R = n.region; return Math.abs(R.x + R.w / 2 - c.x) < 1 && Math.abs(R.y + R.h * 0.7 - c.y) < 1 && cv.style.transform === `translate(${R.x}px, ${R.y}px)`; };
+      o.size = cv.width === Math.round(n.region.w) && n.region.w === Math.round(600 * 0.8) && n.region.h === Math.round(440 * 0.8);
+      o.follow0 = follows();
+      n.walkTo(1100); for (let i = 0; i < 600; i++) n.step(1); n.draw();
+      o.follow1 = follows() && c.x > 800;
+      o.hit = n.hit(c.x, c.y) && !n.hit(c.x, c.y - 300);
+      n.setGround(500); n.step(240); o.ground = n.floorY === 500 && c.y < 500 && c.y > 400;
+      n.setScale(1.2); n.step(30); n.draw(); o.scale = n.S === 1.2 && n.region.w === 720 && follows();
+      n.setScale(0.8); n.setGround(760); n.step(240);
+      c.mode = "fall"; c.modeT = 0; c.y = 40; c.vy = 0; c.vx = 0;
+      let vmax = 0, t = 0; while (c.mode === "fall" && t < 900) { n.step(1); vmax = Math.max(vmax, c.vy); t++; }
+      o.fall = { landed: c.mode === "land", vmax: Math.round(vmax), cap: Math.round(1500 * n.S) };
+      n.act("butterfly"); let out = 0;
+      for (let i = 0; i < 120 * 20; i++) { n.step(1); if (i % 12) continue; n.draw(); const b = c.act && c.act.b, R = n.region;
+        if (b && b.rt < 99 && (b.x < R.x || b.x > R.x + R.w || b.y < R.y || b.y > R.y + R.h)) out++; }
+      o.butterflyOut = out;
+      return o;
+    });
+    check("화면 모드: 캔버스는 고양이 둘레 600×440 단위, 매 프레임 고양이를 따라간다", `크기 ${r.size} · 처음 ${r.follow0} · 걸은 뒤 ${r.follow1}`, r.size && r.follow0 && r.follow1);
+    check("화면 모드: 세계 좌표 hit · 바닥 지정 · 크기 고정", `hit ${r.hit} · 바닥 ${r.ground} · 크기 ${r.scale}`, r.hit && r.ground && r.scale);
+    check("화면 모드: 화면 위쪽에서 놓아도 속도 상한 안에서 떨어져 착지", `착지 ${r.fall.landed} · 최고 속도 ${r.fall.vmax} ≤ ${r.fall.cap}`, r.fall.landed && r.fall.vmax <= r.fall.cap);
+    check("화면 모드: 나비는 고양이 둘레 영역 안에서만 난다", `밖으로 나간 장 ${r.butterflyOut}`, r.butterflyOut === 0);
+    await p.close();
+  }
+
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다
   for (const [w, h] of [[704, 282], [220, 150], [900, 150]]) {
     const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);

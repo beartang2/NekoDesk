@@ -73,6 +73,14 @@ export interface NekoEvents {
 export interface NekoOptions {
   /** 기본 true: 배경 없이 바닥선·그림자만 */
   transparent?: boolean;
+  /**
+   * 화면 모드(docs/neko-screen-mode.md §2): 세계 = 창 전체(innerWidth·innerHeight), 캔버스는 고양이 둘레
+   * 600×440 단위만 덮고 엔진이 매 프레임 style.transform 으로 옮긴다. 포인터·hit 는 세계 좌표(clientX·clientY).
+   * 호스트는 캔버스를 position: fixed/absolute; left: 0; top: 0 으로 둔다. 배경은 늘 투명
+   */
+  world?: boolean;
+  /** 크기 고정(0.35~1.4). 없으면 무대 크기로 정한다 */
+  scale?: number;
   /** 기본 "height": 무대 높이로 크기를 정한다 */
   scaleMode?: "height" | "stage";
   maxDpr?: number;
@@ -109,6 +117,12 @@ export interface NekoController {
   resume(): void;
   destroy(): void;
   hit(x: number, y: number): boolean;
+  /** 크기 고정(0.35~1.4). null 이면 무대 크기로 */
+  setScale(s: number | null): void;
+  /** 바닥(세계 y). 화면 모드에선 visibleFrame 바닥. null 이면 무대 아래쪽 */
+  setGround(y: number | null): void;
+  /** 지금 그리는 영역(세계 좌표). 화면 모드에선 고양이 둘레, 아니면 무대 전체 */
+  readonly region: { x: number; y: number; w: number; h: number };
   /** 입에 문다. 같은 id 면 바꾼다. 여럿이면 최대 3장이 겹쳐 보인다 */
   carry(items: NekoCarryItem | NekoCarryItem[]): void;
   /** 입에서 뺀다(id 없으면 전부). 뺀 것을 돌려준다 */
