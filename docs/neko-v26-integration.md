@@ -285,6 +285,7 @@ interface NekoController {
 | 상황 | v26 |
 |---|---|
 | 5분 무활동(지금 `SLEEPY_AFTER_MS`) | 졸림 기분 → 식빵(1분) → 누워 자기 |
+| 산책(develop 의 walk) | 졸기 시작하고(감독의 `lastActiveAt` + `SLEEPY_MS`) 10~40분 더 조용하면 나간다. 나가 있는 동안 자리엔 '산책 중'만 보이고 엔진은 멈춘다. 앱을 다시 쓰면 서둘러 온다. 돌아오면 게임 층 행복 5초 + 떨기 |
 | 무활동 뒤 사용자가 돌아옴 | 깨어남: **기지개** 활동 → 반응: 세우기(인사) |
 | 마우스가 무대에 다시 들어옴(6초 넘게 없다가) | 반응: 세우기(이미 엔진에 있음) |
 | 활성 세션 전환 | 지금 활동의 소품 쏙 → 새 세션 상태 '뿅' |
@@ -533,7 +534,7 @@ v26 은 **걷고, 돌아앉고, 소품을 앞에 놓는** 고양이다.
 - 자리·스토어·감정 연결: `src/neko/`
 - 설정: `NekoSettingsSection`
 - 회귀: `npm run qa:neko`
-- 스프라이트 자산은 P1 에서 바로 지웠다.
+- 스프라이트 자산은 P1 에서 바로 지웠다. develop 으로 옮길 땐 `CatCanvas` 만 지웠다 — 아래 §13.
 - 꾸미기 창(단계별·RGB 털 색·칩 그림)과 말랑함 강화까지 끝냄.
 - **P3 새 활동 완료**: 골똘히·기다림·밥 먹기·빈 그릇·상자 뒤지기·달력 보기·지우기(§7). 감독이 바로 쓴다(도구 표·층). 신나면 상자·털실·나비 중 하나.
 - **P2 감독 완료**: [`neko-p2-director.md`](neko-p2-director.md). 루프에 `tool_start`, 세션별 네코 상태, 도구별 활동, 결과 꼬리 언어, 밥 = 간식 되풀이, 깨어남 = 기지개, 키 입력·클릭·스크롤도 '앱을 쓰는 중'.
@@ -552,6 +553,9 @@ v26 은 **걷고, 돌아앉고, 소품을 앞에 놓는** 고양이다.
 ## 13. 지우거나 바꿀 것
 
 - 지움: `src/cat/CatCanvas.tsx`, `CatCanvas.css`, `spriteData.ts`, `src/assets/cat/*`, `stores/catStore.ts`(옮기기 끝난 뒤)
+  - develop 에선 `CatCanvas` 만 지웠다. 부팅 화면·빈 대화(`ChatEmptyState`)·빠른 질문(`NekoHead`)·산책 지도(`MapCard`)가 아직 스프라이트로 그려서
+    `spriteData`·`catStore`·`NekoHead`·스프라이트 자산은 남겼다. `catStore` 는 네코 외형에 가장 가까운 털색을 따른다(`spriteVariantOf`).
+    그림 그리기 지식의 `{{NEKO_LOOK}}` 은 `nekoStore` 외형을 읽는다.
 - 바꿈:
   - `agent/types.ts` `CatEmotion` 은 PET_STATE·게임 호환용으로만 남는다. 세션 감정은 P2 에서 `NekoSessionState` 로 바꿨다(풀의 `catEmotion` 은 지움).
   - `App.tsx` 의 `displayEmotion`·`isBoxMode`·`triggerActionEmotion` 은 P2 에서 감독으로 옮겼다(`useNekoBridge` 지움).

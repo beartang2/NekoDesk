@@ -555,7 +555,7 @@ html, body, #root {
   z-index: 1;
 }
 
-/* 컨텍스트 숫자가 왼쪽 아래, 날씨는 왼쪽 위. */
+/* 날씨는 왼쪽 위, 컨텍스트 숫자는 오른쪽 위. 네코 무대가 위, 게이지·버튼이 아래라 아래엔 자리가 없다. */
 .cat-panel__weather {
   position: absolute;
   top: 6px;
@@ -620,8 +620,8 @@ html, body, #root {
 
 .cat-panel__ctx {
   position: absolute;
-  bottom: 6px;
-  left: 8px;
+  top: 6px;
+  right: 8px;
   font-size: 0.62rem;
   color: var(--text-muted);
   opacity: 0.5;
