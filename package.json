@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:rust": "cd src-tauri && cargo test",
-    "test:all": "npm run typecheck && npm run test && npm run test:rust"
+    "test:all": "npm run typecheck && npm run test && npm run test:rust",
+    "qa:neko": "node qa/neko/regress.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.7.0",

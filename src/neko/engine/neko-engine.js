@@ -1,0 +1,3289 @@
+// @ts-nocheck
+/* eslint-disable */
+/**
+ * 말랑 네코 엔진 — docs/neko/maltang-neko-v26.html(아티팩트 v26)의 스크립트를 모듈로 감싼 것.
+ *
+ * 그리는 코드(뼈대·무늬·꼬리·활동·꼬리 언어)는 시안과 같다. 바꾼 것은 바깥쪽뿐이다:
+ *  - IIFE → createNeko(canvas, options) 가 컨트롤러를 돌려준다(전역 window.__neko 없음)
+ *  - 시안의 조절 칩·버튼 배선 → 컨트롤러 메서드(setAppearance·setMood·setPose·act·tail·react …)
+ *  - 테마는 CSS 변수 대신 options.dark / setTheme, 기본은 투명 배경(패널 위에 바닥선·그림자만)
+ *  - 크기는 무대 높이로(scaleMode "height"), DPR 은 2 까지
+ *  - 고양이 주변 글자 효과 없음(탁·꾹·깍깍·골골·톡·냠·!·머쓱·z·냥!). 꼬리 '탁'은 먼지 점, 쓰다듬기 하트는 도형
+ *  - 탭 = 쓰다듬기, 두 번 탭 = '냥' 점프, 끌기 = 목덜미 잡기. 마우스는 캔버스 안에서만 본다
+ *  - 숨김·일시정지 때 멈춤, 프레임 제한(setMaxFps), 엔진 예외는 멈추고 "error" 이벤트
+ * 설계: docs/neko-v26-integration.md
+ */
+export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 strict
+  /* ============================================================
+     말랑 네코 — 부위별 2D 리그(몸통·머리·귀·다리 4개 IK·꼬리 사슬) 위에
+     테두리 없는 한 덩어리 그림 + 몸통 외곽 출렁임(2차 운동)을 얹었다.
+     좌표는 CSS px. 캐릭터 로컬 좌표는 오른쪽을 보는 기준이고 S 배율 전 단위.
+     ============================================================ */
+  const ctx = canvas.getContext("2d");
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  // 앱에선 패널 배경 위에 투명하게 그린다(바닥선·그림자만). 시안처럼 무대 배경을 그리려면 transparent: false
+  const DESKTOP = options.transparent !== false;
+  // 크기: "height" 면 무대 높이로(앱 패널), "stage" 면 시안 공식(폭·높이 중 작은 쪽)
+  const SCALE_MODE = options.scaleMode || "height";
+  const MAX_DPR = options.maxDpr || 2;
+  // 컨트롤러 이벤트: pet · nyang · grab · drop · activity · label · annoyed
+  const listeners = new Map();
+  const emit = (ev, p) => { const s = listeners.get(ev); if (s) for (const fn of [...s]) { try { fn(p); } catch (err) { console.error(err); } } };
+
+  const TAU = Math.PI * 2, DEG = Math.PI / 180;
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const smooth = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+  const sstep = (a, b, x) => smooth((x - a) / (b - a));
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const rotv = (x, y, a) => { const c = Math.cos(a), s = Math.sin(a); return [x * c - y * s, x * s + y * c]; };
+  const hash = (i) => { const h = Math.sin(i * 12.9898 + 4.1) * 43758.5453; return h - Math.floor(h); };
+
+  class Spring {
+    constructor(x = 0) { this.x = x; this.v = 0; }
+    step(t, k, c, dt) { this.v += (-k * (this.x - t) - c * this.v) * dt; this.x += this.v * dt; return this.x; }
+    set(x) { this.x = x; this.v = 0; }
+  }
+  class Spring2 {
+    constructor(x = 0, y = 0) { this.x = x; this.y = y; this.vx = 0; this.vy = 0; }
+    step(tx, ty, k, c, dt) {
+      this.vx += (-k * (this.x - tx) - c * this.vx) * dt; this.vy += (-k * (this.y - ty) - c * this.vy) * dt;
+      this.x += this.vx * dt; this.y += this.vy * dt;
+    }
+    set(x, y) { this.x = x; this.y = y; this.vx = 0; this.vy = 0; }
+  }
+  // 목표가 움직이는 속도를 기준으로 감쇠 → 등속으로 따라갈 땐 뒤처지지 않고, 가감속에만 출렁인다
+  function follow(sp, tx, ty, ptx, pty, k, d, dt) {
+    const tvx = clamp((tx - ptx) / dt, -9000, 9000), tvy = clamp((ty - pty) / dt, -9000, 9000);
+    sp.vx += (-k * (sp.x - tx) - d * (sp.vx - tvx)) * dt;
+    sp.vy += (-k * (sp.y - ty) - d * (sp.vy - tvy)) * dt;
+    sp.x += sp.vx * dt; sp.y += sp.vy * dt;
+  }
+
+  /* ---------- 생김새 선택지 ---------- */
+  const INK = "#141216"; // 눈동자
+  const WHISKER = "#76727e"; // 수염: 털 색과 상관없이 같은 회색(밝은 털·어두운 털·밝은/어두운 배경 어디서나 보이는 중간 회색)
+  // 털 색: body = 기본 털, light = 털 위 수염, alt = 삼색일 때 다른 한 색(다른 X 염색체가 켜진 클론),
+  // tabby = 줄무늬일 때 바탕·줄 색, point = 포인트일 때 몸(옅음)·끝(진함) 색
+  const COATS = {
+    black: { name: "까망", body: "#161418", light: "#ebe6ef", alt: "cheese", tabby: ["#8a7a6c", "#2e2624"], point: { body: "#efe6da", pt: "#3e2f2a" } },
+    cheese: { name: "치즈", body: "#e2984a", light: "#fff4e6", alt: "black", tabby: ["#eeb06c", "#c46e2c"], point: { body: "#f7eee2", pt: "#d98a45" } },
+    gray: { name: "회색", body: "#8f8b98", light: "#f8f6fb", alt: "cream", tabby: ["#aeaab6", "#66626f"], point: { body: "#ecebf0", pt: "#6c7290" } },
+    cream: { name: "크림", body: "#ead2ac", light: "#fffaf2", alt: "gray", tabby: ["#f2dfbf", "#d2a873"], point: { body: "#f8f1e6", pt: "#d3ab7e" } },
+  };
+  const EYES = {
+    yellow: { name: "노랑", c: "#f2cd3a" },
+    white: { name: "하양", c: "#f4f0e8" },
+    green: { name: "연두", c: "#c1dc62" },
+    blue: { name: "파랑", c: "#8ec5ec" },
+  };
+  // 무늬는 실제 고양이처럼 겹칠 수 있다 (예: 줄무늬 + 흰 반점 = 고등어 턱시도)
+  const PATTERNS = { white: "흰 반점", calico: "삼색", tabby: "줄무늬", point: "포인트" };
+  const FURS = { short: "단모", medium: "중모", long: "장모" };
+  // 귀: 귀 로컬 좌표(오른쪽 귀 기준) 밑변 두 점·끝점, round = 끝을 얼마나 둥글릴지(작을수록 둥글다)
+  const EAR_SHAPES = {
+    pointy: { name: "뾰족", b1: [10, -24], tip: [28, -46], b2: [31, -9], round: 0.8 },
+    round: { name: "동글", b1: [9, -24], tip: [27, -40], b2: [31, -9], round: 0.45 },
+    fold: { name: "접힌 귀", b1: [12, -24], tip: [29, -31], b2: [30, -14], round: 0.5 },
+  };
+  // 꼬리: 굵기(뿌리→끝), 보이는 마디 비율, 끝을 얼마나 가늘게 모을지(taper)
+  const TAIL_SHAPES = {
+    long: { name: "길쭉", r0: 5.6, r1: 5.6, show: 1, taper: 0 }, // 끝까지 같은 굵기, 끝은 둥글게
+    fluffy: { name: "복슬", r0: 9.2, r1: 6.6, show: 1, taper: 0.3 },
+    bob: { name: "짧은 꼬리", r0: 7.6, r1: 7.6, show: 0.3, taper: 0 },
+  };
+  const MOODS = { idle: "기본", happy: "행복", sleepy: "졸림", curious: "궁금" };
+  const POSES = { stand: "서기", sit: "앉기", loaf: "식빵", lie: "누워 자기" };
+  // 체형: 몸통 가로(bx)·세로(by) 배율, 다리 굵기(legR), 목 굵기(neck), 다리 뿌리 자리(hipDx 앞뒤 끝 쪽으로·hipDy 배 쪽으로).
+  // 다리 뿌리는 몸통 가운데가 아니라 배 선 가까이, 앞다리는 가슴 밑·뒷다리는 엉덩이 쪽에. 몸이 클수록 더 그쪽으로
+  const BUILDS = {
+    slim: { name: "날씬", bx: 0.93, by: 0.77, legR: 0.84, neck: 0.85, hipDx: 2, hipDy: 4 },
+    normal: { name: "보통", bx: 0.97, by: 0.88, legR: 0.92, neck: 0.93, hipDx: 3, hipDy: 6 },
+    chubby: { name: "통통", bx: 1, by: 1, legR: 1, neck: 1, hipDx: 5, hipDy: 8 },
+  };
+  // 다리 길이: 전체 길이(len, 처음 통통 다리 = 1)와 윗마디가 차지하는 몫(뒷다리 hind·앞다리 front).
+  // 짧으면 아랫마디가 뭉툭하게 짧고, 길면 아랫마디가 길어 늘씬하다
+  const LEG_LENS = {
+    short: { name: "짧게", len: 0.85, hind: 0.58, front: 0.44 },
+    normal: { name: "보통", len: 1.15, hind: 0.508, front: 0.357 },
+    long: { name: "길게", len: 1.42, hind: 0.46, front: 0.32 },
+  };
+  const FO = 3; // 얼굴을 바라보는 쪽으로 살짝 치우침 (3/4 느낌)
+
+  /* ---------- 무대 ---------- */
+  let W = 0, H = 0, DPR = 1, S = 1, floorY = 0, time = 0;
+  const theme = {};
+  const THEMES = {
+    light: { "stage-hi": "#ffffff", "stage-lo": "#ece8e2", floor: "#dfd9d0", accent: "#6a4fd3", fg: "#25222b", rig: "#2f86b8", shadow: "rgba(20, 14, 24, 0.18)" },
+    dark: { "stage-hi": "#7a7483", "stage-lo": "#2a2731", floor: "#221f28", accent: "#a78bfa", fg: "#ece9f3", rig: "#72c6ef", shadow: "rgba(0, 0, 0, 0.32)" },
+  };
+  let themeDark = options.dark !== false;
+  function readTheme() { Object.assign(theme, THEMES[themeDark ? "dark" : "light"]); }
+
+  /* ---------- 리그 정의 ---------- */
+  // 다리: hip = 몸통 로컬 관절 위치, ph = 보행 위상 (뒷발 → 같은 쪽 앞발 → 반대 뒷발 → 반대 앞발)
+  const LEG_DEFS = [
+    { hip: [-22, 13], front: false, far: true, ph: 0.5, a: 15.5, b: 15, r: [8.0, 6.0, 5.0] },
+    { hip: [28, 13], front: true, far: true, ph: 0.75, a: 10, b: 18, r: [6.8, 5.6, 5.0] },
+    { hip: [-27, 16], front: false, far: false, ph: 0.0, a: 15.5, b: 15, r: [8.6, 6.4, 5.4] },
+    { hip: [23, 16], front: true, far: false, ph: 0.25, a: 10, b: 18, r: [7.2, 6.0, 5.4] },
+  ];
+  const PAW = { rx: 7.0, ry: 4.6 };
+  // 서 있을 때 몸 중심이 바닥에서 떨어진 높이: 뒷다리 엉덩이 높이 + 다리를 살짝 굽힌(88%) 길이. 통통 체형이면 47
+  const standH = (B = cat.bd) => (16 + B.hipDy) * B.by + 0.88 * (30.5 * cat.ll.len + 4.6);
+  const loafH = (B = cat.bd) => 31 * B.by - 2;          // 식빵: 배가 바닥에 닿는 높이
+  const lieH = (B = cat.bd) => 31 * B.by * 0.94 - 1.5;  // 누워 자기: 식빵보다 낮게 배를 깔고
+  const SIT_TILT = 0.48, SIT_SEAT = 1.3;                 // 앉기: 엉덩이를 내리고 앞을 드는 기울기(라디안) · 엉덩이가 뒷다리 위에 얹히는 높이(뒤꿈치 굵기 배)
+  const SCRUFF = [18, -27];  // 목덜미 (몸통 로컬)
+  const HEAD_ANCHOR = [34, -31];
+  const NECK = [26, -17];    // 목: 몸통 쪽 끝 (몸통 로컬)
+  const TAIL_ROOT = [-37, -10]; // 엉덩이 외곽에서 충분히 안쪽: 뿌리 동그라미가 엉덩이 뒤로 튀어나오지 않게
+  const WALK = 74, STRIDE = 44, BETA = 0.62, LIFTH = 7.5;
+  const GRAV = 2050, JUMPV = 770;
+  // 꼬리 마디: 20개(예전 10개를 반씩 쪼갬, 길이는 그대로). 굽힘이 마디 두세 개에 몰리지 않고 고르게 퍼져서 유체처럼 휜다.
+  // 모양 값(curl·hook 등)은 예전 10마디 기준 '가상 번호'(tailGoal 의 v)로 적어 두어, 마디 수를 바꿔도 같은 모양이 나온다.
+  const TAIL_N = 21, TAIL_SEG = 3.7, TAIL_K = (TAIL_N - 1) / 10;
+  const WALK_START = 110, WALK_STOP = 50; // 마우스 따라 걷기: 이보다 멀면 출발, 이만큼 앞에서 멈춤
+  const EDGE = 100;          // 걸어갈 수 있는 무대 가장자리 여백 (머리·수염까지 안에 들어오게)
+  const LABEL = {
+    idle: "쉬는 중", walk: "걷는 중", crouch: "점프 준비", air: "점프!", land: "착지",
+    grabbed: "목덜미 잡힘", fall: "떨어지는 중", shake: "몸 털기", loaf: "식빵 굽는 중",
+    sit: "앉아 있는 중", lie: "자는 중", act: "활동 중",
+  };
+  const GROUND = new Set(["idle", "walk", "crouch", "land", "shake", "loaf", "sit", "lie", "act"]);
+  const POSE_MODES = new Set(["loaf", "sit", "lie"]);
+
+  /** 베지어 조각들을 점으로 바꾼다. */
+  function sampleBez(start, segs, per) {
+    const out = [];
+    let p0 = start;
+    for (const [c1, c2, p3] of segs) {
+      for (let k = 0; k < per; k++) {
+        const t = k / per, u = 1 - t;
+        out.push([
+          u * u * u * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * p3[0],
+          u * u * u * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * p3[1],
+        ]);
+      }
+      p0 = p3;
+    }
+    return out;
+  }
+  // 몸통 외곽(오른쪽을 보는 기준). 점마다 출렁임 스프링을 단다.
+  const BODY_PTS = sampleBez([-45, 2], [
+    [[-46, -18], [-33, -29], [-14, -29]],
+    [[4, -29], [22, -31], [36, -25]],
+    [[47, -20], [50, -2], [44, 14]],
+    [[38, 28], [22, 31], [2, 31]],
+    [[-18, 31], [-36, 30], [-42, 20]],
+    [[-45, 15], [-45, 8], [-45, 2]],
+  ], 8);
+  // 머리 외곽(머리 로컬). 그리기와 장모 털뭉치에 쓴다.
+  const HEAD_SEGS = [
+    [[20, -27], [33, -18], [33, -5]],
+    [[33, 3], [35, 7], [37, 11]],
+    [[33, 13], [31, 17], [27, 20]],
+    [[19, 26], [9, 27], [0, 27]],
+    [[-9, 27], [-19, 26], [-27, 20]],
+    [[-31, 17], [-33, 13], [-37, 11]],
+    [[-35, 7], [-33, 3], [-33, -5]],
+    [[-33, -18], [-20, -27], [0, -27]],
+  ];
+  const HEAD_PTS = sampleBez([0, -27], HEAD_SEGS, 5);
+
+  /** 몸 로컬 위치 주변 외곽 점들의 가중치. 그 자리가 외곽과 같이 흔들리게 한다. */
+  function jigProbe(lx, ly, sigma = 15) {
+    const w = BODY_PTS.map(([x, y]) => Math.exp(-((x - lx) ** 2 + (y - ly) ** 2) / (2 * sigma * sigma)));
+    const sum = w.reduce((a, b) => a + b, 0) || 1;
+    return w.map((v) => v / sum);
+  }
+
+  const cat = {
+    x: 0, y: 0, vx: 0, vy: 0, face: 1, turn: new Spring(1),
+    ang: new Spring(0), swing: new Spring(0), shakeRot: 0, rot: 0,
+    squash: new Spring(1), stretch: new Spring(1), crouch: new Spring(0), loaf: new Spring(0), sit: new Spring(0), lie: new Spring(0),
+    head: new Spring2(), headTilt: new Spring(0), headRot: 0, headAy: 0,
+    ears: [new Spring(0), new Spring(0)], whisk: new Spring(0),
+    pupil: new Spring2(), pupilSize: new Spring(1), lid: new Spring(0), smile: new Spring(0), blinkFast: 0,
+    mode: "idle", modeT: 0, gait: 0, target: null, speed: 0,
+    resume: false, jumpFromWalk: false, afterGrab: false,
+    legs: LEG_DEFS.map((d, idx) => ({ ...d, idx, def: d, r: d.r.slice(), probe: jigProbe(d.hip[0], d.hip[1] + 8), foot: new Spring2(), off: 0, lift: 0, off0: 0, lift0: 0, hipW: [0, 0], knee: [0, 0], footW: [0, 0], pt: [0, 0], ptMode: "" })),
+    tail: Array.from({ length: TAIL_N }, () => ({ x: 0, y: 0, px: 0, py: 0 })),
+    // 꼬리: tailA = 마디 각도·각속도, tailS = 지금 자세(목표로 천천히 따라감), tailFlick = 끝 까딱, tailRoot = 뿌리 속도·가속도
+    tailA: Array.from({ length: TAIL_N }, () => ({ a: 0, w: 0 })),
+    tailS: { base: 206, curl: 10.5, hook: 6, sway: 7, wrap: 0, thump: 0, thumpPh: 0, quiver: 0, puff: 0, breath: 0, env: 1, phase: 0, flick: 0, w0: 8, zeta: 1, grav: 0, inert: 0.3 },
+    tailFlick: { t0: -1, next: 3, dur: 0.5, amp: 0 },
+    tailRoot: { init: false },
+    jig: BODY_PTS.map(([, y]) => ({ ox: 0, oy: 0, vx: 0, vy: 0, gx: 0, gy: 0, gvx: 0, gvy: 0, w: 0.4 + 0.6 * clamp((y + 15) / 45, 0, 1), init: false })),
+    scruff: new Spring2(), ax: 0, headAnc: [0, 0],
+    blinkT: 2, blinkP: -1, twitchT: 3, wanderT: 1.6, saccadeT: 1, saccade: [0, 0],
+    // 이 시안에서 고르는 값
+    coat: COATS.black, eye: EYES.yellow, patterns: new Set(), seed: 1, coatTex: null, fur: "short", earShape: "pointy", tailShape: "long",
+    mood: "idle", pose: "stand", soft: 0.6, nyangT: 0,
+    build: "normal", bd: { ...BUILDS.normal }, // 고른 체형과, 지금 그 체형으로 바뀌어 가는 중간값
+    legLen: "normal", ll: { ...LEG_LENS.normal }, // 다리 길이도 마찬가지
+    act: null, actP: null, pounce: null,
+    tailEp: null, tailForce: null, annoy: 0, puffHold: 0, dropH: 0, // 꼬리 언어: 사건 신호 · 미리보기 · 짜증 · 꼬리펑 유지 · 떨어진 높이
+  };
+  const NECK_PROBE = jigProbe(NECK[0], NECK[1]);
+  const CORE = [-2, 8], CORE_PROBE = jigProbe(CORE[0], CORE[1]); // 몸통 심 아래쪽 끝(배 가운데)
+  const TAIL_PROBE = jigProbe(TAIL_ROOT[0], TAIL_ROOT[1]);
+  const mouse = { x: 0, y: 0, t: -99, seen: false };
+  const mouseActive = () => mouse.seen && time - mouse.t < 6;
+  let wanderOn = !reduced.matches;
+  let showRig = false;
+
+  /* ---------- 좌표 변환 ---------- */
+  // 몸통 변형: 목덜미를 축으로 길게 늘어남(stretch) + 바닥을 축으로 눌림(squash)
+  function deform(x, y) {
+    const st = cat.stretch.x, sq = cat.squash.x, B = cat.bd;
+    x *= B.bx; y *= B.by; // 체형: 몸통에 붙은 모든 점(외곽·다리 뿌리·목·꼬리 뿌리·무늬)이 같이 줄고 늘어난다
+    const sx = SCRUFF[0] * B.bx, sy = SCRUFF[1] * B.by, fl = 30 * B.by;
+    let X = sx + (x - sx) * st, Y = sy + (y - sy) / Math.sqrt(st);
+    X = X / Math.sqrt(sq); Y = fl + (Y - fl) * sq;
+    return [X, Y];
+  }
+  function L2W(lx, ly) {
+    const [dx, dy] = deform(lx, ly);
+    const [rx, ry] = rotv(dx * cat.turn.x * S, dy * S, cat.rot);
+    return [cat.x + rx, cat.y + ry];
+  }
+  function H2W(lx, ly) {
+    const [rx, ry] = rotv(lx * cat.turn.x * S, ly * S, cat.headRot);
+    return [cat.head.x + rx, cat.head.y + ry];
+  }
+  const hipWorld = (L) => L2W(L.hip[0], L.hip[1]);
+  /** 출렁이는 외곽과 같이 움직이는 몸 안쪽 점(다리·꼬리 뿌리, 목). */
+  function jigged(lx, ly, probe, k = 1) {
+    const p = L2W(lx, ly);
+    let ox = 0, oy = 0;
+    for (let i = 0; i < probe.length; i++) {
+      if (probe[i] < 1e-4) continue;
+      ox += cat.jig[i].ox * probe[i]; oy += cat.jig[i].oy * probe[i];
+    }
+    return [p[0] + ox * k, p[1] + oy * k];
+  }
+  // 식빵일 땐 몸통 위쪽을 낮추고 옆으로 살짝 늘려 둥근 사각형(식빵) 쪽으로, 누워 잘 땐 더 납작하고 길게
+  function bodyLocal(i) {
+    const [x, y] = BODY_PTS[i], l = clamp(cat.loaf.x, 0, 1.2), lv = clamp(cat.lie.x, 0, 1);
+    return [x * (1 + 0.06 * l + 0.08 * lv), y < 0 ? y * (1 - 0.14 * l - 0.2 * lv) : y * (1 - 0.06 * lv)];
+  }
+
+  /* ---------- 2관절 IK ---------- */
+  function ik2(hx, hy, fx, fy, a, b, bx, by) {
+    let dx = fx - hx, dy = fy - hy, d = Math.hypot(dx, dy) || 1e-6;
+    const maxd = a + b - 0.01, mind = Math.abs(a - b) + 0.5;
+    if (d > maxd) { fx = hx + (dx / d) * maxd; fy = hy + (dy / d) * maxd; d = maxd; dx = fx - hx; dy = fy - hy; }
+    if (d < mind) { fx = hx + (dx / d) * mind; fy = hy + (dy / d) * mind; d = mind; dx = fx - hx; dy = fy - hy; }
+    const ux = dx / d, uy = dy / d, along = (a * a - b * b + d * d) / (2 * d);
+    const h = Math.sqrt(Math.max(0, a * a - along * along));
+    let nx = -uy, ny = ux;
+    if (nx * bx + ny * by < 0) { nx = -nx; ny = -ny; }
+    return { kx: hx + ux * along + nx * h, ky: hy + uy * along + ny * h, fx, fy };
+  }
+  function solveLeg(L) {
+    L.hipW = jigged(L.hip[0], L.hip[1], L.probe); // 다리 뿌리는 주변 몸통 외곽과 같이 출렁인다
+    // 관절이 꺾이는 쪽: 발이 아래 있을 땐 뒤로, 발을 앞·위로 들면 그 방향을 따라 앞-아래로 돌아간다.
+    // (월드에 고정된 '뒤쪽'으로 고르면 발이 어깨 높이를 지나는 순간 팔꿈치가 반대편으로 뒤집힌다)
+    const ux = L.foot.x - L.hipW[0], uy = L.foot.y - L.hipW[1], ul = Math.hypot(ux, uy) || 1;
+    let bx = (-cat.face * uy) / ul, by = (cat.face * ux) / ul;
+    const P = cat.actP, ov = P && P.bend && P.bend[L.idx];
+    if (ov) { const w = P.bendW == null ? 1 : P.bendW; bx = lerp(bx, ov[0], w); by = lerp(by, ov[1], w); }
+    const r = ik2(L.hipW[0], L.hipW[1], L.foot.x, L.foot.y, L.a * S, L.b * S, bx, by);
+    L.knee = [r.kx, r.ky]; L.footW = [r.fx, r.fy];
+    if (GROUND.has(cat.mode)) { // 접은 무릎이 바닥을 뚫지 않게. 앞다리는 발을 들다 팔꿈치가 바닥에 닿았다 떨어질 때 툭 튀지 않도록 부드럽게
+      const lim = floorY - L.r[1] * S, m = 2 * S, y = L.knee[1];
+      if (!L.front) L.knee[1] = Math.min(y, lim);
+      else if (y > lim - m) L.knee[1] = lim - m * Math.exp(-(y - (lim - m)) / m);
+    }
+  }
+
+  /* ---------- 표정 ---------- */
+  // 몸 상태가 우선, 그다음 '냥', 그다음 고른 기분
+  function expression() {
+    const c = cat;
+    if (c.mode === "grabbed") return c.modeT < 0.45 ? "surprised" : "dangle";
+    if (c.nyangT > 0) return "nyang";
+    if (c.petT > 0) return "happy";
+    if (c.mode === "air" || c.mode === "fall" || c.mode === "shake" || c.mode === "land" || c.mode === "crouch") return "action";
+    if (c.mode === "lie") return "sleepy";
+    if (c.mode === "act" && c.actP && c.actP.expr) return c.actP.expr;
+    return c.mood;
+  }
+
+  /* ---------- 상태 전환 ---------- */
+  let lastLabel = "";
+  function setMode(m) {
+    const c = cat;
+    c.mode = m; c.modeT = 0;
+    if (m === "walk" || m === "idle" || POSE_MODES.has(m) || m === "act") for (const L of c.legs) { L.off0 = L.off; L.lift0 = L.lift; }
+    if (m === "idle") c.wanderT = rand(1.3, 3.4);
+    let label = LABEL[m];
+    if (c.act) { const sp = actOf(c.act.key); if (m === "act" || (sp.roam && (m === "idle" || m === "walk" || m === "crouch"))) label = sp.label; }
+    if (label !== lastLabel) { lastLabel = label; emit("label", label); }
+  }
+  function walkTo(x) {
+    const c = cat;
+    c.target = clamp(x, EDGE * S, W - EDGE * S);
+    if (c.mode !== "idle" && c.mode !== "walk") return;
+    const dir = Math.sign(c.target - c.x) || c.face;
+    if (dir !== c.face) { c.face = dir; c.resume = true; setMode("idle"); }
+    else if (c.mode !== "walk") setMode("walk");
+  }
+  function jump() {
+    const c = cat;
+    if (c.mode !== "idle" && c.mode !== "walk" && c.mode !== "loaf" && c.mode !== "sit") return;
+    c.jumpFromWalk = c.mode === "walk"; c.resume = false;
+    setMode("crouch");
+  }
+  function launch() {
+    const c = cat;
+    const prey = c.pounce; // 덮칠 대상({x, y})이 있으면 거기까지의 거리·높이에 맞춰 뛴다
+    c.vy = -JUMPV * S * (prey ? (prey.y < floorY - 120 * S ? 1.12 : 0.92) : 1);
+    // 무대가 낮으면(앱 패널) 귀 끝이 천장에 닿지 않을 만큼만 뛴다: 서 있을 때 귀 끝은 몸 중심보다 약 80단위 위
+    const room = c.y - 82 * S - 4;
+    if (room > 0) c.vy = -Math.min(-c.vy, Math.sqrt(2 * GRAV * S * room));
+    c.vx = c.face * (prey ? clamp(Math.abs(prey.x - c.x) * 2.4, 90, 300) : c.jumpFromWalk ? 165 : 80) * S;
+    c.pounce = null;
+    c.squash.v += 4.2;
+    c.ears.forEach((e) => (e.v -= 3.5));
+    setMode("air");
+  }
+  function land() {
+    const c = cat, imp = c.vy;
+    c.y = floorY - standH() * S; c.vy = 0; c.climbFall = false;
+    c.crouch.x = 0; c.crouch.v = clamp((imp / S) * 0.045, 0, 70);
+    c.squash.v -= clamp(imp / (S * 300), 0, 5);
+    c.ears.forEach((e) => (e.v += clamp(imp / (S * 230), 0, 6)));
+    c.vx *= 0.45;
+    for (const L of c.legs) { // 발은 닿은 자리에 그대로 내려놓는다
+      const h = hipWorld(L);
+      L.off = clamp((L.foot.x - h[0]) * c.face, -16 * S, 16 * S); L.lift = 0;
+    }
+    setMode("land");
+    for (const L of c.legs) { L.off0 = L.off; L.lift0 = 0; }
+  }
+  function grab() {
+    const c = cat;
+    const sp = L2W(SCRUFF[0], SCRUFF[1]);
+    c.scruff.set(sp[0], sp[1]); c.scruff.vx = c.vx; c.scruff.vy = c.vy;
+    c.afterGrab = true; c.resume = false; c.nyangT = 0;
+    c.annoy += 1; c.puffHold = 1.1; c.tailEp = null; // 꼬리 언어: 잡히는 순간 꼬리펑, 자꾸 잡으면 짜증이 쌓인다
+    if (c.act && !actOf(c.act.key).keepOnGrab) endAct(); // 잡히면 하던 걸 그만(음악·나비·공놀이는 이어 간다)
+    c.pounce = null;
+    c.ears.forEach((e) => (e.v += 4)); c.squash.v += 1.5; c.stretch.v += 2.5;
+    setMode("grabbed");
+  }
+  function release() {
+    const c = cat;
+    c.vx = clamp(c.scruff.vx * 0.85, -1500 * S, 1500 * S);
+    c.vy = clamp(c.scruff.vy * 0.85, -1500 * S, 1100 * S);
+    c.dropH = (floorY - standH() * S - c.y) / S; // 얼마나 높이서 놓였나
+    setMode("fall");
+  }
+  function nyang() {
+    const c = cat;
+    c.nyangT = 0.9;
+    c.annoy += 0.7; // 연타하면 짜증: 좋아서 바르르 → 탁탁 → 세워 부풀리기
+    startTailEp(c.annoy >= 2.8 ? "angry" : c.annoy >= 1.6 ? "thump" : "quiver", c.annoy >= 1.6 ? 2.6 : 1.5);
+    jump();
+  }
+  function chooseWander() {
+    const c = cat, r = Math.random();
+    if (r < 0.2) { jump(); return; }
+    if (r < 0.9 && W > 320) {
+      let tx, n = 0;
+      do { tx = rand(EDGE * S, W - EDGE * S); } while (Math.abs(tx - c.x) < 110 * S && ++n < 12);
+      walkTo(tx); return;
+    }
+    c.wanderT = c.modeT + rand(1.5, 3);
+  }
+  function walls() {
+    const c = cat, m = (c.climbFall ? 40 : 92) * S; // 머리·수염까지 무대 안에 들어오게(벽에서 떨어질 땐 벽에 붙은 자리부터)
+    if (c.x < m) { c.x = m; c.vx = Math.abs(c.vx) * 0.45; }
+    if (c.x > W - m) { c.x = W - m; c.vx = -Math.abs(c.vx) * 0.45; }
+    if (c.y < 56 * S) { c.y = 56 * S; c.vy = Math.abs(c.vy) * 0.3; }
+  }
+
+  /** 마우스 쪽으로: 멀면 그 앞까지 걸어가고, 가까우면 그쪽으로 몸만 돌린다. */
+  function chaseMouse() {
+    const c = cat;
+    if (!mouseActive() || reduced.matches || c.mood === "sleepy" || c.pose !== "stand" || c.act) return false;
+    const dx = mouse.x - c.x;
+    if (c.mode === "walk") {
+      const want = clamp(mouse.x - Math.sign(dx) * WALK_STOP * S, EDGE * S, W - EDGE * S);
+      if (Math.abs(dx) > WALK_STOP * S && Math.abs(want - c.target) > 24 * S) walkTo(want);
+      return true;
+    }
+    if (Math.abs(dx) > WALK_START * S) { walkTo(mouse.x - Math.sign(dx) * WALK_STOP * S); return true; }
+    if (Math.sign(dx) !== c.face && Math.abs(dx) > 26 * S && c.modeT > 0.4) { c.face = Math.sign(dx); setMode("idle"); }
+    return true;
+  }
+
+  /* ---------- 한 스텝 (고정 120Hz) ---------- */
+  function step(dt) {
+    const c = cat; time += dt; c.modeT += dt;
+    c.nyangT = Math.max(0, c.nyangT - dt); c.petT = Math.max(0, (c.petT || 0) - dt);
+    c.annoy = Math.max(0, c.annoy - dt * 0.12); // 짜증은 천천히 풀린다
+    if (c.tailEp && (c.tailEp.t += dt) >= c.tailEp.dur) c.tailEp = null;
+    // 체형은 고르면 천천히 바뀐다
+    const BT = BUILDS[c.build], kb = 1 - Math.exp(-dt * 5);
+    for (const key of ["bx", "by", "legR", "neck", "hipDx", "hipDy"]) c.bd[key] = lerp(c.bd[key], BT[key], kb);
+    const LT = LEG_LENS[c.legLen];
+    for (const key of ["len", "hind", "front"]) c.ll[key] = lerp(c.ll[key], LT[key], kb);
+    if (c.act) actStep(dt);
+    propsStep(dt);
+    c.actP = c.mode === "act" && c.act ? actPose() : null;
+    const P = c.actP;
+    const standY = floorY - standH() * S;
+
+    // 1) 상태별 이동
+    switch (c.mode) {
+      case "idle":
+        c.vx = 0;
+        if (c.resume && c.modeT > 0.2) { c.resume = false; setMode("walk"); break; }
+        if (isRoam()) { if (!c.resume) roam(); break; }
+        if (c.act && c.modeT > 0.25) { setMode("act"); break; }
+        if (c.pose !== "stand" && c.modeT > 0.25) { setMode(c.pose); break; }
+        if (!c.resume && chaseMouse()) break;
+        if (wanderOn && !c.resume && c.mood !== "sleepy" && c.modeT > c.wanderT) chooseWander();
+        break;
+      case "walk": {
+        if (isRoam()) roam(); else chaseMouse();
+        if (c.mode !== "walk") break; // 마우스가 반대편으로 가서 돌아서는 중
+        const dx = c.target - c.x, dir = Math.sign(dx) || c.face;
+        if (dir !== c.face) { c.face = dir; c.resume = true; setMode("idle"); break; }
+        c.speed = lerp(c.speed, WALK * S, 1 - Math.exp(-dt * 5));
+        c.vx = c.face * c.speed * clamp(Math.abs(dx) / (26 * S), 0.3, 1);
+        c.x += c.vx * dt;
+        c.gait += (Math.abs(c.vx) * dt) / (STRIDE * S);
+        if (Math.abs(dx) < 2.5 * S) { c.vx = 0; c.speed = 0; setMode("idle"); }
+        break;
+      }
+      case "loaf": case "sit": case "lie":
+        c.vx = 0;
+        if (c.pose !== c.mode || c.act) setMode("idle");
+        break;
+      case "act":
+        c.vx = 0;
+        if (!c.act) setMode("idle");
+        break;
+      case "crouch":
+        if (c.modeT > (c.pounce ? 0.62 : 0.17)) launch(); // 사냥: 엉덩이를 씰룩이며 더 오래 노린다
+        break;
+      case "air": case "fall":
+        c.vy += GRAV * S * dt; c.x += c.vx * dt; c.y += c.vy * dt;
+        walls();
+        if (c.y >= standY && c.vy > 0) land();
+        break;
+      case "land":
+        c.vx *= Math.exp(-dt * 10); c.x += c.vx * dt; walls();
+        if (c.modeT > 0.3) {
+          if (c.afterGrab) { c.afterGrab = false; setMode("shake"); }
+          else if (c.jumpFromWalk && c.target != null && Math.abs(c.target - c.x) > 12 * S) { c.speed = WALK * S * 0.6; setMode("walk"); }
+          else setMode("idle");
+        }
+        break;
+      case "shake":
+        if (c.modeT > 0.65) { // 털고 나서 꼬리로 기분을 말한다: 높이서 떨어졌으면 겁(내리기), 자꾸 잡혔으면 화(세워 부풀리기), 아니면 짜증(탁탁)
+          startTailEp(c.dropH > 150 ? "down" : c.annoy >= 1 ? "angry" : "thump", c.dropH > 150 ? 2.6 : 3);
+          setMode("idle");
+        }
+        break;
+      case "grabbed": {
+        // 약한 스프링: 손을 한 박자 늦게 따라오고 더 크게 데롱거린다
+        const vx0 = c.scruff.vx;
+        c.scruff.step(clamp(mouse.x, 60 * S, W - 60 * S), clamp(mouse.y, 30 * S, floorY - 66 * S), lerp(520, 250, c.soft), lerp(40, 24, c.soft), dt);
+        c.ax = clamp((c.scruff.vx - vx0) / dt, -16000 * S, 16000 * S);
+        break;
+      }
+    }
+
+    // 2) 몸 자세 스프링
+    const m = c.mode;
+    c.turn.step(c.face, 240, 25, dt);
+    const turning = 1 - Math.min(1, Math.abs(c.turn.x));
+    c.loaf.step(m === "loaf" || (P && P.loaf) ? 1 : 0, 70, 13, dt);
+    c.sit.step(m === "sit" || (P && P.sit) ? 1 : 0, 60, 12, dt);
+    c.lie.step(m === "lie" ? 1 : 0, 45, 11, dt);
+    const breathe = reduced.matches ? 0 : Math.sin(time * (c.mood === "sleepy" || m === "lie" ? 1.3 : 2.3));
+    let sq = 1;
+    if (m === "idle") sq = 1 + 0.022 * breathe;
+    else if (m === "loaf") sq = 0.88 + 0.018 * breathe;
+    else if (m === "sit") sq = 0.97 + 0.015 * breathe;
+    else if (m === "lie") sq = 0.92 + 0.03 * breathe; // 자면서 깊게 숨 쉰다
+    else if (m === "act") sq = P && P.sq != null ? P.sq : 1 + 0.015 * breathe;
+    else if (m === "walk") sq = 1 + 0.02 * Math.cos(c.gait * TAU * 2);
+    else if (m === "crouch") sq = 0.8;
+    else if (m === "air") sq = 1 + clamp(Math.abs(c.vy) / (2600 * S), 0, 0.15);
+    sq -= 0.12 * turning;
+    c.squash.step(sq, 250, 12, dt);
+    if (m === "grabbed") c.stretch.step(lerp(1.12, 1.24, c.soft), 105, 5.5, dt); else c.stretch.step(1, 170, 14, dt);
+    c.crouch.step(m === "crouch" ? 9 : 0, m === "land" ? 160 : 230, m === "land" ? 13 : 18, dt);
+
+    let at = -SIT_TILT * c.face * clamp(c.sit.x, 0, 1), k = 140, d = 16; // 앉기: 엉덩이를 내리고 앞을 든다
+    if (P && P.tilt) at += P.tilt * c.face;
+    if (m === "crouch") at = c.pounce ? (0.07 + 0.05 * Math.sin(c.modeT * 30)) * c.face : 0.07 * c.face;
+    else if (m === "air") at = c.face * clamp(c.vy / (2800 * S), -0.3, 0.3);
+    else if (m === "grabbed") { at = -1.12 * c.face; k = 50; d = 8.5; }
+    else if (m === "fall") { k = 110; d = 15; } // 공중에서 몸을 바로 세우는 반사
+    c.ang.step(at, k, d, dt);
+    if (m === "grabbed") { // 진자: 손이 가속하면 몸이 반대로 흔들림
+      c.swing.v += (c.ax / (46 * S)) * dt;
+      c.swing.step(0, 30, 2.0, dt);
+      c.swing.x = clamp(c.swing.x, -1.2, 1.2);
+      // 뒤로 끌면 몸이 앞으로 흔들리는데, 수직을 넘으면 배가 앞을 보며 가슴이 목·얼굴보다 앞으로 나가 구조가 이상해진다.
+      // 앞쪽(코가 들리는 쪽)으로는 거의 수직(1.45)까지만, 닿으면 살짝 튕겨 돌아온다
+      const up = -c.face * (c.ang.x + c.swing.x), upMax = 1.45;
+      if (up > upMax) { c.swing.x = -c.face * upMax - c.ang.x; if (-c.face * c.swing.v > 0) c.swing.v *= -0.25; }
+    } else c.swing.step(0, 90, 13, dt);
+    c.shakeRot = m === "shake" ? 0.13 * Math.sin(c.modeT * TAU * 8.5) * Math.max(0, 1 - c.modeT / 0.65) : 0;
+    c.rot = c.ang.x + c.swing.x + c.shakeRot;
+
+    // 3) 몸 위치 확정
+    if (m === "grabbed") {
+      const [sx0, sy0] = deform(SCRUFF[0], SCRUFF[1]);
+      const [ox, oy] = rotv(sx0 * c.turn.x * S, sy0 * S, c.rot);
+      c.x = c.scruff.x - ox; c.y = c.scruff.y - oy; c.vx = c.scruff.vx; c.vy = c.scruff.vy;
+    } else if (GROUND.has(m)) {
+      const l = clamp(c.loaf.x, 0, 1.15), sv = clamp(c.sit.x, 0, 1), lv = clamp(c.lie.x, 0, 1);
+      const h = lerp(lerp(standH(), loafH(), l), lieH(), lv);
+      let y = floorY - h * S + c.crouch.x * S + (m === "walk" ? 1.5 * S * Math.cos(c.gait * TAU * 2) : 0);
+      if (sv > 0.001) { // 앉기: 엉덩이는 바닥에 깔린 뒷다리(뒤꿈치·발) 위에 얹힌다. 바닥까지 내리면 몸통이 뒷다리 밑으로 빠져나와 보인다
+        const rb = L2W(-34, 27)[1] - c.y, seat = SIT_SEAT * c.legs[2].r[1] * S;
+        y = lerp(y, floorY - seat - rb, sv);
+      }
+      if (P && P.dy) y += P.dy * S;
+      c.y = y;
+      if (P && P.pos) { c.x = P.pos[0]; c.y = P.pos[1]; } // 활동이 몸 자리를 직접 정함(벽 타기)
+    }
+
+    // 다리: 뿌리 자리(체형), 길이와 마디 비율(다리 길이), 굵기(체형). 앉을 땐 앞다리를 곧게 펴서 바닥을 짚는다
+    const sv = clamp(c.sit.x, 0, 1);
+    c.legs.forEach((L) => {
+      // 앉으면 몸이 뒤로 기울어 엉덩이가 바닥에 닿으므로, 뒷다리 관절은 배 쪽이 아니라 허벅지 가운데 높이로 올린다
+      const fw = P && P.feet && P.feet[L.idx] ? (P.feetW == null ? 1 : P.feetW) : 0;
+      // 식빵: 다리를 몸 안으로 완전히 접어 넣는다. 뿌리는 몸 안쪽으로 올리고, 다리는 짧고 가늘게, 발바닥도 작게
+      // (무릎·발끝·허벅지가 배 밑이나 엉덩이 모서리로 삐져나오지 않게). 활동이 자리를 정한 발(상자 끝에 건 앞발)은 그대로
+      const lf = (L.fold = clamp(c.loaf.x, 0, 1) * (1 - fw));
+      const hy = lerp(L.front ? c.bd.hipDy : lerp(c.bd.hipDy, -3, sv), 0, lf);
+      L.hip = [L.def.hip[0] + Math.sign(L.def.hip[0]) * c.bd.hipDx * (1 - lf), L.def.hip[1] + hy];
+      // 접을 땐 위·아래 마디를 비슷하게(한쪽이 길면 끝까지 접히지 못하고 발이 밀려난다)
+      const total = (L.def.a + L.def.b) * c.ll.len, share = lerp(L.front ? c.ll.front : c.ll.hind, 0.5, lf);
+      let reach = (P && P.reach && P.reach[L.idx]) || 1;
+      if (L.front && sv > 0) { // 다리가 짧아도 앉았을 때 앞발이 바닥에 닿을 만큼은 편다(활동이 들어 올린 발은 원래 길이로)
+        const need = (floorY - PAW.ry * S - hipWorld(L)[1]) / (S * total) * 1.03;
+        reach *= lerp(1, Math.max(1.22, need), sv * (1 - fw));
+      }
+      if (P && P.feet && P.feet[L.idx]) { // 활동이 이 발 자리를 정하면, 다리가 짧아도 거기까지 닿게 늘린다(최대 1.5배)
+        const h = hipWorld(L), t = P.feet[L.idx](L, h), d = Math.hypot(t[0] - h[0], t[1] - h[1]) / (S * total);
+        reach = Math.max(reach, lerp(1, Math.min(1.5, d * 1.02), P.feetW == null ? 1 : P.feetW));
+      }
+      reach *= lerp(1, 0.55, lf);
+      L.a = total * share * reach; L.b = total * (1 - share) * reach;
+      for (let i = 0; i < 3; i++) L.r[i] = L.def.r[i] * c.bd.legR * lerp(1, 0.8, lf);
+    });
+
+    // 4) 발
+    if (GROUND.has(m)) groundFeet(); else airFeet(dt);
+    for (const L of c.legs) solveLeg(L);
+
+    // 5) 머리 · 얼굴 · 꼬리 · 몸통 출렁임
+    updateHead(dt); updateFace(dt); updateTail(dt); updateJiggle(dt);
+  }
+
+  function groundFeet() {
+    const c = cat, sweep = BETA * STRIDE * S, l = clamp(c.loaf.x, 0, 1), sv = clamp(c.sit.x, 0, 1), lv = clamp(c.lie.x, 0, 1), P = c.actP;
+    c.legs.forEach((L, i) => {
+      let off = 0, lift = 0;
+      if (c.mode === "walk") {
+        const p = (((c.gait + L.ph) % 1) + 1) % 1;
+        if (p < BETA) off = sweep / 2 - sweep * (p / BETA); // 디딤: 몸이 나아가는 만큼 뒤로 → 발이 미끄러지지 않음
+        else { const u = (p - BETA) / (1 - BETA); off = -sweep / 2 + sweep * smooth(u); lift = LIFTH * S * Math.sin(Math.PI * u); }
+        const w = smooth(c.modeT / 0.22);
+        L.off = lerp(L.off0, off, w); L.lift = lerp(L.lift0, lift, w);
+      } else if (c.mode === "crouch") {
+        L.lift = Math.max(0, L.lift - 2);
+      } else { // 제자리로 한 발씩 정리
+        const w = smooth((c.modeT - i * 0.05) / 0.2);
+        L.off = lerp(L.off0, 0, w);
+        const stepH = Math.min(Math.abs(L.off0) * 0.45, 6 * S);
+        L.lift = Math.max(lerp(L.lift0, 0, w), stepH * Math.sin(Math.PI * w));
+      }
+      const h = hipWorld(L);
+      let fx = h[0] + c.face * L.off, fy = floorY - PAW.ry * S - L.lift - (L.far ? 2.5 * S : 0);
+      if (l > 0) { // 식빵: 발을 배 밑으로 완전히 접어 넣는다(몸 외곽 안쪽)
+        const t = L2W(L.hip[0] + (L.front ? 0 : 7), 23); // 배 밑 가운데로
+        fx = lerp(fx, t[0], l); fy = Math.min(lerp(fy, t[1], l), floorY - PAW.ry * S);
+      }
+      const ground = floorY - PAW.ry * S - (L.far ? 2.5 * S : 0);
+      if (sv > 0) { // 앉기: 앞발은 가슴 아래를 곧게 짚는다
+        let tx = h[0] + c.face * 3 * S;
+        if (!L.front) { // 뒷다리: 실제 앉은 고양이처럼 뒤꿈치(가운데 관절)는 엉덩이 뒤쪽 바닥에, 발은 거기서 앞으로 바닥을 따라
+          const A = L.a * S, B = L.b * S, ky = floorY - L.r[1] * S, dyk = ky - h[1];
+          const kx = h[0] - c.face * Math.sqrt(Math.max(0, A * A - dyk * dyk));
+          tx = kx + c.face * B * 0.97;
+        }
+        fx = lerp(fx, tx, sv); fy = lerp(fy, ground, sv);
+      }
+      if (lv > 0) { // 누워 자기: 앞발은 앞으로 쭉 뻗고, 뒷발은 배 밑으로
+        const t = L.front ? [h[0] + c.face * 24 * S, ground] : L2W(L.hip[0] + 12, 23);
+        fx = lerp(fx, t[0], lv); fy = Math.min(lerp(fy, t[1], lv), floorY - PAW.ry * S);
+      }
+      if (P && P.feet && P.feet[i] && (P.feetW == null || P.feetW > 0)) { // 활동: 이 발은 활동이 정한 자리로(붓 든 앞발, 기지개 등)
+        // 섞는 동안은 엉덩이(어깨) 둘레로 호를 그리며 옮기고, 중간엔 관절을 접어 몸 가까이로 든다.
+        // (곧게 섞으면 발이 어깨 바로 옆을 스쳐 관절이 휙 돌고, 반지름을 그대로 두면 바닥을 쓸며 앞으로 크게 뻗는다)
+        const t = P.feet[i](L, h), w = P.feetW == null ? 1 : P.feetW;
+        // 각도는 몸 앞쪽을 0 으로 재서 섞는다: 항상 앞을 지나가는 호(바로 위·아래 사이를 오갈 때 뒤로 도는 일 없이)
+        const fa = Math.atan2(c.face * Math.sin(c.rot), c.face * Math.cos(c.rot));
+        const a0 = wrapAng(Math.atan2(fy - h[1], fx - h[0]) - fa), a1 = wrapAng(Math.atan2(t[1] - h[1], t[0] - h[0]) - fa);
+        const a = fa + lerp(a0, a1, w), r = lerp(Math.hypot(fx - h[0], fy - h[1]), Math.hypot(t[0] - h[0], t[1] - h[1]), w) * (1 - 0.3 * Math.sin(Math.PI * w));
+        fx = h[0] + Math.cos(a) * r; fy = Math.min(h[1] + Math.sin(a) * r, Math.max(t[1], floorY - PAW.ry * S));
+      }
+      L.foot.set(fx, fy);
+      L.ptMode = "";
+    });
+  }
+
+  function airFeet(dt) {
+    const c = cat;
+    for (const L of c.legs) {
+      let t, k = 420, d = 32;
+      if (c.mode === "grabbed" && L.front) { // 앞발: 힘 빼고 아래로 대롱대롱
+        const h = hipWorld(L);
+        t = [h[0] + c.face * 2 * S, h[1] + (L.a + L.b) * 0.95 * S]; k = 150; d = 7.5;
+      } else {
+        let tl;
+        if (c.mode === "air") {
+          const down = c.vy > 0; // 내려올 땐 앞발을 뻗어 착지 준비
+          tl = L.front ? (down ? [L.hip[0] + 6, L.hip[1] + 25] : [L.hip[0] + 10, L.hip[1] + 15])
+                       : (down ? [L.hip[0] - 2, L.hip[1] + 25] : [L.hip[0] - 11, L.hip[1] + 13]);
+        } else if (c.mode === "fall") tl = [L.hip[0] + (L.front ? 3 : -2), L.hip[1] + 26];
+        else tl = [L.hip[0] + 12, L.hip[1] + 11]; // 뒷발: 배 쪽으로 오므림
+        t = L2W(tl[0], tl[1]);
+      }
+      if (L.ptMode !== c.mode) { // 상태가 바뀐 첫 스텝: 몸의 속도를 물려받는다
+        L.ptMode = c.mode; L.pt = t; L.foot.vx = c.vx; L.foot.vy = c.vy;
+      }
+      follow(L.foot, t[0], t[1], L.pt[0], L.pt[1], k, d, dt);
+      L.pt = t;
+    }
+  }
+
+  /** 마우스 방향을 머리 기준 -1..1 로. 귀·수염·고개가 같이 쓴다. */
+  function lookVec() {
+    const p = cat.pupil;
+    return [clamp(p.x / 3.4, -1, 1), clamp(p.y / 3.4, -1, 1)];
+  }
+
+  function updateHead(dt) {
+    const c = cat, m = c.mode, ex = expression(), P = c.actP;
+    const l = clamp(c.loaf.x, 0, 1.15), sv = clamp(c.sit.x, 0, 1), lv = clamp(c.lie.x, 0, 1);
+    // 머리는 목 주변 외곽 출렁임도 같이 탄다
+    let anc = jigged(HEAD_ANCHOR[0] - 3 * l, HEAD_ANCHOR[1] + 8 * l, NECK_PROBE, 0.8);
+    if (lv > 0) anc = [anc[0] + c.face * 8 * S * lv, lerp(anc[1], floorY - 30 * S, lv)]; // 누워 자기: 앞발 위에 머리를 얹는다
+    if (sv > 0) { // 앉으면 몸이 뒤로 기운 만큼 머리도 뒤로 밀려 보인다: 서 있을 때처럼 어깨보다 조금 앞(앞발 위)에 둔다
+      const sh = c.legs[NEAR_FRONT].hipW, base = L2W(HEAD_ANCHOR[0], HEAD_ANCHOR[1]);
+      anc = [anc[0] + (sh[0] + c.face * 8 * S - base[0]) * sv, anc[1]];
+    }
+    if (P && P.head) anc = P.head(anc);
+    const vy0 = c.head.vy;
+    follow(c.head, anc[0], anc[1], c.headAnc[0], c.headAnc[1], m === "grabbed" ? 760 : 560, m === "grabbed" ? 42 : 30, dt);
+    // 목은 늘어나지 않는다: 머리는 제자리에서 조금만(잡혔을 땐 3, 평소 6) 늦게 따라온다.
+    // 스프링만 두면 목덜미를 잡고 세게 흔들거나 뛰어오를 때 머리가 수십 단위나 뒤처져서, 그 사이를 잇는 목이 길게 빠져 보였다.
+    { const gx = c.head.x - anc[0], gy = c.head.y - anc[1], gd = Math.hypot(gx, gy), gm = (m === "grabbed" ? 3 : 6) * S;
+      if (gd > gm) {
+        c.head.x = anc[0] + (gx / gd) * gm; c.head.y = anc[1] + (gy / gd) * gm;
+        const vn = (c.head.vx * gx + c.head.vy * gy) / gd; // 더 멀어지려는 속도는 덜어 낸다
+        if (vn > 0) { c.head.vx -= (vn * gx) / gd; c.head.vy -= (vn * gy) / gd; }
+      } }
+    c.headAnc = anc;
+    c.headAy = (c.head.vy - vy0) / dt;
+    const [lx, ly] = lookVec();
+    let tt = 0.05 * Math.sin(time * 0.8) + ly * 0.12 * c.face; // 마우스가 위에 있으면 고개를 든다
+    if (ex === "curious") tt += 0.16 * c.face;
+    if (m === "lie") tt = 0.1 * c.face;
+    if (P && P.tt != null) tt = P.tt * c.face;
+    if (m === "grabbed") tt = -0.2 * c.face + 0.05 * Math.sin(time * 1.4);
+    else if (m === "crouch") tt = 0.06 * c.face;
+    else if (m === "shake") tt = 0.16 * Math.sin(c.modeT * TAU * 8.5 + 0.7) * Math.max(0, 1 - c.modeT / 0.65);
+    c.headTilt.step(tt, 120, 12, dt);
+    c.headRot = c.rot * 0.38 * (1 - sv) + c.headTilt.x; // 몸이 기울어도 머리는 덜 기운다(앉으면 머리는 수평)
+
+    let earT = { idle: 0, walk: -0.06, crouch: 0.18, air: -0.08, land: 0.1, grabbed: 0.5, fall: 0.22, shake: 0, loaf: 0.12, sit: 0.04, lie: 0.3 }[m] ?? 0;
+    if (P && P.ear != null) earT = P.ear;
+    const sg = activeTailSign(); if (sg && m !== "grabbed" && TAIL_SIGNS[sg].ear != null) earT = TAIL_SIGNS[sg].ear; // 꼬리 신호와 같이: 화나면 귀를 젖힌다
+    if (ex === "curious") earT -= 0.14;
+    if (ex === "sleepy") earT += 0.28;
+    c.ears.forEach((e, i) => {
+      const side = i === 0 ? -1 : 1;
+      e.v += -c.headAy * 0.00009 / S; // 관성으로 귀가 출렁
+      if (m === "shake") e.v += Math.cos(c.modeT * TAU * 8.5) * 0.35;
+      // 마우스 쪽으로 두 귀가 같이 돈다 (그리기에서 좌우가 뒤집히므로 side 를 곱해 되돌린다)
+      e.step(earT + side * lx * 0.3 * c.face, 170, 9, dt);
+    });
+    c.twitchT -= dt;
+    if (c.twitchT < 0 && ex !== "sleepy") { c.twitchT = rand(2.2, 6); c.ears[Math.random() < 0.5 ? 0 : 1].v += rand(4, 6) * (Math.random() < 0.5 ? 1 : -1); }
+    c.whisk.v += (-c.headAy * 0.00004) / S;
+    c.whisk.step(ly * 0.32 + (ex === "dangle" || ex === "sleepy" ? 0.2 : 0), 300, 10, dt); // 수염은 시선 위아래를 따라 기운다
+  }
+
+  function updateFace(dt) {
+    const c = cat, m = c.mode, ex = expression();
+    c.blinkT -= dt;
+    let lidT = 0;
+    if (m === "grabbed" && c.modeT > 0.45) lidT = 0.52; // 체념한 반쯤 감은 눈
+    else if (m === "crouch") lidT = 0.12;
+    else if (m === "land" && c.modeT < 0.16) lidT = 0.45;
+    else if (m === "shake") lidT = 1;
+    else if (ex === "sleepy") lidT = 1;
+    else if (m === "loaf" && ex === "idle") lidT = 0.38; // 식빵 굽는 느긋한 눈
+    if (c.actP && c.actP.lid != null) lidT = c.actP.lid;
+    const sg = activeTailSign(); if (sg && m !== "grabbed" && TAIL_SIGNS[sg].lid != null) lidT = TAIL_SIGNS[sg].lid; // 짜증은 반쯤 감은 눈, 놀람·화남은 번쩍
+    // 깜빡임: 웃고 있거나(웃는 눈) 이미 거의 감고 있으면 건너뛴다(아치가 사라졌다 나타나 깜빡이는 것처럼 보이지 않게)
+    if (c.blinkT < 0) { c.blinkT = rand(2, 5.5); if (c.smile.x < 0.08 && ex !== "happy" && ex !== "nyang" && lidT < 0.8 && c.lid.x < 0.8) c.blinkP = 0; }
+    if (c.blinkP >= 0 && (c.smile.x > 0.08 || ex === "happy" || ex === "nyang")) c.blinkP = -1;
+    if (c.blinkP >= 0) { c.blinkP += dt; c.blinkFast = 0.2; if (c.blinkP < 0.08) lidT = 1; else c.blinkP = -1; }
+    // 깜빡일 땐 빠르게, 졸려서 감거나 뜰 땐 눈꺼풀이 내려오는 게 보이도록 천천히(약 0.3초)
+    c.blinkFast = Math.max(0, c.blinkFast - dt);
+    const fast = c.blinkFast > 0;
+    c.lid.step(lidT, fast ? 900 : 230, fast ? 55 : 28, dt); c.lid.x = clamp(c.lid.x, 0, 1);
+    // 웃는 눈: 아래 눈꺼풀이 올라와 위쪽 초승달(^)만 남는다
+    c.smile.step(ex === "happy" || ex === "nyang" ? 1 : 0, 170, 24, dt); c.smile.x = clamp(c.smile.x, 0, 1);
+
+    // 링 눈: 눈동자가 작을수록 색 테두리가 두껍다
+    let ps = 1;
+    if (ex === "surprised") ps = 0.55; else if (m === "air") ps = 0.8;
+    else if (ex === "curious") ps = 1.12; else if (ex === "dangle") ps = 0.95;
+    c.pupilSize.step(ps, 200, 20, dt);
+
+    let tx = 0, ty = 0;
+    const tgt = lookTarget();
+    if (tgt) { // 커서(또는 활동 중 보는 것: 붓 끝, 나비)를 바라봄
+      const e = H2W(FO, 1);
+      const [lx0, ly] = rotv(tgt[0] - e[0], tgt[1] - e[1], -c.headRot);
+      const lx = lx0 * (Math.sign(c.turn.x) || 1);
+      const dd = Math.hypot(lx, ly) || 1, mag = Math.min(1, dd / (140 * S)) * 3.4;
+      tx = (lx / dd) * mag; ty = (ly / dd) * mag;
+    } else { // 커서가 없으면 두리번
+      c.saccadeT -= dt;
+      if (c.saccadeT < 0) { c.saccadeT = rand(0.8, 2.4); c.saccade = [rand(-2.6, 2.6), rand(-1.6, 1.6)]; }
+      [tx, ty] = c.saccade;
+    }
+    if (ex === "dangle") ty = Math.max(ty, 1.6);
+    c.pupil.step(tx, ty, 220, 22, dt);
+  }
+
+  /* ---------- 꼬리: 버렛 체인 + '근육' 목표 곡선 ---------- */
+  // 기분·상태별 목표 자세. base·curl·hook 은 각도(도), amp 는 물결 크기, freq 는 물결 속도(rad/s).
+  // 물결은 뿌리에서 끝으로 늦게 전해져서, 파닥이지 않고 천천히 휘감는다.
+  /* ---------- 꼬리 ----------
+     마디마다 '각도'를 스프링으로 움직이고, 위치는 뿌리부터 이어 붙인다(정방향 운동학).
+     예전처럼 점 위치를 서로 당겨 맞추면 감쇠가 약해 스스로 바르르 떨렸다. 각도 스프링은 임계 감쇠(zeta = 1)라 떨지 않는다.
+     움직임은 실제 고양이 꼬리 언어를 따른다.
+       편안함   : 낮고 느슨한 곡선. 대부분 가만히, 가끔 느리게 흔들다 쉬고, 가끔 끝만 한 번 까딱
+       행복     : 꼬리를 세우고 끝을 물음표처럼 말기(친근함 신호). 끝 갈고리가 천천히 숨 쉬듯 말렸다 풀린다
+       궁금     : 반쯤 세우고 끝만 자주 까딱
+       졸림·식빵: 내려놓고 거의 움직이지 않음. 아주 가끔 느린 까딱
+       점프 준비: 낮게 깔고 끝을 살랑(사냥 직전)
+       잡힘     : 힘이 빠져 중력대로 늘어지고, 흔들면 데롱데롱 */
+  // base·curl·hook: 각도(도). sway: 느린 흔들림 진폭(끝 기준°), period: 주기(초, 0 이면 걸음에 맞춤), still: 쉬는 비율
+  // flick: [최소 간격, 최대 간격, 진폭°, 길이(초)]. dyn: w0 고유진동수, zeta 감쇠비, grav·inert 중력·몸 가속을 받는 정도
+  const TAIL_CALM = { w0: 8, zeta: 1, grav: 0, inert: 0.3 };
+  // 앉은 꼬리는 두 가지를 앉을 때마다 번갈아:
+  //   흘러내림 뿌리에서 엉덩이를 타고 바닥으로 흘러내려 바닥을 따라 뒤로 눕고, 끝만 살짝 든다
+  //   감기     흘러내린 꼬리를 바닥을 따라 앞으로 감아 와서, 끝은 앞발 옆에서 말아 올린다(이땐 꼬리를 몸 앞에 그린다)
+  // 각도는 몸 기준이라 앉아 기운 만큼(약 28°) 실제로는 더 아래를 향하고, 바닥에 닿은 마디는 바닥을 따라 눕는다.
+  // 감기는 tailS.wrap(0→1)으로 흘러내린 모양에서 섞는다: 마디가 '아래'를 지나 앞으로 돌아오고, 그 사이 바닥에 닿은 마디는
+  // 바닥에 비친 것처럼 짧아졌다 길어진다(옆으로 쓸며 감는 3D 동작을 옆모습으로).
+  const SIT_TAIL = { base: 132, curl: 5, hook: 20 }, WRAP_TAIL = { base: 130, curl: -12, hook: -15 };
+  function sitTail(o = {}) {
+    const c = cat;
+    if (!c.sitStyle) { c.sitStyle = c.sitNext || "wrap"; c.sitNext = c.sitStyle === "wrap" ? "drape" : "wrap"; }
+    return { ...SIT_TAIL, wrap: c.sitStyle === "wrap" ? 1 : 0, sway: 2.5, period: 8, still: 0.4, flick: [4, 9, 14, 0.5], dyn: TAIL_CALM, ...o };
+  }
+
+  /* ---------- 꼬리 언어 ----------
+     고양이 꼬리 신호를 모양(base·curl·hook) + 움직임(sway·flick·thump·quiver) + 털(puff) + 귀·눈으로 하나씩 정의하고,
+     기분과 사건에 맞춰 고른다. 꼬리 하나만으로 단정하지 않고 귀·눈과 같이 보여 준다.
+       수평 level    보통 상태(기본 기분)            세우기 up       인사·반가움(마우스가 다시 나타나면, 행복하게 걸을 때)
+       물음표 question 친근함·관심(행복)             떨기 quiver     흥분·좋음(클릭하면 바르르)
+       살랑살랑 sway  관심·집중(궁금, 사냥 준비)       내리기 down     겁·불안(높이서 떨어진 뒤 꼬리를 감아 내림)
+       꼬리펑 puff    깜짝·무서움(잡히는 순간 털이 섬)  세워 부풀리기 angry 화남·경고(자꾸 잡거나 연타하면, 귀를 젖힌다)
+       탁탁 thump    짜증(잡혔다 풀려난 뒤·연타: 앉아 있으면 바닥을 탁탁, 서 있으면 낮게 휙휙) */
+  const TAIL_SIGNS = {
+    level: { name: "수평", base: 186, curl: 3.5, hook: 7, sway: 11, period: 7, still: 0.3, flick: [5, 10, 18, 0.5], dyn: TAIL_CALM },
+    up: { name: "세우기", base: 262, curl: 0.5, hook: 6, sway: 3, period: 5, still: 0.3, flick: [3, 6, 8, 0.5], ear: -0.05, dyn: { w0: 9, zeta: 1, grav: 0, inert: 0.3 } },
+    question: { name: "물음표", base: 250, curl: 2, hook: 17, sway: 6, period: 6, still: 0.2, breath: 5, flick: [7, 13, 9, 0.6], dyn: TAIL_CALM },
+    quiver: { name: "떨기", base: 264, curl: 0.5, hook: 5, sway: 0, period: 0, flick: null, quiver: 1, ear: -0.08, dyn: { w0: 10, zeta: 1, grav: 0, inert: 0.3 } },
+    sway: { name: "살랑살랑", base: 180, curl: 7, hook: 6, sway: 16, period: 2.6, still: 0, flick: [3, 6, 10, 0.4], dyn: TAIL_CALM },
+    down: { name: "내리기", base: 114, curl: -7, hook: 0, sway: 0, period: 0, flick: null, ear: 0.32, dyn: { w0: 7, zeta: 1, grav: 0.2, inert: 0.3 } },
+    puff: { name: "꼬리펑", base: 176, curl: 1, hook: 0, sway: 0, period: 0, flick: null, puff: 1, ear: 0.4, lid: 0, dyn: { w0: 10, zeta: 0.9, grav: 0, inert: 0.3 } },
+    angry: { name: "세워 부풀리기", base: 256, curl: -3, hook: -6, sway: 0, period: 0, flick: null, puff: 1, ear: 0.6, lid: 0, dyn: { w0: 10, zeta: 0.9, grav: 0, inert: 0.3 } },
+    thump: { name: "탁탁", base: 172, curl: 5, hook: 4, sway: 24, period: 0.8, still: 0, flick: null, ear: 0.18, lid: 0.32, dyn: { w0: 16, zeta: 0.75, grav: 0, inert: 0.3 } },
+  };
+  /** 지금 보여 줄 꼬리 신호: 미리보기로 고른 것 > 사건으로 잠깐 나오는 것. */
+  function activeTailSign() {
+    const c = cat;
+    if (c.tailForce) return c.tailForce;
+    return c.tailEp && c.tailEp.t < c.tailEp.dur ? c.tailEp.key : null;
+  }
+  /** 사건에 맞춰 꼬리 신호를 잠깐(dur 초) 보여 준다. 앱에서도 __neko.tail("thump") 처럼 부를 수 있다. */
+  function startTailEp(key, dur = 2.6) { if (TAIL_SIGNS[key]) cat.tailEp = { key, t: 0, dur }; }
+  /** 신호의 꼬리 동작. 앉아 있을 땐 바닥에 둔 꼬리로 바꿔 읽는다: 탁탁은 바닥을 치고, 내리기는 몸에 바짝 감고,
+   *  꼬리펑은 흘러내린 채로 부풀리고, 수평·살랑살랑은 바닥의 꼬리 끝으로. */
+  function signTail(key) {
+    const g = TAIL_SIGNS[key], sv = clamp(cat.sit.x, 0, 1);
+    if (sv > 0.5) {
+      if (key === "thump") return { ...g, ...SIT_TAIL, hook: 3, wrap: 0, sway: 2, period: 8, thump: 1, dyn: { w0: 16, zeta: 0.75, grav: 0, inert: 0.3 } };
+      if (key === "down") return { ...g, ...SIT_TAIL, wrap: 1, sway: 0 };
+      if (key === "puff") return { ...g, ...SIT_TAIL, wrap: 0 };
+      if (key === "level") return sitTail();
+      if (key === "sway") return sitTail({ sway: 9, period: 2.6, still: 0 });
+    }
+    return g;
+  }
+  /** 탁탁: 들었다가(0.55) 바닥으로 내리치고(0.13) 잠깐 쉰다. 0..1 */
+  const thumpLift = (ph) => (ph < 0.55 ? smooth(ph / 0.55) : ph < 0.68 ? 1 - smooth((ph - 0.55) / 0.13) : 0);
+  function tailBehavior() {
+    const c = cat, ex = expression(), sign = activeTailSign();
+    if (sign && c.mode !== "grabbed") return signTail(sign);
+    switch (c.mode) {
+      // 걷기·점프: 잡혔을 때처럼 힘을 빼고(약한 스프링 + 몸의 관성을 그대로) 몸 움직임에 늦게 따라오며 살랑인다.
+      // 실제로 흔들리는 빠르기(약 1Hz)·감쇠(약 0.45)를 잡혔을 때와 맞췄다.
+      case "walk":
+        // 행복하면 꼬리를 세우고 걸어온다(인사). 그 밖엔 힘을 빼고 늦게 따라오며 살랑
+        if (c.mood === "happy") return { ...TAIL_SIGNS.up, sway: 7, period: 0, flick: null, dyn: { w0: 7, zeta: 0.6, grav: 0, inert: 0.7 } };
+        return { base: 228, curl: 8, hook: 10, sway: 9, period: 0, flick: null, dyn: { w0: 5, zeta: 0.5, grav: 0.1, inert: 1 } };
+      case "crouch": return { base: 194, curl: 4, hook: 4, sway: 10, period: 0.6, flick: null, dyn: { w0: 6, zeta: 0.55, grav: 0.3, inert: 1 } };
+      case "air": return { base: 198, curl: 5, hook: 0, sway: 0, flick: null, dyn: { w0: 5, zeta: 0.45, grav: 1, inert: 1 } };
+      case "fall": return { base: 198, curl: 5, hook: 0, sway: 0, flick: null, dyn: { w0: 4, zeta: 0.6, grav: 1, inert: 1 } };
+      case "grabbed": return { base: 168, curl: -10, hook: 0, sway: 0, flick: null, dyn: { w0: 2.4, zeta: 1.2, grav: 1, inert: 1 } }; // 힘 빼고 배 쪽으로, 흔들면 몇 번 데롱이다 멈춤
+      case "land": case "shake": return { base: 205, curl: 7, hook: 3, sway: 0, flick: null, dyn: { w0: 5, zeta: 0.5, grav: 0.5, inert: 1 } };
+      case "loaf": return { base: 172, curl: 4.5, hook: 6, sway: 4, period: 9, still: 0.4, flick: [6, 12, 12, 0.7], dyn: TAIL_CALM }; // 바닥에 내려놓은 꼬리
+      case "sit": return sitTail(); // 앉기: 바닥으로 흘러내린 꼬리
+      // 누워 자기: 바닥에 길게, 꿈꾸듯 아주 가끔 까딱
+      case "lie": return { base: 178, curl: -2, hook: 8, sway: 2, period: 12, still: 0.5, flick: [7, 15, 12, 0.8], dyn: TAIL_CALM };
+      case "act": if (c.actP && c.actP.tail) return c.actP.tail; break;
+    }
+    if (ex === "happy" || ex === "nyang") return TAIL_SIGNS.question; // 친근함
+    if (ex === "sleepy") return { base: 186, curl: 6, hook: 0, sway: 3, period: 10, still: 0.4, flick: [7, 14, 10, 0.8], dyn: TAIL_CALM };
+    if (ex === "curious") return TAIL_SIGNS.sway; // 관심·집중: 낮게 살랑살랑
+    return TAIL_SIGNS.level; // 보통: 수평
+  }
+  const wrapAng = (a) => a - TAU * Math.round(a / TAU);
+  /** 마디 i(1..)의 목표 방향(월드 각도, 라디안). */
+  function tailGoal(i) {
+    const c = cat, P = c.tailS, v = (i - 0.5) / TAIL_K + 0.5, f = v / 11; // v: 예전 10마디 기준 위치(마디 가운데)
+    const hookN = Math.max(0, v - 7); // 끝 3/10 만 더 말린다
+    const tipW = smooth((v - 6) / 4);  // 까딱은 끝 4/10 에
+    const wave = P.sway * P.env * Math.pow(f, 1.2) * Math.sin(P.phase - v * 0.33);
+    let th = (P.base + v * P.curl + hookN * (P.hook + P.breath) + wave + P.flick * tipW) * DEG;
+    if (P.thump > 0.01) th += P.thump * 80 * DEG * smooth((f - 0.2) / 0.6) * thumpLift(P.thumpPh); // 바깥 절반을 들었다 내리친다
+    if (P.wrap > 0.001) th = lerp(th, (WRAP_TAIL.base + v * WRAP_TAIL.curl + hookN * WRAP_TAIL.hook - wave - P.flick * tipW) * DEG, P.wrap); // 감은 꼬리: 끝 흔들림은 위로
+    return Math.atan2(Math.sin(th), Math.cos(th) * c.face) + c.rot;
+  }
+  function tailAnchor() {
+    return jigged(TAIL_ROOT[0], TAIL_ROOT[1] + 6 * clamp(cat.loaf.x, 0, 1), TAIL_PROBE);
+  }
+  function updateTail(dt) {
+    const c = cat, B = tailBehavior(), P = c.tailS, F = c.tailFlick, moving = !reduced.matches;
+    if (c.sit.x < 0.05 && c.mode !== "sit" && !(c.actP && c.actP.sit)) c.sitStyle = null; // 일어나면 다음엔 다른 꼬리로
+    c.tailFront = P.wrap > 0.5; // 앞으로 감은 꼬리는 몸·뒷다리 앞에
+    // 자세·성질은 천천히 바꾼다(기분이 바뀌어도 꼬리가 한 번에 튀지 않게)
+    const k = 1 - Math.exp(-dt * 3.2), kd = 1 - Math.exp(-dt * 6);
+    for (const key of ["base", "curl", "hook", "sway"]) P[key] = lerp(P[key], B[key], k);
+    P.wrap = lerp(P.wrap, B.wrap || 0, 1 - Math.exp(-dt * 2.2)); // 감기·풀기는 조금 천천히
+    P.thump = lerp(P.thump, B.thump || 0, k); P.quiver = lerp(P.quiver, B.quiver || 0, 1 - Math.exp(-dt * 8));
+    c.puffHold = Math.max(0, c.puffHold - dt);
+    const puffT = Math.max(B.puff || 0, c.puffHold > 0 ? 1 : 0); // 털은 순식간에 서고 천천히 가라앉는다
+    P.puff = lerp(P.puff, puffT, 1 - Math.exp(-dt * (puffT > P.puff ? 14 : 1.4)));
+    if (P.thump > 0.01) {
+      const ph0 = P.thumpPh; P.thumpPh = (P.thumpPh + dt / 0.95) % 1;
+      if (ph0 < 0.66 && P.thumpPh >= 0.66 && P.thump > 0.5 && moving) { const e = c.tail[c.tail.length - 2]; for (let i = 0; i < 3; i++) effects.push({ kind: "puff", x: e.x + (i - 1) * 3 * S, y: floorY - 1.5 * S, vx: (i - 1) * 14 * S, vy: -10 * S, t: 0, life: 0.4, r: 1.3, col: theme.floor === THEMES.dark.floor ? "rgba(200,190,210,0.55)" : "rgba(120,108,96,0.45)" }); }
+    }
+    P.breath = lerp(P.breath, moving && B.breath ? B.breath * Math.sin(time * 1.4) : 0, k);
+    for (const key of ["w0", "zeta", "grav", "inert"]) P[key] = lerp(P[key], B.dyn[key], kd);
+    // 느린 흔들림: 걸을 땐 걸음에 맞춰 한 번씩, 쉴 땐 느린 주기로. still 만큼은 거의 멈춰서 쉰다
+    if (B.period) P.phase += (TAU / B.period) * dt;
+    // 걸을 땐 두 걸음에 한 번: 꼬리가 스스로 흔들리는 빠르기와 비슷해서, 몸보다 한 박자 늦게 크게 살랑인다
+    else if (c.mode === "walk") P.phase = lerp(P.phase, P.phase + wrapAng(c.gait * Math.PI - P.phase), k);
+    const e = 0.5 + 0.5 * Math.sin(time * 0.21 + 1.3 * Math.sin(time * 0.07));
+    P.env = lerp(P.env, moving ? (B.still ? smooth((e - B.still * 0.6) / 0.4) : 1) : 0, k);
+    // 끝 까딱: 무작위 간격으로 한 번씩, 빠르게 올렸다 천천히 내린다
+    if (!B.flick || !moving) F.next = Math.max(F.next, time + 1.5);
+    else if (F.t0 < 0 && time >= F.next) { F.t0 = time; F.dur = B.flick[3]; F.amp = B.flick[2] * (Math.random() < 0.7 ? 1 : -0.7); }
+    P.flick = 0;
+    if (F.t0 >= 0) {
+      const u = (time - F.t0) / F.dur;
+      if (u >= 1) { F.t0 = -1; F.next = time + (B.flick ? rand(B.flick[0], B.flick[1]) : 2); }
+      else P.flick = F.amp * Math.sin(Math.PI * Math.pow(u, 0.7));
+    }
+
+    // 뿌리(엉덩이)의 가속도: 몸이 갑자기 움직이면 꼬리가 관성으로 늦게 따라온다
+    const anc = tailAnchor(), R = c.tailRoot;
+    if (!R.init) Object.assign(R, { x: anc[0], y: anc[1], vx: 0, vy: 0, ax: 0, ay: 0, init: true });
+    const vx = (anc[0] - R.x) / dt, vy = (anc[1] - R.y) / dt, lim = 25000 * S;
+    R.ax = lerp(R.ax, clamp((vx - R.vx) / dt, -lim, lim), 0.25);
+    R.ay = lerp(R.ay, clamp((vy - R.vy) / dt, -lim, lim), 0.25);
+    R.x = anc[0]; R.y = anc[1]; R.vx = vx; R.vy = vy;
+
+    const A = c.tailA, n = A.length, seg = TAIL_SEG * S;
+    // KB·CB: 이웃 마디끼리 굽힘 강성·감쇠(사슬이 한 몸처럼). 마디가 짧아진 만큼(1/TAIL_K) 키워서 길이당 뻣뻣함은 그대로
+    const K = P.w0 * P.w0, C = 2 * P.zeta * P.w0, KB = 90 * TAIL_K * TAIL_K, CB = 9 * TAIL_K * TAIL_K;
+    const Lh = (n - 1) * seg * 0.5; // 중력·관성은 꼬리 전체에 고르게(뿌리 쪽만 세게 받으면 끝이 갈고리처럼 꺾인다)
+    const gx = -R.ax * P.inert, gy = 1150 * S * P.grav - R.ay * P.inert;
+    const goal = [0];
+    for (let i = 1; i < n; i++) goal.push(tailGoal(i));
+    const acc = [0];
+    for (let i = 1; i < n; i++) {
+      const a = A[i].a, prevA = i === 1 ? goal[1] : A[i - 1].a, prevW = i === 1 ? 0 : A[i - 1].w;
+      let bend = wrapAng(prevA - a), bendW = prevW - A[i].w;
+      if (i < n - 1) { bend += wrapAng(A[i + 1].a - a); bendW += A[i + 1].w - A[i].w; }
+      const tq = (gx * -Math.sin(a) + gy * Math.cos(a)) / Lh;
+      acc.push(K * wrapAng(goal[i] - a) - C * A[i].w + KB * bend + CB * bendW + tq);
+    }
+    for (let i = 1; i < n; i++) { A[i].w += acc[i] * dt; A[i].a += A[i].w * dt; }
+    // 이웃 마디 사이는 꼬리 1/10 길이당 최대 28°까지만 꺾는다: 세게 휘둘려도 끝이 동그랗게 말려 매듭처럼 보이지 않게
+    const maxBend = (28 * DEG) / TAIL_K;
+    for (let i = 2; i < n; i++) {
+      const d = wrapAng(A[i].a - A[i - 1].a);
+      if (Math.abs(d) > maxBend) { A[i].a = A[i - 1].a + Math.sign(d) * maxBend; A[i].w = A[i - 1].w; }
+    }
+
+    // 위치는 뿌리부터 이어 붙인다. 바닥을 뚫으려는 마디는 바닥을 따라 눕힌다
+    const T = c.tail, floorLim = floorY - 3 * S;
+    T[0].x = T[0].px = anc[0]; T[0].y = T[0].py = anc[1];
+    for (let i = 1; i < n; i++) {
+      let a = A[i].a, x = T[i - 1].x + Math.cos(a) * seg, y = T[i - 1].y + Math.sin(a) * seg;
+      if (y > floorLim && P.wrap > 0.02) y = floorLim; // 감는 중: 옆으로 쓸며 도는 마디는 바닥에 비친 것처럼(짧아졌다 길어진다)
+      else if (y > floorLim) {
+        const sn = clamp((floorLim - T[i - 1].y) / seg, -1, 1);
+        const flat = Math.cos(a) >= 0 ? Math.asin(sn) : Math.PI - Math.asin(sn);
+        a = A[i].a = a + wrapAng(flat - a); A[i].w *= 0.5;
+        x = T[i - 1].x + Math.cos(a) * seg; y = T[i - 1].y + Math.sin(a) * seg;
+      }
+      T[i].x = T[i].px = x; T[i].y = T[i].py = y;
+    }
+    if (P.quiver > 0.01 && moving) for (let i = 2; i < n; i++) { // 떨기: 세운 꼬리 위쪽이 바르르
+      const q = P.quiver * 1.3 * S * smooth((i - 2) / (n - 3)) * Math.sin(time * TAU * 11 + (i / TAIL_K) * 1.1), a = A[i].a;
+      T[i].x += -Math.sin(a) * q; T[i].y += Math.cos(a) * q;
+    }
+  }
+  /** 꼬리를 지금 자세의 목표 모양으로 바로 맞춘다(처음 그릴 때·크기 바뀔 때). */
+  function resetTail() {
+    const c = cat, anc = tailAnchor(), seg = TAIL_SEG * S;
+    c.tailRoot.init = false;
+    c.tail[0].x = c.tail[0].px = anc[0]; c.tail[0].y = c.tail[0].py = anc[1];
+    for (let i = 1; i < TAIL_N; i++) {
+      const a = tailGoal(i);
+      c.tailA[i].a = a; c.tailA[i].w = 0;
+      c.tail[i].x = c.tail[i].px = c.tail[i - 1].x + Math.cos(a) * seg;
+      c.tail[i].y = c.tail[i].py = c.tail[i - 1].y + Math.sin(a) * seg;
+    }
+  }
+
+  /**
+   * 몸통 출렁임(2차 운동): 외곽 점마다 '뼈대가 정한 자리'에서 벗어난 만큼을 스프링으로 기억한다.
+   * 뼈대가 가속하면 점은 반대로 밀렸다가 돌아온다. 배 쪽(아래) 점일수록 더 무겁게 출렁인다.
+   */
+  function updateJiggle(dt) {
+    const c = cat, K = lerp(950, 230, c.soft), D = lerp(36, 11, c.soft), maxO = 12 * S, kick = 700 * S * dt;
+    for (let i = 0; i < c.jig.length; i++) {
+      const j = c.jig[i], [lx, ly] = bodyLocal(i), g = L2W(lx, ly);
+      if (!j.init) { j.gx = g[0]; j.gy = g[1]; j.init = true; continue; }
+      const gvx = (g[0] - j.gx) / dt, gvy = (g[1] - j.gy) / dt;
+      j.vx -= clamp(gvx - j.gvx, -kick, kick) * j.w;
+      j.vy -= clamp(gvy - j.gvy, -kick, kick) * j.w;
+      j.vx += (-K * j.ox - D * j.vx) * dt;
+      j.vy += (-K * j.oy - D * j.vy) * dt;
+      j.ox = clamp(j.ox + j.vx * dt, -maxO, maxO);
+      j.oy = clamp(j.oy + j.vy * dt, -maxO, maxO);
+      j.gx = g[0]; j.gy = g[1]; j.gvx = gvx; j.gvy = gvy;
+    }
+    // 이웃끼리 살짝 평균 → 점 하나만 튀지 않고 덩어리째 출렁인다
+    const n = c.jig.length;
+    for (let i = 0; i < n; i++) {
+      const a = c.jig[(i - 1 + n) % n], b = c.jig[i], d2 = c.jig[(i + 1) % n];
+      b.ox = lerp(b.ox, (a.ox + d2.ox) / 2, 0.25); b.oy = lerp(b.oy, (a.oy + d2.oy) / 2, 0.25);
+    }
+  }
+
+  /* ---------- 실루엣: 테두리 없이 같은 색으로 칠해 한 덩어리로 (g = 별도 판) ---------- */
+  function bez(p, a, b, d) { p.bezierCurveTo(a[0], a[1], b[0], b[1], d[0], d[1]); }
+  // 몸을 돌려 옆폭이 납작해질 땐 가로 출렁임도 같은 비율로 줄인다. 안 그러면 납작한 외곽이 출렁임에 꼬여 접히고,
+  // 접힌 부분(반대 감김)이 같은 경로의 목·몸통 심을 지워 머리와 몸이 끊겨 보인다
+  function bodyWorld() { const k = Math.min(1, Math.abs(cat.turn.x) * 1.5); return cat.jig.map((j) => [j.gx + j.ox * k, j.gy + j.oy]); }
+  function traceBody(p) {
+    const pts = bodyWorld(), n = pts.length;
+    p.moveTo((pts[n - 1][0] + pts[0][0]) / 2, (pts[n - 1][1] + pts[0][1]) / 2);
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], b = pts[(i + 1) % n];
+      p.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    }
+    p.closePath();
+  }
+  function traceHead(p) {
+    const P = H2W;
+    const s = P(0, -27); p.moveTo(s[0], s[1]);
+    for (const [a, b, d] of HEAD_SEGS) bez(p, P(a[0], a[1]), P(b[0], b[1]), P(d[0], d[1]));
+    p.closePath();
+  }
+  function legSamples(L) {
+    const out = [], stepLen = 1.6 * S;
+    const seg = (a, b, r0, r1) => {
+      const n = Math.max(2, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / stepLen));
+      for (let i = 0; i <= n; i++) { const t = i / n; out.push([lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(r0, r1, t) * S]); }
+    };
+    // 넓적다리를 위로 갈수록 넓혀서, 몸통 외곽과 만나는 곳에 V자 홈 대신 완만한 곡선이 생기게
+    seg(L.hipW, L.knee, L.r[0] * 1.35, L.r[1] * 1.1);
+    seg(L.knee, L.footW, L.r[1] * 1.1, L.r[2]);
+    return out;
+  }
+  /** 다리 실루엣(동그라미 + 발 타원). 모두 시계 방향이라 겹쳐도 합쳐지고, 그대로 오려 내기(clip)에 쓸 수 있다. */
+  function legsPath(far) {
+    const c = cat, p = new Path2D();
+    for (const L of c.legs) {
+      if (L.far !== far) continue;
+      for (const [x, y, r] of legSamples(L)) { p.moveTo(x + r, y); p.arc(x, y, r, 0, TAU); }
+      const onGround = GROUND.has(c.mode) && L.lift < 1;
+      const pa = onGround ? 0 : (Math.atan2(L.footW[1] - L.knee[1], L.footW[0] - L.knee[0]) - Math.PI / 2) * 0.7;
+      const px = L.footW[0] + c.face * 1.6 * S, py = L.footW[1], pk = lerp(1, 0.65, L.fold || 0); // 식빵: 발바닥도 접어 작게
+      p.moveTo(px + PAW.rx * S * pk, py);
+      p.ellipse(px, py, PAW.rx * S * pk, PAW.ry * S * pk, pa, 0, TAU);
+      if (c.fur === "long") longFurLeg(p, L);
+    }
+    return p;
+  }
+
+  /** 꼬리 중심선(부드러운 곡선 위 점들)과 점마다의 반지름. 무늬도 같은 값을 쓴다. */
+  function tailSamples() {
+    const c = cat, T = c.tail, sh = TAIL_SHAPES[c.tailShape], fluff = FUR_FLUFF[c.fur], N = T.length;
+    // 마디 점을 그대로 지나가게 이으면(캣멀롬) 굽힘이 관절마다 몰려 막대를 이은 것처럼 보인다.
+    // 그래서 마디 점을 '조종점'으로 쓰는 3차 B-스플라인으로 그린다: 굽힘이 꼬리 전체에 고르게 퍼져 물처럼 매끈하게 휜다.
+    // 양 끝 점은 세 번 겹쳐서 뿌리는 엉덩이에, 끝은 마지막 마디에 그대로 붙는다. 마디 수와 물리는 그대로.
+    const Q = [T[0], T[0], ...T, T[N - 1], T[N - 1]], raw = [];
+    for (let i = 0; i + 3 < Q.length; i++) {
+      const a = Q[i], b = Q[i + 1], d = Q[i + 2], e = Q[i + 3];
+      for (let j = 0; j < 3; j++) {
+        const u = j / 3, u2 = u * u, u3 = u2 * u;
+        const w0 = (1 - u) ** 3 / 6, w1 = (3 * u3 - 6 * u2 + 4) / 6, w2 = (-3 * u3 + 3 * u2 + 3 * u + 1) / 6, w3 = u3 / 6;
+        raw.push([w0 * a.x + w1 * b.x + w2 * d.x + w3 * e.x, w0 * a.y + w1 * b.y + w2 * d.y + w3 * e.y]);
+      }
+    }
+    raw.push([T[N - 1].x, T[N - 1].y]);
+    // 길이를 따라 고르게 다시 찍는다(굵기·끝 모임이 마디 간격이 아니라 실제 길이를 따라가게)
+    const cum = [0];
+    for (let i = 1; i < raw.length; i++) cum.push(cum[i - 1] + Math.hypot(raw[i][0] - raw[i - 1][0], raw[i][1] - raw[i - 1][1]));
+    const total = cum[cum.length - 1] || 1e-6, n = Math.max(4, Math.round(50 * sh.show) + 1), pts = [];
+    for (let k = 0, j = 1; k < n; k++) {
+      const sLen = (k / (n - 1)) * total * sh.show;
+      while (j < raw.length - 1 && cum[j] < sLen) j++;
+      const f = clamp((sLen - cum[j - 1]) / ((cum[j] - cum[j - 1]) || 1e-6), 0, 1);
+      pts.push([lerp(raw[j - 1][0], raw[j][0], f), lerp(raw[j - 1][1], raw[j][1], f)]);
+    }
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      // 뿌리 쪽 첫 부분은 조금 더 굵게 시작해서 엉덩이와 부드럽게 이어진다. 다만 원래 길쭉 꼬리 뿌리보다 굵어지진 않게
+      // (복슬 꼬리·장모는 이미 굵어서 더 키우면 엉덩이 뒤로 혹처럼 튀어나온다)
+      const r = S * lerp(sh.r0, sh.r1, t) * fluff, root = Math.min(1 + 0.3 * Math.max(0, 1 - t / 0.12), Math.max(1, (8.3 * S) / r));
+      const tip = 1 - sh.taper * smooth((t - 0.7) / 0.3); // 끝은 뭉툭하게 끊기지 않고 둥글게 모인다
+      const puff = 1 + 0.75 * c.tailS.puff * smooth(t / 0.18); // 꼬리펑: 뿌리만 빼고 굵게
+      out.push([pts[i][0], pts[i][1], r * root * tip * puff]);
+    }
+    return out;
+  }
+  /** 꼬리 실루엣: 동그라미 사슬(+ 장모면 털 다발). 다리처럼 감김 방향이 같아 오려 내기에 쓴다. */
+  function tailPath() {
+    const ts = tailSamples(), p = new Path2D();
+    for (const [x, y, r] of ts) { p.moveTo(x + r, y); p.arc(x, y, r, 0, TAU); }
+    if (cat.fur === "long") longFurTail(p, ts);
+    if (cat.tailS.puff > 0.05) puffTail(p, ts, cat.tailS.puff);
+    return { path: p, ts };
+  }
+  /** 꼬리펑: 꼬리 털이 바깥으로 곤두선다(병솔처럼). */
+  function puffTail(p, ts, k) {
+    const n = ts.length;
+    for (let i = Math.round(n * 0.18); i < n - 1; i += 2) {
+      const [x, y, r] = ts[i], a = ts[i - 1], b = ts[i + 1];
+      let tx = b[0] - a[0], ty = b[1] - a[1];
+      const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      for (const side of [-1, 1]) {
+        const nx = -ty * side, ny = tx * side, j = hash(i * 3.7 + side);
+        let dx = nx * 0.9 + tx * 0.35, dy = ny * 0.9 + ty * 0.35;
+        const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+        lockPath(p, x + nx * r * 0.55, y + ny * r * 0.55, dx, dy, r * (0.45 + 0.35 * j) * k, Math.max(1.8 * S, r * 0.3), (j - 0.5) * 0.4);
+      }
+    }
+  }
+
+  function earPoint(side, x, y, ang) {
+    const pv = [20.5 * side, -16.5];
+    const [dx, dy] = rotv(x * side - pv[0], y - pv[1], ang * side);
+    return H2W(pv[0] + dx, pv[1] + dy);
+  }
+  /*
+   * 아래 실루엣 조각들은  /*
+   * 아래 실루엣 조각들은 모두 '시계 방향'(캔버스 arc 와 같은 방향)으로 만든다.
+   * 그래서 한 경로에 모아도 겹친 곳이 지워지지 않고 그대로 합쳐지며, 그 경로로 오려 내(clip) 무늬를 칠할 수 있다.
+   */
+  const ccw = (pts) => { let a = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; } return a < 0; };
+  /** 목: 몸통과 머리를 잇는 굵은 다리(캡슐). 머리가 늦게 따라와도 사이가 벌어지지 않는다. */
+  function addCapsule(p, a, b, r) {
+    let dx = b[0] - a[0], dy = b[1] - a[1];
+    const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+    const nx = dy * r, ny = -dx * r;
+    p.moveTo(a[0] + r, a[1]); p.arc(a[0], a[1], r, 0, TAU);
+    p.moveTo(b[0] + r, b[1]); p.arc(b[0], b[1], r, 0, TAU);
+    p.moveTo(a[0] + nx, a[1] + ny); p.lineTo(b[0] + nx, b[1] + ny); p.lineTo(b[0] - nx, b[1] - ny); p.lineTo(a[0] - nx, a[1] - ny); p.closePath();
+  }
+  function addNeck(p) {
+    const a = jigged(NECK[0], NECK[1], NECK_PROBE);
+    addCapsule(p, a, H2W(2, 9), 14 * S * cat.bd.neck);
+    // 몸통 심: 목에서 배 가운데까지. 옆에서 볼 땐 몸 안에 숨어 있고, 정면으로 돌아 몸통이 납작해지는 순간엔
+    // 몸통 두께가 되어 머리와 다리가 끊어져 보이지 않게 한다
+    addCapsule(p, a, jigged(CORE[0], CORE[1], CORE_PROBE), 12 * S * cat.bd.neck);
+  }
+  function addBody(p) {
+    let pts = bodyWorld();
+    if (ccw(pts)) pts = pts.slice().reverse();
+    const n = pts.length;
+    p.moveTo((pts[n - 1][0] + pts[0][0]) / 2, (pts[n - 1][1] + pts[0][1]) / 2);
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], b = pts[(i + 1) % n];
+      p.quadraticCurveTo(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+    }
+    p.closePath();
+  }
+  function addHead(p) {
+    const st = H2W(0, -27), segs = HEAD_SEGS.map(([a, b, d]) => [H2W(a[0], a[1]), H2W(b[0], b[1]), H2W(d[0], d[1])]);
+    p.moveTo(st[0], st[1]);
+    if (!ccw([st, ...segs.map((q) => q[2])])) {
+      for (const [a, b, d] of segs) bez(p, a, b, d);
+    } else { // 좌우가 뒤집혀 반시계가 됐으면 거꾸로 따라간다
+      for (let k = segs.length - 1; k >= 0; k--) bez(p, segs[k][1], segs[k][0], k ? segs[k - 1][2] : st);
+    }
+    p.closePath();
+  }
+  /** 귀: 밑변은 귀와 같이 돌지만, 머리 안쪽 두 점에 뿌리를 박아 두어 흔들려도 머리에서 떨어지지 않는다. */
+  function addEar(p, side, ang) {
+    const sh = EAR_SHAPES[cat.earShape];
+    const P = (q) => earPoint(side, q[0], q[1], ang);
+    const n1 = [lerp(sh.b1[0], sh.tip[0], sh.round), lerp(sh.b1[1], sh.tip[1], sh.round)];
+    const n2 = [lerp(sh.b2[0], sh.tip[0], sh.round), lerp(sh.b2[1], sh.tip[1], sh.round)];
+    const A = P(sh.b1), B = P(n1), T = P(sh.tip), D = P(n2);
+    const R2 = H2W(side * 24, -6), R1 = H2W(side * 9, -15);
+    // 바깥쪽 밑동 모서리: 귀가 돌다가 이 모서리가 머리 옆선 밖으로 나가면, 귀가 머리 위에 얹혀 뜬 것처럼 턱이 진다.
+    // 그때는 모서리를 머리 외곽(뿌리 R2 → 모서리 선이 외곽을 지나는 점)에 붙여서, 귀 바깥 선이 머리에서 바로 이어지게 한다
+    const eL = earLocal(side, sh.b2, ang);
+    const E = inPoly(HEAD_PTS, eL[0], eL[1]) ? P(sh.b2) : (() => { const g = crossing(HEAD_PTS, [side * 24, -6], eL); return H2W(g[0], g[1]); })();
+    if (!ccw([A, B, T, D, E, R2, R1])) {
+      p.moveTo(A[0], A[1]); p.lineTo(B[0], B[1]); p.quadraticCurveTo(T[0], T[1], D[0], D[1]); p.lineTo(E[0], E[1]);
+      p.lineTo(R2[0], R2[1]); p.lineTo(R1[0], R1[1]);
+    } else {
+      p.moveTo(R1[0], R1[1]); p.lineTo(R2[0], R2[1]); p.lineTo(E[0], E[1]); p.lineTo(D[0], D[1]);
+      p.quadraticCurveTo(T[0], T[1], B[0], B[1]); p.lineTo(A[0], A[1]);
+    }
+    p.closePath();
+  }
+
+  /*
+   * 살 당김(메타볼처럼): 움직이다가 안에 숨어 있던 뿌리가 드러나는 관절에만, 살이 당겨진 것처럼 곡선으로 메운다.
+   * 가만히 있을 땐 아무것도 더하지 않아 원래 모양 그대로다.
+   * addFillet: 오목한 모서리 c 에서 양쪽 외곽을 '따라' 걸어간 두 점을 c 를 조절점으로 한 곡선으로 잇고 안쪽을 채운다.
+   * side1·side2 = c 에서 각 외곽을 따라 바깥쪽으로 간 점들(마지막 점이 곡선의 양 끝).
+   */
+  function addFillet(p, c, side1, side2) {
+    const ring = [c, ...side1, ...side2.slice().reverse()];
+    let area = 0;
+    for (let i = 0; i < ring.length; i++) { const q = ring[i], w = ring[(i + 1) % ring.length]; area += q[0] * w[1] - w[0] * q[1]; }
+    const [s1, s2] = area > 0 ? [side1, side2] : [side2, side1]; // 다른 조각들처럼 시계 방향으로
+    const e2 = s2[s2.length - 1];
+    p.moveTo(c[0], c[1]);
+    for (const q of s1) p.lineTo(q[0], q[1]);
+    p.quadraticCurveTo(c[0], c[1], e2[0], e2[1]);
+    for (let i = s2.length - 2; i >= 0; i--) p.lineTo(s2[i][0], s2[i][1]);
+    p.closePath();
+  }
+  function inPoly(pts, x, y) {
+    let ins = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i], [xj, yj] = pts[j];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) ins = !ins;
+    }
+    return ins;
+  }
+  /** 안쪽 점 a → 바깥 점 b 선분이 외곽을 지나는 자리 */
+  function crossing(pts, a, b) {
+    let lo = 0, hi = 1;
+    for (let k = 0; k < 14; k++) { const m = (lo + hi) / 2; if (inPoly(pts, lerp(a[0], b[0], m), lerp(a[1], b[1], m))) lo = m; else hi = m; }
+    const m = (lo + hi) / 2;
+    return [lerp(a[0], b[0], m), lerp(a[1], b[1], m)];
+  }
+  /** 닫힌 외곽을 따라 c 에서 away(이 방향과 가까운 쪽)로 dist 만큼 걸어간 점들 */
+  function walkOutline(pts, c, away, dist) {
+    const n = pts.length;
+    let bi = 0, best = Infinity;
+    for (let i = 0; i < n; i++) { const d = segDist(c[0], c[1], pts[i], pts[(i + 1) % n]); if (d < best) { best = d; bi = i; } }
+    const a = pts[bi], b = pts[(bi + 1) % n];
+    const step = (b[0] - a[0]) * away[0] + (b[1] - a[1]) * away[1] >= 0 ? 1 : -1;
+    const out = [];
+    let cur = c, left = dist, idx = step > 0 ? (bi + 1) % n : bi;
+    for (let g = 0; g < n && left > 1e-6; g++) {
+      const q = pts[idx], len = Math.hypot(q[0] - cur[0], q[1] - cur[1]);
+      if (len >= left) { const t = left / len; out.push([lerp(cur[0], q[0], t), lerp(cur[1], q[1], t)]); return out; }
+      out.push(q); left -= len; cur = q; idx = (idx + step + n) % n;
+    }
+    return out;
+  }
+  const earLocal = (side, q, ang) => {
+    const pv = [20.5 * side, -16.5], [dx, dy] = rotv(q[0] * side - pv[0], q[1] - pv[1], ang * side);
+    return [pv[0] + dx, pv[1] + dy];
+  };
+  /** 두 직선 p1 + t·d1, p2 + s·d2 의 교점(거의 평행하면 null) */
+  function lineHit(p1, d1, p2, d2) {
+    const den = d1[0] * d2[1] - d1[1] * d2[0];
+    if (Math.abs(den) < 1e-4) return null;
+    const t = ((p2[0] - p1[0]) * d2[1] - (p2[1] - p1[1]) * d2[0]) / den;
+    return [p1[0] + d1[0] * t, p1[1] + d1[1] * t];
+  }
+  /**
+   * 귀: 귀가 바깥으로 돌면 머리 안에 박혀 있던 안쪽 밑동(뿌리 점 R → 밑변 점 P)이 머리 밖으로 드러나 각진 선이 보인다.
+   * 그때만, 드러난 만큼 머리 외곽에서 귀 안쪽 가장자리로 살이 당겨진 곡선을 그려 덮는다. 바깥쪽 귀 선은 건드리지 않는다.
+   * 계산은 머리 로컬 좌표에서.
+   */
+  function addEarStretch(p, side, ang) {
+    const sh = EAR_SHAPES[cat.earShape];
+    const n1 = [lerp(sh.b1[0], sh.tip[0], sh.round), lerp(sh.b1[1], sh.tip[1], sh.round)];
+    const A = earLocal(side, sh.b1, ang), B = earLocal(side, n1, ang), E = earLocal(side, sh.b2, ang), Tp = earLocal(side, sh.tip, ang);
+    const mid = [(A[0] + E[0] + Tp[0]) / 3, (A[1] + E[1] + Tp[1]) / 3];
+    const W = (q) => H2W(q[0], q[1]);
+    // addEar 의 머리 안쪽 뿌리 점(R1·R2)과 같은 자리
+    for (const [R, P, Q] of [[[side * 9, -15], A, B]]) {
+      if (inPoly(HEAD_PTS, P[0], P[1]) || !inPoly(HEAD_PTS, R[0], R[1])) continue; // 밑동이 안 드러났으면 그대로
+      const c = crossing(HEAD_PTS, R, P);
+      const r = Math.min(8, 2.2 * Math.hypot(P[0] - c[0], P[1] - c[1])); // 많이 드러날수록 살이 넓게 당겨진다
+      if (r < 0.4) continue;
+      const lq = Math.hypot(Q[0] - P[0], Q[1] - P[1]) || 1, v = [(Q[0] - P[0]) / lq, (Q[1] - P[1]) / lq], ev = Math.min(r, lq * 0.7);
+      const Qp = [P[0] + v[0] * ev, P[1] + v[1] * ev];
+      const head = walkOutline(HEAD_PTS, c, [c[0] - mid[0], c[1] - mid[1]], r);
+      if (!head.length) continue;
+      const H = head[head.length - 1], Hp = head.length > 1 ? head[head.length - 2] : c;
+      // 곡선은 H 에서 머리 외곽에, Qp 에서 귀 가장자리에 접하게 → 두 접선의 교점을 조절점으로
+      let X = lineHit(H, [Hp[0] - H[0], Hp[1] - H[1]], Qp, [-v[0], -v[1]]);
+      if (!X || Math.hypot(X[0] - c[0], X[1] - c[1]) > r * 2.5) X = c;
+      const ring = [c, ...head, X, Qp, P].map(W);
+      let area = 0;
+      for (let i = 0; i < ring.length; i++) { const q = ring[i], w = ring[(i + 1) % ring.length]; area += q[0] * w[1] - w[0] * q[1]; }
+      const wc = W(c), wh = head.map(W), wx = W(X), wq = W(Qp), wp = W(P), wH = wh[wh.length - 1];
+      p.moveTo(wc[0], wc[1]);
+      if (area > 0) {
+        for (const q of wh) p.lineTo(q[0], q[1]);
+        p.quadraticCurveTo(wx[0], wx[1], wq[0], wq[1]);
+        p.lineTo(wp[0], wp[1]);
+      } else { // 다른 조각들처럼 시계 방향이 되게 거꾸로
+        p.lineTo(wp[0], wp[1]); p.lineTo(wq[0], wq[1]);
+        p.quadraticCurveTo(wx[0], wx[1], wH[0], wH[1]);
+        for (let i = wh.length - 2; i >= 0; i--) p.lineTo(wh[i][0], wh[i][1]);
+      }
+      p.closePath();
+    }
+  }
+  /**
+   * 꼬리: 꼬리가 가려던 방향보다 관성·중력에 끌려 더 돌아가면, 멀어지는 쪽 뿌리의 살이 당겨진다.
+   * 그쪽 엉덩이 외곽과 꼬리 가장자리 사이만 당겨진 만큼 곡선으로 메운다(몸통 무늬로 칠해진다).
+   */
+  function addTailFillets(p, ts) {
+    const pw = bodyWorld(), n = ts.length;
+    if (n < 4) return;
+    const pull = wrapAng(cat.tailA[1].a - tailGoal(1)); // + 면 시계 방향으로 끌려감
+    // 실제로 그려지는 외곽은 점들의 중점을 지나는 곡선이라, 중점 다각형(곡선보다 살짝 안쪽)을 쓴다
+    const body = pw.map((q, i) => { const w = pw[(i + 1) % pw.length]; return [(q[0] + w[0]) / 2, (q[1] + w[1]) / 2]; });
+    for (const sgn of [1, -1]) {
+      const r = 9 * S * smooth(Math.max(0, -sgn * pull) / (22 * DEG)); // 멀어지는 쪽만, 끌린 만큼
+      if (r < 0.5 * S) continue;
+      const edge = [[ts[0][0], ts[0][1]]]; // 뿌리 중심(몸 안)에서 시작: 뿌리 가장자리가 이미 몸 밖으로 드러난 경우도 잡는다
+      for (let k = 0; k < n - 1; k++) {
+        const [x, y, rr] = ts[k], q = ts[k + 1];
+        let tx = q[0] - x, ty = q[1] - y;
+        const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+        const ri = Math.max(0, rr - 1.2 * S); // 꼬리 안쪽으로 살짝 겹쳐서 이음 선(안티에일리어싱 틈)이 안 보이게
+        edge.push([x - ty * sgn * ri, y + tx * sgn * ri]);
+      }
+      for (let k = 1; k < Math.min(edge.length, 16); k++) {
+        if (!inPoly(body, edge[k - 1][0], edge[k - 1][1]) || inPoly(body, edge[k][0], edge[k][1])) continue;
+        const c = crossing(body, edge[k - 1], edge[k]);
+        // 꼬리 쪽: 꼬리 가장자리를 따라 바깥으로 r 만큼
+        const tailSide = [];
+        let cur = c, left = r;
+        for (let j = k; j < edge.length && left > 1e-6; j++) {
+          const q = edge[j], len = Math.hypot(q[0] - cur[0], q[1] - cur[1]);
+          if (len >= left) { const t = left / len; tailSide.push([lerp(cur[0], q[0], t), lerp(cur[1], q[1], t)]); left = 0; break; }
+          tailSide.push(q); left -= len; cur = q;
+        }
+        // 몸 쪽: 외곽을 따라 꼬리에서 멀어지는 쪽(이 가장자리의 바깥 방향)으로
+        const kk = Math.max(0, k - 1), nrm = [edge[kk + 1][0] - ts[kk][0], edge[kk + 1][1] - ts[kk][1]];
+        addFillet(p, c, walkOutline(body, c, nrm, r), tailSide);
+        break;
+      }
+    }
+  }
+
+  /* ---------- 털 길이 ---------- */
+  const FUR_FLUFF = { short: 1, medium: 1.22, long: 1.5 }; // 꼬리 굵기 배율
+  /**
+   * 중모: 외곽 바로 바깥에 작은 둥근 털뭉치를 촘촘히 붙여 보송한 가장자리를 만들고,
+   * 두 점마다 끝이 둥근 털 한 가닥을 뒤로 빗긴 듯 얹는다. 몸이 출렁인 쪽 반대로 살짝 눕는다.
+   */
+  function furTufts(p, pts, lenBase, jig) {
+    const n = pts.length, s = Math.sign(cat.turn.x) || 1;
+    for (let i = 0; i < n; i++) {
+      const [tx, ty, nx, ny] = outward(pts, i, s), q = pts[i];
+      const L = lenBase * (0.6 + 0.6 * hash(i)) * S;
+      const r = L * 0.55, cx = q[0] + nx * L * 0.18, cy = q[1] + ny * L * 0.18;
+      p.moveTo(cx + r, cy); p.arc(cx, cy, r, 0, TAU);
+      if (i % 2 === 0) { // 두 점마다 뒤로 빗긴 듯한 털 한 가닥, 몸이 출렁인 쪽 반대로 살짝 눕는다
+        const lean = (jig ? -(jig[i].vx * tx + jig[i].vy * ty) * 0.003 : 0) - 0.45 * s;
+        let dx = nx + tx * lean, dy = ny + ty * lean;
+        const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+        lockPath(p, q[0], q[1], dx, dy, L * 1.25, 2.6 * S, 0);
+      }
+    }
+  }
+
+  /**
+   * 털 한 다발: 뿌리는 넓고 끝으로 갈수록 가늘어지다가 둥글게 끝나는 붓 자국(뾰족한 가시처럼 보이지 않게).
+   * 방향만 돌린 같은 모양이라 감김 방향이 늘 같아서(동그라미와 같은 시계 방향), 털뭉치·다발을 한 경로에 모아
+   * 칠하거나 오려 내도 겹친 곳이 지워지지 않는다.
+   */
+  function lockPath(p, x, y, dx, dy, L, w, bend) {
+    const px = dy, py = -dx, b = bend * L; // 이 수직 방향이면 캔버스 arc 와 같은 시계 방향
+    const tx = x + dx * L + px * b, ty = y + dy * L + py * b, r = w * 0.28;
+    p.moveTo(x + px * w, y + py * w);
+    p.quadraticCurveTo(x + dx * L * 0.5 + px * (w * 0.95 + b * 0.5), y + dy * L * 0.5 + py * (w * 0.95 + b * 0.5), tx + px * r, ty + py * r);
+    p.quadraticCurveTo(tx + dx * r * 1.7, ty + dy * r * 1.7, tx - px * r, ty - py * r);
+    p.quadraticCurveTo(x + dx * L * 0.5 + px * (b * 0.5 - w * 0.95), y + dy * L * 0.5 + py * (b * 0.5 - w * 0.95), x - px * w, y - py * w);
+    p.closePath();
+  }
+  /** 외곽 점 i 의 접선(tx,ty)과 바깥쪽 법선(nx,ny). 외곽은 오른쪽을 볼 때 시계 방향이다. */
+  function outward(pts, i, s) {
+    const n = pts.length, a = pts[(i - 1 + n) % n], b = pts[(i + 1) % n];
+    let tx = b[0] - a[0], ty = b[1] - a[1];
+    const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    return [tx, ty, ty * s, -tx * s];
+  }
+  /**
+   * 바닥에 닿는 털: 끝이 바닥을 뚫고 내려가지 않게, 닿는 만큼 짧게 하고 뒤로 눕힌다(바닥에 퍼진 느낌).
+   * 반환값 [dx, dy, L] — L 이 아주 짧으면 그 다발은 그리지 않는다.
+   */
+  function floorLock(by, dx, dy, L, back) {
+    const lim = floorY - 1.5 * S;
+    if (!GROUND.has(cat.mode) || by + dy * L <= lim) return [dx, dy, L];
+    const f = clamp((lim - by) / (dy * L), 0, 1);
+    dx = lerp(back, dx, f); dy = lerp(0.15, dy, f);
+    const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+    return [dx, dy, dy > 0 ? Math.min(L, Math.max(0, lim - by) / dy) : L];
+  }
+  /** 장모 몸통: 등은 매끈하게 두고, 가슴 갈기·배 아래 술·엉덩이 바지털을 길게, 아래로 처지며 뒤로 흐르게. */
+  function longFurBody(p) {
+    const c = cat, pts = bodyWorld(), n = pts.length, s = Math.sign(c.turn.x) || 1, sway = reduced.matches ? 0 : 1;
+    const back = -c.face; // 꼬리 쪽
+    const vol = p, locks = p;
+    for (let i = 0; i < n; i++) {
+      const [lx, ly] = BODY_PTS[i];
+      const chest = sstep(24, 40, lx) * sstep(-26, -8, ly);
+      const belly = sstep(14, 28, ly);
+      const rear = sstep(-34, -44, lx) * sstep(-8, 10, ly);
+      const L0 = 3.5 + 12 * chest + 9 * belly + 8 * rear;
+      if (L0 < 6) continue; // 등은 매끈하게
+      const drop = Math.max(chest * 0.5, belly * 0.85, rear * 0.7); // 얼마나 아래로 처지는지
+      const [tx, ty, nx, ny] = outward(pts, i, s), q = pts[i], j = c.jig[i];
+      const L = L0 * S, r = L * 0.4;
+      const vx = q[0] + nx * L * 0.1, vy = q[1] + ny * L * 0.1;
+      vol.moveTo(vx + r, vy); vol.arc(vx, vy, r, 0, TAU);
+      // 한 자리에 길고 짧은 다발 두 개: 바깥과 아래 사이로, 뒤(꼬리 쪽)로 흐르고,
+      // 몸이 출렁이면 반대쪽으로 눕고, 아주 천천히 살랑인다
+      for (const [o, h, k] of [[0, 3.1, 1.3], [0.5, 8.3, 0.95]]) {
+        let dx = lerp(nx, 0, drop) + back * (0.32 + 0.25 * hash(i * h)) * drop - j.vx * 0.0022 + Math.sin(time * 1.5 + i * 0.8 + o) * 0.07 * drop * sway;
+        let dy = lerp(ny, 1, drop) - j.vy * 0.0012;
+        const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+        let Lk = L * k * (0.65 + 0.6 * hash(i * h + 0.5));
+        const bx = q[0] + tx * o * 5 * S - nx * Lk * 0.3, by = q[1] + ty * o * 5 * S - ny * Lk * 0.3;
+        [dx, dy, Lk] = floorLock(by, dx, dy, Lk, back);
+        if (Lk < 2 * S) continue;
+        lockPath(locks, bx, by, dx, dy, Lk, clamp(L0 * 0.36, 2.8, 5.4) * S, (hash(i * h + 2) - 0.5) * 0.4);
+      }
+    }
+  }
+  /** 장모 다리: 넓적다리·정강이를 덮는 털 다발이 바깥·아래·뒤로 처진다. 발로 갈수록 짧아져 발목 아래는 매끈. */
+  function longFurLeg(p, L) {
+    const c = cat, sm = legSamples(L), n = sm.length, back = -c.face, sway = reduced.matches ? 0 : 1;
+    for (let i = 1; i < n - 1; i += 2) {
+      const t = i / (n - 1);
+      if (t > 0.72) break;
+      const [x, y, r] = sm[i], a = sm[i - 1], b = sm[i + 1];
+      let tx = b[0] - a[0], ty = b[1] - a[1];
+      const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      const Lk0 = lerp(9, 3, t / 0.72) * S;
+      for (const side of [-1, 1]) {
+        const nx = -ty * side, ny = tx * side, h = hash(L.idx * 7.1 + i * 1.7 + side);
+        let dx = nx * 0.5 + back * 0.35 + Math.sin(time * 1.5 + i + L.idx) * 0.05 * sway, dy = ny * 0.5 + 0.8;
+        const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+        let Lk = Lk0 * (0.7 + 0.5 * h);
+        [dx, dy, Lk] = floorLock(y, dx, dy, Lk, back);
+        if (Lk < 1.5 * S) continue;
+        lockPath(p, x + nx * r * 0.45, y + ny * r * 0.45, dx, dy, Lk, Math.max(2 * S, r * 0.42), (h - 0.5) * 0.4);
+      }
+    }
+  }
+  /** 장모 머리: 볼에서 턱으로 갈수록 길어지는 갈기. 정수리·이마는 매끈하게. */
+  function longFurHead(p) {
+    const c = cat, s = Math.sign(c.turn.x) || 1, sway = reduced.matches ? 0 : 1;
+    const pts = HEAD_PTS.map(([x, y]) => H2W(x, y)), n = pts.length;
+    const vol = p, locks = p;
+    for (let i = 0; i < n; i++) {
+      const [lx, ly] = HEAD_PTS[i];
+      if (ly < -6) continue;
+      const L0 = lerp(6, 14, sstep(-6, 18, ly)) * lerp(0.85, 1.1, sstep(8, 30, Math.abs(lx)));
+      const drop = lerp(0.15, 0.6, sstep(4, 24, ly));
+      const [, , nx, ny] = outward(pts, i, s), q = pts[i];
+      let dx = lerp(nx, 0, drop) - c.head.vx * 0.0015 + Math.sin(time * 1.3 + i) * 0.05 * sway;
+      let dy = lerp(ny, 1, drop) - c.head.vy * 0.001;
+      const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+      const L = L0 * (0.85 + 0.3 * hash(i * 4.3 + 1)) * S, r = L * 0.42 + 1.5 * S;
+      const vx = q[0] + nx * L * 0.12, vy = q[1] + ny * L * 0.12;
+      vol.moveTo(vx + r, vy); vol.arc(vx, vy, r, 0, TAU);
+      const by = q[1] - ny * L * 0.3;
+      let Lk;
+      [dx, dy, Lk] = floorLock(by, dx, dy, L * 1.25, -c.face);
+      if (Lk < 2 * S) continue;
+      lockPath(locks, q[0] - nx * L * 0.3, by, dx, dy, Lk, clamp(L0 * 0.42, 3, 5.5) * S, (hash(i * 6.1) - 0.5) * 0.35);
+    }
+  }
+  /** 장모 꼬리: 양옆으로 끝 쪽을 향해 빗긴 넓은 다발 + 끝 한 다발(꼬리 경로 p 에 더한다). */
+  function longFurTail(p, ts) {
+    const locks = p, n = ts.length;
+    for (let i = 2; i < n - 1; i += 3) {
+      const [x, y, r] = ts[i], a = ts[i - 1], b = ts[i + 1];
+      let tx = b[0] - a[0], ty = b[1] - a[1];
+      const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      for (const side of [-1, 1]) {
+        const nx = -ty * side, ny = tx * side;
+        let dx = nx * 0.65 + tx * 0.75, dy = ny * 0.65 + ty * 0.75;
+        const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+        lockPath(locks, x + nx * r * 0.25, y + ny * r * 0.25, dx, dy, r * (1 + 0.35 * hash(i * 5.3 + side)), Math.max(2.6 * S, r * 0.5), (hash(i * 2.9 + side) - 0.5) * 0.35);
+      }
+    }
+    const e = ts[n - 1], f = ts[Math.max(0, n - 3)];
+    let tx = e[0] - f[0], ty = e[1] - f[1];
+    const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    lockPath(locks, e[0] - tx * e[2] * 0.3, e[1] - ty * e[2] * 0.3, tx, ty, e[2] * 1.4, e[2] * 0.6, 0);
+  }
+
+  /* ---------- 털 무늬 생성기 ----------
+     실제 고양이에서 무늬가 생기는 방식을 줄여서 돌린다. 씨앗(seed)이 바뀌면 배치가 새로 나온다.
+     · 흰 반점: 등줄기(신경능선)에서 출발한 색소세포가 무작위 속도로 퍼지고, 늦게 닿는 곳(배·가슴·발·주둥이)이 희게 남는다 (Mort 외 2016)
+     · 삼색: 일찍 정해진 X 염색체 클론 몇 개가 서로 먼저 자리를 차지하며 퍼져 큰 조각이 된다
+     · 줄무늬: 가까이는 켜고 멀리는 끄는 활성자–억제자(튜링) 모형(Young 1984). 범위를 세로로 길게 → 고등어 줄무늬 (Kaelin 외 2021)
+     · 포인트: 온도에 민감한 효소 → 체온이 낮은 끝(얼굴 가운데·귀·발·꼬리)만 진하게
+     결과: 몸통·머리는 로컬 좌표 텍스처, 다리·꼬리는 뿌리→끝 색 띠. */
+  const WHITE = [247, 243, 236];
+  const hex2rgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const css = (c) => `rgb(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])})`;
+  const gauss = (x, y, cx, cy, r) => Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * r * r));
+  function mulberry32(a) {
+    return () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  /** 씨앗을 따르는 값 노이즈(fbm). 반환값은 대략 -1..1. */
+  function makeNoise(rng) {
+    const P = new Uint8Array(512), G = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { P[i] = i; G[i] = rng() * 2 - 1; }
+    for (let i = 255; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = P[i]; P[i] = P[j]; P[j] = t; }
+    for (let i = 0; i < 256; i++) P[i + 256] = P[i];
+    const v = (ix, iy) => G[P[(P[ix & 255] + iy) & 255]];
+    const n2 = (x, y) => {
+      const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+      const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+      return lerp(lerp(v(ix, iy), v(ix + 1, iy), sx), lerp(v(ix, iy + 1), v(ix + 1, iy + 1), sx), sy);
+    };
+    return (x, y, oct = 3) => {
+      let sum = 0, amp = 1, f = 1, norm = 0;
+      for (let o = 0; o < oct; o++) { sum += n2(x * f + o * 17.3, y * f - o * 9.1) * amp; norm += amp; amp *= 0.5; f *= 2; }
+      return (sum / norm) * 1.6;
+    };
+  }
+  // 로컬 좌표 위 격자
+  function makeGrid(x0, y0, x1, y1, cell) {
+    const nx = Math.round((x1 - x0) / cell) + 1, ny = Math.round((y1 - y0) / cell) + 1;
+    return { x0, y0, cell, nx, ny, n: nx * ny };
+  }
+  const cellXY = (G, i) => [G.x0 + (i % G.nx) * G.cell, G.y0 + Math.floor(i / G.nx) * G.cell];
+  const cellAt = (G, x, y) => clamp(Math.round((y - G.y0) / G.cell), 0, G.ny - 1) * G.nx + clamp(Math.round((x - G.x0) / G.cell), 0, G.nx - 1);
+  function sampleGrid(G, f, x, y) {
+    const u = clamp((x - G.x0) / G.cell, 0, G.nx - 1.001), v = clamp((y - G.y0) / G.cell, 0, G.ny - 1.001);
+    const i = u | 0, j = v | 0, fu = u - i, fv = v - j, k = j * G.nx + i;
+    return lerp(lerp(f[k], f[k + 1], fu), lerp(f[k + G.nx], f[k + G.nx + 1], fu), fv);
+  }
+  function blurGrid(G, f, passes) {
+    let a = f;
+    for (let p = 0; p < passes; p++) {
+      const b = new Float32Array(G.n);
+      for (let y = 0; y < G.ny; y++) for (let x = 0; x < G.nx; x++) {
+        let sum = 0, w = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= G.nx || yy >= G.ny) continue;
+          const k = (dx ? 1 : 2) * (dy ? 1 : 2);
+          sum += a[yy * G.nx + xx] * k; w += k;
+        }
+        b[y * G.nx + x] = sum / w;
+      }
+      a = b;
+    }
+    return a;
+  }
+  const NB8 = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]];
+  /**
+   * 색소세포가 퍼지는 시간(최초 도달 시간). speed = 칸마다 이동 속도, rates = 클론마다 퍼지는 빠르기.
+   * 먼저 닿은 클론이 그 칸을 차지해서 다른 클론은 못 지나간다(삼색 얼룩의 클론 경쟁).
+   */
+  function colonize(G, speed, sources, rates) {
+    const { n, nx, ny } = G;
+    const T = new Float32Array(n).fill(1e9), lab = new Int16Array(n).fill(-1), done = new Uint8Array(n);
+    let hk = new Float32Array(4096), hv = new Int32Array(4096), hn = 0;
+    const push = (k, v) => {
+      if (hn === hk.length) {
+        const k2 = new Float32Array(hn * 2); k2.set(hk); hk = k2;
+        const v2 = new Int32Array(hn * 2); v2.set(hv); hv = v2;
+      }
+      let i = hn++;
+      while (i > 0) { const q = (i - 1) >> 1; if (hk[q] <= k) break; hk[i] = hk[q]; hv[i] = hv[q]; i = q; }
+      hk[i] = k; hv[i] = v;
+    };
+    const pop = () => {
+      const top = hv[0], k = hk[--hn], v = hv[hn];
+      let i = 0;
+      for (;;) {
+        let ch = 2 * i + 1;
+        if (ch >= hn) break;
+        if (ch + 1 < hn && hk[ch + 1] < hk[ch]) ch++;
+        if (hk[ch] >= k) break;
+        hk[i] = hk[ch]; hv[i] = hv[ch]; i = ch;
+      }
+      hk[i] = k; hv[i] = v;
+      return top;
+    };
+    for (const sc of sources) { T[sc.i] = 0; lab[sc.i] = sc.label; push(0, sc.i); }
+    while (hn > 0) {
+      const u = pop();
+      if (done[u]) continue;
+      done[u] = 1;
+      const ux = u % nx, uy = (u / nx) | 0, r = rates ? rates[lab[u]] : 1;
+      for (const [dx, dy, w] of NB8) {
+        const x = ux + dx, y = uy + dy;
+        if (x < 0 || y < 0 || x >= nx || y >= ny) continue;
+        const v = y * nx + x;
+        if (done[v]) continue;
+        const t = T[u] + (w * G.cell) / (0.5 * (speed[u] + speed[v]) * r);
+        if (t < T[v]) { T[v] = t; lab[v] = lab[u]; push(t, v); }
+      }
+    }
+    return { T, lab };
+  }
+  /**
+   * 줄무늬: Young(1984)의 활성자–억제자 모형. 각 칸은 가까운 타원(a1×b1) 안의 무늬 세포에 켜지고
+   * 그 바깥 고리(a2×b2)의 무늬 세포에 꺼진다. 타원을 세로로 길게 잡으면 세로 줄이 된다.
+   * 켜지는 기준은 '무늬가 전체의 frac 만큼'이 되게 매번 맞춘다 → 씨앗이 달라도 줄이 사라지거나 뒤덮지 않는다.
+   */
+  function turing(G, rng, a1, b1, a2, b2, w, iters, frac) {
+    const { nx, ny, n, cell } = G;
+    const R1x = a1 / cell, R1y = b1 / cell, R2x = a2 / cell, R2y = b2 / cell, K = [];
+    for (let dy = -Math.floor(R2y); dy <= Math.floor(R2y); dy++) {
+      for (let dx = -Math.floor(R2x); dx <= Math.floor(R2x); dx++) {
+        if ((dx / R2x) ** 2 + (dy / R2y) ** 2 > 1) continue;
+        K.push(dx, dy, (dx / R1x) ** 2 + (dy / R1y) ** 2 <= 1 ? 1 : -w);
+      }
+    }
+    let u = new Float32Array(n);
+    for (let i = 0; i < n; i++) u[i] = rng() < 0.5 ? 1 : 0;
+    const sum = new Float32Array(n);
+    for (let it = 0; it < iters; it++) {
+      for (let y = 0; y < ny; y++) {
+        for (let x = 0; x < nx; x++) {
+          let acc = 0;
+          for (let k = 0; k < K.length; k += 3) {
+            let xx = x + K[k], yy = y + K[k + 1];
+            if (xx < 0) xx = -xx; else if (xx >= nx) xx = 2 * nx - 2 - xx;
+            if (yy < 0) yy = -yy; else if (yy >= ny) yy = 2 * ny - 2 - yy;
+            acc += u[yy * nx + xx] * K[k + 2];
+          }
+          sum[y * nx + x] = acc;
+        }
+      }
+      const q = Float32Array.from(sum).sort()[Math.floor(n * (1 - frac))];
+      const v = new Float32Array(n);
+      for (let i = 0; i < n; i++) v[i] = sum[i] > q ? 1 : 0;
+      u = v;
+    }
+    return u;
+  }
+  function segDist(x, y, a, b) {
+    const vx = b[0] - a[0], vy = b[1] - a[1];
+    const t = clamp(((x - a[0]) * vx + (y - a[1]) * vy) / (vx * vx + vy * vy || 1), 0, 1);
+    return Math.hypot(x - a[0] - vx * t, y - a[1] - vy * t);
+  }
+  // 몸통 윗선(등줄기): x 에서 외곽의 가장 높은 y. 외곽 밖이면 Infinity.
+  const TOP = (() => {
+    let k = 0;
+    BODY_PTS.forEach(([x], i) => { if (x > BODY_PTS[k][0]) k = i; });
+    const pts = BODY_PTS.slice(0, k + 1);
+    return (x) => {
+      let best = Infinity;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+        if (ax !== bx && (x - ax) * (x - bx) <= 0) best = Math.min(best, lerp(ay, by, (x - ax) / (bx - ax)));
+      }
+      return best;
+    };
+  })();
+  function makeTex(x0, y0, x1, y1, fn) {
+    const R = 2, w = Math.round((x1 - x0) * R), h = Math.round((y1 - y0) * R);
+    const cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    const g = cv.getContext("2d"), img = g.createImageData(w, h), d = img.data;
+    for (let j = 0; j < h; j++) {
+      for (let i = 0; i < w; i++) {
+        const c = fn(x0 + (i + 0.5) / R, y0 + (j + 0.5) / R), k = (j * w + i) * 4;
+        d[k] = c[0]; d[k + 1] = c[1]; d[k + 2] = c[2]; d[k + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    return { canvas: cv, x0, y0, w: x1 - x0, h: y1 - y0 };
+  }
+
+  function generateCoat() {
+    const c = cat, P = c.patterns, rng = mulberry32(c.seed), noise = makeNoise(rng);
+    const cal = P.has("calico"), hasW = P.has("white") || cal, tab = P.has("tabby"), pnt = P.has("point");
+    const pal = (co) => ({ b: hex2rgb(co.body), tg: hex2rgb(co.tabby[0]), ts: hex2rgb(co.tabby[1]), pb: hex2rgb(co.point.body), pt: hex2rgb(co.point.pt) });
+    const C0 = pal(c.coat), C1 = pal(COATS[c.coat.alt]);
+    // 한 클론의 색: 포인트면 옅은 몸색↔진한 끝색, 줄무늬면 바탕↔줄
+    const one = (C, st, pg) => {
+      if (pnt) return mixc(C.pb, tab ? mixc(mixc(C.pb, C.pt, 0.5), C.pt, st) : C.pt, pg);
+      return tab ? mixc(C.tg, C.ts, st) : C.b;
+    };
+    const resolve = (ca, st, pg, w) => {
+      const col = ca <= 0.001 ? one(C0, st, pg) : ca >= 0.999 ? one(C1, st, pg) : mixc(one(C0, st, pg), one(C1, st, pg), ca);
+      return w > 0.001 ? mixc(col, WHITE, w) : col;
+    };
+
+    // 흰 반점 등급: 0 = 발끝 정도, 1 = 반 넘게 흰 고양이. 삼색은 흰 바탕이 넓은 쪽에서 뽑는다.
+    const grade = cal ? lerp(0.35, 0.85, rng()) : 0.04 + 0.86 * Math.pow(rng(), 1.15);
+    // 포인트에 흰 반점이 겹치면(랙돌 미티드처럼) 얼굴 흰 털은 턱까지만: 마스크가 반으로 갈려 콧수염처럼 보이지 않게
+    const tauB = lerp(1.1, 0.32, grade), tauH = pnt ? Math.max(0.98, lerp(1.15, 0.42, grade)) : lerp(1.15, 0.42, grade);
+    const dens = lerp(0.82, 1, rng()), shadeB = lerp(0.1, 0.3, rng()), maskR = lerp(12, 18, rng());
+    const GB = makeGrid(-78, -58, 78, 58, 1.5), GH = makeGrid(-62, -60, 62, 60, 1.5), GS = makeGrid(-78, -58, 78, 58, 2);
+
+    // 1) 등줄기에서 출발한 색소세포가 닿는 시간 (배 가운데 = 1 로 맞춘다)
+    const spB = new Float32Array(GB.n), srcB = [];
+    for (let i = 0; i < GB.n; i++) {
+      const [x, y] = cellXY(GB, i), top = TOP(x);
+      // 가슴은 앞으로 돌아 들어가는 먼 자리라 느리게
+      spB[i] = Math.exp(0.38 * noise(x / 24, y / 24, 3)) * (1 - 0.32 * gauss(x, y, 44, 8, 13));
+      if (x <= 18 && ((isFinite(top) && y <= top + 1) || (x < -44 && y < -2))) srcB.push({ i, label: 0 });
+    }
+    const TB = colonize(GB, spB, srcB).T;
+    let ref = 0, cnt = 0;
+    for (const [x, y] of BODY_PTS) if (y > 24 && x > -30 && x < 26) { ref += sampleGrid(GB, TB, x, y); cnt++; }
+    ref = ref / Math.max(1, cnt) || 1;
+    const TnB = TB.map((v) => v / ref);
+
+    const spH = new Float32Array(GH.n), srcH = [];
+    for (let i = 0; i < GH.n; i++) {
+      const [x, y] = cellXY(GH, i);
+      // 얼굴 가운데(콧등·주둥이)는 양쪽에서 온 세포가 마지막에 만나는 곳이라 느리게 → 흰 털이 ∧ 모양으로 올라간다
+      spH[i] = Math.exp(0.3 * noise(x / 18 + 31, y / 18, 3)) * (y > -20 ? lerp(0.5, 1, sstep(3, 16, Math.abs(x - FO))) : 1);
+      if (y < -23) srcH.push({ i, label: 0 });
+    }
+    const TH = colonize(GH, spH, srcH).T, refH = sampleGrid(GH, TH, FO, 25) || 1;
+    // 머리 아래쪽(턱·목)은 겹쳐 보이는 몸통 가슴과 늦게 닿는 정도를 맞춘다 → 흰 가슴 위에 검은 목도리가 생기지 않게
+    const TnH = TH.map((v, i) => { const [x, y] = cellXY(GH, i); return v / refH + 0.3 * sstep(6, 26, y) * (1 - 0.5 * sstep(20, 34, Math.abs(x - FO))) + 0.35 * sstep(18, 40, y); });
+
+    // 2) 삼색: 클론 몇 개를 등 쪽·머리 위에 두고 서로 경쟁하며 퍼지게
+    let indB = null, indH = null, tailRoot = 0;
+    const labels = [];
+    if (cal) {
+      const nB = 3 + Math.floor(rng() * 3), nH = rng() < 0.7 ? 2 : 3;
+      for (let k = 0; k < nB + nH; k++) labels.push(rng() < 0.5 ? 0 : 1);
+      if (labels.every((l) => l === labels[0])) labels[Math.floor(rng() * labels.length)] ^= 1;
+      const rates = labels.map(() => lerp(0.75, 1.3, rng()));
+      const spC = (G, o) => {
+        const sp = new Float32Array(G.n);
+        for (let i = 0; i < G.n; i++) { const [x, y] = cellXY(G, i); sp[i] = Math.exp(0.5 * noise(x / 15 + o, y / 15 - o, 2)); }
+        return sp;
+      };
+      const fb = [];
+      for (let k = 0; k < nB; k++) {
+        const x = lerp(-44, 34, (k + 0.15 + 0.7 * rng()) / nB), top = TOP(clamp(x, -44, 36));
+        fb.push({ i: cellAt(GB, x, lerp(isFinite(top) ? top + 2 : -24, 6, rng() * 0.8)), label: k });
+      }
+      const cb = colonize(GB, spC(GB, 7), fb, rates);
+      indB = blurGrid(GB, Float32Array.from(cb.lab, (l) => (l >= 0 ? labels[l] : 0)), 2);
+      const fh = [];
+      for (let k = 0; k < nH; k++) {
+        const side = nH === 2 ? (k ? 1 : -1) : k - 1;
+        fh.push({ i: cellAt(GH, FO + side * lerp(12, 24, rng()), lerp(-26, -6, rng())), label: nB + k });
+      }
+      const ch = colonize(GH, spC(GH, 19), fh, rates);
+      indH = blurGrid(GH, Float32Array.from(ch.lab, (l) => (l >= 0 ? labels[l] : 0)), 2);
+      tailRoot = sampleGrid(GB, indB, TAIL_ROOT[0], TAIL_ROOT[1]) > 0.5 ? 1 : 0;
+    }
+
+    // 3) 줄무늬: 몸통은 튜링 모형, 등줄기엔 짙은 선. 얼굴은 이마 M자와 눈꼬리·뺨 선을 무작위로.
+    let stB = null;
+    const strokes = [];
+    if (tab) {
+      const u = turing(GS, rng, 3, 14, 9.5, 28, 0.3, 10, 0.32);
+      for (let i = 0; i < GS.n; i++) { const [x, y] = cellXY(GS, i); if (sampleGrid(GB, TnB, x, y) < 0.07) u[i] = 1; } // 등줄기 선
+      stB = blurGrid(GS, u, 1);
+      const nM = rng() < 0.5 ? 3 : 5, sp = lerp(3.6, 4.6, rng());
+      for (let k = 0; k < nM; k++) {
+        const o = (k - (nM - 1) / 2) * sp, len = lerp(10, 16, rng()) - Math.abs(o) * 0.5;
+        const x0 = FO + o, y0 = -31, x1 = FO + o * 1.25 + (rng() - 0.5) * 2, y1 = -27 + len;
+        strokes.push({ pts: [[x0, y0], [lerp(x0, x1, 0.5) + (rng() - 0.5) * 1.5, lerp(y0, y1, 0.5)], [x1, y1]], w: 1.15 });
+      }
+      for (const side of [-1, 1]) {
+        strokes.push({ pts: [[FO + side * 19, 1], [FO + side * 27, (rng() - 0.5) * 2], [FO + side * 36, 3 + rng() * 3]], w: 1.1 });
+        if (rng() < 0.8) strokes.push({ pts: [[FO + side * 17, 12], [FO + side * 26, 11 + (rng() - 0.5) * 2], [FO + side * 36, 14 + rng() * 4]], w: 1 });
+      }
+    }
+    const strokeField = (x, y) => {
+      let m = 0;
+      for (const sk of strokes) {
+        for (let i = 0; i < sk.pts.length - 1; i++) m = Math.max(m, 1 - sstep(sk.w * 0.6, sk.w * 1.6, segDist(x, y, sk.pts[i], sk.pts[i + 1])));
+      }
+      return m;
+    };
+
+    const jit = (x, y, o) => noise(x / 9 + o, y / 9 - o, 2);
+    const body = makeTex(-78, -58, 78, 58, (x, y) => {
+      const tn = sampleGrid(GB, TnB, x, y);
+      const w = hasW ? sstep(tauB - 0.03, tauB + 0.03, tn + 0.05 * jit(x, y, 3)) : 0;
+      const ca = cal ? sstep(0.42, 0.58, sampleGrid(GB, indB, x, y)) : 0;
+      const st = tab ? 0.88 * sstep(0.4, 0.62, sampleGrid(GS, stB, x - 0.004 * (y + 30) ** 2, y)) * (1 - 0.7 * sstep(0.4, 1.05, tn)) : 0;
+      const pg = pnt ? dens * clamp(shadeB * sstep(10, -30, y) + 0.35 * gauss(x, y, -48, -6, 9), 0, 1) : 0;
+      return resolve(ca, st, pg, w);
+    });
+    const headFn = (x, y) => {
+      const tn = sampleGrid(GH, TnH, x, y);
+      const w = hasW ? sstep(tauH - 0.03, tauH + 0.03, tn + 0.05 * jit(x, y, 9)) : 0;
+      const ca = cal ? sstep(0.42, 0.58, sampleGrid(GH, indH, x, y)) : 0;
+      const st = tab ? strokeField(x, y) : 0;
+      // 마스크: 코·주둥이를 중심으로 옆으로 퍼진 타원, 눈 위로는 옅게
+      const mask = 1 - sstep(maskR * 0.5, maskR, Math.hypot((x - FO) / 1.35, (y - 13) / (y < 13 ? 0.95 : 0.8)));
+      const ears = sstep(-14, -24, y) * sstep(6, 12, Math.abs(x));
+      const pg = pnt ? dens * Math.max(mask, ears) : 0;
+      return resolve(ca, st, pg, w);
+    };
+    const head = makeTex(-62, -60, 62, 60, headFn);
+
+    // 다리: 엉덩이에서 발끝으로 갈수록 색소세포가 늦게 닿는다(양말), 포인트는 발끝이 진하다
+    const legs = LEG_DEFS.map((d) => {
+      const [hx, hy] = d.hip, tn0 = sampleGrid(GB, TnB, hx, hy + 6), more = 0.62 + (rng() - 0.5) * 0.3;
+      const ca0 = cal ? (sampleGrid(GB, indB, hx, hy + 4) > 0.5 ? 1 : 0) : 0;
+      const flip = cal && rng() < 0.25 ? lerp(0.45, 0.8, rng()) : 2;
+      const nb = 3 + Math.floor(rng() * 2), ph = rng(), t0 = lerp(0.22, 0.45, rng());
+      const out = [];
+      for (let k = 0; k <= 24; k++) {
+        const t = k / 24;
+        const w = hasW ? sstep(tauB - 0.025, tauB + 0.025, tn0 + t * more) : 0;
+        const st = tab ? sstep(0.62, 0.8, 0.5 + 0.5 * Math.sin((t * nb + ph) * TAU)) * sstep(0.2, 0.4, t) : 0;
+        const pg = pnt ? dens * sstep(t0, t0 + 0.35, t) : 0;
+        out.push(css(resolve(t > flip ? 1 - ca0 : ca0, st, pg, w)));
+      }
+      return out;
+    });
+    // 꼬리: 등 쪽이라 거의 희지 않다. 삼색은 마디마다 색이 바뀔 수 있고, 줄무늬는 고리, 포인트는 진하게.
+    const flips = cal ? Array.from({ length: Math.floor(rng() * 3) }, () => lerp(0.2, 0.85, rng())) : [];
+    const whiteTip = hasW && grade > 0.25 && rng() < 0.3 ? lerp(0.8, 0.92, rng()) : 2;
+    const nr = 6 + Math.floor(rng() * 3), tph = rng();
+    const tail = [];
+    for (let k = 0; k <= 40; k++) {
+      const t = k / 40;
+      const ca = flips.reduce((v, f) => (t > f ? 1 - v : v), tailRoot);
+      const ring = Math.max(sstep(0.5, 0.7, 0.5 + 0.5 * Math.sin((t * nr + tph) * TAU)), sstep(0.88, 0.92, t));
+      const st = tab ? ring * sstep(0.06, 0.2, t) : 0;
+      const pg = pnt ? dens * lerp(0.55, 1, sstep(0, 0.25, t)) : 0;
+      tail.push(css(resolve(ca, st, pg, t > whiteTip ? 1 : 0)));
+    }
+
+    c.coatTex = {
+      body, head, legs, tail, grade,
+      base: css(resolve(0, 0, pnt ? dens * 0.1 : 0, 0)),
+    };
+  }
+  function reroll() { cat.seed = (Math.random() * 4294967296) >>> 0; generateCoat(); }
+
+  /* ---------- 고양이 합성 도우미 ---------- */
+  function affineOf(map) {
+    const o = map(0, 0), a = map(1, 0), b = map(0, 1);
+    return [a[0] - o[0], a[1] - o[1], b[0] - o[0], b[1] - o[1], o[0], o[1]];
+  }
+  // 식빵일 때 몸통이 낮아지는 만큼 무늬도 같이 눌러 준다(bodyLocal 의 근사)
+  // 식빵·누워 자기로 몸통이 눌리는 만큼 무늬도 같이 눌러 준다(bodyLocal 의 위 -29 / 아래 31 을 맞춘 1차 근사)
+  const bodyMatrix = () => {
+    const l = clamp(cat.loaf.x, 0, 1.2), lv = clamp(cat.lie.x, 0, 1);
+    const kt = 1 - 0.14 * l - 0.2 * lv, kb = 1 - 0.06 * lv, a = (31 * kb + 29 * kt) / 60, b = 31 * kb - 31 * a;
+    return affineOf((x, y) => L2W(x * (1 + 0.06 * l + 0.08 * lv), y * a + b));
+  };
+  const headMatrix = () => affineOf(H2W);
+  function drawTex(g, t, m) {
+    g.setTransform(m[0] * DPR, m[1] * DPR, m[2] * DPR, m[3] * DPR, m[4] * DPR, m[5] * DPR);
+    g.drawImage(t.canvas, t.x0, t.y0, t.w, t.h);
+    g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  /** 뿌리→끝 색 띠를 동그라미로 찍는다. 같은 색이 이어지면 한 번에 칠한다. */
+  function stamp(g, items, colors) {
+    const m = colors.length - 1;
+    let cur = null;
+    for (const [x, y, r, t] of items) {
+      const col = colors[Math.round(clamp(t, 0, 1) * m)];
+      if (col !== cur) { if (cur !== null) g.fill(); g.fillStyle = col; g.beginPath(); cur = col; }
+      g.moveTo(x + r, y); g.arc(x, y, r, 0, TAU);
+    }
+    if (cur !== null) g.fill();
+  }
+  function paintLegs(g, far) {
+    const c = cat, legs = c.coatTex.legs;
+    c.legs.forEach((L, li) => {
+      if (L.far !== far) return;
+      const sm = legSamples(L), n = sm.length;
+      const legK = c.fur === "long" ? 2.3 : 1; // 장모 다리 털 다발까지 칠한다
+      const items = sm.map(([x, y, r], i) => [x, y, r * legK + 3 * S, i / (n - 1)]);
+      items.push([L.footW[0] + c.face * 1.6 * S, L.footW[1], (PAW.rx + 3) * S, 1]);
+      stamp(g, items, legs[li]);
+    });
+  }
+  /**
+   * 고양이 합성: 부위마다 실루엣 경로를 만들고, 본 화면에 그 경로로 오려 내(clip) 무늬를 칠한다.
+   * 중간 캔버스를 거치지 않아 가볍고, 가장자리 안티에일리어싱도 한 번만 일어난다.
+   */
+  function composeCat() {
+    const c = cat, tex = c.coatTex;
+    const tail = tailPath(), farLegs = legsPath(true), nearLegs = legsPath(false);
+    const body = new Path2D();
+    addBody(body);
+    addTailFillets(body, tail.ts);
+    if (c.fur === "medium") furTufts(body, bodyWorld(), 5.4, c.jig);
+    if (c.fur === "long") longFurBody(body);
+    addNeck(body);
+    const head = new Path2D();
+    addEar(head, -1, c.ears[0].x); addEar(head, 1, c.ears[1].x);
+    addEarStretch(head, -1, c.ears[0].x); addEarStretch(head, 1, c.ears[1].x);
+    addHead(head);
+    if (c.fur === "medium") furTufts(head, HEAD_PTS.filter(([, y]) => y > -6).map(([x, y]) => H2W(x, y)), 6.2, null);
+    if (c.fur === "long") longFurHead(head);
+
+    // 아주 옅은 그림자로 가장자리만 띄운다(선 없이도 흰 털이 밝은 배경에 묻히지 않게).
+    // 실루엣 전체를 화면 밖에 칠하고 그림자만 제자리로 보내서, 흐림은 한 번만.
+    const all = new Path2D();
+    for (const q of [tail.path, farLegs, body, nearLegs, head]) all.addPath(q);
+    ctx.save();
+    ctx.shadowColor = "rgba(40, 28, 48, 0.32)";
+    ctx.shadowBlur = 5 * DPR;
+    ctx.shadowOffsetX = 5000 * DPR;
+    ctx.shadowOffsetY = 0.8 * DPR;
+    ctx.translate(-5000, 0);
+    ctx.fillStyle = "#000";
+    ctx.fill(all);
+    ctx.restore();
+
+    const clipped = (path, paint) => { ctx.save(); ctx.clip(path); paint(ctx); ctx.restore(); };
+    const tailK = c.fur === "long" ? 2.4 : 1.2, nT = tail.ts.length;
+    // 꼬리·다리: 뿌리→끝 색 띠를 찍는다(찍는 동그라미가 실루엣보다 커서 빈틈이 없다)
+    const paintTail = () => clipped(tail.path, (g) => stamp(g, tail.ts.map(([x, y, r], i) => [x, y, r * tailK + 3 * S, i / (nT - 1)]), tex.tail));
+    if (!c.tailFront) paintTail();
+    // 식빵·누워 자기(발을 접어 넣음)와 장모(몸 털이 다리 윗부분을 덮음)일 땐 가까운 다리도 몸 아래에 칠한다.
+    // 위에 칠하면 줄무늬·양말이 몸 위로 다리 모양 그대로 도드라져 어색하다
+    const legsUnder = c.fur === "long" || c.loaf.x > 0.5 || c.lie.x > 0.5;
+    clipped(farLegs, (g) => paintLegs(g, true));
+    if (legsUnder) clipped(nearLegs, (g) => paintLegs(g, false));
+    // 몸통·머리: 로컬 좌표에 그려 둔 무늬를 뼈대 변환 그대로 입힌다.
+    // 정면으로 돌아 옆폭이 거의 0이 되는 순간엔 무늬 그림도 가로로 납작해져서, 실제 크기로 그리는 목·몸통 심·털을
+    // 다 덮지 못한다(그 자리가 비어 머리와 몸이 끊겨 보였다). 그때만 바탕색을 먼저 깐다.
+    const flat = Math.abs(c.turn.x) < 0.3;
+    const base = (g) => { if (flat) { g.fillStyle = tex.base; g.fillRect(0, 0, W, H); } };
+    clipped(body, (g) => { base(g); drawTex(g, tex.body, bodyMatrix()); });
+    if (!legsUnder) clipped(nearLegs, (g) => paintLegs(g, false));
+    if (c.tailFront) paintTail(); // 앉아서 앞으로 감은 꼬리
+    clipped(head, (g) => { base(g); drawTex(g, tex.head, headMatrix()); });
+  }
+
+  /* ================= 활동 엔진 =================
+     새 활동은 defineActivity("키", spec) 하나로 끝난다. 버튼도 자동으로 생기고, 엔진은 spec 의 훅만 부른다.
+       name · label     버튼 이름 · 상태 글자
+       room             앞에 소품을 놓을 자리(로컬 단위). 그쪽이 벽에 막혀 있으면 돌아앉는다
+       roam             true 면 걷기·점프를 그대로 쓰며(나비·공·벽 타기) 필요할 때만 setMode("act")
+       keepOnGrab       목덜미를 잡혀도 이어 가는지(기본 false: 잡히면 그만)
+       start(A, kit)    상태 준비. kit.back / kit.front(기준점(), 그리기(), { delay, follow }) 로 소품을 등록하면
+                        시작할 때 쫀득하게 '뿅' 나오고, 끝날 때 쏙 들어간다(follow: 기준점을 계속 따라감)
+       step(A, dt)      매 스텝(roam 이 아니면 'act' 상태일 때만). A.t 는 엔진이 늘린다
+       pose(A, ramp)    'act' 상태일 때의 자세. ramp = 시작 후 0→1(0.6초)
+       wander(A)        roam: 쉬거나 걷는 동안 할 일 · look(A): roam 에서 'act' 가 아닐 때 바라볼 곳
+       drawBack(A) / drawFront(A)   소품 말고 따로 그릴 것(고양이 뒤 / 앞) · end(A): 끝날 때 정리
+     pose 키: sit·loaf 바탕 자세 · tilt 몸 기울기(+면 앞이 내려감) · dy 몸 낮추기 · sq 눌림 · pos 몸 자리(월드)
+       feet{다리번호: (L, 엉덩이) → [x, y]} 발 목표 · feetW 섞는 정도 · pawFront 앞발(아래팔)을 얼굴 앞에(true | 다리번호 배열, pawBeans: false 면 젤리 없이)
+       bend{다리번호: [x, y]} 관절이 꺾이는 쪽(월드 방향, bendW 로 섞음. 기본은 발 방향을 따라 돌아가서 거의 필요 없다)
+       reach{다리번호: 배율} 다리를 더 뻗게 · 들어 올린 발이 다리 길이보다 멀면 최대 1.5배까지 자동으로 늘지만, 머리를 숙여 오게 하는 편이 자연스럽다(pawToFace)
+       head(anc) → 머리 자리 · look 시선 · tt 고개 · ear 귀 · lid 눈꺼풀 · expr 표정
+       tail 꼬리 동작(tailBehavior 와 같은 모양). 입은 없다: 감정은 눈(lid·expr)·귀(ear)·꼬리로 */
+  const ACTIVITIES = new Map();
+  const NEAR_FRONT = 3, FAR_FRONT = 1; // LEG_DEFS 순서: 0 먼 뒷발, 1 먼 앞발, 2 가까운 뒷발, 3 가까운 앞발
+  const effects = [];   // 떠오르는 음표·글자·부스러기·반짝이
+  const leftovers = []; // 활동이 끝난 뒤 쏙 들어가는 소품, 날아가는 나비 등
+  function defineActivity(key, spec) {
+    ACTIVITIES.set(key, { roam: false, room: 0, keepOnGrab: false, ...spec, key });
+    buildActUI();
+  }
+  const actOf = (key) => ACTIVITIES.get(key);
+  const isRoam = () => !!(cat.act && actOf(cat.act.key).roam);
+
+  // ── 활동 모듈이 같이 쓰는 도구 ──
+  const ahead = (d) => cat.x + cat.face * d * S;                          // 고양이 앞쪽 d 만큼
+  const gnd = (far) => floorY - PAW.ry * S - (far ? 2.5 * S : 0);        // 발바닥 높이
+  const say = () => {}; // 앱: 고양이 주변엔 글자를 띄우지 않는다(탁·꾹·깍깍·골골·톡·!·머쓱 등). 몸짓으로만
+  const PROP = 1.3; // 노트북·신문·캔버스 크기 배율(고양이 얼굴에 견줘 보기 좋게)
+  const calmTail = (sway = 4, flick = [4, 8, 10, 0.45]) => sitTail({ sway, period: 7, still: 0.35, flick }); // 앉아서 하는 활동의 차분한 꼬리
+  function roundRect(g, x, y, w, h, r) {
+    g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  }
+  function drawStar(x, y, r, col) {
+    ctx.fillStyle = col; ctx.beginPath();
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU - Math.PI / 2, q = i % 2 ? r * 0.38 : r; i ? ctx.lineTo(x + Math.cos(a) * q, y + Math.sin(a) * q) : ctx.moveTo(x + Math.cos(a) * q, y + Math.sin(a) * q); }
+    ctx.closePath(); ctx.fill();
+  }
+
+  // ── 쫀득하게 '뿅' ──
+  // 나올 때: 0 에서 튀어나와 한 번 넘쳤다가 출렁이며 자리 잡는다(가로·세로가 엇갈려 말랑하게). 들어갈 때: 살짝 부풀었다가 쏙
+  function popIn(t) {
+    if (t <= 0) return [0, 0];
+    const k = Math.exp(-7 * t), s = 1 - k * Math.cos(17 * t), q = 0.2 * k * Math.sin(18.5 * t);
+    return [Math.max(0, s * (1 + q)), Math.max(0, s * (1 - q))];
+  }
+  function popOut(t) {
+    if (t < 0.09) { const u = Math.sin((t / 0.09) * Math.PI * 0.5); return [1 + 0.16 * u, 1 + 0.06 * u]; }
+    const s = 1.12 * (1 - smooth((t - 0.09) / 0.26));
+    return [s * 0.9, s * 1.15];
+  }
+  function withPop(ax, ay, sc, fn) { // (ax, ay) 를 기준으로 sc 만큼 키워서 그린다
+    if (sc[0] <= 0.002 || sc[1] <= 0.002) return;
+    ctx.save(); ctx.translate(ax, ay); ctx.scale(sc[0], sc[1]); ctx.translate(-ax, -ay); fn(); ctx.restore();
+  }
+  function burst(x, y, n = 7, col = null) { // 뿅 하고 나올 때 둘레로 퍼지는 반짝이
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + Math.random() * 0.5, sp = rand(60, 120) * S;
+      effects.push({ kind: "puff", x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30 * S, t: 0, life: 0.45, col: col || theme.accent, r: rand(1.6, 2.8) });
+    }
+  }
+
+  // ── 시작 · 끝 · 흐름 ──
+  function buildActUI() {} // 앱엔 활동 칩이 없다(컨트롤러 act 로 고른다)
+  function syncActUI() { emit("activity", cat.act ? cat.act.key : null); }
+  function startAct(key) {
+    const c = cat;
+    if (c.act) endAct(false);
+    const spec = actOf(key);
+    if (!spec) { syncActUI(); return; }
+    const A = (c.act = { key, t: 0, props: [] });
+    if (spec.room) { const x = c.x + c.face * spec.room * S; if (x < 24 * S || x > W - 24 * S) c.face = -c.face; }
+    const add = (layer) => (anchor, draw, opt = {}) => A.props.push({ layer, anchor, draw, delay: opt.delay || 0, follow: !!opt.follow });
+    if (spec.start) spec.start(A, { back: add("back"), front: add("front") });
+    if (!spec.roam) { if (GROUND.has(c.mode) && c.mode !== "crouch") { c.vx = 0; c.speed = 0; setMode("act"); } }
+    else if (c.mode === "act" || POSE_MODES.has(c.mode)) setMode("idle");
+    else if (c.mode === "idle" || c.mode === "walk") setMode(c.mode); // 상태 글자만 갱신
+    syncActUI();
+  }
+  function endAct(sync = true) {
+    const c = cat, A = c.act;
+    if (!A) return;
+    for (const p of A.props) {
+      const fixed = p.anchor();
+      leftovers.push({ kind: "prop", layer: p.layer, anchor: p.follow ? p.anchor : () => fixed, draw: p.draw, t: 0, life: 0.36 });
+    }
+    const spec = actOf(A.key);
+    if (spec.end) spec.end(A);
+    c.act = null; c.actP = null; c.pounce = null;
+    if (c.mode === "act") setMode("idle");
+    else if (c.mode === "idle" || c.mode === "walk") setMode(c.mode);
+    if (sync) syncActUI();
+  }
+  function roam() { const A = cat.act, s = actOf(A.key); if (s.wander) s.wander(A); }
+  function actStep(dt) {
+    const c = cat, A = c.act, s = actOf(A.key);
+    if (!s.roam && c.mode !== "act") return; // 잡혀 있는 동안 등은 멈춰 둔다
+    A.t += dt;
+    if (s.step) s.step(A, dt);
+  }
+  function actPose() {
+    const A = cat.act, s = actOf(A.key);
+    return (s.pose && s.pose(A, smooth(A.t / 0.6))) || {};
+  }
+  function lookTarget() {
+    const c = cat, A = c.act;
+    if (c.actP && c.actP.look) return c.actP.look;
+    if (A) { const s = actOf(A.key); if (s.look) { const p = s.look(A); if (p) return p; } }
+    if (mouseActive()) return [mouse.x, mouse.y];
+    return null;
+  }
+  /** 소품·효과 시간 흐름(활동과 상관없이 매 스텝) */
+  function propsStep(dt) {
+    for (let i = effects.length - 1; i >= 0; i--) {
+      const e = effects[i];
+      e.t += dt; e.x += e.vx * dt; e.y += e.vy * dt;
+      if (e.kind === "crumb") e.vy += 900 * S * dt;
+      if (e.kind === "note") e.x += Math.sin(e.t * 3 + e.ph) * 12 * S * dt;
+      if (e.kind === "puff") { e.vx *= Math.exp(-dt * 6); e.vy *= Math.exp(-dt * 6); }
+      if (e.t > e.life || (e.kind === "crumb" && e.y > floorY)) effects.splice(i, 1);
+    }
+    for (let i = leftovers.length - 1; i >= 0; i--) {
+      const o = leftovers[i];
+      o.t += dt;
+      if (o.step) o.step(dt);
+      if (o.t > o.life) leftovers.splice(i, 1);
+    }
+  }
+
+  // ── 그리기: 고양이 뒤(drawActBack) / 얼굴까지 그린 뒤 앞(drawActFront) ──
+  function drawProps(layer) {
+    const A = cat.act;
+    for (const o of leftovers) if (o.kind === "prop" && o.layer === layer) { const [x, y] = o.anchor(); withPop(x, y, popOut(o.t), o.draw); }
+    if (A) for (const p of A.props) if (p.layer === layer) { const [x, y] = p.anchor(); withPop(x, y, popIn(A.t - p.delay), p.draw); }
+  }
+  function drawActBack() {
+    drawProps("back");
+    const A = cat.act;
+    if (A) { const s = actOf(A.key); if (s.drawBack) s.drawBack(A); }
+  }
+  function drawActFront() {
+    const c = cat, A = c.act;
+    const pf = c.actP && c.actP.pawFront; // true 면 가까운 앞발, 배열이면 그 다리들
+    if (pf) for (const i of Array.isArray(pf) ? pf : [NEAR_FRONT]) drawLegOnTop(i, c.actP.pawBeans !== false);
+    drawProps("front");
+    for (const o of leftovers) if (o.drawFront) o.drawFront(o.t / o.life);
+    if (A) { const s = actOf(A.key); if (s.drawFront) s.drawFront(A); }
+    for (const e of effects) drawEffect(e);
+  }
+  function drawEffect(e) {
+    if (e.kind === "note") drawNote(e);
+    else if (e.kind === "text") {
+      ctx.save(); ctx.globalAlpha = Math.min(1, (e.life - e.t) * 3); ctx.fillStyle = e.col || theme.accent; ctx.textAlign = "center";
+      ctx.font = `${15 * S}px "Jua", sans-serif`; ctx.fillText(e.text, e.x, e.y); ctx.restore();
+    } else if (e.kind === "crumb") { ctx.fillStyle = "#c2834a"; ctx.beginPath(); ctx.arc(e.x, e.y, 1.2 * S, 0, TAU); ctx.fill(); }
+    else if (e.kind === "heart") { // 쓰다듬기 하트(글자 ♡ 가 아니라 도형)
+      const u = e.t / e.life, r = e.r * S * (0.7 + 0.3 * Math.min(1, u * 4));
+      ctx.save(); ctx.globalAlpha = Math.min(1, (1 - u) * 2.2); ctx.fillStyle = e.col; ctx.translate(e.x, e.y); ctx.beginPath();
+      ctx.moveTo(0, r * 0.35); ctx.bezierCurveTo(-r * 1.1, -r * 0.35, -r * 0.45, -r * 1.05, 0, -r * 0.45);
+      ctx.bezierCurveTo(r * 0.45, -r * 1.05, r * 1.1, -r * 0.35, 0, r * 0.35); ctx.fill(); ctx.restore();
+    }
+    else if (e.kind === "puff") {
+      const u = e.t / e.life; ctx.save(); ctx.globalAlpha = 1 - u; ctx.fillStyle = e.col;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.r * S * (1 - 0.5 * u), 0, TAU); ctx.fill(); ctx.restore();
+    }
+  }
+  /** 가까운 앞발의 아래팔과 발만 맨 위에 다시 그린다(세수할 때 발이 얼굴 앞으로 오게, 굵은 윗다리는 그대로 뒤에) */
+  function drawLegOnTop(i, beans = true) {
+    const c = cat, L = c.legs[i], p = new Path2D(), sm = [];
+    const n = Math.max(2, Math.ceil(Math.hypot(L.footW[0] - L.knee[0], L.footW[1] - L.knee[1]) / (1.6 * S)));
+    for (let k = 0; k <= n; k++) { const t = k / n; sm.push([lerp(L.knee[0], L.footW[0], t), lerp(L.knee[1], L.footW[1], t), lerp(L.r[1] * 1.1, L.r[2], t) * S]); }
+    for (const [x, y, r] of sm) { p.moveTo(x + r, y); p.arc(x, y, r, 0, TAU); }
+    const px = L.footW[0] + c.face * 1.6 * S, py = L.footW[1];
+    p.moveTo(px + PAW.rx * S, py); p.ellipse(px, py, PAW.rx * S, PAW.ry * S, 0, 0, TAU);
+    const items = sm.map(([x, y, r], k) => [x, y, r + 3 * S, 0.5 + (0.5 * k) / n]);
+    items.push([px, py, (PAW.rx + 3) * S, 1]);
+    // 얼굴과 같은 털색이라 선 없이는 묻힌다: 고양이 외곽과 같은 옅은 그림자를 둘러 앞에 있는 게 보이게
+    ctx.save(); ctx.translate(-5000, 0); ctx.shadowColor = "rgba(40, 28, 48, 0.4)"; ctx.shadowBlur = 4 * DPR; ctx.shadowOffsetX = 5000 * DPR;
+    ctx.fillStyle = "#000"; ctx.fill(p); ctx.restore();
+    ctx.save(); ctx.clip(p); stamp(ctx, items, c.coatTex.legs[i]); ctx.restore();
+    if (!beans) return;
+    // 얼굴 쪽을 향한 발바닥 젤리
+    const s = S * 0.9, dx = c.face * 1.5 * S;
+    ctx.fillStyle = "#f2a7b8";
+    ctx.beginPath(); ctx.ellipse(px + dx, py + 0.6 * s, 2.6 * s, 2 * s, 0, 0, TAU); ctx.fill();
+    for (const [ox, oy] of [[-2.7, -2], [-0.9, -3.2], [0.9, -3.2], [2.7, -2]]) { ctx.beginPath(); ctx.arc(px + dx + ox * s, py + oy * s, 0.95 * s, 0, TAU); ctx.fill(); }
+  }
+
+  /* ----- 기존 활동의 도우미(그림·음악·간식·나비) ----- */
+  /* ----- 그림 그리기 ----- */
+  // 이젤 캔버스: 앉은 고양이 앞발이 붓으로 닿는 거리(어깨에서 약 60 안쪽)에 낮게 세운다
+  function easelRect() {
+    // 크게 키운 만큼 고양이 쪽으로 붙인다: 가까운 가장자리는 그대로, 먼 쪽은 붓이 닿는 데까지
+    const c = cat, w = 36 * S * PROP, h = 32 * S * PROP, cx = c.x + c.face * (43 * S + w / 2), cy = floorY - 15 * S - h / 2;
+    return { x0: cx - w / 2, y0: cy - h / 2, w, h, cx, cy };
+  }
+  const uvWorld = (r, u, v) => [r.x0 + (0.08 + u * 0.84) * r.w, r.y0 + (0.08 + v * 0.84) * r.h];
+  function pawFor(tip) { // 붓 끝에서 어깨 쪽으로 붓 길이만큼 물러난 자리
+    const L = cat.legs[NEAR_FRONT], sh = hipWorld(L), B = 30 * S; // 캔버스가 커진 만큼 붓도 길게
+    const dx = tip[0] - sh[0], dy = tip[1] - sh[1], d = Math.hypot(dx, dy) || 1, rmin = (L.def.a + L.def.b) * cat.ll.len * 0.6 * S;
+    if (d - B >= rmin) return [tip[0] - (dx / d) * B, tip[1] - (dy / d) * B];
+    // 붓 끝이 몸 가까이 오면 발이 어깨 뒤로 넘어가지 않게: 어깨에서 rmin, 붓 끝에서 붓 길이인 자리 중 아래쪽(붓을 위로 세워 쥔다)
+    const r = ik2(sh[0], sh[1], tip[0], tip[1], rmin, B, 0, 1);
+    return [r.kx, r.ky];
+  }
+  function strokeOf(color, pts, w = 7) {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    return { color, pts, w, cum, len: cum[cum.length - 1] || 1e-6 };
+  }
+  function pointAt(st, d) {
+    const { pts, cum } = st;
+    let i = 1;
+    while (i < pts.length - 1 && cum[i] < d) i++;
+    const t = clamp((d - cum[i - 1]) / (cum[i] - cum[i - 1] || 1), 0, 1);
+    return [lerp(pts[i - 1][0], pts[i][0], t), lerp(pts[i - 1][1], pts[i][1], t)];
+  }
+  /** 그릴 그림: 몇 가지 주제 중 하나를 손으로 그린 듯 살짝 흔들리는 획으로 */
+  function planPainting() {
+    const R = Math.random, j = (a) => a + (R() - 0.5) * 0.025;
+    const ring = (cx, cy, rx, ry, n = 22, a0 = 0, a1 = TAU) => Array.from({ length: n + 1 }, (_, i) => { const a = a0 + ((a1 - a0) * i) / n; return [j(cx + Math.cos(a) * rx), j(cy + Math.sin(a) * ry)]; });
+    const subjects = [
+      () => [strokeOf("#f2b33d", ring(0.5, 0.48, 0.17, 0.19)),
+        ...Array.from({ length: 8 }, (_, k) => { const a = (k / 8) * TAU + 0.2; return strokeOf("#f2b33d", [[0.5 + Math.cos(a) * 0.25, 0.48 + Math.sin(a) * 0.28], [0.5 + Math.cos(a) * 0.37, 0.48 + Math.sin(a) * 0.41]], 5); })],
+      () => [strokeOf("#5b9bd5", ring(0.42, 0.5, 0.25, 0.16)), strokeOf("#5b9bd5", [[0.66, 0.5], [0.88, 0.33], [0.88, 0.67], [0.66, 0.5]]),
+        strokeOf("#33303a", ring(0.29, 0.46, 0.025, 0.03, 8), 5), strokeOf("#8cc7ee", [[0.1, 0.88], [0.3, 0.82], [0.5, 0.88], [0.7, 0.82], [0.9, 0.88]], 5)],
+      () => [strokeOf("#6cbf6a", [[0.5, 0.95], [0.49, 0.72], [0.5, 0.5]]), strokeOf("#6cbf6a", [[0.49, 0.78], [0.33, 0.68], [0.48, 0.73]], 6),
+        ...Array.from({ length: 5 }, (_, k) => { const a = (k / 5) * TAU - Math.PI / 2; return strokeOf("#f08fb0", ring(0.5 + Math.cos(a) * 0.12, 0.36 + Math.sin(a) * 0.13, 0.07, 0.075, 12), 7); }),
+        strokeOf("#f5c542", ring(0.5, 0.36, 0.035, 0.04, 10), 7)],
+      () => [strokeOf("#ef6b7b", Array.from({ length: 31 }, (_, i) => { const a = (i / 30) * TAU; return [j(0.5 + 0.3 * Math.pow(Math.sin(a), 3)), j(0.5 - 0.022 * (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)))]; }), 8)],
+      () => ["#ef6b6b", "#f5c542", "#6cbf6a", "#5b9bd5"].map((col, k) => strokeOf(col, ring(0.5, 0.82, 0.42 - k * 0.09, 0.56 - k * 0.11, 18, Math.PI, TAU), 7)),
+      () => [strokeOf("#8b7aa8", [[0.25, 0.42], [0.3, 0.16], [0.42, 0.33], [0.58, 0.33], [0.7, 0.16], [0.75, 0.42]]), strokeOf("#8b7aa8", ring(0.5, 0.56, 0.26, 0.24, 20, -0.15, Math.PI + 0.15)),
+        strokeOf("#33303a", ring(0.4, 0.55, 0.025, 0.03, 8), 5), strokeOf("#33303a", ring(0.6, 0.55, 0.025, 0.03, 8), 5), strokeOf("#ef8fa0", [[0.46, 0.67], [0.5, 0.71], [0.54, 0.67]], 5)],
+    ];
+    return subjects[Math.floor(R() * subjects.length)]();
+  }
+  function paintStep(A, dt) {
+    const r = A.r, g = A.paint.getContext("2d"), PW = A.paint.width, PH = A.paint.height;
+    if (A.hold >= 0) { // 다 그렸다: 잠깐 뿌듯하게 보다가 지우고 새 그림
+      A.hold += dt;
+      if (A.hold > 2.6) { g.clearRect(0, 0, PW, PH); A.plan = planPainting(); A.si = 0; A.d = 0; A.hold = -1; A.travel = 0.4; A.from = A.tip; }
+      return;
+    }
+    const st = A.plan[A.si];
+    if (A.t < 0.7) { A.tip = uvWorld(r, st.pts[0][0], st.pts[0][1]); return; } // 자세 잡는 동안 첫 점에 붓을 댄다
+    if (A.travel > 0) { // 다음 획으로 붓을 살짝 들고 옮긴다
+      A.travel -= dt;
+      const k = smooth(1 - Math.max(0, A.travel) / 0.35), to = uvWorld(r, st.pts[0][0], st.pts[0][1]);
+      A.tip = [lerp(A.from[0], to[0], k), lerp(A.from[1], to[1], k) - Math.sin(Math.PI * k) * 5 * S];
+      return;
+    }
+    const [u0, v0] = pointAt(st, A.d);
+    A.d = Math.min(st.len, A.d + 0.42 * dt);
+    const [u1, v1] = pointAt(st, A.d);
+    g.lineCap = g.lineJoin = "round"; g.strokeStyle = st.color; g.lineWidth = st.w;
+    g.beginPath(); g.moveTo(u0 * PW, v0 * PH); g.lineTo(u1 * PW, v1 * PH); g.stroke();
+    A.tip = uvWorld(r, u1, v1);
+    if (A.d >= st.len) {
+      A.from = A.tip; A.d = 0;
+      if (A.si + 1 >= A.plan.length) A.hold = 0; else { A.si++; A.travel = 0.35; }
+    }
+  }
+  function drawEasel(r, paint, alpha) {
+    if (alpha <= 0) return;
+    ctx.save(); ctx.globalAlpha = alpha; ctx.lineCap = "round";
+    const wood = "#c3905f", dark = "#9a6a40";
+    ctx.strokeStyle = dark; ctx.lineWidth = 2.6 * S; // 뒷다리
+    ctx.beginPath(); ctx.moveTo(r.cx, r.y0 - 6 * S); ctx.lineTo(r.cx + 3 * S, floorY); ctx.stroke();
+    ctx.strokeStyle = wood; ctx.lineWidth = 3 * S;    // 앞다리 둘
+    ctx.beginPath(); ctx.moveTo(r.cx - 4 * S, r.y0 - 8 * S); ctx.lineTo(r.cx - r.w * 0.47, floorY);
+    ctx.moveTo(r.cx + 4 * S, r.y0 - 8 * S); ctx.lineTo(r.cx + r.w * 0.47, floorY); ctx.stroke();
+    ctx.fillStyle = "#e6d8bf"; roundRect(ctx, r.x0 - 2 * S, r.y0 - 2 * S, r.w + 4 * S, r.h + 4 * S, 2.5 * S); ctx.fill();
+    ctx.fillStyle = "#fffdf7"; roundRect(ctx, r.x0, r.y0, r.w, r.h, 1.5 * S); ctx.fill();
+    ctx.drawImage(paint, r.x0 + 0.08 * r.w, r.y0 + 0.08 * r.h, 0.84 * r.w, 0.84 * r.h);
+    ctx.fillStyle = wood; roundRect(ctx, r.x0 - 4 * S, r.y0 + r.h, r.w + 8 * S, 3.2 * S, 1.5 * S); ctx.fill(); // 받침
+    ctx.restore();
+  }
+  function drawBrush(A) {
+    const c = cat, paw = c.legs[NEAR_FRONT].footW, tip = A.tip;
+    if (!tip) return;
+    let dx = tip[0] - paw[0], dy = tip[1] - paw[1];
+    const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+    const a = smooth(A.t / 0.5), col = A.plan[Math.min(A.si, A.plan.length - 1)].color;
+    ctx.save(); ctx.globalAlpha = a; ctx.lineCap = "round";
+    ctx.strokeStyle = "#b9874f"; ctx.lineWidth = 2.2 * S; // 자루
+    ctx.beginPath(); ctx.moveTo(paw[0] - dx * 4 * S, paw[1] - dy * 4 * S); ctx.lineTo(tip[0] - dx * 6 * S, tip[1] - dy * 6 * S); ctx.stroke();
+    ctx.strokeStyle = "#b8b4bd"; ctx.lineWidth = 2.6 * S; // 쇠붙이
+    ctx.beginPath(); ctx.moveTo(tip[0] - dx * 7.5 * S, tip[1] - dy * 7.5 * S); ctx.lineTo(tip[0] - dx * 5.5 * S, tip[1] - dy * 5.5 * S); ctx.stroke();
+    ctx.strokeStyle = col; ctx.lineWidth = 3.4 * S; // 붓털(지금 칠하는 색)
+    ctx.beginPath(); ctx.moveTo(tip[0] - dx * 5 * S, tip[1] - dy * 5 * S); ctx.lineTo(tip[0] - dx * 0.8 * S, tip[1] - dy * 0.8 * S); ctx.stroke();
+    ctx.restore();
+  }
+
+
+  /* ----- 음악 듣기 ----- */
+  function spawnNote() {
+    const c = cat, side = Math.random() < 0.5 ? -1 : 1;
+    effects.push({ kind: "note", x: c.head.x + side * 26 * S, y: c.head.y - 18 * S, vx: side * 6 * S, vy: -24 * S, t: 0, life: 2.2, ph: Math.random() * 6, two: Math.random() < 0.45 });
+  }
+  // 헤드폰: 머리 위로 얇은 금속 테, 그 아래 넓은 메시 캐노피, 양옆은 짧은 금속 막대에 달린 둥근 사각 알루미늄 컵(머리 쪽은 쿠션)
+  const PHONES = [["#f2c6cf", "#e2a7b4"], ["#bcd6ea", "#9dbcd7"], ["#cfe2c6", "#adc9a2"], ["#dcdde2", "#bfc1c9"]];
+  function drawHeadphones(hp) {
+    const c = cat, tsx = Math.max(0.15, Math.abs(c.turn.x)), sg = Math.sign(c.turn.x) || 1, r = c.headRot, s = S;
+    const [col, deep] = hp.col, steel = "#c6c9d0", mesh = css(mixc(hex2rgb(col), [255, 255, 255], 0.38));
+    const arc = (x, y0, y1, w, color, dash) => {
+      const a = H2W(-x, y0), m = H2W(0, y1), b = H2W(x, y0);
+      ctx.strokeStyle = color; ctx.lineWidth = w; ctx.setLineDash(dash || []);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(m[0], m[1], b[0], b[1]); ctx.stroke();
+    };
+    ctx.save(); ctx.lineCap = "round";
+    arc(24, -13, -41, 6.4 * s, mesh);                                          // 메시 캐노피(정수리에 얹힌다)
+    arc(24, -13, -41, 6.4 * s, "rgba(255,255,255,0.4)", [0.9 * s, 1.5 * s]);  // 촘촘한 그물 결
+    ctx.setLineDash([]);
+    arc(29, -10, -50, 2 * s, steel);                                           // 금속 테(캐노피보다 조금 위)
+    for (const side of [-1, 1]) { // 테 끝에서 컵으로 내려가는 막대
+      const p = H2W(side * 29, -10), q = H2W(side * 31, -6);
+      ctx.strokeStyle = steel; ctx.lineWidth = 1.6 * s; ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+    }
+    for (const side of [-1, 1]) { // 컵: 이 좌표계에서 +x 가 머리 바깥쪽
+      const q = H2W(side * 31, 2);
+      ctx.save(); ctx.translate(q[0], q[1]); ctx.rotate(r); ctx.scale(tsx * sg * side, 1);
+      ctx.fillStyle = deep; roundRect(ctx, -6.5 * s, -8 * s, 5 * s, 16 * s, 2.2 * s); ctx.fill();           // 머리 쪽 쿠션
+      ctx.fillStyle = col; roundRect(ctx, -3.5 * s, -9.5 * s, 10 * s, 19 * s, 4.6 * s); ctx.fill();        // 알루미늄 컵
+      ctx.fillStyle = "rgba(255,255,255,0.55)"; roundRect(ctx, 3 * s, -6.5 * s, 1.5 * s, 12 * s, 0.75 * s); ctx.fill(); // 반짝
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function drawNote(e) {
+    const a = Math.sin(Math.min(1, e.t / e.life) * Math.PI), s = S * 1.05;
+    ctx.save(); ctx.globalAlpha = a; ctx.translate(e.x, e.y); ctx.rotate(Math.sin(e.t * 2 + e.ph) * 0.15);
+    ctx.fillStyle = ctx.strokeStyle = theme.accent; ctx.lineWidth = 1.6 * s; ctx.lineCap = "round";
+    const heads = e.two ? [[-4 * s, 2 * s], [5 * s, 0]] : [[0, 2 * s]];
+    for (const [hx, hy] of heads) { ctx.beginPath(); ctx.ellipse(hx, hy, 3 * s, 2.3 * s, -0.4, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.moveTo(hx + 2.6 * s, hy - 0.5 * s); ctx.lineTo(hx + 2.6 * s, hy - 12 * s); ctx.stroke(); }
+    ctx.beginPath();
+    if (e.two) { ctx.moveTo(heads[0][0] + 2.6 * s, heads[0][1] - 12 * s); ctx.lineTo(heads[1][0] + 2.6 * s, heads[1][1] - 12 * s); }
+    else { ctx.moveTo(2.6 * s, -10 * s); ctx.quadraticCurveTo(7 * s, -8 * s, 6 * s, -3 * s); }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ----- 간식 먹기 ----- */
+  function snackStep(A) {
+    if (A.bowl.left > 0 && A.t >= A.next) { // 한 입: 사료 한 알이 줄고 '냠'
+      A.bowl.left--; A.next += 0.8;
+      const c = cat, m = H2W(FO, 14);
+      for (let i = 0; i < 3; i++) effects.push({ kind: "crumb", x: m[0] + rand(-4, 4) * S, y: m[1] + 4 * S, vx: rand(-30, 30) * S, vy: rand(-80, -30) * S, t: 0, life: 1.2 });
+    }
+    if (A.bowl.left === 0 && A.doneT == null && A.t > A.next - 0.8 + 0.75) A.doneT = A.t;
+    if (A.doneT != null && A.t - A.doneT > 2.3) endAct();
+  }
+  function drawBowl(x, left, alpha) {
+    if (alpha <= 0) return;
+    ctx.save(); ctx.globalAlpha = alpha;
+    ctx.translate(x, floorY); ctx.scale(1.25, 1.25); ctx.translate(-x, -floorY); // 고양이 얼굴 크기에 맞게 조금 크게
+    const top = floorY - 10 * S;
+    ctx.fillStyle = "#c2834a"; // 사료: 그릇 위로 소복이
+    for (let i = 0; i < left; i++) {
+      const row = i < 4 ? 0 : 1, k = row ? i - 4 : i, n = row ? 3 : 4;
+      const px = x + (k - (n - 1) / 2) * 6 * S, py = top - 1.5 * S - row * 4 * S;
+      ctx.beginPath(); ctx.ellipse(px, py, 3.4 * S, 2.4 * S, (i % 2 ? 0.3 : -0.3), 0, TAU); ctx.fill();
+    }
+    ctx.fillStyle = "#8fb8e6"; // 그릇
+    ctx.beginPath(); ctx.moveTo(x - 17 * S, top); ctx.lineTo(x + 17 * S, top); ctx.quadraticCurveTo(x + 15 * S, floorY, x + 11 * S, floorY);
+    ctx.lineTo(x - 11 * S, floorY); ctx.quadraticCurveTo(x - 15 * S, floorY, x - 17 * S, top); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#b9d4f2"; ctx.beginPath(); ctx.ellipse(x, top, 17 * S, 2.6 * S, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = "#ffffff"; ctx.globalAlpha = alpha * 0.8; // 생선 무늬 하나
+    ctx.beginPath(); ctx.ellipse(x - 1 * S, floorY - 4.5 * S, 3.6 * S, 1.8 * S, 0, 0, TAU); ctx.moveTo(x + 2.5 * S, floorY - 4.5 * S);
+    ctx.lineTo(x + 5 * S, floorY - 6.3 * S); ctx.lineTo(x + 5 * S, floorY - 2.7 * S); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  /* ----- 나비 쫓기 ----- */
+  const WINGS = [["#ffb3c7", "#ffd9a0"], ["#a8d8ff", "#d6c1ff"], ["#ffe08a", "#ffb38a"]];
+  function spawnButterfly() {
+    const c = cat, left = c.x > W / 2, w = WINGS[Math.floor(Math.random() * WINGS.length)];
+    return { x: left ? 40 * S : W - 40 * S, y: floorY - 170 * S, vx: 0, vy: 0, tx: c.x, ty: floorY - 120 * S, rt: 1.5, flap: 0, seed: Math.random() * 9, boost: 0, c1: w[0], c2: w[1] };
+  }
+  function butterflyStep(b, dt) {
+    const c = cat;
+    b.rt -= dt;
+    if (b.rt <= 0 || Math.hypot(b.tx - b.x, b.ty - b.y) < 12 * S) {
+      b.rt = rand(1.6, 3.2);
+      if (Math.random() < 0.45) { b.tx = c.x + c.face * rand(40, 110) * S; b.ty = floorY - rand(50, 125) * S; } // 고양이 앞 낮은 곳으로 놀리듯
+      else { b.tx = rand(50 * S, W - 50 * S); b.ty = rand(40 * S, floorY - 90 * S); }
+    }
+    // 덮치려 하면 위로 훌쩍 달아난다
+    if (b.rt < 99 && (c.mode === "air" || c.mode === "crouch") && Math.hypot(b.x - c.head.x, b.y - c.head.y) < 95 * S && b.boost <= 0) {
+      b.tx = b.x + (Math.sign(b.x - c.x) || 1) * 110 * S; b.ty = Math.max(30 * S, b.y - 130 * S); b.rt = 1.3; b.boost = 0.7;
+    }
+    const sp = (b.boost > 0 ? 260 : 85) * S;
+    b.boost = Math.max(0, b.boost - dt);
+    const dx = b.tx - b.x, dy = b.ty - b.y, d = Math.hypot(dx, dy) || 1, k = 1 - Math.exp(-dt * 2.2);
+    b.vx = lerp(b.vx, (dx / d) * sp, k);
+    b.vy = lerp(b.vy, (dy / d) * sp + Math.sin(time * 7 + b.seed) * 60 * S, k); // 팔랑팔랑 위아래로 흔들리며
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    if (b.rt < 99) { b.x = clamp(b.x, 20 * S, W - 20 * S); b.y = clamp(b.y, 20 * S, floorY - 25 * S); }
+    b.flap += dt * (b.boost > 0 ? 24 : 15);
+  }
+  /** 나비 쪽으로: 멀면 걸어가고, 가까이 낮게 내려오면 엉덩이를 씰룩이다 덮친다. */
+  function huntButterfly(A) {
+    const c = cat, b = A.b, dx = b.x - c.x, adx = Math.abs(dx), dir = Math.sign(dx) || c.face;
+    const low = b.y > floorY - 150 * S;
+    if (c.mode === "walk") {
+      if (adx < 90 * S || (low && adx < 125 * S && dir === c.face)) { c.vx = 0; c.speed = 0; setMode("idle"); return; }
+      const want = clamp(b.x - dir * 80 * S, EDGE * S, W - EDGE * S);
+      if (Math.abs(want - c.target) > 30 * S) walkTo(want);
+      return;
+    }
+    if (dir !== c.face && adx > 30 * S && c.modeT > 0.35) { c.face = dir; setMode("idle"); return; }
+    if (low && adx < 130 * S && adx > 22 * S && dir === c.face && A.cool <= 0 && c.modeT > 0.5) { c.pounce = b; A.cool = 2.6; jump(); return; } // 덮칠 대상
+    if (adx > 150 * S && c.modeT > 0.6) walkTo(b.x - dir * 80 * S);
+  }
+  function drawButterfly(b, alpha) {
+    if (alpha <= 0) return;
+    const f = Math.abs(Math.sin(b.flap)), dir = Math.sign(b.vx) || 1, s = S * 1.6;
+    ctx.save(); ctx.globalAlpha = alpha; ctx.translate(b.x, b.y); ctx.scale(dir, 1);
+    // 옆에서 본 날개: 펄럭일 때마다 날개 폭이 줄었다 늘었다 한다
+    ctx.fillStyle = b.c1; ctx.beginPath(); ctx.ellipse(-1 * s, -6 * s * (0.45 + 0.55 * f), 6.5 * s * (0.3 + 0.7 * f), 8.5 * s, -0.45, 0, TAU); ctx.fill();
+    ctx.fillStyle = b.c2; ctx.beginPath(); ctx.ellipse(-4 * s, -1.5 * s, 4.4 * s * (0.3 + 0.7 * f), 5.6 * s, 0.6, 0, TAU); ctx.fill();
+    ctx.fillStyle = "#4a3b45"; ctx.beginPath(); ctx.ellipse(0, 0, 5 * s, 1.6 * s, 0.15, 0, TAU); ctx.fill();
+    ctx.strokeStyle = "#4a3b45"; ctx.lineWidth = 0.9 * s; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(4 * s, -1 * s); ctx.quadraticCurveTo(7 * s, -5 * s, 9.5 * s, -6 * s); ctx.stroke();
+    ctx.restore();
+  }
+
+
+  /* ================= 활동 모듈 =================
+     활동 하나 = defineActivity 하나. 순서대로 버튼이 생긴다. 소품 그리기·계획 같은 도우미는 각 활동 바로 위에 둔다. */
+
+  defineActivity("draw", { // 앉아서 앞발로 붓을 쥐고 이젤에 그림 하나를 획마다 그린다. 눈은 붓 끝을 따라간다
+    name: "그림 그리기", label: "그림 그리는 중", room: 96,
+    start(A, kit) {
+      const r = (A.r = easelRect());
+      A.paint = document.createElement("canvas"); A.paint.width = 180; A.paint.height = 160;
+      A.plan = planPainting(); A.si = 0; A.d = 0; A.hold = -1; A.travel = 0; A.tip = null;
+      kit.back(() => [r.cx, floorY], () => drawEasel(r, A.paint, 1));
+      burst(r.cx, r.cy);
+    },
+    step: paintStep,
+    pose(A, ramp) {
+      const done = A.hold >= 0;
+      return {
+        sit: true, ear: -0.04, lid: done ? null : 0.12, expr: done ? "happy" : "idle", look: done ? null : A.tip, feetW: ramp,
+        feet: A.tip ? { [NEAR_FRONT]: () => pawFor(A.tip) } : null,
+        tail: sitTail({ sway: 6, period: 2.8, still: 0.1, flick: [2, 5, 14, 0.4] }),
+      };
+    },
+    drawFront(A) {
+      if (cat.mode !== "act" || !A.tip) return;
+      const paw = cat.legs[NEAR_FRONT].footW;
+      withPop(paw[0], paw[1], popIn(A.t - 0.45), () => drawBrush(A));
+    },
+  });
+
+  defineActivity("music", { // 헤드폰을 끼고 박자(96 BPM)에 맞춰 고개를 까딱, 꼬리도 두 박자에 한 번, 음표가 떠오른다
+    name: "음악 듣기", label: "음악 듣는 중", keepOnGrab: true,
+    start(A, kit) {
+      A.noteT = 0.3; A.hp = { col: PHONES[Math.floor(Math.random() * PHONES.length)] };
+      kit.front(() => H2W(0, -26), () => drawHeadphones(A.hp), { delay: 0.05, follow: true });
+      burst(cat.head.x, cat.head.y - 30 * S);
+    },
+    step(A, dt) { A.noteT -= dt; if (A.noteT <= 0) { A.noteT = 0.62; if (!reduced.matches) spawnNote(); } },
+    pose(A, ramp) {
+      const beat = Math.max(0, Math.sin(A.t * 1.6 * TAU));
+      return {
+        sit: true, expr: "happy", ear: 0.22, tt: (0.04 + 0.09 * beat) * ramp, sq: 1 - 0.025 * beat * ramp,
+        tail: sitTail({ sway: 10, period: 2 / 1.6, still: 0, flick: null }), // 바닥에 둔 꼬리 끝으로 박자를 톡톡
+      };
+    },
+  });
+
+  defineActivity("butterfly", { // 걸어서 쫓다가, 낮게 내려오면 엉덩이를 씰룩이다 덮친다. 나비는 위로 달아난다
+    name: "나비 쫓기", label: "나비 쫓는 중", roam: true, keepOnGrab: true,
+    start(A) { A.b = spawnButterfly(); A.cool = 1.2; burst(A.b.x, A.b.y, 7, A.b.c1); },
+    step(A, dt) { A.cool -= dt; butterflyStep(A.b, dt); },
+    wander: huntButterfly,
+    look: (A) => [A.b.x, A.b.y],
+    drawFront(A) { withPop(A.b.x, A.b.y, popIn(A.t), () => drawButterfly(A.b, 1)); },
+    end(A) { // 멀리 날아가며 사라진다
+      const b = A.b;
+      b.tx = b.x + (b.x < W / 2 ? -1 : 1) * 300 * S; b.ty = -60 * S; b.rt = 99;
+      leftovers.push({ t: 0, life: 1.8, step: (dt) => butterflyStep(b, dt), drawFront: (k) => drawButterfly(b, 1 - k) });
+    },
+  });
+
+  defineActivity("snack", { // 그릇에 고개를 묻고 한 알씩 '냠', 다 먹으면 입맛을 다시고 뿌듯하게
+    name: "간식 먹기", label: "간식 먹는 중", room: 82,
+    start(A, kit) {
+      const bowl = (A.bowl = { x: ahead(64), left: 7 }); A.next = 1.05; A.doneT = null;
+      kit.front(() => [bowl.x, floorY], () => drawBowl(bowl.x, bowl.left, 1));
+      burst(bowl.x, floorY - 12 * S);
+    },
+    step: (A) => snackStep(A),
+    pose(A, ramp) {
+      const c = cat, done = A.doneT == null ? -1 : A.t - A.doneT;
+      const down = done < 0 ? ramp : 1 - smooth(done / 0.5);
+      const chew = done < 0 && A.t > 0.95 ? Math.max(0, Math.sin((A.t - 0.95) * 13)) : 0;
+      return {
+        tilt: 0.15 * down, dy: 3 * down, ear: 0.08, tt: 0.3 * down,
+        head: (anc) => [lerp(anc[0], A.bowl.x - c.face * 7 * S, down), lerp(anc[1], floorY - 37 * S + chew * 1.6 * S, down)],
+        expr: (done < 0 && A.t > 1.05) || done >= 0.4 ? "happy" : "idle", // 냠냠 먹는 동안은 웃는 눈(오물오물은 머리 까딱으로)
+      };
+    },
+  });
+
+  defineActivity("stretch", { // 앞발을 앞으로 쭉 뻗고 가슴을 낮춰 엉덩이를 들고, 눈을 꼭 감고 고개를 젖힌다. 끝나면 원래대로
+    name: "기지개", label: "기지개 켜는 중",
+    step(A) { if (A.t > 3.0) endAct(); },
+    pose(A) {
+      const c = cat, t = A.t, a = t < 0.7 ? smooth(t / 0.7) : t < 2.2 ? 1 : 1 - smooth((t - 2.2) / 0.7);
+      const yawn = t > 0.9 && t < 2.05 ? Math.sin((Math.PI * (t - 0.9)) / 1.15) : 0;
+      return {
+        tilt: 0.3 * a, dy: 6 * a, sq: 1 - 0.05 * a, ear: 0.15 * a,
+        feet: {
+          0: (L, h) => [h[0] - c.face * 5 * a * S, gnd(true)], 2: (L, h) => [h[0] - c.face * 6 * a * S, gnd(false)],
+          1: (L, h) => [h[0] + c.face * (2 + 24 * a) * S, gnd(true)], 3: (L, h) => [h[0] + c.face * (2 + 27 * a) * S, gnd(false)],
+        },
+        head: (anc) => [anc[0] + c.face * 8 * a * S, anc[1] + 7 * a * S], tt: 0.05 * a - 0.28 * yawn,
+        lid: a > 0.5 ? 1 : null, expr: "idle",
+        tail: { base: 250, curl: 2, hook: 8, sway: 0, flick: null, dyn: { w0: 6, zeta: 0.8, grav: 0, inert: 0.4 } },
+      };
+    },
+  });
+
+  /* ----- 노트북 타이핑 ----- */
+  const newLine = () => ({ w: 0, max: rand(0.35, 0.85), c: Math.floor(Math.random() * 4), ind: Math.floor(Math.random() * 3) });
+  function drawLaptop(lap) {
+    const f = lap.face, x = lap.x, s = S * PROP, sx = x + f * 9 * s, sw = 32 * s, sh = 23 * s, sb = floorY - 4 * s;
+    ctx.fillStyle = "#4b4656"; roundRect(ctx, sx - sw / 2, sb - sh, sw, sh, 2.5 * s); ctx.fill();               // 화면 테두리
+    ctx.fillStyle = "#1f2633"; roundRect(ctx, sx - sw / 2 + 2 * s, sb - sh + 2 * s, sw - 4 * s, sh - 5 * s, 1.5 * s); ctx.fill();
+    const cols = ["#7fd1a8", "#f7c76b", "#8ab4ff", "#f49ac1"], lx = (ln) => sx - sw / 2 + (4 + ln.ind * 3) * s, ly = (i) => sb - sh + (4.2 + i * 2.8) * s;
+    lap.lines.forEach((ln, i) => { if (ln.w > 0) { ctx.fillStyle = cols[ln.c]; roundRect(ctx, lx(ln), ly(i), ln.w * (sw - 12 * s), 1.5 * s, 0.7 * s); ctx.fill(); } });
+    const li = lap.lines.length - 1, last = lap.lines[li]; // 깜빡이는 커서
+    if (Math.floor(time * 2.4) % 2 === 0) { ctx.fillStyle = "#e8e6ef"; ctx.fillRect(lx(last) + last.w * (sw - 12 * s) + 0.8 * s, ly(li) - 0.3 * s, 1.2 * s, 2.1 * s); }
+    const kx = Math.min(x - f * 22 * s, x + f * 12 * s); // 키보드: 바닥에 납작하게, 고양이 쪽으로
+    ctx.fillStyle = "#c9c4d2"; roundRect(ctx, kx, floorY - 4.5 * s, 34 * s, 4.5 * s, 1.5 * s); ctx.fill();
+    ctx.fillStyle = "#e6e2ec"; for (let i = 0; i < 6; i++) ctx.fillRect(kx + (3 + i * 5) * s, floorY - 4 * s, 3.4 * s, 1.4 * s);
+  }
+  defineActivity("typing", { // 두 앞발로 번갈아 톡톡(누를 때 내려가고 떼면 올라온다), 화면엔 코드가 한 줄씩
+    name: "노트북 타이핑", label: "타이핑하는 중", room: 80,
+    start(A, kit) {
+      const lap = (A.lap = { x: ahead(50), face: cat.face, lines: [newLine()], keyT: 0.25, paw: 0, press: [0, 0] });
+      kit.back(() => [lap.x, floorY], () => drawLaptop(lap));
+      burst(lap.x + cat.face * 9 * S * PROP, floorY - 18 * S * PROP);
+    },
+    step(A, dt) {
+      const lap = A.lap;
+      lap.press = lap.press.map((v) => Math.max(0, v - dt * 7));
+      lap.keyT -= dt;
+      if (lap.keyT <= 0 && A.t > 0.6) {
+        lap.keyT = rand(0.1, 0.2); lap.paw ^= 1; lap.press[lap.paw] = 1;
+        const ln = lap.lines[lap.lines.length - 1];
+        ln.w += rand(0.05, 0.1);
+        if (ln.w > ln.max) { lap.lines.push(newLine()); if (lap.lines.length > 6) lap.lines.shift(); }
+        if (Math.random() < 0.05) say("탁탁", lap.x - cat.face * 6 * S, floorY - 30 * S, null, 0.7);
+      }
+    },
+    pose(A, ramp) {
+      const c = cat, lap = A.lap, k = S * PROP, keyY = floorY - 6 * k, up = (i) => (1 - lap.press[i]) * 5 * S;
+      return {
+        sit: true, ear: -0.05, lid: 0.2, expr: "idle", tt: 0.08, look: [lap.x + c.face * 9 * k, floorY - 17 * k], feetW: ramp,
+        feet: { [NEAR_FRONT]: () => [lap.x - c.face * 11 * k, keyY - up(0)], [FAR_FRONT]: () => [lap.x - c.face * 5 * k, keyY - 2.5 * S - up(1)] },
+        tail: calmTail(4, [3, 7, 10, 0.4]),
+      };
+    },
+  });
+
+  /* ----- 신문 읽기 ----- */
+  function drawPaper(np) {
+    const s = S * PROP, f = np.face, x = np.x, pw = 21 * s, ph = 30 * s, top = floorY - 34 * s;
+    ctx.fillStyle = "#c3905f"; ctx.fillRect(x - 1.2 * s, top + ph - 1 * s, 2.4 * s, floorY - top - ph + 1 * s); // 받침대
+    roundRect(ctx, x - 9 * s, floorY - 2.2 * s, 18 * s, 2.2 * s, 1 * s); ctx.fill();
+    const page = (w, seed, back) => { // 가운데 접힌 곳에서 w 만큼(음수면 반대쪽). back = 넘어가는 종이의 뒷면
+      const xl = Math.min(x, x + w), aw = Math.abs(w);
+      if (aw < 0.5) return;
+      ctx.fillStyle = back ? "#ece7dc" : "#f7f4ec"; ctx.fillRect(xl, top, aw, ph);
+      if (back) return;
+      ctx.fillStyle = "#5a5560"; ctx.fillRect(xl + aw * 0.1, top + 3 * s, aw * 0.8, 3 * s); // 제목
+      ctx.fillStyle = "#c9c4cf";
+      for (let i = 0; i < 6; i++) ctx.fillRect(xl + aw * 0.1, top + (9 + i * 3.4) * s, aw * (i === 5 ? 0.5 : 0.8), 1.3 * s);
+      if (seed % 2 === 0) { ctx.fillStyle = ["#9fd0f0", "#f5c4a0", "#bfe3b0"][seed % 3]; ctx.fillRect(xl + aw * 0.12, top + 9 * s, aw * 0.38, 8 * s); } // 사진
+    };
+    const k = np.flip;
+    page(f * pw, np.page * 2 + 1, false);                                // 먼 쪽 면
+    page(-f * pw, k >= 0 ? np.page * 2 + 2 : np.page * 2, false);       // 고양이 쪽 면(넘기는 중엔 다음 장이 보인다)
+    if (k >= 0) page(-f * pw * Math.cos(Math.PI * k), np.page * 2, k > 0.5); // 넘어가는 종이
+    ctx.fillStyle = "rgba(0,0,0,0.12)"; ctx.fillRect(x - 0.6 * s, top, 1.2 * s, ph);
+  }
+  defineActivity("reading", { // 줄을 따라 눈이 움직이고, 가끔 앞발로 한 장 넘긴다
+    name: "신문 읽기", label: "신문 읽는 중", room: 96,
+    start(A, kit) {
+      const np = (A.np = { x: ahead(37 + 21 * PROP), face: cat.face, flip: -1, nextFlip: 3, page: 0 }); // 가까운 쪽 가장자리는 그대로
+      kit.back(() => [np.x, floorY], () => drawPaper(np));
+      burst(np.x, floorY - 20 * S * PROP);
+    },
+    step(A, dt) {
+      const np = A.np;
+      if (np.flip < 0 && A.t >= np.nextFlip) np.flip = 0;
+      if (np.flip >= 0) { np.flip += dt / 0.7; if (np.flip >= 1) { np.flip = -1; np.page++; np.nextFlip = A.t + rand(3.2, 4.8); } }
+    },
+    pose(A) {
+      const c = cat, np = A.np, s = S * PROP, pw = 21 * s, top = floorY - 34 * s, k = np.flip;
+      const line = Math.floor(A.t / 1.4) % 5, u = (A.t % 1.4) / 1.4;
+      const look = k >= 0 ? [lerp(np.x - c.face * pw, np.x, k), top + 12 * s]
+        : [lerp(np.x - c.face * pw * 0.85, np.x + c.face * pw * 0.85, u), top + 9 * s + line * 3.4 * s];
+      // 앞발은 종이 귀퉁이를 반쯤만 밀어 주고, 나머지는 종이가 스스로 넘어간다(커진 신문의 가운데까지는 닿지 않아서)
+      const kk = Math.max(0, k), near = np.x - c.face * (pw - 3 * S);
+      const paw = [lerp(near, np.x - c.face * pw * 0.4, smooth(Math.min(1, kk * 1.6))), top + 16 * s - Math.sin(Math.PI * kk) * 6 * S];
+      return { sit: true, ear: 0, lid: 0.15, expr: "idle", tt: 0.07, look, feetW: k >= 0 ? Math.sin(Math.PI * Math.min(1, k * 1.15)) : 0, feet: { [NEAR_FRONT]: () => paw }, tail: calmTail(3) };
+    },
+  });
+
+  /* ----- 발도장 ----- */
+  function cellCenter(cal, col, row) { // 달력 칸 가운데. col 0 이 고양이 쪽
+    const w = 34 * S, top = floorY - 36 * S, near = cal.x - (cal.face * w) / 2;
+    return [near + cal.face * (col + 0.5) * (w / 5), top + 8 * S + (row + 0.5) * 6 * S];
+  }
+  function drawPawPrint(x, y, s) {
+    ctx.fillStyle = "#f2a7b8";
+    ctx.beginPath(); ctx.ellipse(x, y + 0.8 * s, 2.2 * s, 1.8 * s, 0, 0, TAU); ctx.fill();
+    for (const [dx, dy] of [[-2.2, -1.6], [-0.75, -2.6], [0.75, -2.6], [2.2, -1.6]]) { ctx.beginPath(); ctx.arc(x + dx * s, y + dy * s, 0.8 * s, 0, TAU); ctx.fill(); }
+  }
+  function drawCalendar(cal) {
+    const w = 34 * S, h = 34 * S, x0 = cal.x - w / 2, top = floorY - 36 * S, s = S;
+    ctx.fillStyle = "#c3905f"; ctx.fillRect(cal.x - 1.2 * s, top + h - 2 * s, 2.4 * s, floorY - top - h + 2 * s); // 받침
+    roundRect(ctx, cal.x - 9 * s, floorY - 2.2 * s, 18 * s, 2.2 * s, 1 * s); ctx.fill();
+    ctx.fillStyle = "#fbfaf6"; roundRect(ctx, x0, top, w, h, 2 * s); ctx.fill();
+    ctx.fillStyle = "#ef8f9f"; roundRect(ctx, x0, top, w, 7 * s, 2 * s); ctx.fill(); ctx.fillRect(x0, top + 4 * s, w, 3 * s);
+    ctx.fillStyle = "#eeeaf1";
+    for (let col = 1; col < 5; col++) ctx.fillRect(x0 + (col * w) / 5 - 0.3 * s, top + 8 * s, 0.6 * s, h - 9 * s);
+    for (let r = 1; r < 4; r++) ctx.fillRect(x0 + 1 * s, top + (8 + r * 6) * s - 0.3 * s, w - 2 * s, 0.6 * s);
+    ctx.fillStyle = "#d9d3df"; // 날짜 자리
+    for (let r = 0; r < 4; r++) for (let col = 0; col < 5; col++) { const [cx, cy] = cellCenter(cal, col, r); ctx.beginPath(); ctx.arc(cx - 1.6 * s, cy - 1.6 * s, 0.6 * s, 0, TAU); ctx.fill(); }
+    for (const m of cal.marks) { const [cx, cy] = cellCenter(cal, m.col, m.row); withPop(cx, cy, popIn(time - m.t0), () => drawPawPrint(cx, cy, s)); }
+  }
+  defineActivity("stamp", { // 앞발을 번쩍 들었다가 달력 칸에 꾹, 젤리 발자국이 뿅. 두 번 찍고 뿌듯하게
+    name: "발도장", label: "발도장 찍는 중", room: 70,
+    start(A, kit) {
+      const pick = (c0, c1) => [c0 + Math.floor(Math.random() * (c1 - c0 + 1)), Math.floor(Math.random() * 4)];
+      const cal = (A.cal = { x: ahead(48), face: cat.face, marks: [], plan: [pick(0, 1), pick(1, 2)], done: 0 });
+      kit.back(() => [cal.x, floorY], () => drawCalendar(cal));
+      burst(cal.x, floorY - 18 * S);
+    },
+    step(A) {
+      const cal = A.cal;
+      cal.plan.forEach(([col, row], k) => {
+        if (A.t >= 0.7 + k * 1.6 + 0.47 && cal.done <= k) {
+          cal.done = k + 1; cal.marks.push({ col, row, t0: time });
+          const p = cellCenter(cal, col, row); say("꾹", p[0], p[1] - 12 * S); burst(p[0], p[1], 5, "#f2a7b8");
+        }
+      });
+      if (A.t > 0.7 + 1.6 * (cal.plan.length - 1) + 2.0) endAct();
+    },
+    pose(A) {
+      const c = cat, cal = A.cal;
+      let w = 0, pt = null;
+      cal.plan.forEach(([col, row], k) => {
+        const u = A.t - (0.7 + k * 1.6);
+        if (u < 0 || u > 1.05) return;
+        const cc = cellCenter(cal, col, row);
+        if (u < 0.35) { pt = [cc[0] - c.face * 3 * S, cc[1] - 14 * S]; w = smooth(u / 0.35); }          // 번쩍
+        else if (u < 0.5) { const e = smooth((u - 0.35) / 0.15); pt = [cc[0] - c.face * 3 * S * (1 - e), lerp(cc[1] - 14 * S, cc[1], e)]; w = 1; } // 꾹
+        else if (u < 0.75) { pt = cc; w = 1; }
+        else { const e = smooth((u - 0.75) / 0.15); pt = [cc[0] - c.face * 4 * S * e, cc[1] - 6 * S * e]; w = 1 - smooth((u - 0.75) / 0.3); } // 살짝 떼면서 내린다
+      });
+      const happy = A.t > 0.7 + 1.6 * (cal.plan.length - 1) + 0.8;
+      return { sit: true, ear: -0.05, expr: happy ? "happy" : "idle", lid: happy ? null : 0.1, look: !happy && pt ? pt : null, feetW: w, feet: pt ? { [NEAR_FRONT]: () => pt } : null, tail: calmTail(5) };
+    },
+  });
+
+  const bez2 = (a, b, c2, t) => [lerp(lerp(a[0], b[0], t), lerp(b[0], c2[0], t), t), lerp(lerp(a[1], b[1], t), lerp(b[1], c2[1], t), t)];
+  /** 머리 좌표의 얼굴 점 q 에 발을 댄다. 앉으면 머리가 어깨보다 뒤에 있어서 발이 얼굴을 따라가면 가슴 속으로 접혀 들어간다.
+   *  그래서 발은 가슴 앞의 편한 자리(어깨에서 위로 el 도, 다리 길이의 0.85)에 두고, 기준 얼굴 점 refQ 가 거기 오도록
+   *  머리를 앞-아래로 내민다(최대 maxMove). 실제 얼굴 점 q 는 그 머리 자리에서 계산하고, 다리로 닿는 데까지만 간다.
+   *  머리를 얼마나 옮길지는 A.headOff 에 남겨 head 훅이 쓴다. */
+  function pawToFace(A, L, h, q, refQ, el, nod, maxMove = 24) {
+    const c = cat, anc = A.anc || c.headAnc, nat = (L.def.a + L.def.b) * c.ll.len * S;
+    const face = (p) => { const [rx, ry] = rotv(p[0] * c.turn.x * S, p[1] * S, c.headRot); return [anc[0] + nod[0] + rx, anc[1] + nod[1] + ry]; };
+    const M = [h[0] + c.face * Math.cos(el) * nat * 0.85, h[1] - Math.sin(el) * nat * 0.85], F = face(refQ);
+    let ox = M[0] - F[0], oy = M[1] - F[1];
+    const om = Math.hypot(ox, oy), lim = maxMove * S;
+    if (om > lim) { ox *= lim / om; oy *= lim / om; }
+    A.headOff = [nod[0] + ox, nod[1] + oy];
+    const Q = face(q), px = Q[0] + ox - h[0], py = Q[1] + oy - h[1], d = Math.hypot(px, py), R = nat * 0.95, t = d > R ? R / d : 1;
+    return [h[0] + px * t, h[1] + py * t];
+  }
+
+  defineActivity("groom", { // 앞발을 입 앞에 들고 할짝할짝 → 고개를 숙여 그 발로 볼에서 코까지 쓸어내리기 세 번
+    name: "세수", label: "세수하는 중",
+    pose(A) {
+      const c = cat, u = A.t % 5.2;
+      const lickQ = [FO + 9, 21], cheekQ = [FO + 12, 4];
+      let w = 1, lid = 0.7, tt = 0.1, q = lickQ, nod = [0, 0], k = 0;
+      const dip = smooth((u - 2.05) / 0.3) * (1 - smooth((u - 4.25) / 0.3)); // 닦는 동안 고개를 발 쪽으로
+      if (u < 0.45) w = smooth((u - 0.1) / 0.35); // 앉는 동안 잠깐 기다렸다가 든다
+      else if (u < 2.05) { const b = Math.max(0, Math.sin((u - 0.45) * TAU * 2.5)); tt = 0.14 + 0.1 * b; lid = 0.8; nod = [0, 1.5 * b * S]; } // 핥을 때마다 고개를 까딱
+      else if (u < 4.45) { lid = 1; tt = 0.16; }
+      else { w = 1 - smooth((u - 4.45) / 0.6); tt = 0.06; }
+      if (u >= 2.05 && u < 4.85) { // 닦기: 눈 위 → 볼 → 코, 살짝 띄워 다시 위로. 들어갈 때·나올 때는 핥던 자리와 섞는다
+        const j = ((u - 2.05) / 0.8) % 1, s0 = [FO + 3, -6], s1 = [FO + 13, 2], s2 = [FO + 20, 13];
+        let qs, e;
+        if (j < 0.62) { e = smooth(j / 0.62); qs = bez2(s0, s1, s2, e); if (u < 4.45) tt = 0.16 + 0.1 * e; }
+        else { e = smooth((j - 0.62) / 0.38); qs = bez2(s2, [FO + 26, 0], s0, e); if (u < 4.45) tt = 0.22 - 0.06 * e; }
+        k = smooth((u - 2.05) / 0.3) * (1 - smooth((u - 4.45) / 0.4));
+        q = [lerp(lickQ[0], qs[0], k), lerp(lickQ[1], qs[1], k)];
+      }
+      nod = [nod[0] + c.face * 3 * S * dip, nod[1] + 4 * S * dip];
+      return {
+        sit: true, ear: 0.1 + 0.15 * dip, lid, tt, expr: "idle", feetW: w, feet: { [NEAR_FRONT]: (L, h) => pawToFace(A, L, h, q, [lerp(lickQ[0], cheekQ[0], k), lerp(lickQ[1], cheekQ[1], k)], lerp(1.0, 1.1, k), nod) },
+        pawFront: w > 0.05,
+        head: (anc) => { A.anc = anc; const o = A.headOff || [0, 0]; return [anc[0] + o[0] * w, anc[1] + o[1] * w]; }, tail: calmTail(4),
+      };
+    },
+  });
+
+
+  /* ----- 꾹꾹이 ----- */
+  function drawBlanket(bl) {
+    const s = S, w = 64 * s, x0 = bl.x - w / 2, th = 7 * s;
+    const top = (x) => { let d = 0; bl.px.forEach((px, k) => { d += bl.dents[k] * 2.2 * s * Math.exp(-((x - px) ** 2) / (2 * (5 * s) ** 2)); }); return floorY - th + d; }; // 앞발에 눌려 패인다
+    ctx.fillStyle = "#f3c6d3";
+    ctx.beginPath(); ctx.moveTo(x0, floorY);
+    for (let i = 0; i <= 24; i++) { const x = x0 + (w * i) / 24, edge = Math.min(i, 24 - i); ctx.lineTo(x, top(x) + (edge < 2 ? (2 - edge) * 1.8 * s : 0)); }
+    ctx.lineTo(x0 + w, floorY); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.45)"; // 누빔 선
+    for (let i = 1; i < 6; i++) { const x = x0 + (w * i) / 6; ctx.fillRect(x - 0.6 * s, top(x) + 1.5 * s, 1.2 * s, th - 2.5 * s); }
+  }
+  defineActivity("knead", { // 담요를 앞발로 번갈아 꾹꾹(담요가 눌려 패인다), 눈은 행복하게 감고 골골
+    name: "꾹꾹이", label: "꾹꾹이 하는 중", room: 60,
+    start(A, kit) {
+      const bl = (A.bl = { x: ahead(26), dents: [0, 0], px: [0, 0] }); A.purrT = 1.2;
+      kit.back(() => [bl.x, floorY], () => drawBlanket(bl));
+      burst(bl.x, floorY - 5 * S);
+    },
+    step(A, dt) {
+      A.purrT -= dt;
+      if (A.purrT <= 0) { A.purrT = 1.7; say("골골", cat.head.x + cat.face * 30 * S, cat.head.y - 30 * S, null, 1.2); }
+    },
+    pose(A, ramp) {
+      const c = cat, bl = A.bl, top = floorY - 7 * S, ph = A.t * TAU * 1.5, lift = (k) => Math.max(0, Math.sin(ph + k * Math.PI)) * 6 * S;
+      bl.dents = [0, 1].map((k) => (1 - lift(k) / (6 * S)) * ramp);
+      bl.px = [c.legs[NEAR_FRONT].footW[0], c.legs[FAR_FRONT].footW[0]];
+      return {
+        tilt: -0.05, dy: 2 * ramp, ear: 0.18, expr: "happy", tt: 0.05 + 0.03 * Math.sin(ph * 2), feetW: ramp,
+        feet: { [NEAR_FRONT]: () => [bl.x + c.face * 6 * S, top + 2 * S - lift(0)], [FAR_FRONT]: () => [bl.x - c.face * 2 * S, top - 0.5 * S - lift(1)] },
+        tail: { base: 238, curl: 3, hook: 14, sway: 6, period: 3, still: 0, flick: null, dyn: TAIL_CALM },
+      };
+    },
+    end(A) { A.bl.dents = [0, 0]; },
+  });
+
+  /* ----- 털실 공놀이 ----- */
+  function yarnBounds() { const lo = (EDGE + 50) * S, hi = W - (EDGE + 50) * S; return lo < hi ? [lo, hi] : [W / 2, W / 2]; }
+  function ballStep(b, dt) {
+    const [lo, hi] = yarnBounds();
+    b.x += b.vx * dt; b.vx *= Math.exp(-dt * 1.3);
+    if (b.x < lo) { b.x = lo; b.vx = Math.abs(b.vx) * 0.6; } else if (b.x > hi) { b.x = hi; b.vx = -Math.abs(b.vx) * 0.6; }
+    b.rot += (b.vx / b.r) * dt;
+    if (Math.abs(b.vx) > 5 * S) b.trail = -Math.sign(b.vx);
+  }
+  function drawYarn(b) {
+    const x = b.x, y = floorY - b.r, r = b.r, s = S;
+    ctx.strokeStyle = b.col; ctx.lineWidth = 1.3 * s; ctx.lineCap = "round"; // 풀린 실: 공 뒤로 구불구불
+    ctx.beginPath(); ctx.moveTo(x, floorY - 1 * s);
+    for (let i = 1; i <= 8; i++) ctx.lineTo(x + b.trail * i * 5 * s, floorY - 1.2 * s - Math.sin(i * 1.3 + b.rot) * 1.5 * s);
+    ctx.stroke();
+    ctx.fillStyle = b.col; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.clip(); // 감긴 실 줄: 구르는 만큼 돈다
+    ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.lineWidth = 1.2 * s;
+    for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.ellipse(x, y, r * 1.1, r * 0.45, b.rot + k * 0.6, 0, TAU); ctx.stroke(); }
+    ctx.restore();
+  }
+  function huntYarn(A) { // 공 뒤까지 걸어가서, 서면 앞발로 툭
+    const c = cat, b = A.ball, dir = Math.sign(b.x - c.x) || c.face, want = clamp(b.x - dir * 44 * S, EDGE * S, W - EDGE * S);
+    const rolling = Math.abs(b.vx) > 70 * S;
+    if (c.mode === "walk") {
+      if (Math.abs(c.x - want) < 6 * S && !rolling) { c.vx = 0; c.speed = 0; setMode("idle"); return; }
+      if (Math.abs(want - c.target) > 10 * S) walkTo(want);
+      return;
+    }
+    if (rolling) return; // 굴러가는 동안은 눈으로만 쫓는다
+    if (Math.abs(c.x - want) > 12 * S && c.modeT > 0.25) { walkTo(want); return; }
+    if (dir !== c.face && c.modeT > 0.3) { c.face = dir; setMode("idle"); return; }
+    if (A.cool <= 0 && c.modeT > 0.35) { A.swipe = 0; setMode("act"); }
+  }
+  defineActivity("yarn", {
+    name: "털실 공놀이", label: "털실 공 노는 중", roam: true, keepOnGrab: true,
+    start(A, kit) {
+      const [lo, hi] = yarnBounds(), cols = ["#f28fb0", "#8ec5ec", "#f5c542"];
+      const ball = (A.ball = { x: clamp(ahead(78), lo, hi), vx: 0, rot: 0, r: 9 * S, col: cols[Math.floor(Math.random() * 3)], trail: -cat.face });
+      A.cool = 0.6; A.swipe = -1;
+      kit.back(() => [ball.x, floorY], () => drawYarn(ball));
+      burst(ball.x, floorY - 9 * S, 7, ball.col);
+    },
+    step(A, dt) {
+      A.cool -= dt; ballStep(A.ball, dt);
+      if (cat.mode !== "act" || A.swipe < 0) return;
+      const prev = A.swipe; A.swipe += dt;
+      if (prev < 0.27 && A.swipe >= 0.27 && Math.abs(A.ball.x - ahead(44)) < 22 * S) { // 툭!
+        A.ball.vx = cat.face * rand(170, 300) * S; A.cool = 0.5; say("톡", A.ball.x, floorY - 26 * S);
+      }
+      if (A.swipe > 0.5) { A.swipe = -1; setMode("idle"); }
+    },
+    wander: huntYarn,
+    look: (A) => [A.ball.x, floorY - A.ball.r],
+    pose(A) { // 공을 향해 앞발을 뒤로 뺐다가 툭
+      const c = cat, u = Math.max(0, A.swipe), b = A.ball, hit = [b.x - c.face * 7 * S, floorY - b.r * 0.9], up = [ahead(30), floorY - 22 * S];
+      let pt, w;
+      if (u < 0.2) { pt = up; w = smooth(u / 0.2); }
+      else if (u < 0.3) { const e = smooth((u - 0.2) / 0.1); pt = [lerp(up[0], hit[0], e), lerp(up[1], hit[1], e)]; w = 1; }
+      else { pt = hit; w = 1 - smooth((u - 0.3) / 0.2); }
+      return { tilt: 0.05, ear: -0.12, expr: "curious", look: [b.x, floorY - b.r], feetW: w, feet: { [NEAR_FRONT]: () => pt },
+        tail: { base: 214, curl: 4, hook: 10, sway: 8, period: 1.2, still: 0, flick: null, dyn: { w0: 5, zeta: 0.5, grav: 0.1, inert: 1 } } };
+    },
+  });
+
+  /* ----- 상자에 쏙 ----- */
+  function drawBox(bx, part) {
+    const s = S, x0 = bx.x - bx.w / 2, x1 = bx.x + bx.w / 2, top = floorY - bx.h;
+    if (part === "back") { // 상자 안쪽 뒷벽과 뒤 날개
+      ctx.fillStyle = "#b9864d";
+      ctx.beginPath(); ctx.moveTo(x0 + 5 * s, top - 6 * s); ctx.lineTo(x1 - 5 * s, top - 6 * s); ctx.lineTo(x1, top); ctx.lineTo(x0, top); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#c99a5e";
+      ctx.beginPath(); ctx.moveTo(x0 + 5 * s, top - 6 * s); ctx.lineTo(x0 + 14 * s, top - 18 * s); ctx.lineTo(bx.x - 4 * s, top - 15 * s); ctx.lineTo(bx.x - 2 * s, top - 6 * s); ctx.closePath(); ctx.fill();
+      return;
+    }
+    const hh = bx.h + 6 * s; // 앞면 아래쪽은 바닥 쪽으로 조금 더 내려 그린다(배 밑 털이 상자 밑으로 비치지 않게, 바닥에 놓인 느낌)
+    ctx.fillStyle = "#d9a86c"; roundRect(ctx, x0, top, bx.w, hh, 2 * s); ctx.fill(); // 앞면
+    ctx.fillStyle = "#e7bf87"; ctx.fillRect(x0 + 1 * s, top, bx.w - 2 * s, 3 * s);
+    ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.fillRect(bx.x - 5 * s, top, 10 * s, hh); // 테이프
+    ctx.fillStyle = "#cf9c5f"; // 앞 날개: 양쪽으로 벌어진 뚜껑
+    ctx.beginPath(); ctx.moveTo(x0, top); ctx.lineTo(x0 - 13 * s, top - 9 * s); ctx.lineTo(x0 - 9 * s, top - 13 * s); ctx.lineTo(x0 + 4 * s, top - 2 * s); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x1, top); ctx.lineTo(x1 + 13 * s, top - 9 * s); ctx.lineTo(x1 + 9 * s, top - 13 * s); ctx.lineTo(x1 - 4 * s, top - 2 * s); ctx.closePath(); ctx.fill();
+  }
+  defineActivity("box", { // 상자가 뿅 → 쏙 들어가서: 눈만 빼꼼 / 얼굴을 쑥 내밀고 두리번 / 앞발을 걸치고 얼굴 내밀기 / 쏙 숨기
+    name: "상자에 쏙", label: "상자 속에 숨는 중",
+    start(A, kit) {
+      // 상자는 고양이를 다 담아야 한다: 높이는 식빵 자세 몸통 위까지, 폭은 엉덩이 끝부터 (안쪽으로 당긴) 머리 앞까지 + 털 여유
+      const c = cat, B = c.bd, fur = { short: 3, medium: 7, long: 16 }[c.fur];
+      const back = (50 * B.bx + fur) * S, front = (64 * B.bx + fur * 0.6) * S;
+      const box = (A.box = { x: c.x + (c.face * (front - back)) / 2, w: back + front, h: (loafH() + 25 * B.by + 4 + fur * 0.4) * S });
+      kit.back(() => [box.x, floorY], () => drawBox(box, "back"));
+      kit.front(() => [box.x, floorY], () => drawBox(box, "front"));
+      burst(box.x, floorY - 40 * S);
+      A.ph = "peek"; A.pt = 0; A.dur = 1.6; A.hy = 6; A.hv = 0; A.pw = 0;
+    },
+    step(A, dt) {
+      A.pt += dt;
+      if (A.t > 0.75 && A.pt > A.dur) { // 다음 동작을 무작위로(같은 건 연달아 하지 않게)
+        const next = { peek: ["face", "paws", "duck"], face: ["paws", "peek", "duck"], paws: ["face", "duck", "peek"], duck: ["peek", "face", "paws"] }[A.ph];
+        A.ph = next[Math.floor(Math.random() * next.length)]; A.pt = 0;
+        A.dur = { peek: rand(1.4, 2.2), face: rand(1.8, 2.8), paws: rand(2.2, 3.2), duck: rand(0.6, 0.9) }[A.ph];
+      }
+      // 머리 높이(상자 테두리 기준, 로컬 단위)와 앞발 걸치기. 머리는 살짝 넘쳤다 자리 잡는 쫀득한 스프링으로
+      const [ty, tw] = { peek: [-7, 0], face: [-23, 0], paws: [-21, 1], duck: [22, 0] }[A.ph]; // 숨을 땐 귀 끝만 남게
+      A.hv += ((ty - A.hy) * 170 - A.hv * 13) * dt; A.hy += A.hv * dt;
+      A.pw = lerp(A.pw, tw, 1 - Math.exp(-dt * 6));
+    },
+    pose(A) {
+      const c = cat, bx = A.box, inn = smooth((A.t - 0.25) / 0.5), rim = floorY - bx.h;
+      const look = A.ph === "face" ? Math.sin(A.pt * 2.2) : 0; // 얼굴을 내밀면 두리번
+      const paw = (near) => () => [c.head.x + c.face * (near ? 11 : -3) * S, rim - PAW.ry * S + (near ? 1 : -1) * S]; // 테두리에 걸친 앞발
+      return {
+        // 몸은 식빵 자세로 바닥에 그대로(바닥 밑으로 가라앉히면 상자 아래로 비친다). 앞발을 걸칠 땐 앞다리를 더 뻗는다
+        loaf: true, dy: -2.5 * inn, expr: "idle", reach: { [NEAR_FRONT]: 1 + 0.25 * A.pw, [FAR_FRONT]: 1 + 0.25 * A.pw },
+        ear: A.ph === "duck" ? -0.1 : A.ph === "face" ? -0.08 : 0.05, tt: A.ph === "face" ? 0.07 * look : null,
+        head: (anc) => [anc[0] - c.face * 10 * S * inn + c.face * 3 * S * look, lerp(anc[1], rim + A.hy * S, inn)], // 머리는 상자 안쪽으로
+        feetW: A.pw * inn, feet: { [NEAR_FRONT]: paw(true), [FAR_FRONT]: paw(false) },
+        pawFront: A.pw > 0.3 ? [FAR_FRONT, NEAR_FRONT] : null, pawBeans: false, // 내민 얼굴보다 앞에 보이게
+        tail: { base: 245, curl: 3, hook: 14, sway: 7, period: 3.5, still: 0.2, flick: [2, 4, 12, 0.4], dyn: TAIL_CALM },
+      };
+    },
+  });
+
+
+  /* ----- 창밖 구경 ----- */
+  function makeWindow() {
+    const w = 70 * S, h = 58 * S, cx = ahead(70), cy = Math.max(floorY - 150 * S, 14 * S + h / 2), branchY = cy + h * 0.22;
+    return { cx, cy, w, h, branchY, bird: { x: cx + rand(-14, 14) * S, y: branchY - 6 * S, hop: -1, hx0: 0, hopT: rand(0.8, 1.6), away: 0, awayT: rand(5, 8), dir: 1, peck: 0 } };
+  }
+  function drawBird(b) {
+    const s = S, x = b.x, y = b.y, d = b.dir, pk = b.peck > 0 ? 2 * s : 0;
+    ctx.fillStyle = "#8a6a55"; ctx.beginPath(); ctx.ellipse(x - d * 5 * s, y + 1 * s, 3 * s, 1.4 * s, -0.4 * d, 0, TAU); ctx.fill(); // 꽁지
+    ctx.fillStyle = "#a07a60"; ctx.beginPath(); ctx.ellipse(x, y, 5.2 * s, 4.4 * s, 0, 0, TAU); ctx.fill();                       // 몸
+    ctx.fillStyle = "#f2b48a"; ctx.beginPath(); ctx.ellipse(x + d * 1.5 * s, y + 1.5 * s, 3.2 * s, 2.6 * s, 0, 0, TAU); ctx.fill();   // 배
+    ctx.fillStyle = "#a07a60"; ctx.beginPath(); ctx.arc(x + d * 4 * s, y - 3.5 * s + pk, 3.2 * s, 0, TAU); ctx.fill();               // 머리
+    ctx.fillStyle = "#f2a640"; ctx.beginPath(); ctx.moveTo(x + d * 6.8 * s, y - 4 * s + pk); ctx.lineTo(x + d * 9.4 * s, y - 3.2 * s + pk); ctx.lineTo(x + d * 6.8 * s, y - 2.4 * s + pk); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#2b2730"; ctx.beginPath(); ctx.arc(x + d * 5 * s, y - 4.2 * s + pk, 0.7 * s, 0, TAU); ctx.fill();
+  }
+  function drawWindow(win) {
+    const { cx, cy, w, h } = win, x0 = cx - w / 2, y0 = cy - h / 2, s = S;
+    ctx.fillStyle = "#eadfcd"; roundRect(ctx, x0 - 4 * s, y0 - 4 * s, w + 8 * s, h + 8 * s, 4 * s); ctx.fill(); // 창틀
+    ctx.save(); roundRect(ctx, x0, y0, w, h, 2 * s); ctx.clip();
+    const g = ctx.createLinearGradient(0, y0, 0, y0 + h); g.addColorStop(0, "#a9d6f5"); g.addColorStop(1, "#e2f3fb");
+    ctx.fillStyle = g; ctx.fillRect(x0, y0, w, h);
+    ctx.fillStyle = "rgba(255,255,255,0.85)"; // 구름
+    for (const [dx, dy, r] of [[-0.22, -0.28, 6], [-0.12, -0.3, 8], [-0.02, -0.27, 5.5]]) { ctx.beginPath(); ctx.arc(cx + dx * w, cy + dy * h, r * s, 0, TAU); ctx.fill(); }
+    ctx.strokeStyle = "#8a6a4c"; ctx.lineWidth = 2.4 * s; ctx.lineCap = "round"; // 나뭇가지
+    ctx.beginPath(); ctx.moveTo(x0 - 2 * s, win.branchY + 3 * s); ctx.quadraticCurveTo(cx, win.branchY - 1 * s, x0 + w + 2 * s, win.branchY + 2 * s); ctx.stroke();
+    ctx.fillStyle = "#8cc37a"; for (const dx of [-0.3, 0.12, 0.34]) { ctx.beginPath(); ctx.ellipse(cx + dx * w, win.branchY - 2 * s, 3.4 * s, 1.8 * s, -0.5, 0, TAU); ctx.fill(); }
+    drawBird(win.bird);
+    ctx.restore();
+    ctx.fillStyle = "#eadfcd"; ctx.fillRect(cx - 1.5 * s, y0, 3 * s, h); ctx.fillRect(x0, cy - 1.5 * s, w, 3 * s); // 창살
+    ctx.fillStyle = "#d8c9b0"; roundRect(ctx, x0 - 8 * s, y0 + h + 2 * s, w + 16 * s, 5 * s, 2 * s); ctx.fill(); // 창턱
+  }
+  defineActivity("window", { // 창밖 새를 올려다보며 '깍깍'(채터링) 하고 꼬리 끝을 자주 까딱
+    name: "창밖 구경", label: "새 구경하는 중", room: 100,
+    start(A, kit) {
+      const win = (A.win = makeWindow());
+      kit.back(() => [win.cx, win.cy], () => drawWindow(win));
+      burst(win.cx, win.cy);
+    },
+    step(A, dt) {
+      const win = A.win, b = win.bird, chat = () => { if (Math.random() < 0.6) say("깍깍", cat.head.x + cat.face * 26 * S, cat.head.y - 34 * S); };
+      if (b.away > 0) { // 날아갔다가 돌아온다
+        b.away += dt;
+        const k = b.away < 1.2 ? b.away / 1.2 : b.away > 2.4 ? Math.max(0, 1 - (b.away - 2.4)) : 1;
+        b.y = win.branchY - 6 * S - smooth(k) * 60 * S;
+        if (b.away > 3.4) { b.away = 0; b.y = win.branchY - 6 * S; b.awayT = rand(5, 8); chat(); }
+        return;
+      }
+      b.awayT -= dt; if (b.awayT <= 0) { b.away = 0.001; return; }
+      b.peck = Math.max(0, b.peck - dt);
+      if (b.hop >= 0) {
+        b.hop = Math.min(1, b.hop + dt / 0.28);
+        b.x = clamp(b.hx0 + b.dir * 9 * S * smooth(b.hop), win.cx - win.w * 0.38, win.cx + win.w * 0.38);
+        b.y = win.branchY - 6 * S - Math.sin(Math.PI * b.hop) * 5 * S;
+        if (b.hop >= 1) b.hop = -1;
+      }
+      b.hopT -= dt;
+      if (b.hopT <= 0) {
+        b.hopT = rand(0.7, 1.8);
+        if (Math.random() < 0.55) { b.hop = 0; b.hx0 = b.x; b.dir = Math.random() < 0.5 ? -1 : 1; chat(); } else b.peck = 0.35;
+      }
+    },
+    pose(A) {
+      const b = A.win.bird;
+      return { sit: true, ear: -0.15, lid: 0.02, expr: "idle", tt: -0.2, look: [b.x, b.y],
+        tail: sitTail({ sway: 3, period: 4, still: 0.2, flick: [0.5, 1.3, 16, 0.25] }) }; // 바닥의 꼬리 끝만 파르르
+    },
+  });
+
+
+
+  /* ----- 벽 타기 ----- */
+  // 가까운 벽까지 걸어가 → 뛰어올라 벽에 붙어 발을 허우적이며 조금 오르다 → 주르륵 미끄러져 떨어지고 → 몸을 털고 머쓱
+  function climbPose(A) {
+    const c = cat, u = A.t - A.t0, wallX = A.side > 0 ? W - 3 * S : 3 * S;
+    const xc = wallX - A.side * (31 * c.bd.by + 7) * S, yTop = floorY - (standH() + 52) * S;
+    let x, y, slide = 0;
+    if (u < 0.38) { const k = smooth(u / 0.38); x = lerp(A.x0, xc, k); y = lerp(A.y0, yTop, k) - Math.sin(Math.PI * k) * 14 * S; }
+    else if (u < 1.25) { x = xc; y = yTop - 10 * S * Math.sin(Math.min(1, ((u - 0.38) / 0.87) * 1.3) * Math.PI * 0.5); }
+    else { slide = (u - 1.25) / 0.85; x = xc; y = yTop - 10 * S + slide * slide * 46 * S; }
+    const scr = Math.sin(u * (slide > 0 ? 34 : 24));
+    const paw = (i) => (L, h) => [wallX - A.side * 1.5 * S, h[1] + (L.front ? -5 : 5) * S + (i % 2 ? scr : -scr) * 5 * S];
+    return {
+      pos: [x, y], tilt: -1.45, feetW: smooth(u / 0.3), feet: { 0: paw(0), 1: paw(1), 2: paw(2), 3: paw(3) },
+      ear: slide > 0 ? 0.45 : -0.12, expr: slide > 0.25 ? "surprised" : "curious", look: [wallX, yTop - 90 * S],
+      tail: { base: 172, curl: -4, hook: 4, sway: 0, flick: null, dyn: { w0: 4, zeta: 0.5, grav: 0.6, inert: 1 } },
+    };
+  }
+  defineActivity("climb", {
+    name: "벽 타기", label: "벽 타는 중", roam: true,
+    start(A) { A.side = cat.x > W / 2 ? 1 : -1; A.phase = "approach"; },
+    step(A) {
+      const c = cat;
+      if ((A.phase === "leap" || A.phase === "cling") && c.mode === "act") {
+        const u = A.t - A.t0;
+        if (u > 0.38) A.phase = "cling";
+        if (u > 1.25 && !A.yelp) { A.yelp = true; say("!", c.head.x, c.head.y - 42 * S); }
+        if (u > 2.1) { A.phase = "falling"; c.climbFall = true; c.afterGrab = true; c.vx = -A.side * 110 * S; c.vy = 80 * S; setMode("fall"); }
+      }
+    },
+    wander(A) {
+      const c = cat;
+      if (A.phase === "approach") {
+        if (c.mode !== "idle") return;
+        const goal = A.side > 0 ? W - EDGE * S : EDGE * S;
+        if (Math.abs(c.x - goal) > 6 * S) { if (c.modeT > 0.15) walkTo(goal); }
+        else if (c.face !== A.side) { c.face = A.side; setMode("idle"); }
+        else if (c.modeT > 0.35) { A.phase = "leap"; A.t0 = A.t; A.x0 = c.x; A.y0 = c.y; setMode("act"); }
+      } else if (A.phase === "falling" && c.mode === "idle") { A.phase = "after"; A.tAfter = A.t; say("머쓱", c.head.x - c.face * 20 * S, c.head.y - 44 * S, null, 1.4); }
+      else if (A.phase === "after" && A.t - A.tAfter > 1.8) endAct();
+    },
+    pose: climbPose,
+    drawFront(A) { // 머쓱한 땀방울
+      if (A.phase !== "after") return;
+      const k = Math.min(1, (A.t - A.tAfter) / 0.25), p = H2W(-24, -14), s = S * k;
+      ctx.fillStyle = "#8ec5ec"; ctx.beginPath(); ctx.moveTo(p[0], p[1] - 6 * s);
+      ctx.quadraticCurveTo(p[0] + 4 * s, p[1] + 1 * s, p[0], p[1] + 3 * s); ctx.quadraticCurveTo(p[0] - 4 * s, p[1] + 1 * s, p[0], p[1] - 6 * s); ctx.fill();
+    },
+  });
+
+  /* ---------- 얼굴 (실루엣 위, 본 화면에 그린다) ---------- */
+  /** 눈 테두리 색: 눈 색의 채도는 그대로 두고 명도만 낮춘다(탁해지지 않게). 노랑 → 진한 금빛, 파랑 → 짙은 파랑. */
+  const eyeEdgeCache = {};
+  function eyeEdge(hex, lf = 0.78) { // lf: 명도 배율(1 이면 눈 색 그대로)
+    const key = hex + lf.toFixed(2);
+    if (eyeEdgeCache[key]) return eyeEdgeCache[key];
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+    let h = 0;
+    if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return (eyeEdgeCache[key] = `hsl(${Math.round(h * 60 + 360) % 360}, ${Math.round(sat * 100)}%, ${Math.round(l * 100 * lf)}%)`);
+  }
+  function drawEye(ex, ey) {
+    const c = cat, e = H2W(ex, ey), R = 10 * S, xp = expression(), iris = c.eye.c;
+    const sx = Math.max(0.15, Math.abs(c.turn.x)) * (Math.sign(c.turn.x) || 1);
+    ctx.save(); ctx.translate(e[0], e[1]); ctx.rotate(c.headRot); ctx.scale(sx, 1);
+    ctx.lineCap = "round"; ctx.strokeStyle = iris;
+    if (xp === "dizzy") { // 어질어질 뱅글뱅글
+      ctx.lineWidth = 2 * S; ctx.beginPath();
+      for (let a = 0; a <= TAU * 2.4; a += 0.25) { const r = R * 0.85 * (a / (TAU * 2.4)), q = a + time * 7; a ? ctx.lineTo(Math.cos(q) * r, Math.sin(q) * r) : ctx.moveTo(0, 0); }
+      ctx.stroke(); ctx.restore(); return;
+    }
+    // 눈꺼풀: 위 눈꺼풀(감기·졸림·깜빡)은 위에서 내려오고, 아래 눈꺼풀(웃음)은 아래에서 올라온다. 덮지 않고 오려 내기만 해서
+    // 가려진 쪽엔 밑의 털·무늬가 그대로 보인다. 눈꺼풀 가장자리는 눈보다 완만한 곡선이라, 끝까지 닫히면 남는 모양이
+    // 가운데가 도톰하고 양 끝이 뾰족한 초승달(감은 눈 ‿, 웃는 눈 ^)이 된다 → 뜬 눈에서 닫히며 자연스럽게 바뀐다.
+    const lid = c.lid.x, sm = c.smile.x, T = 0.27 * R, RL = 1.35 * R, N = 16;
+    // 웃을 땐 아래 눈꺼풀이 올라오는 동시에 위 눈꺼풀도 눈 윗선 모양 그대로 내려와서, 둘이 가운데서 만나 아치(^)가 눈 한가운데 남는다
+    const cS = lerp(0, 0.86 * R, sm), yU = lerp(-1.08 * R, R - T, lid), yD = lerp(1.08 * R, -0.14 * R + T, sm);
+    const smileTop = (p) => { for (let i = 0; i <= N; i++) { const x = -1.05 * R + (2.1 * R * i) / N; p.lineTo(x, cS - Math.sqrt(Math.max(0, R * R - x * x))); } };
+    const lidCurve = (p, y0, dir) => { // dir +1: 위 눈꺼풀(가운데가 처짐), -1: 아래 눈꺼풀(가운데가 솟음)
+      for (let i = 0; i <= N; i++) { const x = -1.05 * R + (2.1 * R * i) / N; p.lineTo(x, y0 - dir * (RL - Math.sqrt(RL * RL - x * x))); }
+    };
+    const region = new Path2D(); region.arc(0, 0, R, 0, TAU);
+    ctx.clip(region);
+    if (lid > 0.001) { const p = new Path2D(); p.moveTo(-1.05 * R, 2 * R); lidCurve(p, yU, 1); p.lineTo(1.05 * R, 2 * R); p.closePath(); ctx.clip(p); }
+    if (sm > 0.001) {
+      const p = new Path2D(); p.moveTo(-1.05 * R, -2 * R); lidCurve(p, yD, -1); p.lineTo(1.05 * R, -2 * R); p.closePath(); ctx.clip(p);
+      const q = new Path2D(); q.moveTo(-1.05 * R, 2 * R); smileTop(q); q.lineTo(1.05 * R, 2 * R); q.closePath(); ctx.clip(q);
+    }
+    ctx.fillStyle = iris; ctx.fillRect(-R, -R, 2 * R, 2 * R);
+    if (Math.max(lid, sm) < 0.98) {
+      const pr = clamp(R * 0.74 * c.pupilSize.x, R * 0.32, R - 1.4 * S);
+      let ppx = c.pupil.x * S, ppy = c.pupil.y * S;
+      const reach = R - pr - 0.8 * S, mm = Math.hypot(ppx, ppy);
+      if (mm > reach) { ppx *= reach / mm; ppy *= reach / mm; }
+      // 거의 닫힐 땐 눈동자가 눈꺼풀 뒤로 숨는다(감을 땐 위로, 웃을 땐 아래로): 지워 가며 흐리게 하면 눈 색과 섞여 탁해진다.
+      // 반쯤 감은 느긋한 눈에선 움직이지 않게 절반을 넘어서부터
+      ppy += (smooth((sm - 0.5) / 0.4) - smooth((lid - 0.5) / 0.4)) * 1.05 * R;
+      ctx.beginPath(); ctx.arc(ppx, ppy, pr, 0, TAU); ctx.fillStyle = INK; ctx.fill();
+      ctx.beginPath(); ctx.arc(ppx - pr * 0.4, ppy - pr * 0.45, 1.6 * S, 0, TAU); ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fill();
+    }
+    // 눈꺼풀 가장자리: 실제 고양이 눈꺼풀 끝은 검다. 닫힐수록 눈꺼풀 끝에 검은 띠가 붙어 같이 움직여서,
+    // 다 닫히면 남은 초승달이 검게 된다(눈 색을 검정과 섞지 않으니 중간에 탁해지지 않는다)
+    const kU = smooth((lid - 0.35) / 0.65), kD = smooth((sm - 0.35) / 0.65);
+    const band = (y0, dir, k) => {
+      const bt = T * 1.08 * k, p = new Path2D();
+      for (let i = 0; i <= N; i++) { const x = -1.05 * R + (2.1 * R * i) / N; p.lineTo(x, y0 - dir * (RL - Math.sqrt(RL * RL - x * x))); }
+      for (let i = N; i >= 0; i--) { const x = -1.05 * R + (2.1 * R * i) / N; p.lineTo(x, y0 + dir * bt - dir * (RL - Math.sqrt(RL * RL - x * x))); }
+      p.closePath(); ctx.fillStyle = INK; ctx.fill(p);
+    };
+    if (kU > 0.001) band(yU, 1, kU);
+    if (kD > 0.001) band(yD, -1, kD);
+    // 테두리: 머리카락처럼 아주 얇게, 눈 색보다 명도만 낮춘 색. 보이는 모양(눈 ∩ 눈꺼풀)의 가장자리를 다 두른다 → 감은 눈·웃는 눈도
+    // (오려 낸 안쪽에만 그려지므로 두 배 굵기로 긋는다)
+    // 닫힐수록 테두리는 눈 색 그대로(명도만 원래대로)·조금 굵게: 검은 초승달 둘레에 눈 색이 남아 검은 털에서도 보인다
+    const kS = Math.max(kU, kD), ew = lerp(0.32, 0.62, kS) * S;
+    ctx.strokeStyle = eyeEdge(iris, lerp(0.78, 1, kS)); ctx.lineWidth = 2 * ew;
+    ctx.stroke(region);
+    if (lid > 0.001) { ctx.beginPath(); ctx.moveTo(-1.05 * R, yU - (RL - Math.sqrt(RL * RL - 1.1025 * R * R))); lidCurve(ctx, yU, 1); ctx.stroke(); }
+    if (sm > 0.001) {
+      ctx.beginPath(); ctx.moveTo(-1.05 * R, yD + (RL - Math.sqrt(RL * RL - 1.1025 * R * R))); lidCurve(ctx, yD, -1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-1.05 * R, cS); smileTop(ctx); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** 수염: 한쪽에 세 가닥. 실제 수염처럼 뿌리는 굵고 끝으로 갈수록 가늘어지며(테이퍼) 살짝 휜다.
+   *  뿌리를 위아래로 나눠 한 점에 모이지 않게, 색은 털 색과 상관없이 같은 회색(곱하기로 털 색이 살짝 배어든다). */
+  function whiskers() {
+    const c = cat, N = 8;
+    ctx.save(); ctx.fillStyle = WHISKER;
+    for (const side of [-1, 1]) {
+      const path = new Path2D();
+      // [각도, 길이, 뿌리 x, 뿌리 y, 휨(+면 끝이 아래로)]
+      for (const [a0, len, rx, ry, bend] of [[-14, 21, 18.5, 8.5, -1.5], [1, 23, 19.5, 11, 1.5], [14, 20, 18.5, 13.5, 3]]) {
+        const a = a0 * DEG + c.whisk.x, dx = Math.cos(a) * side, dy = Math.sin(a), ax = FO + side * rx, ay = ry;
+        const P = [];
+        for (let i = 0; i <= N; i++) { const t = i / N; P.push(H2W(ax + dx * len * t, ay + dy * len * t + bend * t * t)); }
+        const L = [], R = [];
+        for (let i = 0; i <= N; i++) {
+          const q0 = P[Math.max(0, i - 1)], q1 = P[Math.min(N, i + 1)];
+          let tx = q1[0] - q0[0], ty = q1[1] - q0[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+          const w = lerp(1.15, 0.12, Math.pow(i / N, 0.85)) * 0.5 * S;
+          L.push([P[i][0] - ty * w, P[i][1] + tx * w]); R.push([P[i][0] + ty * w, P[i][1] - tx * w]);
+        }
+        // 한 외곽선으로: 한쪽 가장자리 → 끝 → 반대 가장자리 → 뿌리는 반원으로 둥글게 닫는다
+        // (뿌리에 원을 따로 겹쳐 그리면 감는 방향이 반대인 곳이 지워져 뿌리가 깨져 보인다)
+        path.moveTo(L[0][0], L[0][1]); for (const q of L) path.lineTo(q[0], q[1]);
+        for (let i = N; i >= 0; i--) path.lineTo(R[i][0], R[i][1]);
+        const w0 = Math.hypot(L[0][0] - P[0][0], L[0][1] - P[0][1]), aR = Math.atan2(R[0][1] - P[0][1], R[0][0] - P[0][0]), aL = Math.atan2(L[0][1] - P[0][1], L[0][0] - P[0][0]);
+        const aB = Math.atan2(P[0][1] - P[1][1], P[0][0] - P[1][0]), cw = (((aB - aR) % TAU) + TAU) % TAU < (((aL - aR) % TAU) + TAU) % TAU; // 뒤쪽(뿌리 바깥)으로 도는 방향
+        path.arc(P[0][0], P[0][1], w0, aR, aL, !cw);
+        path.closePath();
+      }
+      // 회색을 곱하기로 깔아 밑의 털 색이 살짝 배어들게 하고(밝은 털에선 따뜻한 회색, 배경에선 회색),
+      // 같은 회색을 옅게 한 번 더 얹어 검은 털 위에서도 묻히지 않게
+      ctx.globalCompositeOperation = "multiply"; ctx.globalAlpha = 0.9; ctx.fill(path);
+      ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 0.3; ctx.fill(path);
+    }
+    ctx.restore();
+  }
+
+  function drawFace() {
+    const c = cat, xp = expression();
+    // 수염: 털 색과 상관없이 같은 회색
+    whiskers();
+
+    const bk = c.smile.x;
+    if (bk > 0.02) { // 볼터치: 가장자리가 털에 번지는 블러셔(웃는 눈과 같이 서서히)
+      const tsx = Math.max(0.15, Math.abs(c.turn.x)), r = 4.6 * S;
+      for (const bx of [-21, 21]) {
+        const p = H2W(bx + FO, 9.5);
+        ctx.save(); ctx.translate(p[0], p[1]); ctx.rotate(c.headRot); ctx.scale(1.7 * tsx, 1);
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+        g.addColorStop(0, `rgba(242, 128, 150, ${(0.5 * bk).toFixed(3)})`);
+        g.addColorStop(0.5, `rgba(242, 128, 150, ${(0.3 * bk).toFixed(3)})`);
+        g.addColorStop(1, "rgba(242, 128, 150, 0)");
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill(); ctx.restore();
+      }
+    }
+
+    drawEye(-12.5 + FO, 0); drawEye(12.5 + FO, 0);
+
+    // 입은 그리지 않는다: 네코는 눈과 꼬리(꼬리 언어)·귀로만 감정을 보여 준다
+  }
+
+  function drawEffects() {} // 앱: 잘 때 z, 탭할 때 '냥!' 글자는 그리지 않는다
+
+  function drawRigOverlay() {
+    const c = cat, col = theme.rig || "#2f86b8";
+    ctx.save(); ctx.lineWidth = 1.5; ctx.strokeStyle = col; ctx.fillStyle = col; ctx.globalAlpha = 0.9;
+    const dot = (p, r = 3) => { ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, TAU); ctx.fill(); };
+    for (const L of c.legs) {
+      ctx.beginPath(); ctx.moveTo(L.hipW[0], L.hipW[1]); ctx.lineTo(L.knee[0], L.knee[1]); ctx.lineTo(L.footW[0], L.footW[1]); ctx.stroke();
+      dot(L.hipW); dot(L.knee, 2.5); dot(L.footW, 2.5);
+    }
+    ctx.beginPath(); c.tail.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke();
+    c.tail.forEach((p) => dot([p.x, p.y], 2));
+    const body = [c.x, c.y], neck = L2W(SCRUFF[0], SCRUFF[1]), hd = [c.head.x, c.head.y];
+    ctx.beginPath(); ctx.moveTo(c.tail[0].x, c.tail[0].y); ctx.lineTo(body[0], body[1]); ctx.lineTo(neck[0], neck[1]); ctx.lineTo(hd[0], hd[1]); ctx.stroke();
+    dot(body, 4); dot(hd, 4);
+    ctx.globalAlpha = 0.5; // 출렁임 점: 뼈대 자리(작은 점)와 실제 자리(선)
+    for (const j of c.jig) { ctx.beginPath(); ctx.moveTo(j.gx, j.gy); ctx.lineTo(j.gx + j.ox, j.gy + j.oy); ctx.stroke(); dot([j.gx, j.gy], 1.2); }
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath(); ctx.arc(neck[0], neck[1], 6, 0, TAU); ctx.stroke(); dot(neck, 2);
+    const lb = [hd[0] - c.face * 52 * S, hd[1] - 46 * S];
+    ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.moveTo(neck[0], neck[1]); ctx.lineTo(lb[0], lb[1] + 4); ctx.stroke(); ctx.globalAlpha = 0.9;
+    ctx.font = "600 12px " + getComputedStyle(document.body).fontFamily; ctx.textAlign = "center";
+    ctx.fillText("목덜미 (잡는 점)", lb[0], lb[1]);
+    ctx.restore();
+  }
+
+  function draw() {
+    const c = cat;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    if (DESKTOP) ctx.clearRect(0, 0, W, H);
+    else {
+      const g = ctx.createRadialGradient(W / 2, floorY - 80 * S, 20, W / 2, floorY - 80 * S, Math.max(W, H) * 0.75);
+      g.addColorStop(0, theme["stage-hi"]); g.addColorStop(1, theme["stage-lo"]);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = theme.floor; ctx.fillRect(0, floorY, W, H - floorY);
+    }
+    const lowest = Math.max(...c.legs.map((L) => L.footW[1])) + PAW.ry * S;
+    const k = clamp(1 - Math.max(0, floorY - lowest) / (240 * S), 0.25, 1);
+    ctx.save(); ctx.globalAlpha = k; ctx.fillStyle = theme.shadow;
+    ctx.beginPath(); ctx.ellipse(c.x + c.face * 6 * S, floorY + 1.5 * S, 58 * S * (0.55 + 0.45 * k), 6.5 * S * (0.55 + 0.45 * k), 0, 0, TAU); ctx.fill();
+    ctx.restore();
+
+    drawActBack();
+    composeCat();
+
+    drawFace();
+    drawActFront();
+    drawEffects();
+    if (showRig) drawRigOverlay();
+  }
+
+  /* ---------- 크기 · 초기화 ---------- */
+  function resize() {
+    const r = canvas.getBoundingClientRect();
+    W = Math.max(1, r.width); H = Math.max(1, r.height); DPR = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    floorY = DESKTOP ? H - 6 : Math.round(H * 0.84);
+    // 앱 패널: 높이로 크기를 정하고(높이 200px → 몸 약 80px), 폭이 좁으면 몸이 무대에 들어오게만 줄인다
+    S = SCALE_MODE === "height" ? clamp(Math.min(floorY / 240, W / 250), 0.35, 1.4) : clamp(Math.min(W / 600, floorY / 300), 0.55, 1.4);
+    cat.x = clamp(cat.x || W * 0.45, 70 * S, W - 70 * S);
+    if (GROUND.has(cat.mode)) cat.y = floorY - standH() * S;
+    for (const j of cat.jig) j.init = false;
+    cat.tailRoot.init = false;
+  }
+  function initPose() {
+    const c = cat;
+    c.y = floorY - standH() * S; c.rot = 0;
+    for (const L of c.legs) { const h = hipWorld(L); L.foot.set(h[0], floorY - PAW.ry * S - (L.far ? 2.5 * S : 0)); solveLeg(L); }
+    const a = L2W(HEAD_ANCHOR[0], HEAD_ANCHOR[1]); c.head.set(a[0], a[1]); c.headAnc = a;
+    resetTail();
+  }
+
+  /* ---------- 입력 ---------- */
+  function hitCat(px, py) {
+    const c = cat;
+    if (Math.hypot(px - c.head.x, py - c.head.y) < 38 * S) return true;
+    const [lx0, ly0] = rotv(px - c.x, py - c.y, -c.rot);
+    const lx = (lx0 / S) * c.face, ly = ly0 / S;
+    return (lx / 50) ** 2 + (ly / 34) ** 2 < 1;
+  }
+  function toStage(e) { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+  let press = null;
+  canvas.addEventListener("pointerdown", (e) => {
+    const [x, y] = toStage(e);
+    mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
+    if (hitCat(x, y)) {
+      // 바로 잡지 않는다: 움직이거나 잠깐 누르고 있으면 잡기, 그냥 떼면 '냥'
+      press = { id: e.pointerId, x, y, t: performance.now(), grabbing: false };
+      canvas.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    } else if (y > floorY - 160 * S && cat.pose === "stand" && (!cat.act || cat.act.key === "butterfly")) walkTo(x);
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    const [x, y] = toStage(e);
+    // 한동안 없던 마우스가 다시 나타나면 꼬리를 세워 반긴다(인사)
+    if (!mouseActive() && cat.mood !== "sleepy" && cat.pose === "stand" && !cat.act && cat.mode !== "grabbed" && !cat.tailEp) startTailEp("up", 2.6);
+    mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
+    if (press && e.pointerId === press.id && !press.grabbing &&
+        (Math.hypot(x - press.x, y - press.y) > 5 || performance.now() - press.t > 180)) {
+      press.grabbing = true;
+      canvas.classList.add("dragging");
+      grab(); emit("grab");
+    }
+    if (!press) canvas.classList.toggle("can-grab", hitCat(x, y));
+  });
+  function endPress(e) {
+    if (!press || e.pointerId !== press.id) return;
+    if (press.grabbing) { canvas.classList.remove("dragging"); release(); emit("drop"); } else tap();
+    press = null;
+  }
+  canvas.addEventListener("pointerup", endPress);
+  canvas.addEventListener("pointercancel", endPress);
+  canvas.addEventListener("keydown", (e) => {
+    if (e.code === "Space" || e.key === "Enter") { e.preventDefault(); nyang(); emit("nyang"); }
+  });
+  canvas.addEventListener("pointerleave", () => { if (!press) canvas.classList.remove("can-grab"); });
+  // 탭 = 쓰다듬기(웃는 눈·하트·꼬리 물음표), 0.32초 안에 두 번 = '냥' 점프
+  let lastTap = 0;
+  function tap() {
+    const now = performance.now();
+    if (now - lastTap < 320) { lastTap = 0; nyang(); emit("nyang"); return; }
+    lastTap = now; petReact(); emit("pet");
+  }
+  /** 쓰다듬기 반응: 잠깐 웃고, 하트 도형이 떠오르고, 꼬리 물음표. 너무 자주면 짜증이 조금씩 쌓인다(실제 고양이처럼) */
+  function petReact() {
+    const c = cat;
+    c.petT = 1.4; c.annoy += 0.12;
+    if (!c.tailEp || c.tailEp.key === "question") startTailEp(c.annoy >= 2.4 ? "thump" : "question", c.annoy >= 2.4 ? 2.4 : 1.4);
+    const n = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < n; i++) effects.push({ kind: "heart", x: c.head.x + c.face * rand(-6, 22) * S, y: c.head.y - rand(26, 40) * S, vx: rand(-10, 10) * S, vy: rand(-34, -22) * S, t: 0, life: rand(0.9, 1.3), r: rand(3.2, 4.4), col: Math.random() < 0.5 ? "#f2a7b8" : "#ef8fa6" });
+  }
+
+  new ResizeObserver(() => resize()).observe(canvas);
+
+  /* ---------- 외형 ---------- */
+  const appearance = { coat: "black", patterns: [], seed: 1, eye: "yellow", fur: "short", ear: "pointy", tail: "long", build: "normal", legs: "normal", soft: 0.6 };
+  function applyAppearance(a, regen) {
+    Object.assign(appearance, a);
+    cat.coat = COATS[appearance.coat] || COATS.black;
+    cat.eye = EYES[appearance.eye] || EYES.yellow;
+    cat.patterns = new Set((appearance.patterns || []).filter((k) => PATTERNS[k]));
+    cat.fur = FURS[appearance.fur] ? appearance.fur : "short";
+    cat.earShape = EAR_SHAPES[appearance.ear] ? appearance.ear : "pointy";
+    cat.tailShape = TAIL_SHAPES[appearance.tail] ? appearance.tail : "long";
+    cat.build = BUILDS[appearance.build] ? appearance.build : "normal";
+    cat.legLen = LEG_LENS[appearance.legs] ? appearance.legs : "normal";
+    cat.soft = clamp(Number(appearance.soft ?? 0.6), 0, 1);
+    if (regen) { cat.seed = appearance.seed >>> 0; generateCoat(); }
+  }
+
+  readTheme(); resize(); initPose();
+  applyAppearance(options.appearance || {}, true);
+  wanderOn = options.wander !== false && !reduced.matches;
+  for (let i = 0; i < 30; i++) step(1 / 120); // 첫 화면부터 자연스럽게
+
+  let last = performance.now(), acc = 0, raf = 0, paused = false, minFrameMs = 0, lastDraw = 0;
+  const DT = 1 / 120;
+  function frame(now) {
+    raf = requestAnimationFrame(frame);
+    if (paused || document.hidden) { last = now; return; }
+    if (minFrameMs && now - lastDraw < minFrameMs - 1) return;
+    lastDraw = now;
+    acc += Math.min(0.1, (now - last) / 1000); last = now;
+    try {
+      while (acc >= DT) { step(DT); acc -= DT; }
+      draw();
+    } catch (err) { // 엔진 예외: 멈추고 알린다(앱 전체를 깨뜨리지 않게)
+      paused = true; console.error("[neko]", err); emit("error", err);
+    }
+  }
+  raf = requestAnimationFrame(frame);
+
+  const on = (ev, fn) => { let s = listeners.get(ev); if (!s) listeners.set(ev, (s = new Set())); s.add(fn); return () => s.delete(fn); };
+  return {
+    // 외형
+    setAppearance(a) {
+      const regen = ["coat", "patterns", "seed"].some((k) => k in a && JSON.stringify(a[k]) !== JSON.stringify(appearance[k]));
+      applyAppearance(a, regen);
+    },
+    getAppearance: () => ({ ...appearance, patterns: [...appearance.patterns] }),
+    reroll() { appearance.seed = (Math.random() * 4294967296) >>> 0; cat.seed = appearance.seed; generateCoat(); return appearance.seed; },
+    // 상태
+    setMood(m) { if (MOODS[m]) cat.mood = m; },
+    setPose(p) {
+      if (!POSES[p] || cat.pose === p) return;
+      cat.pose = p; // 지금 보고 있는 방향 그대로 앉거나 눕는다
+      if (p !== "stand" && cat.mode === "walk") { cat.vx = 0; cat.speed = 0; setMode("idle"); }
+    },
+    act(key) { if (!key || key === "none") endAct(); else if (!cat.act || cat.act.key !== key) startAct(key); },
+    get activity() { return cat.act ? cat.act.key : null; },
+    tail: (sign, sec) => startTailEp(sign, sec),
+    react(kind) {
+      if (kind === "pet") petReact();
+      else if (kind === "nyang") nyang();
+      else if (kind === "startle") startTailEp("puff", 1.4);
+      else if (kind === "greet") startTailEp("up", 2.6);
+      else if (kind === "cheer") startTailEp("quiver", 1.5);
+      else if (kind === "proud") startTailEp("up", 2.5);
+      else if (kind === "sulk") startTailEp("thump", 3);
+      else if (kind === "down") startTailEp("down", 2.6);
+    },
+    setNeeds(n) { cat.needs = { ...(cat.needs || {}), ...n }; },
+    setWander(onOff) { wanderOn = !!onOff && !reduced.matches; if (wanderOn && cat.mode === "idle") cat.wanderT = cat.modeT + 0.6; },
+    setRig(onOff) { showRig = !!onOff; },
+    // 환경
+    setTheme(t) { if (t && "dark" in t) { themeDark = !!t.dark; readTheme(); } },
+    setMaxFps(fps) { minFrameMs = fps > 0 ? 1000 / fps : 0; },
+    resize,
+    pause() { paused = true; },
+    resume() { if (paused) { paused = false; last = performance.now(); } },
+    destroy() { cancelAnimationFrame(raf); paused = true; listeners.clear(); },
+    hit: hitCat,
+    on,
+    jump, walkTo,
+    // 시험용
+    get cat() { return cat; },
+    get S() { return S; }, get floorY() { return floorY; }, get W() { return W; },
+    coat: (seed) => { cat.seed = seed >>> 0; appearance.seed = cat.seed; generateCoat(); return cat.coatTex.grade; },
+    draw, defineActivity,
+    step: (n) => { for (let i = 0; i < n; i++) step(DT); },
+    debug: { bodyWorld, legSamples, tailSamples, L2W, H2W }, // 회귀 검사용(qa/neko)
+  };
+}
