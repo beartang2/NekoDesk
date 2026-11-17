@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Check, Eye, Feather, Palette, Sparkles, Waves, X, type LucideIcon } from "lucide-react";
 import { createNeko, type NekoAppearance, type NekoController, type NekoPattern, type NekoPose } from "./engine/neko-engine";
 import { useNekoStore } from "./nekoStore";
+import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { CatGlyph, EyeGlyph, FurGlyph, PatternGlyph, PoseGlyph } from "./NekoGlyph";
 import { coatSwatch, summarizeAppearance } from "./summarize";
 import "./NekoCustomizeModal.css";
@@ -88,6 +89,7 @@ export function NekoCustomizeModal({ onClose }: { onClose: () => void }) {
   const a = useNekoStore((s) => s.appearance);
   const setAppearance = useNekoStore((s) => s.setAppearance);
   const reroll = useNekoStore((s) => s.reroll);
+  const nekoName = useSettingsStore(nekoNameOf);
   const initial = useRef(a);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [preview, setPreview] = useState<NekoController | null>(null);
@@ -132,7 +134,7 @@ export function NekoCustomizeModal({ onClose }: { onClose: () => void }) {
     <div className="neko-cz__backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="neko-cz" role="dialog" aria-modal="true" aria-labelledby="neko-cz-title">
         <header className="neko-cz__header">
-          <h2 id="neko-cz-title">네코 꾸미기</h2>
+          <h2 id="neko-cz-title">{nekoName} 꾸미기</h2>
           <button type="button" className="neko-cz__close" onClick={onClose} aria-label="닫기"><X size={14} /></button>
         </header>
 

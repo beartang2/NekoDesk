@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   canonicalize,
   roParticle,
+  josa,
+  type Josa,
   isPlayableWord,
   compose,
   decompose,
@@ -162,5 +164,24 @@ describe("조사 로/으로", () => {
   it("한글이 아니면 로", () => {
     expect(roParticle("a")).toBe("로");
     expect(roParticle("")).toBe("로");
+  });
+});
+
+describe("이름 뒤 조사", () => {
+  const pairs: Josa[] = ["이/가", "은/는", "을/를", "과/와", "으로/로", "이에요/예요", "이야/야"];
+
+  it("받침이 없으면 뒤 꼴", () => {
+    expect(pairs.map((p) => josa("네코", p))).toEqual(["네코가", "네코는", "네코를", "네코와", "네코로", "네코예요", "네코야"]);
+  });
+
+  it("받침이 있으면 앞 꼴, 으로/로 는 ㄹ 받침도 로", () => {
+    expect(pairs.map((p) => josa("콩", p))).toEqual(["콩이", "콩은", "콩을", "콩과", "콩으로", "콩이에요", "콩이야"]);
+    expect(josa("별", "으로/로")).toBe("별로");
+    expect(josa("별", "이/가")).toBe("별이");
+  });
+
+  it("한글로 안 끝나면 두 꼴을 함께", () => {
+    expect(josa("Mochi", "이/가")).toBe("Mochi(이)가");
+    expect(josa("R2", "으로/로")).toBe("R2(으)로");
   });
 });

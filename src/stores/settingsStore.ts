@@ -53,6 +53,7 @@ const K = {
   llmUrl: "nekodesk_llm_url",
   genParams: "nekodesk_gen_params",
   systemPrompt: "nekodesk_system_prompt",
+  nekoName: "nekodesk_neko_name",
   userProfile: "nekodesk_user_profile",
   toolMode: "nekodesk_tool_mode",
   imageGen: "nekodesk_image_gen",
@@ -108,6 +109,8 @@ interface SettingsStore {
   llmUrl: string;
   genParams: GenParams;
   systemPrompt: string | null; // null = 읽는 쪽 기본값 사용
+  /** 사용자가 지어 준 이름. 입력창 그대로라 비어 있을 수 있다 — 쓸 땐 nekoNameOf. */
+  nekoName: string;
   userProfile: string | null;
   toolMode: ToolMode;
   imageGen: ImageGenSettings;
@@ -123,6 +126,7 @@ interface SettingsStore {
   setGenParams: (p: GenParams) => void;
   /** null 이면 삭제(기본값으로 복귀). */
   setSystemPrompt: (v: string | null) => void;
+  setNekoName: (v: string) => void;
   setUserProfile: (v: string | null) => void;
   setToolMode: (m: ToolMode) => void;
   setImageGen: (p: ImageGenSettings) => void;
@@ -138,6 +142,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   llmUrl: initialUrl,
   genParams: fitGenParams(loadGen(), initialUrl),
   systemPrompt: localStorage.getItem(K.systemPrompt),
+  nekoName: localStorage.getItem(K.nekoName) ?? "",
   userProfile: localStorage.getItem(K.userProfile),
   toolMode: loadToolMode(),
   imageGen: loadImageGen(),
@@ -161,6 +166,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     if (v === null) localStorage.removeItem(K.systemPrompt);
     else localStorage.setItem(K.systemPrompt, v);
     set({ systemPrompt: v });
+  },
+  setNekoName: (v) => {
+    localStorage.setItem(K.nekoName, v);
+    set({ nekoName: v });
   },
   setUserProfile: (v) => {
     if (v === null) localStorage.removeItem(K.userProfile);
@@ -191,6 +200,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));
+
+export const DEFAULT_NEKO_NAME = "네코";
+
+/** 화면·프롬프트에 쓸 이름. 비었거나 공백뿐이면 "네코". 컴포넌트는 useSettingsStore(nekoNameOf). */
+export const nekoNameOf = (s: { nekoName: string }) => s.nekoName.trim() || DEFAULT_NEKO_NAME;
+
+/** 다른 창(빠른 질문)은 스토어를 따로 가진다. 창이 뜰 때 메인 창이 바꾼 이름을 다시 읽는다. */
+export const reloadNekoName = () => useSettingsStore.setState({ nekoName: localStorage.getItem(K.nekoName) ?? "" });
 
 /** 그 Claude 모델로 쓸 컨텍스트 길이(설정에서 고른 값, 없으면 기본값). */
 export function claudeContextFor(model: string): number {

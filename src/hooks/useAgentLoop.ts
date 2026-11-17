@@ -18,7 +18,8 @@ import { clock } from "../lib/time";
 import { estimateMessagesTokens } from "../agent/token-estimate";
 import { historyBudget } from "../agent/agent-context";
 import { getModelContextLength, summarizeConversation } from "../agent/llm-client";
-import { isClaudeActive, useSettingsStore } from "../stores/settingsStore";
+import { isClaudeActive, nekoNameOf, useSettingsStore } from "../stores/settingsStore";
+import { josa } from "../lib/hangul";
 import { activeModelName } from "../stores/modelProfiles";
 import { CANCEL_MESSAGE } from "../neko/director/session";
 import { useNekoSessions } from "../neko/director/stores";
@@ -688,7 +689,7 @@ export function useAgentPool() {
           case "confirm_needed":
             signal(sessionId, { type: "wait", kind: "confirm", danger: event.isDangerous });
             // 딴 데 가 있으면 확인 창이 떠도 모른다. 대답할 때까지 루프가 멈춰 있다.
-            void notifyIfAway("네코가 확인을 기다려", toNotificationBody(event.code, 120));
+            void notifyIfAway(`${josa(nekoNameOf(useSettingsStore.getState()), "이/가")} 확인을 기다려`, toNotificationBody(event.code, 120));
             setPendingConfirm({
               sessionId,
               language: event.language,
@@ -702,7 +703,7 @@ export function useAgentPool() {
 
           case "clarify_needed":
             signal(sessionId, { type: "wait", kind: "clarify", danger: false });
-            void notifyIfAway("네코가 물어볼 게 있어", toNotificationBody(event.question, 120));
+            void notifyIfAway(`${josa(nekoNameOf(useSettingsStore.getState()), "이/가")} 물어볼 게 있어`, toNotificationBody(event.question, 120));
             setPendingClarify({
               sessionId,
               question: event.question,
@@ -754,7 +755,7 @@ export function useAgentPool() {
               }))
               .catch(() => {});
             appEvents.emit("agentDone");
-            void notifyIfAway("네코", toNotificationBody(clean));
+            void notifyIfAway(nekoNameOf(useSettingsStore.getState()), toNotificationBody(clean));
             void autoCompact(sessionId);
             break;
           }

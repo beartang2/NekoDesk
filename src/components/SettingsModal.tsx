@@ -20,7 +20,8 @@ import {
 import { getStoredAccent, saveAccentHex, setAccentVars } from "../theme-colors";
 import { useThemePref } from "../lib/theme";
 import { NekoSettingsSection } from "../neko/NekoSettingsSection";
-import { useSettingsStore, type ImageProvider, type ToolMode } from "../stores/settingsStore";
+import { DEFAULT_NEKO_NAME, nekoNameOf, useSettingsStore, type ImageProvider, type ToolMode } from "../stores/settingsStore";
+import { josa } from "../lib/hangul";
 import { getAllTools, getTool } from "../agent/tool-registry";
 import {
   DEFAULT_LLAMA_CONFIG,
@@ -838,11 +839,12 @@ function ToolModeSection() {
 function MemorySection() {
   const autoCompact = useSettingsStore((s) => s.autoCompact);
   const setAutoCompact = useSettingsStore((s) => s.setAutoCompact);
+  const name = useSettingsStore(nekoNameOf);
   return (
     <section className="settings-section">
       <h3 className="settings-section__title">자동 요약</h3>
       <p className="settings-section__desc">
-        대화가 길어져 모델에 다 못 실을 때가 되면, 네코가 앞 대화를 요약해 두고 그 요약으로 기억한다.
+        대화가 길어져 모델에 다 못 실을 때가 되면, {josa(name, "이/가")} 앞 대화를 요약해 두고 그 요약으로 기억한다.
         끄면 넘친 오래된 말은 그냥 빠진다. 앞 대화는 어느 쪽이든 화면에 그대로 남는다.
         Claude 는 Anthropic 의 서버 요약을 쓴다(요약 한 번에 일반 요청 한 번쯤 든다).
       </p>
@@ -867,6 +869,7 @@ GitHub: https://github.com/
 기타: `;
 
 function UserProfileSection() {
+  const name = useSettingsStore(nekoNameOf);
   const [profile, setProfile] = useState(
     () => localStorage.getItem(USER_PROFILE_KEY) ?? DEFAULT_USER_PROFILE
   );
@@ -894,7 +897,7 @@ function UserProfileSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">사용자 프로필</h3>
       <p className="settings-section__desc">
-        나에 대한 정보를 적어두세요. 고양이가 대화할 때 참고해요.
+        나에 대한 정보를 적어두세요. {josa(name, "이/가")} 대화할 때 참고해요.
       </p>
       <textarea
         className="settings-textarea"
@@ -918,6 +921,7 @@ function UserProfileSection() {
 function WeatherSection() {
   const location = useSettingsStore((s) => s.weatherLocation);
   const setLocation = useSettingsStore((s) => s.setWeatherLocation);
+  const name = useSettingsStore(nekoNameOf);
   // 글자마다 저장하면 칠 때마다 날씨를 새로 찾는다. 다 치고 나서 쓴다.
   const [draft, setDraft] = useState(location);
   const [locating, setLocating] = useState(false);
@@ -942,7 +946,7 @@ function WeatherSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">날씨</h3>
       <p className="settings-section__desc">
-        고양이 왼쪽 위에 지금 날씨를 띄워요. 지역 이름을 적거나 현재 위치를 쓰고, 비우면 숨겨요.
+        {name} 왼쪽 위에 지금 날씨를 띄워요. 지역 이름을 적거나 현재 위치를 쓰고, 비우면 숨겨요.
       </p>
       <div className="settings-row">
         <input
@@ -1051,6 +1055,7 @@ const MEMORY_KIND_LABELS: Record<string, string> = {
  * 알고 있는지 보이고 지울 수 있어야 한다.
  */
 function MemoriesSection() {
+  const name = useSettingsStore(nekoNameOf);
   const [memories, setMemories] = useState<Memory[]>([]);
   // 한 줄로 잘린 기억은 눌러서 펼쳐 읽는다
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
@@ -1078,7 +1083,7 @@ function MemoriesSection() {
 
   return (
     <section className="settings-section">
-      <h3 className="settings-section__title">고양이가 기억하는 것</h3>
+      <h3 className="settings-section__title">{josa(name, "이/가")} 기억하는 것</h3>
       <p className="settings-section__desc">
         대화하면서 알게 된 것들이에요. 다음 대화에서도 관련된 것만 자동으로 떠올려요.
       </p>
@@ -1177,6 +1182,7 @@ const GOOGLE_IMAGE_MODELS = [
 function ImageGenSection() {
   const imageGen = useSettingsStore((s) => s.imageGen);
   const setImageGen = useSettingsStore((s) => s.setImageGen);
+  const name = useSettingsStore(nekoNameOf);
   const [accountId, setAccountId] = useState("");
   const [test, setTest] = useState<{ busy?: boolean; url?: string; error?: string }>({});
 
@@ -1223,7 +1229,7 @@ function ImageGenSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">이미지 생성</h3>
       <p className="settings-section__desc">
-        네코가 그림을 그릴 때 쓰는 서비스예요. Cloudflare Workers AI 는 하루 10,000 뉴런까지 무료
+        {josa(name, "이/가")} 그림을 그릴 때 쓰는 서비스예요. Cloudflare Workers AI 는 하루 10,000 뉴런까지 무료
         (대시보드의 계정 ID + Workers AI 권한 토큰). Google 은 AI Studio 의 Gemini API 키를 쓰고
         모델에 따라 요금이 나와요.
       </p>
@@ -1271,6 +1277,7 @@ function ImageGenSection() {
 // ── MCP servers section ───────────────────────────────────────────────────────
 
 function McpSection() {
+  const name = useSettingsStore(nekoNameOf);
   // 설정은 DB 에 있으므로 비동기로 읽어온다.
   const [servers, setServers] = useState<McpServer[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -1324,7 +1331,7 @@ function McpSection() {
         </button>
       </div>
       <p className="settings-section__desc">
-        Model Context Protocol 서버를 연결해 고양이의 도구를 확장하세요.
+        Model Context Protocol 서버를 연결해 {name}의 도구를 확장하세요.
       </p>
 
       <Collapse open={addingNew}>
@@ -1384,6 +1391,7 @@ interface ToolInfo {
 }
 
 function ToolsSection() {
+  const name = useSettingsStore(nekoNameOf);
   // 모델에게 실제로 보내는 목록과 같은 소스를 읽는다 — 꺼둔 이미지 생성은 여기서도 빠진다.
   const groups = new Map<string, ToolInfo[]>(
     ["빌트인", "파일·코드", "웹", "유틸리티"].map((c) => [c, []])
@@ -1396,7 +1404,7 @@ function ToolsSection() {
   return (
     <section className="settings-section">
       <h3 className="settings-section__title">도구</h3>
-      <p className="settings-section__desc">네코가 쓸 수 있는 도구입니다. 누르면 설명과 매개변수를 볼 수 있어요.</p>
+      <p className="settings-section__desc">{josa(name, "이/가")} 쓸 수 있는 도구입니다. 누르면 설명과 매개변수를 볼 수 있어요.</p>
       <Accordion.Root type="multiple" className="tool-acc">
         {[...groups].map(([category, tools]) => (
           <Accordion.Item key={category} value={category} className="tool-group">
@@ -1505,6 +1513,11 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
     setAccentHex(defaultHex);
   }
 
+  // 이름은 칠 때마다 저장해서 화면 곳곳이 바로 따라 바뀐다.
+  const nekoNameRaw = useSettingsStore((s) => s.nekoName);
+  const setNekoName = useSettingsStore((s) => s.setNekoName);
+  const nekoName = useSettingsStore(nekoNameOf);
+
   // System prompt
   const [systemPrompt, setSystemPrompt] = useState(
     () => localStorage.getItem(SYSTEM_PROMPT_KEY) ?? DEFAULT_CHAT_SYSTEM_PROMPT
@@ -1592,11 +1605,16 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
               {/* ── 사용자 프로필 ────────────────────────────────────── */}
               <UserProfileSection />
 
-              {/* ── 시스템 프롬프트 ──────────────────────────────────── */}
+              {/* ── 네코 프로필: 이름 + 시스템 프롬프트 ─────────────────── */}
               <section className="settings-section">
-                <h3 className="settings-section__title">시스템 프롬프트</h3>
+                <h3 className="settings-section__title">네코 프로필</h3>
+                <div className="settings-field">
+                  <span className="settings-field__label">이름</span>
+                  <input className="settings-input" value={nekoNameRaw} placeholder={DEFAULT_NEKO_NAME}
+                    onChange={(e) => setNekoName(e.target.value)} />
+                </div>
                 <p className="settings-section__desc">
-                  고양이의 성격과 말투를 직접 설정하세요.
+                  {nekoName}의 성격과 말투를 직접 설정하세요.
                 </p>
                 <textarea
                   className="settings-textarea"

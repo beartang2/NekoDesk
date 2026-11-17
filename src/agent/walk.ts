@@ -3,7 +3,8 @@ import { DEFAULT_CHAT_SYSTEM_PROMPT, fetchCompletionMessage } from "./llm-client
 import { runSubagent } from "./subagent";
 import { saveMemory } from "./memory-merge";
 import { getTool } from "./tool-registry";
-import { useSettingsStore } from "../stores/settingsStore";
+import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
+import { josa } from "../lib/hangul";
 import { timeZone } from "../lib/time";
 import type { Memory, OpenAiToolSchema, ToolName } from "./types";
 import { GIFT_PALETTE, validateShape, type GiftShape } from "../neko/engine/gift-shape";
@@ -207,10 +208,11 @@ async function walk(
   const userMems = memories.filter((m) => m.kind !== "neko");
   const places = ctx.places.slice(0, 5).map((p) => p.name).join(", ");
   const me = persona();
+  const name = josa(nekoNameOf(useSettingsStore.getState()), "이야/야");
 
   // 1. 스스로 알아보기 — 격리된 하위 에이전트. 과정은 버리고 요약만 받는다.
   const task = [
-    "너는 사용자가 쉬는 동안 산책 나온 고양이 네코야.",
+    `너는 사용자가 쉬는 동안 산책 나온 고양이 ${name}.`,
     section("지나온 곳", places),
     section("네 성격과 말투", me),
     // 지난 산책에서 오래 기억해 둔 것 — 같은 주제를 또 파지 않게.
@@ -262,7 +264,7 @@ async function walk(
     [
       {
         role: "system",
-        content: ["너는 산책에서 막 돌아온 고양이 네코야. walk_report 툴로 보고해.", section("네 성격과 말투", me)]
+        content: [`너는 산책에서 막 돌아온 고양이 ${name}. walk_report 툴로 보고해.`, section("네 성격과 말투", me)]
           .filter(Boolean).join("\n\n"),
       },
       {

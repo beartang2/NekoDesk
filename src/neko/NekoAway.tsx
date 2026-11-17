@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { nekoSnapshot } from "./NekoPortrait";
 import { useNekoStore } from "./nekoStore";
+import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
+import { josa } from "../lib/hangul";
 import "./NekoAway.css";
 
 /**
@@ -31,6 +33,7 @@ function Paw({ x, y, r, i }: { x: number; y: number; r: number; i: number }) {
 
 export function NekoAway() {
   const appearance = useNekoStore((s) => s.appearance);
+  const caption = `${josa(useSettingsStore(nekoNameOf), "은/는")} 지금 산책 중!`;
   const [cat, setCat] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
@@ -39,8 +42,8 @@ export function NekoAway() {
   }, [appearance]);
 
   return (
-    <div className="neko-away" role="img" aria-label="네코는 지금 산책 중!">
-      <p className="neko-away__caption" aria-hidden="true">네코는 지금 산책 중!</p>
+    <div className="neko-away" role="img" aria-label={caption}>
+      <p className="neko-away__caption" aria-hidden="true">{caption}</p>
       <svg className="neko-away__scene" viewBox="0 52 240 60" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
         <line className="neko-away__floor" x1="8" y1="106" x2="232" y2="106" />
         {/* 비어 있는 방석: 가운데가 꺼진 자리 */}

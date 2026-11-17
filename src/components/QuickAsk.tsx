@@ -8,6 +8,7 @@ import { resizeImageForLlm } from "../lib/image";
 import { decode } from "../lib/decode";
 import { NekoPortrait } from "../neko/NekoPortrait";
 import { reloadAppearance } from "../neko/nekoStore";
+import { nekoNameOf, reloadNekoName, useSettingsStore } from "../stores/settingsStore";
 import {
   QUICK_ACTIONS,
   QUICK_ASK_EVENT,
@@ -57,6 +58,7 @@ export function QuickAsk() {
   const [image, setImage] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const nekoName = useSettingsStore(nekoNameOf);
   const inputRef = useRef<HTMLInputElement>(null);
   const decoded = useMemo(() => (ctx.selection ? decode(ctx.selection) : null), [ctx.selection]);
 
@@ -70,6 +72,7 @@ export function QuickAsk() {
     const unlisten = listen<QuickContext>(QUICK_CONTEXT_EVENT, (e) => {
       syncWindowTheme();
       reloadAppearance();
+      reloadNekoName();
       setCtx(e.payload);
       setText("");
       setUseSelection(true);
@@ -131,7 +134,7 @@ export function QuickAsk() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={
-            image ? "캡처한 화면에 대해 물어봐" : ctx.selection ? "선택한 글에 대해 물어봐" : "네코에게 물어봐"
+            image ? "캡처한 화면에 대해 물어봐" : ctx.selection ? "선택한 글에 대해 물어봐" : `${nekoName}에게 물어봐`
           }
           autoFocus
           spellCheck={false}

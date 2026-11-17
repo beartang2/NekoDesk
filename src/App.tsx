@@ -36,7 +36,7 @@ import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi, mapApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
-import { isClaudeActive, useSettingsStore } from "./stores/settingsStore";
+import { isClaudeActive, nekoNameOf, useSettingsStore } from "./stores/settingsStore";
 import { budgetBlockReason } from "./stores/claudeBudget";
 import { startWalkBrain, type WalkBrain } from "./agent/walk";
 import { buildPath, fallbackLegs, hurryHome, pickPlaces, positionAt, toLatLon, toMeters, walkEnd, WALK_MS, type Pt, type Walk } from "./lib/walk";
@@ -46,7 +46,7 @@ import { initMcpFromStorage } from "./agent/mcp-registry";
 import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
 import { reloadUserSkills } from "./agent/knowledge";
 import { detectGameIntent } from "./lib/game-intent";
-import { roParticle } from "./lib/hangul";
+import { josa, roParticle } from "./lib/hangul";
 
 /**
  * 모델의 `<think>` 블록을 본문에서 걷어낸다.
@@ -231,6 +231,7 @@ function TitleBar({
 const BOOT_MS = 1400;
 
 function BootSplash() {
+  const nekoName = useSettingsStore(nekoNameOf);
   const [animDone, setAnimDone] = useState(false);
   const [phase, setPhase] = useState<"booting" | "leaving" | "gone">("booting");
 
@@ -252,7 +253,7 @@ function BootSplash() {
       onTransitionEnd={(e) => { if (e.target === e.currentTarget) setPhase("gone"); }}
     >
       <NekoBootCat size={96} durationMs={BOOT_MS} onDone={() => setAnimDone(true)} />
-      <LatticeLoader label="네코 깨우는 중" status="working" showTimer={false} />
+      <LatticeLoader label={`${nekoName} 깨우는 중`} status="working" showTimer={false} />
     </div>
   );
 }
@@ -426,10 +427,11 @@ const MessageItem = React.memo(function MessageItem({
   expanded: boolean;
   onToggle: (id: string) => void;
 }) {
+  const nekoName = useSettingsStore(nekoNameOf);
   if (m.compacted) {
     return (
       <details className="message-compacted">
-        <summary>여기까지 요약했어 — 네코는 이 위 대화를 요약으로 기억해</summary>
+        <summary>여기까지 요약했어 — {josa(nekoName, "은/는")} 이 위 대화를 요약으로 기억해</summary>
         <div className="message-compacted__body">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{maskHome(m.content)}</ReactMarkdown>
         </div>
@@ -509,7 +511,7 @@ const MessageItem = React.memo(function MessageItem({
                   src={url}
                   alt="생성된 이미지"
                   className="message__image"
-                  onClick={() => openViewer({ name: imageName(`네코 그림 ${nowStamp()}${m.images!.length > 1 ? ` ${i + 1}` : ""}`, url), dataUrl: url })}
+                  onClick={() => openViewer({ name: imageName(`${nekoName} 그림 ${nowStamp()}${m.images!.length > 1 ? ` ${i + 1}` : ""}`, url), dataUrl: url })}
                 />
               ))}
             </div>
@@ -1145,6 +1147,7 @@ export default function App() {
   // ── Neko ──────────────────────────────────────────────────────────────────
   // 네코 외형·자리는 nekoStore 가 소유한다(NekoSlot·엔진이 구독, SettingsModal 이 변경). 시작 때 DB 값을 읽는다.
   useEffect(() => { void useNekoStore.getState().load(); }, []);
+  const nekoName = useSettingsStore(nekoNameOf);
 
   // ── Model context length (from llama.cpp /props) ─────────────────────────
   const [modelContextLength, setModelContextLength] = useState<number | null>(null);
@@ -2087,7 +2090,7 @@ export default function App() {
                   {wordChain.phase === "user_turn"
                     ? `끝말잇기 — "${wordChain.lastChar}"로 시작하는 단어를 입력하세요`
                     : wordChain.phase === "cat_turn"
-                    ? "고양이가 생각 중..."
+                    ? `${josa(nekoName, "이/가")} 생각 중...`
                     : "게임 종료"}
                 </span>
                 <span className="wordchain-banner__turns">{wordChain.turnCount}턴</span>
