@@ -410,7 +410,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /** 마우스 쪽으로: 멀면 그 앞까지 걸어가고, 가까우면 그쪽으로 몸만 돌린다. */
   function chaseMouse() {
     const c = cat;
-    if (!mouseActive() || reduced.matches || c.mood === "sleepy" || c.pose !== "stand" || c.act) return false;
+    if (!mouseActive() || reduced.matches || c.mood === "sleepy" || c.pose !== "stand" || c.act || c.petSulk > 0) return false; // 짜증 중엔 다가오지 않는다
     const dx = mouse.x - c.x;
     if (c.mode === "walk") {
       const want = clamp(mouse.x - Math.sign(dx) * WALK_STOP * S, EDGE * S, W - EDGE * S);
@@ -425,7 +425,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /* ---------- 한 스텝 (고정 120Hz) ---------- */
   function step(dt) {
     const c = cat; time += dt; c.modeT += dt;
-    c.nyangT = Math.max(0, c.nyangT - dt); c.petT = Math.max(0, (c.petT || 0) - dt);
+    c.nyangT = Math.max(0, c.nyangT - dt); c.petT = Math.max(0, (c.petT || 0) - dt); c.petSulk = Math.max(0, (c.petSulk || 0) - dt);
     c.annoy = Math.max(0, c.annoy - dt * 0.12); // 짜증은 천천히 풀린다
     if (c.tailEp && (c.tailEp.t += dt) >= c.tailEp.dur) c.tailEp = null;
     // 체형은 고르면 천천히 바뀐다
@@ -706,6 +706,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (ex === "curious") tt += 0.16 * c.face;
     if (m === "lie") tt = 0.1 * c.face;
     if (P && P.tt != null) tt = P.tt * c.face;
+    if (c.petSulk > 0) tt -= 0.12 * c.face; // 짜증: 코를 살짝 들고 고개를 돌린다
     if (m === "grabbed") tt = -0.2 * c.face + 0.05 * Math.sin(time * 1.4);
     else if (m === "crouch") tt = 0.06 * c.face;
     else if (m === "shake") tt = 0.16 * Math.sin(c.modeT * TAU * 8.5 + 0.7) * Math.max(0, 1 - c.modeT / 0.65);
@@ -715,6 +716,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     let earT = { idle: 0, walk: -0.06, crouch: 0.18, air: -0.08, land: 0.1, grabbed: 0.5, fall: 0.22, shake: 0, loaf: 0.12, sit: 0.04, lie: 0.3 }[m] ?? 0;
     if (P && P.ear != null) earT = P.ear;
     const sg = activeTailSign(); if (sg && m !== "grabbed" && TAIL_SIGNS[sg].ear != null) earT = TAIL_SIGNS[sg].ear; // 꼬리 신호와 같이: 화나면 귀를 젖힌다
+    if (c.petSulk > 0 && m !== "grabbed") earT = Math.max(earT, 0.42); // 너무 만져 짜증: 귀를 뒤로 젖힌다
     if (ex === "curious") earT -= 0.14;
     if (ex === "sleepy") earT += 0.28;
     c.ears.forEach((e, i) => {
@@ -742,6 +744,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     else if (m === "loaf" && ex === "idle") lidT = 0.38; // 식빵 굽는 느긋한 눈
     if (c.actP && c.actP.lid != null) lidT = c.actP.lid;
     const sg = activeTailSign(); if (sg && m !== "grabbed" && TAIL_SIGNS[sg].lid != null) lidT = TAIL_SIGNS[sg].lid; // 짜증은 반쯤 감은 눈, 놀람·화남은 번쩍
+    if (c.petSulk > 0 && m !== "grabbed") lidT = Math.max(lidT, 0.38); // 너무 만져 짜증: 시큰둥하게 반쯤 감은 눈
     // 깜빡임: 웃고 있거나(웃는 눈) 이미 거의 감고 있으면 건너뛴다(아치가 사라졌다 나타나 깜빡이는 것처럼 보이지 않게)
     if (c.blinkT < 0) { c.blinkT = rand(2, 5.5); if (c.smile.x < 0.08 && ex !== "happy" && ex !== "nyang" && lidT < 0.8 && c.lid.x < 0.8) c.blinkP = 0; }
     if (c.blinkP >= 0 && (c.smile.x > 0.08 || ex === "happy" || ex === "nyang")) c.blinkP = -1;
@@ -751,7 +754,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const fast = c.blinkFast > 0;
     c.lid.step(lidT, fast ? 900 : 230, fast ? 55 : 28, dt); c.lid.x = clamp(c.lid.x, 0, 1);
     // 웃는 눈: 아래 눈꺼풀이 올라와 위쪽 초승달(^)만 남는다
-    c.smile.step(ex === "happy" || ex === "nyang" ? 1 : 0, 170, 24, dt); c.smile.x = clamp(c.smile.x, 0, 1);
+    c.smile.step((ex === "happy" || ex === "nyang") && !(c.petSulk > 0) ? 1 : 0, 170, 24, dt); c.smile.x = clamp(c.smile.x, 0, 1); // 짜증 중엔 웃지 않는다
 
     // 링 눈: 눈동자가 작을수록 색 테두리가 두껍다
     let ps = 1;
@@ -773,6 +776,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       [tx, ty] = c.saccade;
     }
     if (ex === "dangle") ty = Math.max(ty, 1.6);
+    if (c.petSulk > 0 && c.mode !== "grabbed") { tx = -2.8; ty = -0.6; } // 짜증: 손(앞)에서 눈을 돌려 뒤쪽 위를 본다
     c.pupil.step(tx, ty, 220, 22, dt);
   }
 
@@ -3188,15 +3192,36 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function tap() {
     const now = performance.now();
     if (now - lastTap < 320) { lastTap = 0; nyang(); emit("nyang"); return; }
-    lastTap = now; petReact(); emit("pet");
+    lastTap = now; emit(petReact() ? "pet" : "annoyed");
   }
-  /** 쓰다듬기 반응: 잠깐 웃고, 하트 도형이 떠오르고, 꼬리 물음표. 너무 자주면 짜증이 조금씩 쌓인다(실제 고양이처럼) */
+  /**
+   * 쓰다듬기 반응. 기분 좋으면 잠깐 웃고(웃는 눈·볼터치), 하트 도형이 떠오르고, 꼬리 물음표 → true.
+   * 너무 오래 만져 짜증이 차면(실제 고양이의 과자극) 웃지 않고 하트도 없이 귀를 젖히고 눈을 반쯤 감고
+   * 시선·고개를 손에서 돌린다(꼬리 탁탁). 그래도 계속 만지면 몸을 빼서 손 반대쪽으로 몇 걸음 피한다 → false
+   */
+  const PET_SULK_AT = 2.4;
   function petReact() {
     const c = cat;
-    c.petT = 1.4; c.annoy += 0.12;
-    if (!c.tailEp || c.tailEp.key === "question") startTailEp(c.annoy >= 2.4 ? "thump" : "question", c.annoy >= 2.4 ? 2.4 : 1.4);
+    c.annoy += 0.12;
+    if (c.annoy >= PET_SULK_AT || c.petSulk > 0) {
+      c.petT = 0;
+      // 피할 쪽은 짜증이 시작될 때 한 번 정한다(손 반대쪽, 손을 모르면 지금 보는 반대쪽). 돌아선 뒤 손 쪽으로 되돌아오지 않게
+      if (!(c.petSulk > 0)) c.sulkAway = (mouseActive() && Math.sign(c.x - mouse.x)) || -c.face;
+      c.petSulk = 2.4; // 만질 때마다 다시 늘어난다: 손을 떼고 이만큼 지나야 다시 웃는다
+      c.sulkPets = (c.sulkPets || 0) + 1;
+      if (!c.tailEp || c.tailEp.key !== "angry") startTailEp("thump", 2.6);
+      if (c.sulkPets >= 4) { // 그래도 계속 만지면 손 반대쪽으로 피한다
+        c.sulkPets = 0;
+        if (c.pose === "stand" && !c.act && (c.mode === "idle" || c.mode === "walk")) walkTo(c.x + c.sulkAway * 70 * S);
+      }
+      return false;
+    }
+    c.sulkPets = 0;
+    c.petT = 1.4;
+    if (!c.tailEp || c.tailEp.key === "question") startTailEp("question", 1.4);
     const n = 2 + Math.floor(Math.random() * 2);
     for (let i = 0; i < n; i++) effects.push({ kind: "heart", x: c.head.x + c.face * rand(-6, 22) * S, y: c.head.y - rand(26, 40) * S, vx: rand(-10, 10) * S, vy: rand(-34, -22) * S, t: 0, life: rand(0.9, 1.3), r: rand(3.2, 4.4), col: Math.random() < 0.5 ? "#f2a7b8" : "#ef8fa6" });
+    return true;
   }
 
   new ResizeObserver(() => resize()).observe(canvas);
@@ -3259,7 +3284,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     get activity() { return cat.act ? cat.act.key : null; },
     tail: (sign, sec) => startTailEp(sign, sec),
     react(kind) {
-      if (kind === "pet") petReact();
+      if (kind === "pet") return petReact();
       else if (kind === "nyang") nyang();
       else if (kind === "startle") startTailEp("puff", 1.4);
       else if (kind === "greet") startTailEp("up", 2.6);
@@ -3267,6 +3292,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       else if (kind === "proud") startTailEp("up", 2.5);
       else if (kind === "sulk") startTailEp("thump", 3);
       else if (kind === "down") startTailEp("down", 2.6);
+      return true;
     },
     setNeeds(n) { cat.needs = { ...(cat.needs || {}), ...n }; },
     setWander(onOff) { wanderOn = !!onOff && !reduced.matches; if (wanderOn && cat.mode === "idle") cat.wanderT = cat.modeT + 0.6; },

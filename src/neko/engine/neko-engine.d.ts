@@ -36,7 +36,10 @@ export type NekoTailSign =
 export type NekoReaction = "pet" | "nyang" | "startle" | "greet" | "cheer" | "proud" | "sulk" | "down";
 
 export interface NekoEvents {
+  /** 탭으로 쓰다듬었고 고양이가 좋아함 */
   pet: void;
+  /** 탭으로 쓰다듬었지만 너무 만져 짜증 남(놀이 게이지를 올리지 않는다) */
+  annoyed: void;
   nyang: void;
   grab: void;
   drop: void;
@@ -72,7 +75,8 @@ export interface NekoController {
   readonly activity: NekoActivity | null;
   /** 꼬리 언어를 잠깐(초) */
   tail(sign: NekoTailSign, sec?: number): void;
-  react(kind: NekoReaction): void;
+  /** "pet" 은 기분 좋게 받으면 true, 너무 만져 짜증 났으면 false(웃지 않고 피함). 나머지는 true */
+  react(kind: NekoReaction): boolean;
   setNeeds(n: { hunger?: number; play?: number }): void;
   setWander(on: boolean): void;
   setRig(on: boolean): void;

@@ -36,7 +36,8 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
   // 트랙패드 쓰다듬기: 고양이를 탭하면(엔진의 pet 이벤트) 쓰다듬기 모드를 켜고 끈다.
   // 모드에선 커서가 숨고 트랙패드를 문지르는 만큼 쓰다듬는다(useTrackpadPet).
   const rub = useCallback(() => {
-    ctrl?.react("pet");
+    // 너무 오래 만져 짜증 나면(react 가 false) 놀이 게이지는 오르지 않는다
+    if (ctrl && !ctrl.react("pet")) return;
     onRubPet();
   }, [ctrl, onRubPet]);
   const { isPetting, togglePetting, onHoverMove, bindRef } = useTrackpadPet(rub);
