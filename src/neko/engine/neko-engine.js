@@ -1130,6 +1130,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
   }
 
+  /**
+   * 그리는 귀 각도. 귀가 바깥으로 0.65 넘게 돌면 머리 안에 박힌 밑동이 살 당김(addEarStretch)으로 다 못 덮일 만큼
+   * 드러나 관절이 각졌다(누워 자며 마우스 쪽으로 돌린 귀, 화나 젖힌 귀). EAR_KNEE 까지는 그대로, 그 뒤로는 부드럽게
+   * 눌러 EAR_MAX 를 넘지 않게 한다 — 딱 멈추지 않아 스프링 출렁임도 살아 있다.
+   */
+  const EAR_KNEE = 0.45, EAR_MAX = 0.6;
+  const earAng = (a) => (a <= EAR_KNEE ? a : EAR_KNEE + (EAR_MAX - EAR_KNEE) * Math.tanh((a - EAR_KNEE) / (EAR_MAX - EAR_KNEE)));
   function earPoint(side, x, y, ang) {
     const pv = [20.5 * side, -16.5];
     const [dx, dy] = rotv(x * side - pv[0], y - pv[1], ang * side);
@@ -1896,8 +1903,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (c.fur === "long") longFurBody(body);
     addNeck(body);
     const head = new Path2D();
-    addEar(head, -1, c.ears[0].x); addEar(head, 1, c.ears[1].x);
-    addEarStretch(head, -1, c.ears[0].x); addEarStretch(head, 1, c.ears[1].x);
+    const eL = earAng(c.ears[0].x), eR = earAng(c.ears[1].x);
+    addEar(head, -1, eL); addEar(head, 1, eR);
+    addEarStretch(head, -1, eL); addEarStretch(head, 1, eR);
     addHead(head);
     if (c.fur === "medium") furTufts(head, HEAD_PTS.filter(([, y]) => y > -6).map(([x, y]) => H2W(x, y)), 6.2, null);
     if (c.fur === "long") longFurHead(head);
@@ -2348,7 +2356,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     b.vx = lerp(b.vx, (dx / d) * sp, k);
     b.vy = lerp(b.vy, (dy / d) * sp + Math.sin(time * 7 + b.seed) * 60 * S, k); // 팔랑팔랑 위아래로 흔들리며
     b.x += b.vx * dt; b.y += b.vy * dt;
-    if (b.rt < 99) { b.x = clamp(b.x, 20 * S, W - 20 * S); b.y = clamp(b.y, 20 * S, floorY - 25 * S); }
+    // 날개가 몸통 위로 24 남짓 솟는다: 위쪽은 그만큼 띄워야 낮은 자리(채팅 바 아래 150px)에서 날개 끝이 안 잘린다
+    if (b.rt < 99) { b.x = clamp(b.x, 20 * S, W - 20 * S); b.y = clamp(b.y, 27 * S, floorY - 25 * S); }
     b.flap += dt * (b.boost > 0 ? 24 : 15);
   }
   /** 나비 쪽으로: 멀면 걸어가고, 가까이 낮게 내려오면 엉덩이를 씰룩이다 덮친다. */
@@ -2709,7 +2718,16 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   });
 
   /* ----- 털실 공놀이 ----- */
-  function yarnBounds() { const lo = (EDGE + 50) * S, hi = W - (EDGE + 50) * S; return lo < hi ? [lo, hi] : [W / 2, W / 2]; }
+  /**
+   * 공이 굴러다닐 폭. 넓은 자리는 고양이가 공 양쪽 어디로든 돌아갈 수 있게 걷는 폭 안쪽(EDGE + 50)으로 둔다.
+   * 좁은 자리(사이드바 220px)에선 그 폭이 없어져 공이 가운데 못 박혔다 — 차도 안 움직이고 제자리에서 계속 찼다.
+   * 그땐 걸을 수 있는 끝에 서서 앞발이 닿는 데(44)까지 넓힌다. 끝에 닿은 공은 튕겨 돌아온다(ballStep).
+   */
+  function yarnBounds() {
+    const lo = (EDGE + 50) * S, hi = W - (EDGE + 50) * S;
+    if (hi - lo >= 120 * S) return [lo, hi];
+    return [Math.max(12 * S, (EDGE - 44) * S), Math.min(W - 12 * S, W - (EDGE - 44) * S)];
+  }
   function ballStep(b, dt) {
     const [lo, hi] = yarnBounds();
     b.x += b.vx * dt; b.vx *= Math.exp(-dt * 1.3);
