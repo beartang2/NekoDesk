@@ -2,13 +2,14 @@ import React, { useCallback, useLayoutEffect, useRef } from "react";
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { ensureNeko, nekoCanvas, useNekoController } from "./nekoHost";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
+import { NekoAway } from "./NekoAway";
 import "./NekoSlot.css";
 
 /**
  * 네코가 들어가는 자리. 앱엔 사이드바 패널 자리와 채팅 바 아래 자리 두 개가 있고,
  * 설정의 '채팅 바 아래로 내리기'에 맞는 자리 하나에만 캔버스가 붙는다(캔버스·엔진은 nekoHost 에 하나).
  * 위쪽 가장자리를 끌어서 높이를 바꾼다(고양이 크기가 높이를 따라간다).
- * 산책 중(away)엔 자리(높이)는 그대로 두고 고양이 대신 '산책 중'만 보인다. 엔진도 멈춘다.
+ * 산책 중(away)엔 자리(높이)는 그대로 두고 고양이 대신 산책 나간 장면(NekoAway)을 그린다. 엔진은 멈춘다.
  */
 export function NekoSlot({ placement, onRubPet, away = false }: { placement: NekoPlacement; onRubPet: () => void; away?: boolean }) {
   const active = useNekoStore((s) => s.stage.placement === placement);
@@ -77,7 +78,7 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
         title="끌어서 높이 조절"
       />
       {away ? (
-        <div className="neko-slot__away">산책 중</div>
+        <NekoAway />
       ) : (
         <div ref={stageRef} className="neko-slot__stage" onMouseMove={onMove} onMouseLeave={onBodyLeave} />
       )}

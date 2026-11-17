@@ -1,0 +1,91 @@
+/* 산책 나간 동안의 네코 자리(NekoAway). 무대(.neko-slot__stage)와 같은 칸을 채운다. */
+.neko-away {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* 글자와 장면을 한 덩어리로 가운데에 — 사이드바 자리가 높아져도 위아래로 갈라지지 않게 */
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 10px;
+  overflow: hidden;
+  user-select: none;
+}
+
+.neko-away__caption {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, var(--text-muted));
+  white-space: nowrap;
+}
+
+.neko-away__scene {
+  width: 100%;
+  /* viewBox 비율 그대로 — 안 주면 SVG 가 기본 높이(150px)를 잡아 글자와 장면 사이가 벌어진다 */
+  aspect-ratio: 240 / 60;
+  height: auto;
+  min-height: 0;
+  /* 채팅 바 아래(창 전체 폭)에서 무대가 끝없이 커지지 않게, 낮은 자리에선 글자 몫을 남기고 줄어든다 */
+  max-width: 420px;
+  max-height: calc(100% - 22px);
+}
+
+.neko-away__floor {
+  stroke: var(--border, color-mix(in oklab, var(--text-primary) 14%, transparent));
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+.neko-away__cushion {
+  fill: color-mix(in oklab, var(--accent) 34%, transparent);
+}
+
+.neko-away__dent {
+  fill: color-mix(in oklab, var(--accent) 18%, transparent);
+}
+
+.neko-away__post {
+  fill: color-mix(in oklab, var(--text-primary) 35%, transparent);
+}
+
+.neko-away__sign {
+  fill: var(--bg-surface, #fff);
+  stroke: color-mix(in oklab, var(--text-primary) 30%, transparent);
+  stroke-width: 1;
+}
+
+.neko-away__sign-text {
+  font: 600 7.4px var(--font-ui);
+  fill: var(--text-primary);
+}
+
+.neko-away__paw {
+  fill: color-mix(in oklab, var(--text-primary) 38%, transparent);
+  /* 방석에서 오른쪽으로 하나씩 진해지고, 다 지나면 처음부터. 흐릴 때도 자국은 남는다 */
+  animation: neko-away-step 3.6s calc(var(--i) * 0.35s) infinite both;
+}
+
+@keyframes neko-away-step {
+  0%   { opacity: 0.25; }
+  10%  { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0.25; }
+}
+
+.neko-away__cat {
+  animation: neko-away-walk 0.9s var(--ease-standard) infinite alternate;
+}
+
+@keyframes neko-away-walk {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-2.5px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neko-away__paw,
+  .neko-away__cat {
+    animation: none;
+  }
+}

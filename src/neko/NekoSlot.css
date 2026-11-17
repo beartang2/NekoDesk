@@ -17,16 +17,6 @@
   position: absolute;
   inset: 0;
 }
-.neko-slot__away {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 11px;
-  color: var(--text-muted);
-  user-select: none;
-}
-
 .neko-canvas {
   display: block;
   width: 100%;
