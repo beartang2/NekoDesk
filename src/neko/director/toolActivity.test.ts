@@ -16,7 +16,9 @@ describe("도구 → 활동", () => {
     expect(toolCue("weather.get").activity).toBe("window");
     expect(toolCue("web.scrape").activity).toBe("reading");
     expect(toolCue("todo.list").activity).toBe("reading");
-    expect(toolCue("file.upload").activity).toBe("box");
+    expect(toolCue("file.upload").activity).toBe("dig");
+    expect(toolCue("fs.grep").activity).toBe("dig");
+    expect(toolCue("schedule.list").activity).toBe("calendar");
     expect(toolCue("fs.read").activity).toBe("reading");
     expect(toolCue("memory.save").activity).toBe("knead");
     expect(toolCue("image.generate").activity).toBe("draw");
@@ -26,7 +28,7 @@ describe("도구 → 활동", () => {
     const c = toolCue("todo.complete");
     expect(c).toMatchObject({ activity: "stamp", oneShot: true, writes: true });
     expect(toolCue("todo.list")).toMatchObject({ oneShot: false, writes: false });
-    expect(toolCue("schedule.delete").writes).toBe(true);
+    expect(toolCue("schedule.delete")).toMatchObject({ activity: "erase", oneShot: true, writes: true });
     expect(toolCue("fs.write").writes).toBe(true);
   });
 
@@ -43,8 +45,8 @@ describe("도구 → 활동", () => {
     expect(toolCue("code.exec", { language: "applescript", code: 'display notification "hi"' }).activity).toBe("typing");
   });
 
-  it("끝말잇기 시작은 타이핑, 그림 맞히기는 그림", () => {
-    expect(toolCue("game.start", { type: "wordchain" }).activity).toBe("typing");
+  it("끝말잇기 시작은 골똘히, 그림 맞히기는 그림", () => {
+    expect(toolCue("game.start", { type: "wordchain" }).activity).toBe("think");
     expect(toolCue("game.start", { type: "drawing" }).activity).toBe("draw");
   });
 });

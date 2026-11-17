@@ -13,8 +13,8 @@ describe("emotionPlan (설계 표 5.1)", () => {
     }
   });
 
-  it("일하는 중엔 타이핑, 상자 모드는 상자 활동", () => {
-    expect(emotionPlan("working").act).toBe("typing");
+  it("고양이 차례엔 골똘히, 상자 모드는 상자 활동", () => {
+    expect(emotionPlan("working").act).toBe("think"); // 게임에서 고양이 차례: 골똘히
     expect(emotionPlan("cozy").act).toBe("box");
   });
 

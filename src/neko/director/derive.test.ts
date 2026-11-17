@@ -2,7 +2,7 @@
 // 도구 표가 tool-registry(→ settingsStore 가 localStorage 를 읽는다)를 불러온다
 
 import { describe, expect, it } from "vitest";
-import { DEEP_SLEEP_MS, deriveNeko, PLAY_MS, SLEEPY_MS, THINK_GRACE_MS } from "./derive";
+import { DEEP_SLEEP_MS, deriveNeko, FED_MS, PLAY_MS, SLEEPY_MS, THINK_DELAY_MS, THINK_GRACE_MS } from "./derive";
 import { IDLE_SESSION, reduceSession } from "./session";
 import type { DirectorInput, NekoSessionState, NekoSignal } from "./types";
 
@@ -23,13 +23,13 @@ describe("계획: 층과 우선순위(설계 §5.2)", () => {
   it("기다림은 밥 먹기보다 위, 꼬리 물음표 유지", () => {
     const s = sess([0, { type: "run_start" }], [10, { type: "wait", kind: "confirm", danger: false }]);
     const { plan } = deriveNeko(input({ session: s, feeding: { since: 0 } }), 1000);
-    expect(plan).toMatchObject({ layer: "waiting", pose: "sit", tailHold: "question", activity: null });
+    expect(plan).toMatchObject({ layer: "waiting", pose: "sit", tailHold: "question", activity: "wait" });
   });
 
-  it("밥 먹기는 에이전트 활동보다 위, 간식을 되풀이", () => {
+  it("밥 먹기는 에이전트 활동보다 위", () => {
     const s = sess([0, { type: "run_start" }], [10, { type: "answering" }]);
     const { plan } = deriveNeko(input({ session: s, feeding: { since: 5 } }), 1000);
-    expect(plan).toMatchObject({ layer: "meal", activity: "snack", oneShot: true, repeat: true });
+    expect(plan).toMatchObject({ layer: "meal", activity: "meal", oneShot: false });
   });
 
   it("도구 중엔 그 도구의 활동, 이어지는 활동은 최소 머무름", () => {
@@ -37,12 +37,20 @@ describe("계획: 층과 우선순위(설계 §5.2)", () => {
     expect(deriveNeko(input({ session: s }), 100).plan).toMatchObject({ layer: "tool", activity: "window", dwell: true, oneShot: false });
   });
 
-  it("도구 사이 생각: 2초 안엔 같은 활동, 그 뒤엔 앉아서 궁금", () => {
+  it("도구 사이 생각: 2초 안엔 같은 활동, 그 뒤엔 앉아서 골똘히", () => {
     const s = sess([0, { type: "run_start" }], [10, { type: "tool_start", tool: "todo.list" }], [500, { type: "tool_end", tool: "todo.list" }], [600, { type: "thinking" }]);
     const a = deriveNeko(input({ session: s }), 700);
     expect(a.plan).toMatchObject({ layer: "tool", activity: "reading" });
     expect(a.recheckAt).toBe(600 + THINK_GRACE_MS);
-    expect(deriveNeko(input({ session: s }), 600 + THINK_GRACE_MS).plan).toMatchObject({ layer: "think", pose: "sit", mood: "curious", activity: null });
+    expect(deriveNeko(input({ session: s }), 600 + THINK_GRACE_MS).plan).toMatchObject({ layer: "think", pose: "sit", mood: "curious", activity: "think" });
+  });
+
+  it("생각을 막 시작했을 땐 앉기만, 0.5초 이어지면 골똘히", () => {
+    const s = sess([0, { type: "run_start" }]);
+    const a = deriveNeko(input({ session: s }), 100);
+    expect(a.plan).toMatchObject({ layer: "think", activity: null, pose: "sit" });
+    expect(a.recheckAt).toBe(THINK_DELAY_MS);
+    expect(deriveNeko(input({ session: s }), THINK_DELAY_MS).plan.activity).toBe("think");
   });
 
   it("답 쓰는 중은 타이핑", () => {
@@ -64,9 +72,9 @@ describe("계획: 층과 우선순위(설계 §5.2)", () => {
     expect(deriveNeko(i, PLAY_MS).plan).toMatchObject({ layer: "game", mood: "curious", pose: "sit" });
   });
 
-  it("게임 감정은 표 5.1 로(일하는 중 = 타이핑, 끝나면 사라짐)", () => {
+  it("게임 감정은 표 5.1 로(고양이 차례 = 골똘히, 끝나면 사라짐)", () => {
     const i = input({ game: { emotion: "working", until: 5000 } });
-    expect(deriveNeko(i, 1000).plan).toMatchObject({ layer: "game", activity: "typing" });
+    expect(deriveNeko(i, 1000).plan).toMatchObject({ layer: "game", activity: "think" });
     expect(layer(i, 5000)).toBe("base");
   });
 
@@ -79,19 +87,20 @@ describe("계획: 층과 우선순위(설계 §5.2)", () => {
 
   it("배고픔 낮음은 힘없음·배고픔, 놀이 낮음은 심심(졸림과 다름)", () => {
     expect(deriveNeko(input({ needs: { hunger: 5, play: 60 } }), 1000).plan).toMatchObject({ layer: "weak", pose: "loaf", mood: "idle" });
-    expect(deriveNeko(input({ needs: { hunger: 25, play: 60 } }), 1000).plan).toMatchObject({ layer: "hungry", pose: "sit" });
+    expect(deriveNeko(input({ needs: { hunger: 25, play: 60 } }), 1000).plan).toMatchObject({ layer: "hungry", pose: "sit", activity: "hungry" });
     expect(deriveNeko(input({ needs: { hunger: 80, play: 10 } }), 1000).plan).toMatchObject({ layer: "bored", pose: "loaf" });
   });
 
-  it("신남(상자)은 쉬는 중에만", () => {
-    expect(deriveNeko(input({ box: { since: 0 } }), 1000).plan).toMatchObject({ layer: "box", activity: "box" });
+  it("신남(상자·털실·나비)은 쉬는 중에만", () => {
+    expect(deriveNeko(input({ box: { since: 0 } }), 1000).plan).toMatchObject({ layer: "box", activity: "box", wander: false });
+    expect(deriveNeko(input({ box: { since: 0, kind: "butterfly" } }), 1000).plan).toMatchObject({ layer: "box", activity: "butterfly", wander: true });
     const s = sess([0, { type: "run_start" }], [10, { type: "answering" }]);
     expect(layer(input({ box: { since: 0 }, session: s }))).toBe("answer");
   });
 
-  it("밥을 다 먹으면 잠깐 행복", () => {
+  it("밥을 다 먹으면 행복하게 세수", () => {
     const i = input({ fedAt: 1000 });
-    expect(deriveNeko(i, 1500).plan).toMatchObject({ layer: "fed", mood: "happy" });
-    expect(layer(i, 3600)).toBe("base");
+    expect(deriveNeko(i, 1500).plan).toMatchObject({ layer: "fed", mood: "happy", activity: "groom" });
+    expect(layer(i, 1000 + FED_MS)).toBe("base");
   });
 });

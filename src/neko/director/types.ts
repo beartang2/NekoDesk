@@ -99,6 +99,6 @@ export interface DirectorInput {
   needs: { hunger: number; play: number };
   /** 사용자가 마지막으로 앱을 쓴 시각 */
   lastActiveAt: number;
-  /** 신나서 상자에 들어간 중 */
-  box: { since: number } | null;
+  /** 신나서 혼자 노는 중(상자에 쏙·털실·나비) */
+  box: { since: number; kind?: "box" | "yarn" | "butterfly" } | null;
 }

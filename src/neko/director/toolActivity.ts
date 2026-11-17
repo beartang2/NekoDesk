@@ -5,11 +5,11 @@ import type { ToolCue } from "./types";
 
 /**
  * 도구 → 활동(설계 docs/neko-p2-director.md §4). 도구가 하는 일을 고양이가 '흉내' 낸다.
- * 지금 있는 활동 14개로 맞췄다. P3 에서 새 활동(달력 보기·상자 뒤지기·골똘히)이 생기면 이 표만 바꾼다.
+ * P3 에서 달력 보기·지우기·상자 뒤지기·골똘히를 더했다.
  */
 
 /** 엔진이 스스로 끝내는 활동 */
-export const ONE_SHOT: ReadonlySet<NekoActivity> = new Set(["stamp", "snack", "stretch", "climb"]);
+export const ONE_SHOT: ReadonlySet<NekoActivity> = new Set(["stamp", "snack", "stretch", "climb", "erase"]);
 
 /** 결과 판정에서 '무언가를 바꾼' 도구(떨기). registry 의 readOnly 로 본다(MCP 는 모르니 아니라고 본다) */
 export function writesSomething(name: string): boolean {
@@ -22,29 +22,29 @@ const TABLE: Record<Exclude<ToolName, "user.ask">, NekoActivity> = {
   "todo.list_done": "reading",
   "todo.add": "typing",
   "todo.complete": "stamp",
-  "schedule.list": "reading", // P3: 달력 보기
+  "schedule.list": "calendar",
   "schedule.add": "stamp",
-  "schedule.delete": "stamp", // P3: 지우기 변형
+  "schedule.delete": "erase",
   "code.exec": "typing",
   "web.search": "window",
   "web.scrape": "reading",
   "weather.get": "window",
-  "game.start": "draw", // 끝말잇기는 아래에서 타이핑으로
-  "game.judge": "typing", // P3: 골똘히
-  "file.upload": "box", // P3: 상자 뒤지기
+  "game.start": "draw", // 끝말잇기는 아래에서 골똘히로
+  "game.judge": "think", // 끝말잇기 판정
+  "file.upload": "dig",
   "image.generate": "draw",
   "image.trace": "draw",
   "fs.read": "reading",
   "fs.write": "typing",
   "fs.edit": "typing",
-  "fs.list": "box", // P3: 상자 뒤지기
-  "fs.glob": "box",
-  "fs.grep": "box",
+  "fs.list": "dig",
+  "fs.glob": "dig",
+  "fs.grep": "dig",
   "skill.read": "reading",
   "plan.set": "typing",
   "plan.complete": "stamp", // 할 일 완료처럼 칸에 꾹
   "memory.save": "knead",
-  "memory.search": "typing", // P3: 골똘히
+  "memory.search": "think", // 떠올리기
   "security.check": "window",
   "process.list": "reading",
   "agent.delegate": "window", // 조사를 맡겼다: 바깥을 살핀다
@@ -65,7 +65,7 @@ export function isMusicScript(params: Record<string, unknown> | undefined): bool
 export function toolCue(name: string, params?: Record<string, unknown>): ToolCue {
   let activity: NekoActivity = TABLE[name as keyof typeof TABLE] ?? "typing";
   if (name === "code.exec" && isMusicScript(params)) activity = "music";
-  if (name === "game.start" && params?.type === "wordchain") activity = "typing"; // P3: 골똘히
+  if (name === "game.start" && params?.type === "wordchain") activity = "think";
   return { name, activity, oneShot: ONE_SHOT.has(activity), writes: writesSomething(name) };
 }
 

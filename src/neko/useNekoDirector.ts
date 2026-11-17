@@ -15,7 +15,7 @@ import { useNekoController } from "./nekoHost";
  * - 계획은 deriveNeko, 적용은 스케줄러
  */
 
-/** 신남: 놀이 ≥ 80 이고 쉬는 중이면 30~120초 뒤 상자에. 60초 지나거나 3번 쓰다듬으면 나온다 */
+/** 신남: 놀이 ≥ 80 이고 쉬는 중이면 30~120초 뒤 혼자 논다(상자에 쏙·털실·나비). 60초 지나거나 3번 쓰다듬으면 그만 */
 const BOX_PLAY_MIN = 80;
 const BOX_AFTER_MS = [30_000, 120_000] as const;
 const BOX_STAY_MS = 60_000;
@@ -48,7 +48,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
 
   useEffect(() => {
     if (!ctrl) return;
-    let box: { since: number } | null = null;
+    let box: DirectorInput["box"] = null;
     let boxPetBase = 0;
     let boxTimer: ReturnType<typeof setTimeout> | null = null;
     let boxExitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -84,7 +84,8 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
         const wait = BOX_AFTER_MS[0] + Math.random() * (BOX_AFTER_MS[1] - BOX_AFTER_MS[0]);
         boxTimer = setTimeout(() => {
           boxTimer = null;
-          box = { since: performance.now() };
+          const kinds = ["box", "yarn", "butterfly"] as const;
+          box = { since: performance.now(), kind: kinds[Math.floor(Math.random() * kinds.length)] };
           boxPetBase = useNekoApp.getState().pets;
           boxExitTimer = setTimeout(leaveBox, BOX_STAY_MS);
           sch.update();

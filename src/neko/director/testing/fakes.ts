@@ -23,7 +23,7 @@ export class FakeClock implements Clock {
 }
 
 /** 한 번짜리 활동이 엔진에서 걸리는 시간(대략, ms) */
-export const ONE_SHOT_LEN: Partial<Record<NekoActivity, number>> = { stamp: 4300, snack: 9000, stretch: 3000, climb: 6000 };
+export const ONE_SHOT_LEN: Partial<Record<NekoActivity, number>> = { stamp: 4300, snack: 9000, stretch: 3000, climb: 6000, erase: 3800 };
 const KEEP_ON_GRAB = new Set<NekoActivity>(["music", "butterfly", "yarn"]);
 
 /** 가짜 엔진 컨트롤러: 부른 것을 시각과 함께 적고, 한 번짜리는 정해진 시간 뒤 스스로 끝낸다 */
