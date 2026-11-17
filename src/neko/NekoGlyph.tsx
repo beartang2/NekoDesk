@@ -48,21 +48,20 @@ function Ears({ hx, hy, ear }: { hx: number; hy: number; ear: Shape["ear"] }) {
 }
 
 /**
- * 털 뭉치 윤곽: 타원 둘레에 바깥으로 뾰족한 털 끝을 n 개 낸다. 털 끝 길이는 위(top)에서 아래(bottom)로
- * 바뀌고, 0 이하인 곳은 매끈하다(top 을 음수로 주면 아래쪽에만 털이 난다).
+ * 털 뭉치 윤곽: 타원 둘레를 촘촘히 따라가며 바깥으로 둥글게 부푼 털 뭉치 n 개를 낸다(구름처럼 둥근 끝, 가시처럼
+ * 뾰족하지 않게). 뭉치 높이는 위(top)에서 아래(bottom)로 바뀌고, 0 이하인 곳은 매끈하다
+ * (top 을 음수로 주면 아래쪽에만 털이 난다).
  */
-function fuzz(cx: number, cy: number, rx: number, ry: number, n: number, top: number, bottom: number) {
-  const pts: string[] = [];
-  for (let k = 0; k < n * 2; k++) {
-    const t = (k / (n * 2)) * Math.PI * 2;
-    const lift = k % 2 ? Math.max(0, top + (bottom - top) * ((Math.sin(t) + 1) / 2)) : 0;
-    pts.push(`${(cx + (rx + lift) * Math.cos(t)).toFixed(2)} ${(cy + (ry + lift) * Math.sin(t)).toFixed(2)}`);
+function fluff(cx: number, cy: number, rx: number, ry: number, n: number, top: number, bottom: number) {
+  const N = 144, pts: string[] = [];
+  for (let i = 0; i < N; i++) {
+    const t = (i / N) * Math.PI * 2;
+    const L = Math.max(0, top + (bottom - top) * ((Math.sin(t) + 1) / 2));
+    const out = L * Math.abs(Math.sin((n * t) / 2)); // 꼭대기는 둥글고 사이는 오목한 물결
+    pts.push(`${(cx + (rx + out) * Math.cos(t)).toFixed(2)} ${(cy + (ry + out) * Math.sin(t)).toFixed(2)}`);
   }
   return `M${pts.join(" L")} Z`;
 }
-
-// 털 끝을 살짝 둥글려 가시처럼 보이지 않게
-const SOFT_TIPS = { stroke: "currentColor", strokeWidth: 0.7, strokeLinejoin: "round" } as const;
 
 /** 서 있는 옆모습. 오른쪽을 본다 */
 export function CatGlyph({ shape, className }: { shape: Shape; className?: string }) {
@@ -94,12 +93,12 @@ export function CatGlyph({ shape, className }: { shape: Shape; className?: strin
       </g>
       {/* 몸통·목·머리 */}
       {fur === "short" ? <ellipse cx={cx} cy={cy} rx={rx} ry={ry} />
-        : fur === "medium" ? <path d={fuzz(cx, cy, rx, ry, 15, -0.6, 2.5)} {...SOFT_TIPS} />
-        : <path d={fuzz(cx, cy, rx + 0.4, ry + 0.4, 17, 1.4, 3.4)} {...SOFT_TIPS} />}
+        : fur === "medium" ? <path d={fluff(cx, cy, rx, ry, 9, -1.2, 2.5)} />
+        : <path d={fluff(cx, cy, rx + 0.2, ry + 0.2, 11, 1.4, 3)} />}
       <path d={`M${cx + rx - 6} ${cy - ry + 0.5} L${hx - 1} ${hy + 2} L${hx + 1.5} ${hy + 3} L${cx + rx} ${cy} Z`} />
-      {fur === "long" && <path d={fuzz(hx - 0.6, hy + hr - 0.2, 3.4, 2.8, 9, -0.5, 2.8)} {...SOFT_TIPS} />}
+      {fur === "long" && <path d={fluff(hx - 0.6, hy + hr - 0.4, 3.4, 2.8, 7, -0.4, 2.4)} />}
       {fur === "short" ? <circle cx={hx} cy={hy} r={hr} />
-        : <path d={fuzz(hx, hy, hr, hr, 12, fur === "long" ? -0.4 : -1.4, fur === "long" ? 2.2 : 1.7)} {...SOFT_TIPS} />}
+        : <path d={fluff(hx, hy, hr, hr, 10, fur === "long" ? -0.4 : -1.6, fur === "long" ? 1.8 : 1.4)} />}
       <Ears hx={hx} hy={hy} ear={shape.ear} />
     </svg>
   );
