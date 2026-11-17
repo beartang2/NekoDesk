@@ -14,6 +14,9 @@ pub struct WeatherNow {
     pub temp: f64,
     /// 그 위치의 IANA 시간대("Asia/Seoul"). 앱의 시각 표시가 이걸 따른다.
     pub timezone: String,
+    /// 이름으로 찾은 자리. 위치 권한이 없을 때 네코 지도가 이 좌표를 가운데로 쓴다.
+    pub lat: f64,
+    pub lon: f64,
 }
 
 pub async fn now(location: &str) -> Result<WeatherNow, AppError> {
@@ -32,6 +35,8 @@ pub async fn now(location: &str) -> Result<WeatherNow, AppError> {
         emoji: code_to_emoji(code, night).to_string(),
         temp: cur["temperature_2m"].as_f64().unwrap_or(0.0),
         timezone: w["timezone"].as_str().unwrap_or("").to_string(),
+        lat,
+        lon,
     })
 }
 
@@ -65,20 +70,32 @@ fn parse_coords(location: &str) -> Option<(f64, f64, String)> {
 }
 
 async fn lookup(location: &str) -> Result<(f64, f64, String), AppError> {
-    let geo_url = format!(
-        "https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&language=ko&format=json",
-        urlencode(location)
-    );
-    let geo: serde_json::Value = client().get(&geo_url).send().await?.json().await?;
-
-    let results = geo["results"]
-        .as_array()
-        .filter(|r| !r.is_empty())
-        .ok_or_else(|| AppError::msg(format!("'{location}' 위치를 찾을 수 없습니다.")))?;
-    let lat = results[0]["latitude"].as_f64().unwrap_or(0.0);
-    let lon = results[0]["longitude"].as_f64().unwrap_or(0.0);
-    let place = results[0]["name"].as_str().unwrap_or(location).to_string();
+    // 한국어 짧은 이름은 GeoNames 에 "대전광역시"·"수원시" 로만 있어, 같은 이름 시골 마을이 먼저 잡혔다
+    // ("대전" → 전남 고흥, "부산" → 충북의 산). 행정 접미사를 붙인 이름도 찾아 인구가 가장 많은 곳을 고른다.
+    let mut names = vec![location.to_string()];
+    if location.chars().all(|c| ('가'..='힣').contains(&c)) && !location.ends_with('시') {
+        names.extend(["특별시", "광역시", "시"].map(|s| format!("{location}{s}")));
+    }
+    let mut results = Vec::new();
+    for name in &names {
+        let geo_url = format!(
+            "https://geocoding-api.open-meteo.com/v1/search?name={}&count=10&language=ko&format=json",
+            urlencode(name)
+        );
+        let geo: serde_json::Value = client().get(&geo_url).send().await?.json().await?;
+        results.extend(geo["results"].as_array().cloned().unwrap_or_default());
+    }
+    let hit = most_populous(&results).ok_or_else(|| AppError::msg(format!("'{location}' 위치를 찾을 수 없습니다.")))?;
+    let lat = hit["latitude"].as_f64().unwrap_or(0.0);
+    let lon = hit["longitude"].as_f64().unwrap_or(0.0);
+    let place = hit["name"].as_str().unwrap_or(location).to_string();
     Ok((lat, lon, place))
+}
+
+/// 인구가 가장 많은 곳. 아무도 인구를 모르면(작은 마을뿐) 원래 이름의 첫 결과.
+fn most_populous(results: &[serde_json::Value]) -> Option<&serde_json::Value> {
+    let pop = |r: &serde_json::Value| r["population"].as_u64().unwrap_or(0);
+    results.iter().filter(|r| pop(r) > 0).max_by_key(|r| pop(r)).or(results.first())
 }
 
 pub async fn run(location: &str) -> Result<String, AppError> {
@@ -171,5 +188,15 @@ mod tests {
         assert_eq!(parse_coords("(37.5,127)"), Some((37.5, 127.0, "현재 위치".into())));
         assert_eq!(parse_coords("Seoul"), None);
         assert_eq!(parse_coords("Paris (France)"), None);
+    }
+
+    #[test]
+    fn picks_the_city_over_a_same_named_village() {
+        let village = serde_json::json!({ "name": "대전", "admin1": "전라남도" });
+        let city = serde_json::json!({ "name": "대전광역시", "population": 1441203 });
+        let town = serde_json::json!({ "name": "광주시", "population": 81780 });
+        assert_eq!(most_populous(&[village.clone(), town, city.clone()]), Some(&city));
+        assert_eq!(most_populous(&[village.clone()]), Some(&village));
+        assert_eq!(most_populous(&[]), None);
     }
 }
