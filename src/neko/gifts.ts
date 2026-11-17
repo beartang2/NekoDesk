@@ -107,12 +107,51 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
 
 // 개발 빌드에서만: 산책을 안 다녀와도 시험할 수 있게 견본 선물을 넣는다. 콘솔에서 nekoGift() — 넣고 바닥에 놓는다
 if (import.meta.env.DEV) {
+  // 산책 머리에게 바라는 수준의 견본: 정확한 실루엣 + 특징을 긋는 선 + 같은 색 그늘·밝은 쪽
   const SAMPLES: { title: string; play: NekoGiftPlay; shape: unknown }[] = [
-    { title: "반짝이는 병뚜껑", play: "roll", shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "silver" }, { t: "circle", x: 0, y: -7, r: 5, c: "red" }, { t: "dot", x: -2, y: -9, c: "white" }] } },
-    { title: "단풍잎", play: "carry", shape: { parts: [{ t: "poly", pts: [[-10, -2], [-2, -12], [10, -14], [6, -4], [-4, 0]], c: "orange" }, { t: "rrect", x: -9, y: -2, w: 6, h: 1.4, rad: 0.7, rot: 0.5, c: "brown" }] } },
-    { title: "각설탕", play: "bat", shape: { parts: [{ t: "rrect", x: 0, y: -6, w: 12, h: 12, rad: 2, rot: 0, c: "white" }, { t: "dot", x: -2, y: -9, c: "silver" }] } },
-    { title: "납작한 조약돌", play: "sit_on", shape: { parts: [{ t: "ellipse", x: 0, y: -3.5, rx: 13, ry: 3.5, rot: 0, c: "gray" }, { t: "dot", x: -4, y: -5, c: "white" }] } },
-    { title: "도토리", play: "sniff", shape: { parts: [{ t: "ellipse", x: 0, y: -6, rx: 5, ry: 6, rot: 0, c: "brown" }, { t: "rrect", x: 0, y: -12, w: 11, h: 4, rad: 2, rot: 0, c: "orange" }] } },
+    { title: "반짝이는 병뚜껑", play: "roll", shape: { parts: [
+      { t: "poly", round: 0.5, c: "red", pts: Array.from({ length: 20 }, (_, i) => { const a = (i / 20) * Math.PI * 2, r = i % 2 ? 8.6 : 10; return [Math.cos(a) * r, -10 + Math.sin(a) * r]; }) },
+      { t: "circle", x: 0, y: -10, r: 7.4, c: "red.dark" },
+      { t: "circle", x: 0, y: -10, r: 6.6, c: "red" },
+      { t: "line", w: 1.1, c: "red.light", pts: [[-4.5, -13.5], [-5.6, -10.5], [-4.6, -7.4]] },
+      { t: "dot", x: 3, y: -14.5, c: "white" },
+    ] } },
+    { title: "단풍잎", play: "carry", shape: { parts: [
+      { t: "line", w: 1, c: "brown.dark", pts: [[0, -6], [0.6, -2], [2, 0]] },
+      { t: "poly", round: 0, c: "red", pts: [[0, -29], [2.5, -23.5], [6, -25.5], [5, -20], [11, -22], [9, -17], [14.5, -15], [8.5, -12], [10.5, -7.5], [4.5, -9], [0.8, -5.5], [-0.8, -5.5], [-4.5, -9], [-10.5, -7.5], [-8.5, -12], [-14.5, -15], [-9, -17], [-11, -22], [-5, -20], [-6, -25.5], [-2.5, -23.5]] },
+      { t: "line", w: 0.6, c: "red.dark", pts: [[0, -6], [0, -26]] },
+      { t: "line", w: 0.55, c: "red.dark", pts: [[0, -12], [6, -16], [12, -16.5]] },
+      { t: "line", w: 0.55, c: "red.dark", pts: [[0, -12], [-6, -16], [-12, -16.5]] },
+      { t: "line", w: 0.5, c: "red.dark", pts: [[0, -8.5], [5, -8.5], [9, -8]] },
+      { t: "line", w: 0.5, c: "red.dark", pts: [[0, -8.5], [-5, -8.5], [-9, -8]] },
+    ] } },
+    { title: "각설탕", play: "bat", shape: { parts: [
+      { t: "poly", round: 0.6, c: "white.dark", pts: [[-9, -17.5], [0, -13], [0, 0], [-9, -4.5]] },
+      { t: "poly", round: 0.6, c: "gray.light", pts: [[0, -13], [9, -17.5], [9, -4.5], [0, 0]] },
+      { t: "poly", round: 0.6, c: "white", pts: [[0, -22], [9, -17.5], [0, -13], [-9, -17.5]] },
+      // 설탕 알갱이: 아주 작은 점을 흩뿌린다(크면 주사위 눈처럼 보인다)
+      ...[[-4, -9], [-6.5, -5.5], [-2.5, -4], [-6, -11.5], [4.5, -8], [6.5, -12], [2.5, -4.5], [2, -17.5], [-3, -18.2], [4.5, -18.6], [-1, -15.5]]
+        .map(([x, y], i) => ({ t: "dot", x, y, r: 0.45, c: i % 3 ? "white.light" : "gray.light" })),
+    ] } },
+    { title: "납작한 조약돌", play: "sit_on", shape: { parts: [
+      { t: "ellipse", x: 0, y: -4.2, rx: 13, ry: 4.2, rot: 0, c: "gray" },
+      { t: "ellipse", x: 4, y: -3.4, rx: 2.4, ry: 1, rot: 0.2, c: "gray.dark" },
+      { t: "ellipse", x: -6, y: -2.8, rx: 1.4, ry: 0.7, rot: -0.2, c: "gray.dark" },
+      { t: "line", w: 1, c: "gray.light", pts: [[-8, -6.6], [-3, -7.8], [3, -7.5]] },
+      { t: "dot", x: 7.5, y: -6, c: "gray.light" },
+    ] } },
+    { title: "도토리", play: "sniff", shape: { parts: [
+      { t: "poly", round: 2.6, c: "brown", pts: [[-6.2, -13], [6.2, -13], [6.6, -7.5], [3.6, -2.6], [0, 0], [-3.6, -2.6], [-6.6, -7.5]] },
+      { t: "line", w: 1.2, c: "brown.light", pts: [[-3.6, -10.5], [-4.2, -7.5], [-3, -4.5]] },
+      { t: "line", w: 1.4, c: "brown.dark", pts: [[0, -17], [0.6, -19.6], [2.2, -21]] },
+      { t: "rrect", x: 0, y: -14.4, w: 15.5, h: 6, rad: 3, rot: 0, c: "brown.dark" },
+      { t: "line", w: 0.45, c: "brown", pts: [[-5.5, -12.2], [-2.5, -16.6]] },
+      { t: "line", w: 0.45, c: "brown", pts: [[-1.5, -12], [1.5, -16.8]] },
+      { t: "line", w: 0.45, c: "brown", pts: [[2.5, -12], [5.5, -16.4]] },
+      { t: "line", w: 0.45, c: "brown", pts: [[-5.5, -16.4], [-2.5, -12]] },
+      { t: "line", w: 0.45, c: "brown", pts: [[-1.5, -16.8], [1.5, -12]] },
+      { t: "line", w: 0.45, c: "brown", pts: [[2.5, -16.6], [5.5, -12.2]] },
+    ] } },
   ];
   (window as unknown as { nekoGift: (i?: number) => string }).nekoGift = (i) => {
     const s = SAMPLES[i ?? Math.floor(Math.random() * SAMPLES.length)], id = crypto.randomUUID();

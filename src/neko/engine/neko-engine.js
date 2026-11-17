@@ -2123,7 +2123,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      자리는 매 프레임 머리의 입 기준점에서 구하므로 무대 크기·자리(사이드바·아래 띠·화면 띠)와 무관하다.
      여럿이면 최대 3장을 부채처럼 겹친다 — 숫자 없이 하나인지 여럿인지만 보인다. 설계: docs/neko-gifts.md §6 */
   const MOUTH = [FO + 9, 23];   // 머리 로컬: 턱 앞
-  const CARRY_SIZE = 24;        // 문 물건 한 변(S 단위) — 머리(폭 74)보다 한참 작게
+  const CARRY_SIZE = 28;        // 문 물건 한 변(S 단위) — 알아보게, 머리(폭 74)보다는 한참 작게
   const MOUTH_ACTS = new Set(["snack", "meal", "hungry", "groom"]); // 입을 쓰는 활동: 그동안은 앞 바닥에 내려 둔다
   const carrying = [];
   const carrySway = new Spring(0);
@@ -2181,7 +2181,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      px 로 굳히지 않으니 자리를 옮기거나 높이를 끌어도 같은 자리·같은 배율에 있다(소품 배율 버그와 같은 문제가 안 생긴다).
      잡고 끌면 옮기고(decorMove), 우클릭하면 그 옆에 '정리' 버튼을 띄울 자리를 알린다(decorMenu) — 저장·버튼은 호스트 몫.
      설계: docs/neko-gifts.md §4 */
-  const DECOR_SIZE = 26;   // 한 변(S 단위) — 바닥에서도 알아보게, 머리(폭 74)보다는 한참 작게
+  const DECOR_SIZE = 32;   // 한 변(S 단위) — 잎맥·꼭지 같은 결이 보이게, 머리(폭 74)의 절반 남짓
   // 노는 방식(§5). 모델이 고르고, 없으면 모양으로 짐작한다: 납작하면 위에 앉기, 동글면 굴리기, 그 밖엔 앞발로 톡
   const PLAYS = new Set(["roll", "bat", "sniff", "sit_on", "carry"]);
   function defaultPlay(shape) {

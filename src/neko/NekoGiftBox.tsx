@@ -4,7 +4,7 @@ import { GIFT_DND, useNekoGifts } from "./gifts";
 import "./NekoGiftBox.css";
 
 /** 선물 그림. 무대와 같은 그리기 함수(drawShape)라 그림체가 같다. */
-function GiftThumb({ shape, size = 44 }: { shape: GiftShape; size?: number }) {
+function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   useEffect(() => {

@@ -264,7 +264,7 @@ try {
     const r = await p.evaluate(() => {
       const n = window.__neko, cv = document.getElementById("stage"), g = cv.getContext("2d");
       n.setDecor([{ id: "x", u: 0, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]);
-      const red = () => { n.step(90); n.draw(); const dpr = cv.width / n.W, u = (26 * n.S) / 14;
+      const red = () => { n.step(90); n.draw(); const dpr = cv.width / n.W, u = (32 * n.S) / 14;
         const d = g.getImageData(Math.round(16 * n.S * dpr), Math.round((n.floorY - 7 * u) * dpr), 1, 1).data; return d[0] > 180 && d[1] < 140 && d[3] > 200; };
       const a = red();
       cv.style.width = "900px"; cv.style.height = "150px"; n.resize();
@@ -291,7 +291,7 @@ try {
       n.setDecor([{ id: "g", shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] }, ...moved }]); n.step(60); n.draw();
       const hitBefore = !!boxOf();
       cv.style.width = "900px"; cv.style.height = "150px"; n.resize(); n.step(60); n.draw();
-      const b2 = boxOf(), span = n.floorY - (26 * n.S) - 10 * n.S, wallOk = !!b2 && moved && moved.surface === "wall";
+      const b2 = boxOf(), span = n.floorY - (32 * n.S) - 10 * n.S, wallOk = !!b2 && moved && moved.surface === "wall";
       const R2 = rect(); cv.dispatchEvent(new MouseEvent("contextmenu", { clientX: R2.left + b2[0] + 2, clientY: R2.top + b2[1] + 2, bubbles: true, cancelable: true }));
       // 우클릭은 바로 치우지 않고 '정리' 버튼 자리(물건 오른쪽 위)를 알린다 — 물건은 그대로
       const menu = ev.find(([k]) => k === "menu"), mx = menu && menu[1];

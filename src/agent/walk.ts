@@ -7,7 +7,7 @@ import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { josa } from "../lib/hangul";
 import { timeZone } from "../lib/time";
 import type { Memory, OpenAiToolSchema, ToolName } from "./types";
-import { GIFT_PALETTE, validateShape, type GiftShape } from "../neko/engine/gift-shape";
+import { GIFT_COLORS, validateShape, type GiftShape } from "../neko/engine/gift-shape";
 import { PLAYS, useNekoGifts } from "../neko/gifts";
 
 /** 산책에서 가져올 수 있는 선물 종류. */
@@ -116,20 +116,22 @@ const REPORT_TOOL = {
         gift_shape: {
           type: "object",
           description:
-            "선물이 주운 것·장소 기념품일 때만: 그 물건 모양. 32칸(가운데 x=0, 바닥 y=0, 위는 음수, 좌우 ±16)에 " +
-            "도형 3~8개로 단순하게. 뒤에 적은 도형이 위에 그려진다",
+            "선물이 주운 것·장소 기념품일 때만: 그 물건 모양. 32칸(가운데 x=0, 바닥 y=0, 위는 음수, 좌우 ±16). " +
+            "한눈에 그 물건으로 알아보게 — 실루엣을 정확히(뾰족한 데는 poly round 0), 특징은 line 으로(잎맥·꼭지·주름·톱니), " +
+            "같은 색 .dark·.light 로 그늘·무늬. 도형 8~20개, 뒤에 적은 게 위. 입체감·그림자는 앱이 입힌다",
           properties: {
             parts: {
               type: "array",
               items: {
                 type: "object",
                 properties: {
-                  t: { type: "string", enum: ["circle", "ellipse", "rrect", "poly", "dot"] },
-                  x: { type: "number" }, y: { type: "number" }, r: { type: "number" },
-                  rx: { type: "number" }, ry: { type: "number" }, w: { type: "number" }, h: { type: "number" },
+                  t: { type: "string", enum: ["circle", "ellipse", "rrect", "poly", "line", "dot"] },
+                  x: { type: "number" }, y: { type: "number" }, r: { type: "number", description: "circle 반지름, dot 크기(0.3~2)" },
+                  rx: { type: "number" }, ry: { type: "number" }, w: { type: "number", description: "rrect 폭, line 굵기(0.3~4)" }, h: { type: "number" },
                   rad: { type: "number" }, rot: { type: "number", description: "라디안" },
-                  pts: { type: "array", items: { type: "array", items: { type: "number" } }, description: "poly 꼭짓점 [x,y] 3~10개" },
-                  c: { type: "string", enum: Object.keys(GIFT_PALETTE) },
+                  pts: { type: "array", items: { type: "array", items: { type: "number" } }, description: "poly(3~24)·line(2~12) 점 [x,y]" },
+                  round: { type: "number", description: "poly 꼭짓점 둥글기. 0 이면 뾰족(기본 1.2)" },
+                  c: { type: "string", enum: GIFT_COLORS },
                 },
                 required: ["t", "c"],
               },
