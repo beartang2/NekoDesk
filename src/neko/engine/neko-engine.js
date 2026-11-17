@@ -342,8 +342,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const c = cat;
     const prey = c.pounce; // 덮칠 대상({x, y})이 있으면 거기까지의 거리·높이에 맞춰 뛴다
     c.vy = -JUMPV * S * (prey ? (prey.y < floorY - 120 * S ? 1.12 : 0.92) : 1);
-    // 무대가 낮으면(앱 패널) 귀 끝이 천장에 닿지 않을 만큼만 뛴다: 서 있을 때 귀 끝은 몸 중심보다 약 80단위 위
-    const room = c.y - 82 * S - 4;
+    // 무대가 낮으면(앱 패널) 귀 끝이 천장에 닿지 않을 만큼만 뛴다: 서 있을 때 귀 끝은 몸 중심보다 약 80단위 위.
+    // 말랑할수록 뛰어오를 때 몸이 더 늘어나므로 그만큼 여유를 더 둔다
+    const room = c.y - (84 + 18 * c.soft) * S - 4;
     if (room > 0) c.vy = -Math.min(-c.vy, Math.sqrt(2 * GRAV * S * room));
     c.vx = c.face * (prey ? clamp(Math.abs(prey.x - c.x) * 2.4, 90, 300) : c.jumpFromWalk ? 165 : 80) * S;
     c.pounce = null;
@@ -355,7 +356,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const c = cat, imp = c.vy;
     c.y = floorY - standH() * S; c.vy = 0; c.climbFall = false;
     c.crouch.x = 0; c.crouch.v = clamp((imp / S) * 0.045, 0, 70);
-    c.squash.v -= clamp(imp / (S * 300), 0, 5);
+    c.squash.v -= clamp(imp / (S * 300), 0, 5) * lerp(0.6, 1.5, c.soft);
     c.ears.forEach((e) => (e.v += clamp(imp / (S * 230), 0, 6)));
     c.vx *= 0.45;
     for (const L of c.legs) { // 발은 닿은 자리에 그대로 내려놓는다
@@ -508,7 +509,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     c.loaf.step(m === "loaf" || (P && P.loaf) ? 1 : 0, 70, 13, dt);
     c.sit.step(m === "sit" || (P && P.sit) ? 1 : 0, 60, 12, dt);
     c.lie.step(m === "lie" ? 1 : 0, 45, 11, dt);
-    const breathe = reduced.matches ? 0 : Math.sin(time * (c.mood === "sleepy" || m === "lie" ? 1.3 : 2.3));
+    const breathe = (reduced.matches ? 0 : Math.sin(time * (c.mood === "sleepy" || m === "lie" ? 1.3 : 2.3))) * lerp(0.75, 1.35, c.soft);
     let sq = 1;
     if (m === "idle") sq = 1 + 0.022 * breathe;
     else if (m === "loaf") sq = 0.88 + 0.018 * breathe;
@@ -519,8 +520,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     else if (m === "crouch") sq = 0.8;
     else if (m === "air") sq = 1 + clamp(Math.abs(c.vy) / (2600 * S), 0, 0.15);
     sq -= 0.12 * turning;
-    c.squash.step(sq, 250, 12, dt);
-    if (m === "grabbed") c.stretch.step(lerp(1.12, 1.24, c.soft), 105, 5.5, dt); else c.stretch.step(1, 170, 14, dt);
+    c.squash.step(sq, lerp(330, 165, c.soft), lerp(17, 6.5, c.soft), dt); // 말랑할수록 눌렸다 튀는 게 크고 오래간다
+    if (m === "grabbed") c.stretch.step(lerp(1.08, 1.3, c.soft), 105, 5.5, dt); else c.stretch.step(1, 170, 14, dt);
     c.crouch.step(m === "crouch" ? 9 : 0, m === "land" ? 160 : 230, m === "land" ? 13 : 18, dt);
 
     let at = -SIT_TILT * c.face * clamp(c.sit.x, 0, 1), k = 140, d = 16; // 앉기: 엉덩이를 내리고 앞을 든다
@@ -994,17 +995,22 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
    * 뼈대가 가속하면 점은 반대로 밀렸다가 돌아온다. 배 쪽(아래) 점일수록 더 무겁게 출렁인다.
    */
   function updateJiggle(dt) {
-    const c = cat, K = lerp(950, 230, c.soft), D = lerp(36, 11, c.soft), maxO = 12 * S, kick = 700 * S * dt;
+    // 말랑함 0 → 단단(거의 안 흔들림), 1 → 젤리처럼 크게·오래 출렁임. 배 쪽 점은 무게로 살짝 처진다(말랑할수록 더)
+    const c = cat, sf = c.soft ** 0.7, K = lerp(1400, 150, sf), D = lerp(46, 7.5, sf), maxO = lerp(8, 16, sf) * S;
+    const rest = 1 - clamp(Math.max(c.loaf.x, c.lie.x), 0, 1); // 식빵·누움: 배가 바닥에 닿아 처지지 않는다
+    const kick = 700 * S * dt, kickK = lerp(0.55, 1.45, sf), sag = lerp(0.15, 2.6, sf) * S * K * rest;
     for (let i = 0; i < c.jig.length; i++) {
       const j = c.jig[i], [lx, ly] = bodyLocal(i), g = L2W(lx, ly);
       if (!j.init) { j.gx = g[0]; j.gy = g[1]; j.init = true; continue; }
       const gvx = (g[0] - j.gx) / dt, gvy = (g[1] - j.gy) / dt;
-      j.vx -= clamp(gvx - j.gvx, -kick, kick) * j.w;
-      j.vy -= clamp(gvy - j.gvy, -kick, kick) * j.w;
+      j.vx -= clamp(gvx - j.gvx, -kick, kick) * j.w * kickK;
+      j.vy -= clamp(gvy - j.gvy, -kick, kick) * j.w * kickK;
       j.vx += (-K * j.ox - D * j.vx) * dt;
-      j.vy += (-K * j.oy - D * j.vy) * dt;
+      j.vy += (-K * j.oy - D * j.vy + sag * clamp((j.w - 0.4) / 0.6, 0, 1)) * dt;
       j.ox = clamp(j.ox + j.vx * dt, -maxO, maxO);
       j.oy = clamp(j.oy + j.vy * dt, -maxO, maxO);
+      // 바닥이 배를 받친다: 처짐·출렁임이 바닥을 뚫지 않게(식빵·상자·누워 있을 때)
+      if (g[1] <= floorY && g[1] + j.oy > floorY) { j.oy = floorY - g[1]; if (j.vy > 0) j.vy = 0; }
       j.gx = g[0]; j.gy = g[1]; j.gvx = gvx; j.gvy = gvy;
     }
     // 이웃끼리 살짝 평균 → 점 하나만 튀지 않고 덩어리째 출렁인다
@@ -3200,9 +3206,20 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
    * 시선·고개를 손에서 돌린다(꼬리 탁탁). 그래도 계속 만지면 몸을 빼서 손 반대쪽으로 몇 걸음 피한다 → false
    */
   const PET_SULK_AT = 2.4;
+  /** 몸을 콕 누른다: 눌렸다가 말랑함만큼 출렁이며 돌아온다(str 0~1.5) */
+  function boing(str = 1) {
+    const c = cat, sf = c.soft ** 0.7, amp = str * lerp(0.45, 1.6, sf);
+    c.squash.v -= 2.6 * amp;
+    for (let i = 0; i < c.jig.length; i++) {
+      const j = c.jig[i], lx = bodyLocal(i)[0];
+      j.vy += 150 * S * amp * j.w;
+      j.vx += Math.sign(lx || 1) * c.face * 80 * S * amp * j.w; // 옆으로 퍼진다
+    }
+  }
   function petReact() {
     const c = cat;
     c.annoy += 0.12;
+    boing(0.45);
     if (c.annoy >= PET_SULK_AT || c.petSulk > 0) {
       c.petT = 0;
       // 피할 쪽은 짜증이 시작될 때 한 번 정한다(손 반대쪽, 손을 모르면 지금 보는 반대쪽). 돌아선 뒤 손 쪽으로 되돌아오지 않게
@@ -3224,13 +3241,29 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     return true;
   }
 
-  new ResizeObserver(() => resize()).observe(canvas);
+  const ro = new ResizeObserver(() => resize());
+  ro.observe(canvas);
 
   /* ---------- 외형 ---------- */
-  const appearance = { coat: "black", patterns: [], seed: 1, eye: "yellow", fur: "short", ear: "pointy", tail: "long", build: "normal", legs: "normal", soft: 0.6 };
+  const appearance = { coat: "black", color: "#c8a27a", patterns: [], seed: 1, eye: "yellow", fur: "short", ear: "pointy", tail: "long", build: "normal", legs: "normal", soft: 0.6 };
+  /**
+   * 직접 고른 털 색(RGB 한 가지)으로 털 색 묶음을 만든다: 줄무늬 바탕은 조금 밝게·줄은 진하게,
+   * 포인트는 옅은 몸색·진한 끝색, 삼색의 다른 한 색은 밝은 털이면 까망·어두운 털이면 치즈.
+   */
+  function customCoat(hex) {
+    const ok = /^#[0-9a-f]{6}$/i.test(hex || "");
+    const b = hex2rgb(ok ? hex : "#c8a27a"), W = [255, 255, 255], K = [0, 0, 0];
+    const hx = (c) => "#" + c.map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, "0")).join("");
+    const lum = (0.299 * b[0] + 0.587 * b[1] + 0.114 * b[2]) / 255;
+    return {
+      name: "직접 고른 색", body: hx(b), light: hx(mixc(b, W, 0.85)), alt: lum < 0.4 ? "cheese" : "black",
+      tabby: [hx(mixc(b, W, 0.2)), hx(mixc(b, K, 0.42))],
+      point: { body: hx(mixc(b, [250, 246, 240], 0.8)), pt: hx(mixc(b, K, 0.12)) },
+    };
+  }
   function applyAppearance(a, regen) {
     Object.assign(appearance, a);
-    cat.coat = COATS[appearance.coat] || COATS.black;
+    cat.coat = appearance.coat === "custom" ? customCoat(appearance.color) : COATS[appearance.coat] || COATS.black;
     cat.eye = EYES[appearance.eye] || EYES.yellow;
     cat.patterns = new Set((appearance.patterns || []).filter((k) => PATTERNS[k]));
     cat.fur = FURS[appearance.fur] ? appearance.fur : "short";
@@ -3268,7 +3301,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   return {
     // 외형
     setAppearance(a) {
-      const regen = ["coat", "patterns", "seed"].some((k) => k in a && JSON.stringify(a[k]) !== JSON.stringify(appearance[k]));
+      const regen = ["coat", "color", "patterns", "seed"].some((k) => k in a && JSON.stringify(a[k]) !== JSON.stringify(appearance[k]));
       applyAppearance(a, regen);
     },
     getAppearance: () => ({ ...appearance, patterns: [...appearance.patterns] }),
@@ -3303,10 +3336,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     resize,
     pause() { paused = true; },
     resume() { if (paused) { paused = false; last = performance.now(); } },
-    destroy() { cancelAnimationFrame(raf); paused = true; listeners.clear(); },
+    destroy() { cancelAnimationFrame(raf); paused = true; listeners.clear(); ro.disconnect(); },
     hit: hitCat,
     on,
-    jump, walkTo,
+    jump, walkTo, boing,
     // 시험용
     get cat() { return cat; },
     get S() { return S; }, get floorY() { return floorY; }, get W() { return W; },

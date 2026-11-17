@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { DEFAULT_VARIANT_ID, getCatVariant } from "../cat/spriteData";
+import { spriteVariantOf, useNekoStore } from "../neko/nekoStore";
 
 /**
  * 고양이 외형(스킨) 스토어 — Phase 4 첫 zustand 스토어(본보기).
@@ -35,3 +36,9 @@ export const useCatStore = create<CatStore>((set) => ({
 export function reloadCatVariant() {
   useCatStore.setState({ variantId: getCatVariant(localStorage.getItem(STORAGE_KEY) ?? DEFAULT_VARIANT_ID).id });
 }
+
+// 털색 고르기는 네코 꾸미기(nekoStore)로 바뀌었다. 스프라이트로 그리는 곳(부팅 화면·빈 대화·빠른 질문·산책 지도)은
+// 네코 외형에 가장 가까운 털색을 따른다. 저장도 같이 해서 빠른 질문 창이 reloadCatVariant 로 읽는다.
+useNekoStore.subscribe((s, prev) => {
+  if (s.appearance !== prev.appearance) useCatStore.getState().setVariant(spriteVariantOf(s.appearance));
+});

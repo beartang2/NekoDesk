@@ -614,61 +614,6 @@
   cursor: pointer;
 }
 
-/* ── Cat variant grid ── */
-.cat-variant-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.cat-variant-grid .cat-skin-option {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 10px 5px 6px;
-  border: none;
-  border-radius: var(--r-sm);
-  background: color-mix(in oklab, var(--text-primary) 4.5%, transparent);
-  font-family: inherit;
-  font-size: 11.5px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background var(--dur-micro), color var(--dur-micro), scale var(--dur-control) var(--ease-standard);
-}
-
-.cat-variant-grid .cat-skin-option:hover {
-  background: color-mix(in oklab, var(--text-primary) 8%, transparent);
-  color: var(--text-primary);
-}
-
-.cat-variant-grid .cat-skin-option--active {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.cat-skin-option__ring {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: color-mix(in oklab, var(--accent) 14%, transparent);
-  box-shadow: inset 0 0 0 1px var(--focus-edge);
-  pointer-events: none;
-}
-
-.cat-variant-grid .cat-skin-swatch {
-  position: relative;
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  border-radius: 4px;
-  box-shadow: inset 0 0 0 1px oklch(0 0 0 / 0.12);
-}
-
-.cat-skin-option > span:last-child {
-  position: relative;
-}
-
 /* ── Gen params grid ── */
 .gen-params-grid {
   display: grid;
@@ -1182,21 +1127,23 @@ code.rule-row__key {
   background: none;
 }
 
-/* ── 고양이(네코) 외형 ── */
-.neko-settings__row {
+/* ── 고양이(네코): 지금 모습 요약 + 꾸미기 버튼 ── */
+.neko-settings__summary {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  margin-top: 8px;
+  margin-bottom: 10px;
 }
-.neko-settings__label {
-  flex: 0 0 56px;
-  padding-top: 6px;
-  font-size: 0.78rem;
-  color: var(--text-muted);
+.neko-settings__summary .cat-skin-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
 }
-.neko-settings__row input[type="range"] {
+.neko-settings__summary-text {
   flex: 1;
-  margin-top: 6px;
-  accent-color: var(--accent);
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
 }

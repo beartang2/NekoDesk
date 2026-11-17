@@ -2,7 +2,8 @@
  * 말랑 네코 엔진 타입. 구현은 neko-engine.js (v26 시안을 감싼 것, 설계: docs/neko-v26-integration.md).
  */
 
-export type NekoCoat = "black" | "cheese" | "gray" | "cream" | "white";
+/** "custom" 이면 color(RGB)로 털 색 묶음을 만든다 */
+export type NekoCoat = "black" | "cheese" | "gray" | "cream" | "white" | "custom";
 export type NekoPattern = "white" | "calico" | "tabby" | "point";
 export type NekoEye = "yellow" | "white" | "green" | "blue";
 export type NekoFur = "short" | "medium" | "long";
@@ -13,6 +14,8 @@ export type NekoLegs = "short" | "normal" | "long";
 
 export interface NekoAppearance {
   coat: NekoCoat;
+  /** coat 가 "custom" 일 때 쓰는 털 색(#rrggbb) */
+  color: string;
   patterns: NekoPattern[];
   /** 무늬 씨앗(같은 씨앗이면 같은 무늬) */
   seed: number;
@@ -91,6 +94,8 @@ export interface NekoController {
   hit(x: number, y: number): boolean;
   on<K extends keyof NekoEvents>(ev: K, fn: (payload: NekoEvents[K]) => void): () => void;
   jump(): void;
+  /** 몸을 콕 누른다: 눌렸다가 말랑함(soft)만큼 출렁이며 돌아온다. str 0~1.5 (기본 1) */
+  boing(str?: number): void;
   walkTo(x: number): void;
 }
 
