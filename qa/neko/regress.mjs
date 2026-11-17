@@ -259,6 +259,32 @@ try {
     await p.close();
   }
 
+  // 9-f) 놓아 둔 선물 옮기기(docs/neko-gifts.md §4): 잡고 위로 끌면 벽에 걸리고, 자리가 바뀌어도 비율을 지키고, 우클릭하면 치워진다
+  {
+    const p = await open(`?w=320&h=240&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
+    const r = await p.evaluate(() => {
+      const n = window.__neko, cv = document.getElementById("stage"), rect = () => cv.getBoundingClientRect(), ev = [];
+      n.on("decorMove", (e) => ev.push(["move", e])); n.on("decorRemove", (e) => ev.push(["remove", e]));
+      n.setWander(false); n.cat.x = n.W * 0.8; n.step(60);
+      n.setDecor([{ id: "g", surface: "floor", u: 0.1, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]);
+      n.step(90); n.draw();
+      const boxOf = () => { for (let y = 0; y < n.floorY; y += 2) for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, y)) return [x, y]; return null; };
+      const at = boxOf(), R = rect(), fire = (type, x, y, extra = {}) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 7, bubbles: true, button: extra.button ?? 0 }));
+      const [x0, y0] = [at[0] + 4, at[1] + 4];
+      fire("pointerdown", x0, y0); fire("pointermove", x0 + 40, y0 - 90); fire("pointerup", x0 + 40, y0 - 90);
+      const moved = ev[0] && ev[0][1];
+      n.setDecor([{ id: "g", shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] }, ...moved }]); n.step(60); n.draw();
+      const hitBefore = !!boxOf();
+      cv.style.width = "900px"; cv.style.height = "150px"; n.resize(); n.step(60); n.draw();
+      const b2 = boxOf(), span = n.floorY - (26 * n.S) - 10 * n.S, wallOk = !!b2 && moved && moved.surface === "wall";
+      const R2 = rect(); cv.dispatchEvent(new MouseEvent("contextmenu", { clientX: R2.left + b2[0] + 2, clientY: R2.top + b2[1] + 2, bubbles: true, cancelable: true }));
+      return { moved, hitBefore, wallOk, removed: ev.some(([k, e]) => k === "remove" && e.id === "g"), gone: !boxOf(), span: Math.round(span) };
+    });
+    check("놓아 둔 선물: 잡고 위로 끌면 벽에 걸린다(decorMove)", JSON.stringify(r.moved), !!r.moved && r.moved.surface === "wall" && r.moved.v > 0 && r.moved.v <= 1);
+    check("놓아 둔 선물: 크기·자리가 바뀌어도 벽 자리에 있고, 우클릭하면 치워진다", `벽 ${r.wallOk} · 치움 ${r.removed} · 사라짐 ${r.gone}`, r.hitBefore && r.wallOk && r.removed && r.gone);
+    await p.close();
+  }
+
   // 9-e) 화면 모드(docs/neko-screen-mode.md §9 E1~E5): 세계 = 창 전체, 캔버스는 고양이 둘레만 따라간다.
   //      크기 고정·바닥 지정·세계 좌표 hit·높이서 떨어지기·나비는 영역 안
   {

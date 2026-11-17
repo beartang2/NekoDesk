@@ -14,6 +14,9 @@ export type NekoCarried =
   | { id: string; kind: "shape"; shape: GiftShape }
   | { id: string; kind: "image"; image: ImageBitmap | HTMLImageElement };
 
+/** 무대에 놓은 자리(무대 크기와 무관한 비율) */
+export type NekoDecorSpot = { surface: "floor"; u: number } | { surface: "wall"; u: number; v: number };
+
 export type NekoCoat = "black" | "cheese" | "gray" | "cream" | "white" | "custom";
 export type NekoPattern = "white" | "calico" | "tabby" | "point";
 export type NekoEye = "yellow" | "white" | "green" | "blue";
@@ -68,6 +71,10 @@ export interface NekoEvents {
   carry: NekoCarried[];
   /** 문 물건 위에서 누름(무대 px). 끌어내기는 호스트가 시작한다 */
   carryPress: { x: number; y: number; pointerId: number };
+  /** 놓아 둔 물건을 끌어 옮김 */
+  decorMove: { id: string } & NekoDecorSpot;
+  /** 놓아 둔 물건을 우클릭으로 치움 */
+  decorRemove: { id: string };
 }
 
 export interface NekoOptions {
@@ -128,8 +135,15 @@ export interface NekoController {
   /** 입에서 뺀다(id 없으면 전부). 뺀 것을 돌려준다 */
   drop(id?: string): NekoCarried[];
   carried(): NekoCarried[];
-  /** 무대 바닥에 놓아 둔 물건(선물). u = 양끝 여백을 뺀 무대 폭 비율 0~1. 새로 놓인 것만 '뿅' 하고 나온다 */
-  setDecor(items: { id: string; u: number; shape: unknown }[]): void;
+  /**
+   * 무대에 놓아 둔 물건(선물). 바닥: u = 양끝 여백을 뺀 무대 폭 비율 0~1. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율 0~1.
+   * 새로 놓인 것만 '뿅' 하고 나온다. 잡고 끌면 decorMove, 우클릭하면 decorRemove(저장은 호스트)
+   */
+  setDecor(items: ({ id: string; shape: unknown } & NekoDecorSpot)[]): void;
+  /** 이 점(무대 px)이 놓아 둔 물건 위면 그 id */
+  hitDecor(x: number, y: number): string | null;
+  /** 무대 px 의 한 점(물건 가운데)을 자리로. 선물함에서 끌어 놓을 때 */
+  decorSpotAt(x: number, y: number, shape: unknown): NekoDecorSpot;
   readonly carrying: boolean;
   /** 이 점(무대 px, hit 와 같은 좌표)이 문 물건 위면 "bundle" */
   hitCarry(x: number, y: number): "bundle" | null;

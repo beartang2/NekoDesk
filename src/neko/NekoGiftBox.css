@@ -55,3 +55,10 @@
   font-size: 11px;
   padding: 2px 8px;
 }
+
+/* 선물 칸을 끄는 동안: 메뉴 창 덮개를 비켜서 뒤의 네코 자리에 놓을 수 있게 */
+.neko-gift-dragging .menu-backdrop {
+  pointer-events: none;
+  opacity: 0.2;
+  transition: opacity 0.15s;
+}

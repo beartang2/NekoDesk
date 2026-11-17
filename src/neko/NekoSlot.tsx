@@ -3,6 +3,7 @@ import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { ensureNeko, nekoCanvas, useNekoController } from "./nekoHost";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { NekoAway } from "./NekoAway";
+import { GIFT_DND, useNekoGifts } from "./gifts";
 import "./NekoSlot.css";
 
 /**
@@ -48,6 +49,20 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
     else onBodyLeave();
   }, [ctrl, onBodyMove, onBodyLeave]);
 
+  // 선물함 칸을 끌어다 놓으면 그 자리(바닥 가까이면 바닥, 높이면 벽)에 놓는다
+  const onGiftOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes(GIFT_DND)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, []);
+  const onGiftDrop = useCallback((e: React.DragEvent) => {
+    const id = e.dataTransfer.getData(GIFT_DND), gift = useNekoGifts.getState().gifts.find((g) => g.id === id);
+    if (!ctrl || !gift) return;
+    e.preventDefault();
+    const r = e.currentTarget.getBoundingClientRect();
+    useNekoGifts.getState().place(id, ctrl.decorSpotAt(e.clientX - r.left, e.clientY - r.top, gift.shape));
+  }, [ctrl]);
+
   // 높이 손잡이: 위쪽 가장자리를 끌면 그만큼 키가 바뀐다(손을 뗄 때 저장)
   const onHandleDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -80,7 +95,14 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
       {away ? (
         <NekoAway />
       ) : (
-        <div ref={stageRef} className="neko-slot__stage" onMouseMove={onMove} onMouseLeave={onBodyLeave} />
+        <div
+          ref={stageRef}
+          className="neko-slot__stage"
+          onMouseMove={onMove}
+          onMouseLeave={onBodyLeave}
+          onDragOver={onGiftOver}
+          onDrop={onGiftDrop}
+        />
       )}
     </div>
   );

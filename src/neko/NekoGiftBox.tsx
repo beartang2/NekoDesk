@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { drawShape, shapeBounds, type GiftShape } from "./engine/gift-shape";
-import { useNekoGifts } from "./gifts";
+import { GIFT_DND, useNekoGifts } from "./gifts";
 import "./NekoGiftBox.css";
 
 /** 선물 그림. 무대와 같은 그리기 함수(drawShape)라 그림체가 같다. */
@@ -36,9 +36,26 @@ export function NekoGiftBox() {
       {gifts.length === 0 ? (
         <p className="settings-section__desc">아직 받은 선물이 없어. 네코가 산책에서 주워 오면 여기 쌓여.</p>
       ) : (
+        <>
+        <p className="settings-section__desc">칸을 네코 자리로 끌어다 놓으면 그 자리에 놓여(높이 놓으면 벽에 걸려). 무대에선 잡고 끌어 옮기고, 우클릭하면 치워.</p>
         <ul className="neko-gifts__grid">
           {[...gifts].reverse().map((g) => (
-            <li key={g.id} className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`} title={g.body || g.title}>
+            <li
+              key={g.id}
+              className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`}
+              title={`${g.body || g.title}\n네코 자리로 끌어다 놓을 수 있어`}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData(GIFT_DND, g.id);
+                e.dataTransfer.effectAllowed = "move";
+                const cv = e.currentTarget.querySelector("canvas");
+                if (cv) e.dataTransfer.setDragImage(cv, cv.clientWidth / 2, cv.clientHeight / 2);
+                // 설정은 메뉴 창(덮개) 안이라 네코 자리가 가려져 있다: 끄는 동안 덮개를 비켜 놓을 수 있게.
+                // dragstart 안에서 바로 바꾸면 끌기가 취소되는 엔진이 있어 다음 틱에
+                setTimeout(() => document.body.classList.add("neko-gift-dragging"));
+              }}
+              onDragEnd={() => document.body.classList.remove("neko-gift-dragging")}
+            >
               <GiftThumb shape={g.shape} />
               <span className="neko-gifts__title">{g.title}</span>
               <span className="neko-gifts__date">{new Date(g.at).toLocaleDateString()}</span>
@@ -48,6 +65,7 @@ export function NekoGiftBox() {
             </li>
           ))}
         </ul>
+        </>
       )}
     </div>
   );

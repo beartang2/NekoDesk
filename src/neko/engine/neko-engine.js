@@ -2176,24 +2176,71 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     carryBox = { x: x0 - pad, y: y0 - pad, w: x1 - x0 + 2 * pad, h: y1 - y0 + 2 * pad };
   }
   /* ---------- 놓아 둔 물건(선물) ----------
-     자리는 면 + 비율(u: 양끝 여백을 뺀 무대 폭 비율)로만 받는다. px 로 굳히지 않으니 자리를 옮기거나 높이를 끌어도
-     같은 자리·같은 배율에 있다(소품 배율 버그와 같은 문제가 생기지 않는다). 설계: docs/neko-gifts.md §4 */
-  const DECOR_SIZE = 26; // 한 변(S 단위) — 바닥에서도 알아보게, 머리(폭 74)보다는 한참 작게
-  let decor = [];        // { id, u, shape, t0 }
+     자리는 면 + 비율로만 받는다. 바닥: u = 양끝 여백을 뺀 무대 폭 비율. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율.
+     px 로 굳히지 않으니 자리를 옮기거나 높이를 끌어도 같은 자리·같은 배율에 있다(소품 배율 버그와 같은 문제가 안 생긴다).
+     잡고 끌면 옮기고(decorMove), 우클릭하면 치운다(decorRemove) — 저장은 호스트 몫. 설계: docs/neko-gifts.md §4 */
+  const DECOR_SIZE = 26;   // 한 변(S 단위) — 바닥에서도 알아보게, 머리(폭 74)보다는 한참 작게
+  const WALL_GAP = 18;     // 바닥에서 이만큼(S) 넘게 띄워 놓으면 벽에 건다
+  let decor = [];          // { id, surface, u, v, shape, t0, box }
+  let decorDrag = null;    // { id, pointerId, dx, dy, x, bottom } 끄는 중(무대 px)
   function setDecor(items) {
     const prev = new Map(decor.map((d) => [d.id, d.t0]));
     decor = (items || []).filter((d) => d && d.id != null && Number.isFinite(d.u)).map((d) => ({
-      id: String(d.id), u: clamp(d.u, 0, 1), shape: validateShape(d.shape), t0: prev.get(String(d.id)) ?? time, // 새로 놓인 것만 '뿅'
+      id: String(d.id), surface: d.surface === "wall" ? "wall" : "floor", u: clamp(d.u, 0, 1), v: clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1),
+      shape: validateShape(d.shape), t0: prev.get(String(d.id)) ?? time, box: null, // 새로 놓인 것만 '뿅'
     }));
   }
+  /** 물건 한 개의 크기(px)와 그리기 배율 */
+  function decorDims(shape) {
+    const bd = shapeBounds(shape), u = (DECOR_SIZE * S) / Math.max(bd.w, bd.h);
+    return { bd, u, w: bd.w * u, h: bd.h * u };
+  }
+  const decorM = () => 16 * S;
+  const wallSpan = (h) => Math.max(1, floorY - h - 10 * S); // 벽 v = 1 이면 물건 위가 무대 위에서 10 아래
+  /** 자리(면·비율) → 그릴 자리(가운데 x, 바닥 y) */
+  function decorAt(d, h) {
+    const m = decorM(), x = m + d.u * Math.max(0, W - 2 * m);
+    return [x, d.surface === "wall" ? floorY - d.v * wallSpan(h) : floorY];
+  }
+  /** 무대의 한 점(물건 가운데 x, 바닥 y) → 자리(면·비율). 바닥 가까이면 바닥, 높이 띄우면 벽 */
+  function spotOf(x, bottom, h) {
+    const m = decorM(), u = clamp((x - m) / Math.max(1, W - 2 * m), 0, 1);
+    return floorY - bottom < WALL_GAP * S ? { surface: "floor", u } : { surface: "wall", u, v: clamp((floorY - bottom) / wallSpan(h), 0, 1) };
+  }
   function drawDecor() {
-    const m = 16 * S;
     for (const d of decor) {
-      const bd = shapeBounds(d.shape), u = (DECOR_SIZE * S) / Math.max(bd.w, bd.h), x = m + d.u * Math.max(0, W - 2 * m);
-      ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = theme.shadow; // 고양이와 같은 바닥 그림자
-      ctx.beginPath(); ctx.ellipse(x, floorY + 1 * S, bd.w * u * 0.5, 2.6 * S, 0, 0, TAU); ctx.fill(); ctx.restore();
-      withPop(x, floorY, popIn(time - d.t0), () => drawShape(ctx, d.shape, x - ((bd.x0 + bd.x1) / 2) * u, floorY, u, 4 * DPR));
+      const { bd, u, w, h } = decorDims(d.shape), drag = decorDrag && decorDrag.id === d.id;
+      let [x, bottom] = decorAt(d, h);
+      if (drag) { x = decorDrag.x; bottom = decorDrag.bottom; }
+      d.box = { x: x - w / 2, y: bottom - h, w, h };
+      const onFloor = drag ? floorY - bottom < WALL_GAP * S : d.surface === "floor";
+      if (onFloor) { // 고양이와 같은 바닥 그림자(끄는 중엔 바닥에 놓일 자리에)
+        ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = theme.shadow;
+        ctx.beginPath(); ctx.ellipse(x, floorY + 1 * S, w * 0.5, 2.6 * S, 0, 0, TAU); ctx.fill(); ctx.restore();
+      }
+      const lift = drag ? 1.08 : 1; // 들어 올린 느낌
+      withPop(x, bottom, popIn(time - d.t0).map((k) => k * lift), () => {
+        drawShape(ctx, d.shape, x - ((bd.x0 + bd.x1) / 2) * u, bottom, u, (drag ? 7 : 4) * DPR);
+        if (!onFloor) { // 벽에 건 것: 위에 작은 압정
+          ctx.fillStyle = "#8f8a86"; ctx.beginPath(); ctx.arc(x, bottom - h + 1.5 * S, 1.8 * S, 0, TAU); ctx.fill();
+          ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.beginPath(); ctx.arc(x - 0.5 * S, bottom - h + 1 * S, 0.7 * S, 0, TAU); ctx.fill();
+        }
+      });
     }
+  }
+  /** 이 점(무대 px)이 놓아 둔 물건 위면 그 id(위에 그린 것부터) */
+  function hitDecor(x, y) {
+    const pad = 3 * S;
+    for (let i = decor.length - 1; i >= 0; i--) {
+      const b = decor[i].box;
+      if (b && x >= b.x - pad && x <= b.x + b.w + pad && y >= b.y - pad && y <= b.y + b.h + pad) return decor[i].id;
+    }
+    return null;
+  }
+  /** 선물함에서 무대로 끌어 놓을 때: 무대 px 의 한 점을 자리로(물건 가운데가 그 점에 오게) */
+  function decorSpotAt(x, y, shape) {
+    const h = decorDims(validateShape(shape)).h;
+    return spotOf(x, y + h / 2, h);
   }
 
   /** 이 점(무대 px)이 문 물건 위인가 */
@@ -3562,6 +3609,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       press = { id: e.pointerId, x, y, t: performance.now(), grabbing: false };
       canvas.setPointerCapture(e.pointerId);
       e.preventDefault();
+    } else if (hitDecor(x, y)) { // 놓아 둔 물건: 잡고 끌어 옮긴다(고양이 뒤에 있으니 고양이 다음에 본다)
+      const d = decor.find((o) => o.id === hitDecor(x, y)), b = d.box;
+      decorDrag = { id: d.id, pointerId: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x: b.x + b.w / 2, bottom: b.y + b.h };
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터: 캡처 없이도 끌린다 */ }
+      canvas.classList.add("dragging"); e.preventDefault();
     } else if (y > floorY - 160 * S && cat.pose === "stand" && (!cat.act || cat.act.key === "butterfly")) walkTo(x);
   });
   canvas.addEventListener("pointermove", (e) => {
@@ -3569,20 +3621,44 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     // 한동안 없던 마우스가 다시 나타나면 꼬리를 세워 반긴다(인사)
     if (!mouseActive() && cat.mood !== "sleepy" && cat.pose === "stand" && !cat.act && cat.mode !== "grabbed" && !cat.tailEp) startTailEp("up", 2.6);
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
+    if (decorDrag && e.pointerId === decorDrag.pointerId) { // 바닥 아래로는 안 내려가고 무대 위로도 안 나간다
+      const d = decor.find((o) => o.id === decorDrag.id), h = d ? decorDims(d.shape).h : 0;
+      decorDrag.x = clamp(x - decorDrag.dx, decorM(), W - decorM());
+      decorDrag.bottom = clamp(y - decorDrag.dy, h + 10 * S, floorY);
+      return;
+    }
     if (press && e.pointerId === press.id && !press.grabbing &&
         (Math.hypot(x - press.x, y - press.y) > 5 || performance.now() - press.t > 180)) {
       press.grabbing = true;
       canvas.classList.add("dragging");
       grab(); emit("grab");
     }
-    if (!press) canvas.classList.toggle("can-grab", hitCat(x, y) || !!hitCarry(x, y));
+    if (!press) canvas.classList.toggle("can-grab", hitCat(x, y) || !!hitCarry(x, y) || !!hitDecor(x, y));
   });
   function endPress(e) {
+    if (decorDrag && e.pointerId === decorDrag.pointerId) { // 놓은 자리를 면·비율로 바꿔 알린다(저장은 호스트)
+      const d = decor.find((o) => o.id === decorDrag.id);
+      if (d) {
+        const spot = spotOf(decorDrag.x, decorDrag.bottom, decorDims(d.shape).h);
+        Object.assign(d, spot.surface === "wall" ? spot : { ...spot, v: d.v }); // 호스트가 다시 넣기 전까지도 제자리에
+        emit("decorMove", { id: d.id, ...spot });
+      }
+      decorDrag = null; canvas.classList.remove("dragging");
+      return;
+    }
     if (!press || e.pointerId !== press.id) return;
     if (press.grabbing) { canvas.classList.remove("dragging"); release(); emit("drop"); } else tap();
     press = null;
   }
   canvas.addEventListener("pointerup", endPress);
+  // 우클릭: 놓아 둔 물건이면 치운다(선물함으로). 그 밖에선 기본 메뉴를 막지 않는다
+  canvas.addEventListener("contextmenu", (e) => {
+    const [x, y] = toStage(e), id = hitDecor(x, y);
+    if (!id) return;
+    e.preventDefault();
+    decor = decor.filter((o) => o.id !== id);
+    emit("decorRemove", { id });
+  });
   canvas.addEventListener("pointercancel", endPress);
   canvas.addEventListener("keydown", (e) => {
     if (e.code === "Space" || e.key === "Enter") { e.preventDefault(); nyang(); emit("nyang"); }
@@ -3756,6 +3832,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     carried: () => carrying.slice(),
     // 놓아 둔 물건(선물). 자리는 면 + 비율
     setDecor,
+    hitDecor,
+    decorSpotAt,
     get carrying() { return carrying.length > 0; },
     hitCarry,
     carryRect: () => (carryBox ? { ...carryBox } : null),

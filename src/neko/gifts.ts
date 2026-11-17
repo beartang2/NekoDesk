@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { settingsApi } from "../api/tauri";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
+import type { NekoDecorSpot } from "./engine/neko-engine";
 
 /**
  * 선물함: 네코가 산책에서 주워 온 물건(설계 docs/neko-gifts.md §3·§4).
@@ -10,13 +11,12 @@ import { validateShape, type GiftShape } from "./engine/gift-shape";
  */
 
 const KEY = "neko_gifts";
+/** 선물함 칸을 무대로 끌 때의 데이터 종류(HTML 끌어 놓기) */
+export const GIFT_DND = "application/x-neko-gift";
 export const MAX_GIFTS = 100;
 
-export interface GiftPlacement {
-  surface: "floor";
-  /** 무대 폭(양끝 여백 제외)에 대한 가로 비율 0~1 */
-  u: number;
-}
+/** 바닥: u = 무대 폭(양끝 여백 제외) 비율. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율. 모두 0~1 */
+export type GiftPlacement = NekoDecorSpot;
 
 export interface NekoGift {
   id: string;
@@ -85,7 +85,7 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
     persist(gifts);
   },
   place(id, spot) {
-    const placedUs = get().gifts.filter((g) => g.placed && g.id !== id).map((g) => g.placed!.u);
+    const placedUs = get().gifts.filter((g) => g.placed?.surface === "floor" && g.id !== id).map((g) => g.placed!.u);
     const gifts = get().gifts.map((g) => {
       if (g.id !== id) return g;
       if (spot === null) { const { placed: _drop, ...rest } = g; return rest; }
