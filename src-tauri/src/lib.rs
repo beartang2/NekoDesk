@@ -945,6 +945,20 @@ mod commands {
         crate::neko_screen::layout()
     }
 
+    /// 화면 창: 고양이가 그쪽 끝을 넘어갔다 — 커서가 있는 모니터로 창을 옮긴다. 안 옮겼으면 false.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn neko_screen_cross(app: tauri::AppHandle, side: crate::neko_screen::Side) -> Result<bool, AppError> {
+        crate::neko_screen::cross(&app, side)
+    }
+
+    /// 화면 창: 옮긴 모니터에서 다시 그렸다 — 숨겼던 창을 보인다.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn neko_screen_reveal(app: tauri::AppHandle) -> Result<(), AppError> {
+        crate::neko_screen::reveal(&app)
+    }
+
     /// 열린 포트를 쓰는 프로세스와 CPU·메모리를 많이 쓰는 프로세스. 읽기 전용.
     #[tauri::command(async)]
     pub fn process_list(port: Option<u16>) -> crate::procs::Snapshot {
@@ -1304,6 +1318,10 @@ pub fn run() {
             commands::neko_screen_catch,
             #[cfg(target_os = "macos")]
             commands::neko_screen_layout,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_cross,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_reveal,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,

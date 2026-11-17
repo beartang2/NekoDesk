@@ -15,9 +15,13 @@ import "./NekoScreen.css";
  * - 클릭은 평소 뒤로 지나간다. Rust 가 커서를 보내 주면(`neko-screen-cursor`) 여기서 hit 로 고양이
  *   위인지 보고 `neko_screen_catch` 로 알린다. 클릭 통과를 켜고 끄는 건 Rust 만 한다.
  * - 쓰다듬기(문지르기)도 그 커서로 센다 — 키 창이 아닌 창이라 웹뷰가 mousemove 를 못 받을 수 있다.
+ * - 여러 모니터: 커서가 다른 모니터에 한동안 있으면(`neko-screen-away`) 그쪽으로 걸어 나간다. 끝을 넘으면
+ *   Rust 가 창을 그 모니터로 옮기고(`neko-screen-moved`, 잡고 끌 때도) 여기서 세계를 옮긴다.
  */
 
 interface Layout { w: number; h: number; ground: number }
+type Side = "left" | "right";
+interface Moved { layout: Layout; shift: [number, number] }
 
 const FPS = { normal: 30, sleepy: 12, held: 60 } as const;
 /** 놓은 뒤 떨어지는 동안은 부드럽게 */
@@ -27,7 +31,12 @@ const CATCH_EVERY_MS = 100;
 /** 커서가 가만있어도 고양이가 그 밑으로 걸어오거나 떠난다 — 이 간격으로 hit 를 다시 본다 */
 const CHECK_EVERY_MS = 33;
 /** 화면 창이 스스로 다루는 것. 메인 창 명령으로는 부르지 않는다 */
-const LOCAL_ONLY: ReadonlySet<string> = new Set(["pause", "resume", "resize", "destroy", "setMaxFps", "setScale", "setGround", "on"]);
+const LOCAL_ONLY: ReadonlySet<string> = new Set([
+  "pause", "resume", "resize", "destroy", "setMaxFps", "setScale", "setGround", "on", "shiftWorld", "setEdges", "walkOut",
+]);
+const CLOSED = { left: false, right: false } as const;
+/** 다른 모니터로 걸어 나가라고 다시 이르는 간격(하던 활동이 끝나 한가해졌을 때 이어 가게) */
+const WALK_OUT_EVERY_MS = 1000;
 const FORWARD: (keyof NekoEvents)[] = ["pet", "nyang", "annoyed", "grab", "drop", "activity", "error"];
 
 const toMain = (e: NekoEvt) => void emitTo("main", "neko-evt", e).catch(() => {});
@@ -74,8 +83,23 @@ export function NekoScreen() {
       sentAt = now;
       void invoke("neko_screen_catch", { on: o }).catch(() => {});
     };
+    // 커서가 있는 다른 모니터 쪽. 한가하면(잡혀 있지 않고 활동이 없으면) 그쪽 끝 너머로 걸어간다
+    let away: Side | null = null;
+    let outAt = 0;
+    const followAway = () => {
+      const now = performance.now();
+      if (!away || held || ctrl.activity !== null || now - outAt < WALK_OUT_EVERY_MS) return;
+      outAt = now;
+      ctrl.walkOut(away);
+    };
     // ponytail: 커서가 이 화면에 있는 동안은 늘 30Hz 로 hit 를 본다. 에너지가 문제면 고양이 둘레에 있을 때만
-    const timer = setInterval(() => { if (cursor) check(); }, CHECK_EVERY_MS);
+    const timer = setInterval(() => { if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
+    // 끝을 넘었다 — 커서가 아직 그쪽이면 Rust 가 창을 옮긴다(neko-screen-moved). 그새 돌아왔으면 걸어 들어온다
+    const offEdge = ctrl.on("edge", (side) => {
+      void invoke<boolean>("neko_screen_cross", { side })
+        .then((moved) => { if (!moved) { outAt = 0; ctrl.setEdges(CLOSED); } })
+        .catch(() => ctrl.setEdges(CLOSED));
+    });
 
     const offEngine = FORWARD.map((ev) =>
       ctrl.on(ev, (payload: unknown) => {
@@ -110,6 +134,20 @@ export function NekoScreen() {
         else { ctrl.pause(); cursor = null; check(); }
       }),
       listen<Layout>("neko-screen-layout", ({ payload }) => ctrl.setGround(payload.ground)),
+      listen<Side | null>("neko-screen-away", ({ payload }) => {
+        away = payload;
+        if (!away && outAt) { outAt = 0; ctrl.setEdges(CLOSED); }
+      }),
+      // 창이 다른 모니터로 옮겨졌다(숨긴 채). 세계를 옮기면 엔진이 바로 한 번 그린다 — 다음 프레임에 보인다
+      listen<Moved>("neko-screen-moved", ({ payload: { layout, shift } }) => {
+        ctrl.shiftWorld(shift[0], shift[1]);
+        ctrl.setGround(layout.ground);
+        ctrl.setEdges(CLOSED);
+        away = null;
+        outAt = 0;
+        cursor = null;
+        requestAnimationFrame(() => void invoke("neko_screen_reveal").catch(() => {}));
+      }),
       listen<number>("neko-screen-scale", ({ payload }) => ctrl.setScale(payload)),
       listen("neko-screen-ping", () => void emitTo("main", "neko-screen-ready").catch(() => {})),
     ];
@@ -120,6 +158,7 @@ export function NekoScreen() {
     return () => {
       clearInterval(timer);
       clearTimeout(fallTimer);
+      offEdge();
       offEngine.forEach((off) => off());
       offs.forEach((p) => void p.then((off) => off()).catch(() => {}));
       ctrl.destroy();
