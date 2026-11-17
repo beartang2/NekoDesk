@@ -1,0 +1,116 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { LlmMessage } from "./types";
+
+const { completion, subagent, save } = vi.hoisted(() => ({
+  completion: vi.fn(),
+  subagent: vi.fn(),
+  save: vi.fn(async () => ({})),
+}));
+
+vi.mock("./llm-client", () => ({
+  DEFAULT_CHAT_SYSTEM_PROMPT: "기본",
+  fetchCompletionMessage: (...a: unknown[]) => completion(...a),
+}));
+vi.mock("./subagent", () => ({ runSubagent: (...a: unknown[]) => subagent(...a) }));
+vi.mock("./memory-merge", () => ({ saveMemory: (...a: unknown[]) => save(...(a as [])) }));
+vi.mock("./tool-registry", () => ({ getTool: () => ({ execute: vi.fn(async () => "맑음") }) }));
+vi.mock("../api/tauri", () => ({
+  memoryApi: { list: vi.fn(async () => []) },
+  settingsApi: { get: vi.fn(async () => null), set: vi.fn(async () => {}) },
+  shelfApi: { add: vi.fn() },
+}));
+
+import { giftWeights, rollGift, startWalkBrain, type GiftKind } from "./walk";
+
+const ALL: Record<GiftKind, boolean> = {
+  trinket: true, place: true, weather: true, link: true, memory: true, drawing: true, game: true,
+};
+const report = (params: Record<string, unknown>) => ({
+  text: "", reasoning: "", toolCalls: [{ id: "r", name: "walk_report", params }],
+});
+
+beforeEach(() => {
+  completion.mockReset();
+  subagent.mockReset();
+  save.mockClear();
+});
+
+describe("선물 굴리기", () => {
+  it("못 주는 종류는 0, 최근 5번에 나온 만큼 반씩 깎인다", () => {
+    const w = giftWeights({ ...ALL, place: false, drawing: false }, ["game", "trinket", "trinket"]);
+    expect(w.place).toBe(0);
+    expect(w.drawing).toBe(0);
+    expect(w.trinket).toBe(giftWeights(ALL, []).trinket / 4);
+    expect(w.game).toBe(giftWeights(ALL, []).game / 2);
+    // 5번보다 오래된 건 안 센다.
+    expect(giftWeights(ALL, ["game", "trinket", "trinket", "trinket", "trinket", "trinket"]).game).toBe(
+      giftWeights(ALL, []).game
+    );
+  });
+
+  it("주입한 난수로 무게 구간을 고른다", () => {
+    const w = { ...giftWeights(ALL, []), trinket: 1, place: 0, weather: 3, link: 0, memory: 0, drawing: 0, game: 0 };
+    expect(rollGift(w, () => 0)).toBe("trinket");
+    expect(rollGift(w, () => 0.24)).toBe("trinket");
+    expect(rollGift(w, () => 0.26)).toBe("weather");
+    expect(rollGift(w, () => 0.999)).toBe("weather");
+  });
+});
+
+describe("산책 머리", () => {
+  it("인상 깊다고 여러 개 표시해도 오래 기억하는 건 하나뿐이다", async () => {
+    subagent.mockResolvedValueOnce("고양이 수염은 폭을 잰다");
+    completion.mockResolvedValueOnce(report({
+      learned: [
+        { content: "수염으로 폭을 잰다", impressive: true },
+        { content: "고양이는 단맛을 못 느낀다", impressive: true },
+        { content: "골목 이름", impressive: false },
+      ],
+      diary: "골목을 걸었어.",
+      gift_title: "나뭇잎",
+      gift_body: "빨갛게 물든 거야.",
+    }));
+
+    const r = await startWalkBrain({ places: [], here: null }).result;
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0]).toEqual([expect.stringContaining("수염으로 폭을 잰다"), "neko"]);
+    // 나머지는 이 대화의 단기기억으로만.
+    expect(r.prompt).toContain("고양이는 단맛을 못 느낀다");
+    expect(r.prompt.startsWith(r.content)).toBe(true);
+    expect(r.content).toContain("골목을 걸었어.");
+    expect(r.gift?.title).toBe("나뭇잎");
+  });
+
+  it("조사는 바깥 툴로만 한다", async () => {
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b" }));
+    await startWalkBrain({ places: [], here: null }).result;
+    expect(subagent.mock.calls[0][2]).toEqual(["web.search", "web.scrape", "weather.get", "memory.search"]);
+  });
+
+  it("abort 하면 reject 없이 그때까지 알아낸 것으로 보고한다", async () => {
+    subagent.mockResolvedValueOnce("단풍은 기온이 떨어지면 든다 https://example.com/leaf");
+    // 정리 단계에서 멈춰 있다가 abort 되면 끊긴다.
+    completion.mockImplementation(
+      (_m: LlmMessage[], _p: unknown, _u: unknown, signal: AbortSignal) =>
+        new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))))
+    );
+    const brain = startWalkBrain({ places: [], here: null });
+    await vi.waitFor(() => expect(completion).toHaveBeenCalled());
+    brain.abort();
+
+    const r = await brain.result;
+    expect(r.content).toBeTruthy();
+    expect(r.prompt).toContain("단풍은 기온이 떨어지면 든다");
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("조사가 매달려 있어도 abort 하면 바로 돌아온다", async () => {
+    subagent.mockImplementation(() => new Promise(() => {}));
+    const brain = startWalkBrain({ places: [], here: null });
+    brain.abort();
+    await expect(brain.result).resolves.toMatchObject({ content: "산책 다녀왔어.", gift: null });
+  });
+});

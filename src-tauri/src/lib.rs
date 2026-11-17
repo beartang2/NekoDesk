@@ -17,6 +17,8 @@ mod quick;
 #[cfg(target_os = "macos")]
 mod capture;
 mod location;
+#[cfg(target_os = "macos")]
+mod map;
 mod secrets;
 mod claude;
 mod security;
@@ -1226,6 +1228,12 @@ pub fn run() {
             commands::weather_now,
             commands::window_boot_done,
             commands::location_current,
+            #[cfg(target_os = "macos")]
+            map::map_snapshot,
+            #[cfg(target_os = "macos")]
+            map::map_places,
+            #[cfg(target_os = "macos")]
+            map::map_walk_route,
             commands::shelf_list,
             commands::shelf_add,
             commands::shelf_remove,

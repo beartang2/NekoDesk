@@ -41,15 +41,18 @@ const SYSTEM_PROMPT = `너는 조사 담당이야. 주어진 과제를 조회 �
 - 요약은 짧게. 알아낸 사실과 출처(파일 경로·URL)만 남기고 과정 설명은 빼.
 - 못 알아냈으면 못 알아냈다고 해. 지어내지 마.`;
 
-/** 부작용 없는 툴만. MCP 툴은 부작용 여부를 알 수 없어 제외한다. */
-function readOnlySchemas() {
+/** 부작용 없는 툴만. MCP 툴은 부작용 여부를 알 수 없어 제외한다. `only` 가 있으면 그 안에서만. */
+function readOnlySchemas(only?: readonly ToolName[]) {
   return buildToolSchemas().filter(
-    (s) => isStaticTool(s.function.name) && getTool(s.function.name).readOnly
+    (s) =>
+      isStaticTool(s.function.name) &&
+      getTool(s.function.name).readOnly &&
+      (!only || only.includes(s.function.name))
   );
 }
 
-async function runReadOnlyTool(call: ToolCall): Promise<string> {
-  if (!isStaticTool(call.name)) {
+async function runReadOnlyTool(call: ToolCall, only?: readonly ToolName[]): Promise<string> {
+  if (!isStaticTool(call.name) || (only && !only.includes(call.name))) {
     return `조사 단계에서는 쓸 수 없는 툴이야: ${call.name}`;
   }
   const entry = getTool(call.name as ToolName);
@@ -77,9 +80,12 @@ function withoutPrivate(call: ToolCall, text: string): string {
     : concern.withheld;
 }
 
-/** 과제를 조사하고 요약을 돌려준다. 실패해도 던지지 않는다 — 툴 결과로 전달된다. */
-export async function runSubagent(task: string, signal?: AbortSignal): Promise<string> {
-  const tools = readOnlySchemas();
+/**
+ * 과제를 조사하고 요약을 돌려준다. 실패해도 던지지 않는다 — 툴 결과로 전달된다.
+ * `only` 는 쓸 툴을 더 좁힌다 — 산책처럼 사용자 파일·프로세스를 볼 일이 없는 조사에.
+ */
+export async function runSubagent(task: string, signal?: AbortSignal, only?: readonly ToolName[]): Promise<string> {
+  const tools = readOnlySchemas(only);
   const messages: LlmMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: task },
@@ -109,7 +115,7 @@ export async function runSubagent(task: string, signal?: AbortSignal): Promise<s
       messages.push({
         role: "tool",
         tool_call_id: call.id,
-        content: await runReadOnlyTool(call),
+        content: await runReadOnlyTool(call, only),
       });
     }
   }

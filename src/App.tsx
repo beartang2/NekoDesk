@@ -23,17 +23,21 @@ import { MenuModal } from "./components/MenuModal";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { useDrawingGame } from "./hooks/useDrawingGame";
 import { useWordChainGame } from "./hooks/useWordChainGame";
-import { useAgentPool, makeInitialMessages, modelSwitches, parseMeta, splitAttachmentSection, type QueuedMessage } from "./hooks/useAgentLoop";
+import { useAgentPool, makeInitialMessages, modelSwitches, parseMeta, serializeMeta, splitAttachmentSection, type QueuedMessage } from "./hooks/useAgentLoop";
 import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UpdatePrompt } from "./components/Update";
 import { openViewer, imageName, nowStamp } from "./components/Viewer";
 import { maskHome } from "./lib/home";
 import { useCatRpg } from "./hooks/useCatRpg";
-import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi } from "./api/tauri";
+import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi, mapApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { isClaudeActive, useSettingsStore } from "./stores/settingsStore";
+import { budgetBlockReason } from "./stores/claudeBudget";
+import { startWalkBrain, type WalkBrain } from "./agent/walk";
+import { buildPath, fallbackLegs, hurryHome, pickPlaces, positionAt, toLatLon, toMeters, walkEnd, WALK_MS, type Pt, type Walk } from "./lib/walk";
+import { hereOnce } from "./components/MapCard";
 import { DEFAULT_SIDEBAR_W, useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
@@ -75,6 +79,10 @@ import "./App.css";
 // ── Session types ─────────────────────────────────────────────────────────────
 
 const SLEEPY_AFTER_MS = 5 * 60 * 1000;
+/** 산책 기록(lib/walk 의 Walk). 다녀온 뒤에도 남겨 다음 산책까지의 간격을 잰다. */
+const WALK_KEY = "neko_walk";
+/** 산책은 이만큼에 한 번까지 — Claude 를 쓰는 일이라 자주 나가면 예산을 먹는다. */
+const WALK_GAP_MS = 2.5 * 60 * 60 * 1000;
 
 // 세션 상태는 sessionStore 가 소유한다(Session/makeSession 도 거기서 재노출).
 
@@ -309,10 +317,12 @@ function Sidebar({
   modelContextLength,
   gameSpeech,
   gameMode,
+  away,
 }: {
   onNew: () => void;
   onDelete: (id: string) => void;
   emotion: CatEmotion;
+  away: boolean;
   rpg: {
     dayCount: number;
     hunger: number;
@@ -382,7 +392,7 @@ function Sidebar({
         <div className="cat-panel__ctx">
           <Counter value={contextTokens} /> / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}
         </div>
-        <CatCanvas emotion={emotion} onPet={rpg.onPet} />
+        <CatCanvas emotion={emotion} onPet={rpg.onPet} away={away} />
         <CatStatusPanel
           dayCount={rpg.dayCount}
           hunger={rpg.hunger}
@@ -1779,6 +1789,135 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── 산책 ──────────────────────────────────────────────────────────────────
+  // 오래 자리를 비우면 네코가 동네를 한 바퀴 돌고 와서 본 것을 들려준다(Claude 프로필에서만).
+  // 경로는 떠날 때 다 정해 저장한다 — 자리는 시각만으로 나와서 껐다 켜도 이어 걷는다(lib/walk).
+  const [walk, setWalk] = useState<Walk | null>(null);
+  const [away, setAway] = useState(false);
+  const brainRef = useRef<WalkBrain | null>(null);
+  const lastActivityRef = useRef(lastUserActivityAt);
+  lastActivityRef.current = lastUserActivityAt;
+
+  const saveWalk = useCallback((w: Walk) => {
+    setWalk(w);
+    settingsApi.set(WALK_KEY, JSON.stringify(w)).catch(() => {});
+  }, []);
+
+  // 산책 중에 껐다 켰으면 이어 걷는다. 머리(조사하던 것)는 사라졌으니 새로 붙인다.
+  useEffect(() => {
+    settingsApi.get(WALK_KEY).then((raw) => {
+      const w = raw ? (JSON.parse(raw) as Walk) : null;
+      if (!w?.path?.length) return;
+      setWalk(w);
+      if (w.done) return;
+      brainRef.current = startWalkBrain({ places: w.places, here: w.home });
+      setAway(Date.now() < walkEnd(w));
+    }).catch(() => {});
+  }, []);
+
+  // 나갔으면 "출발", 아니면 왜 안 나갔는지 — nekoWalk() 가 콘솔에 그대로 보여 준다.
+  const departRef = useRef(async (): Promise<string> => "");
+  departRef.current = async () => {
+    const midGame =
+      (game.phase !== "idle" && game.phase !== "done") ||
+      (wordChain.phase !== "idle" && wordChain.phase !== "done");
+    if (away) return "이미 산책 중";
+    if (midGame) return "게임 중";
+    if (!isClaudeActive()) return "Claude 프로필이 아님";
+    const blocked = budgetBlockReason();
+    if (blocked) return blocked;
+    if (walk && !walk.done) return "지난 산책 보고를 기다리는 중";
+    if (walk && Date.now() - walkEnd(walk) < WALK_GAP_MS) {
+      return `다음 산책까지 ${Math.ceil((walkEnd(walk) + WALK_GAP_MS - Date.now()) / 60_000)}분`;
+    }
+    const asked = lastActivityRef.current;
+    const home = await hereOnce();
+    const found = home ? await mapApi.places({ lat: home.lat, lon: home.lon, radiusM: 800 }).catch(() => []) : [];
+    const stops = home ? pickPlaces(home, found) : [];
+    let legs: Pt[][] | null = null;
+    if (home && stops.length) {
+      const way: [number, number][] = [[home.lat, home.lon], ...stops.map((p): [number, number] => [p.lat, p.lon]), [home.lat, home.lon]];
+      legs = await Promise.all(way.slice(1).map((to, i) => mapApi.walkRoute({ from: way[i], to })))
+        .then((routes) => routes.map((r) => r.map(([lat, lon]) => toMeters(home, lat, lon))))
+        .catch(() => null);
+    }
+    // 위치·길을 묻는 사이(위치만 15초까지 걸린다) 사용자가 돌아왔으면 나가지 않는다.
+    if (lastActivityRef.current !== asked) return "위치·길을 찾는 사이 사용자가 돌아옴";
+    const route = legs ?? fallbackLegs();
+    const dwell = route.slice(1).map(() => (2 + Math.random() * 3) * 60_000);
+    const w: Walk = { home, onMap: !!legs, places: legs ? stops : found, path: buildPath(route, Date.now(), WALK_MS, dwell) };
+    saveWalk(w);
+    setAway(true);
+    brainRef.current = startWalkBrain({ places: w.places, here: home });
+    return legs ? "출발" : "출발(지도 없이 대체 경로)";
+  };
+
+  // 개발 빌드에서만: 개발자 도구 콘솔에서 nekoWalk() 로 바로 내보낸다 — 안 그러면 확인에 15–45분 걸린다.
+  if (import.meta.env.DEV) (window as unknown as { nekoWalk: () => Promise<string> }).nekoWalk = () => departRef.current();
+
+  // 졸기 시작하고 10–40분 더 조용하면 나간다. 그사이 사용자가 돌아오거나 일을 시키면 취소(box 모드와 같은 꼴).
+  const dozing = !isRunning && now - lastUserActivityAt >= SLEEPY_AFTER_MS;
+  useEffect(() => {
+    if (!dozing || away) return;
+    // 지난 산책 뒤 간격이 안 찼으면 그만큼 더 미룬다 — 안 그러면 다녀온 뒤 계속 조용해도 다시 안 나갔다.
+    const gapLeft = walk?.done ? Math.max(0, walkEnd(walk) + WALK_GAP_MS - Date.now()) : 0;
+    const id = window.setTimeout(() => void departRef.current(), gapLeft + (10 + Math.random() * 30) * 60_000);
+    return () => window.clearTimeout(id);
+  }, [dozing, away, walk]);
+
+  // 산책 중에 사용자가 돌아오면 남은 길을 버리고 1–2분 안에 곧장 온다. 머리도 그때까지 알아낸 것으로 정리한다.
+  const hurryingRef = useRef(false);
+  useEffect(() => {
+    // 이미 2분 안에 오는 중이면(서두르는 중 포함) 그대로 둔다 — 글자를 칠 때마다 불린다.
+    if (!away || !walk || hurryingRef.current || walkEnd(walk) - Date.now() <= 2 * 60_000) return;
+    hurryingRef.current = true;
+    brainRef.current?.abort();
+    const w = walk;
+    const home = w.onMap ? w.home : null;
+    // 길 찾기가 금방 답하면 길로, 아니면 직선으로.
+    const quick = home
+      ? Promise.race([
+          mapApi
+            .walkRoute({ from: toLatLon(home, positionAt(w.path, Date.now())), to: [home.lat, home.lon] })
+            .then((r) => r.map(([lat, lon]) => toMeters(home, lat, lon))),
+          new Promise<undefined>((resolve) => setTimeout(resolve, 3000)),
+        ]).catch(() => undefined)
+      : Promise.resolve(undefined);
+    void quick.then((route) => {
+      saveWalk({ ...w, path: hurryHome(w.path, Date.now(), route) });
+      hurryingRef.current = false;
+    });
+  // 사용자가 움직였을 때만 본다.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastUserActivityAt]);
+
+  // 다녀오면 산책 일지를 지금 대화에 남긴다. prompt 는 이 대화에서만 쓰는 단기기억이라
+  // 답 칸의 prompt 로 넣는다(buildHistory) — 사용자 말로 넣으면 시킨 일로 읽힌다.
+  const arrivingRef = useRef<Walk | null>(null);
+  useEffect(() => {
+    // 보고를 기다리는 중에 다시 걸면 일지가 두 번 붙는다.
+    if (!walk || walk.done || arrivingRef.current === walk) return;
+    const w = walk;
+    const id = window.setTimeout(async () => {
+      arrivingRef.current = w;
+      setAway(false);
+      const brain = brainRef.current ?? startWalkBrain({ places: w.places, here: w.home });
+      brainRef.current = null;
+      const report = await brain.result;
+      const sid = useSessionStore.getState().activeId;
+      const prompt = report.prompt || undefined;
+      useMessageStore.getState().patch(sid, (prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: "assistant", content: report.content, prompt, time: clock(), steps: [], isStreaming: false },
+      ]);
+      conversationApi.save(sid, "assistant", report.content, undefined, serializeMeta({ prompt })).catch(() => {});
+      saveWalk({ ...w, done: true, pin: report.gift?.place });
+      playAction();
+      triggerActionEmotion("happy", 5000);
+    }, Math.max(0, walkEnd(w) - Date.now()));
+    return () => window.clearTimeout(id);
+  }, [walk, saveWalk, playAction, triggerActionEmotion]);
+
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   // 사라지는 애니메이션을 보여주려고 퇴장이 끝날 때까지 붙여둔다.
   const [scrollBtnMounted, setScrollBtnMounted] = useState(false);
@@ -1971,6 +2110,7 @@ export default function App() {
         contextTokens={promptTokens}
         modelContextLength={modelContextLength}
         gameMode={game.phase !== "idle" ? game : null}
+        away={away}
       />
       </ErrorBoundary>
 
@@ -2074,6 +2214,8 @@ export default function App() {
         <RightPanel
           onResizeStart={rightPanelVisible ? (e) => startDrag("right", e) : undefined}
           isResizing={isDragging === "right"}
+          walk={walk}
+          isDark={isDark}
         />
       </ErrorBoundary>
     </div>

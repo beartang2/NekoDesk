@@ -128,6 +128,54 @@ export const skillsApi = {
   load: () => invoke<Skill[]>("skills_load"),
 };
 
+/** 네코 산책 지도에 쓰는 실제 장소. */
+export interface MapPlace {
+  name: string;
+  /** MKPointOfInterestCategory 원문(예: "MKPOICategoryPark"). */
+  category: string;
+  lat: number;
+  lon: number;
+}
+
+/** 지도 한 장. 이미지 가운데가 요청한 (lat, lon), 북쪽이 위. */
+export interface MapSnapshot {
+  /** PNG data URL. */
+  dataUrl: string;
+  /** 요청한 width 기준 CSS 픽셀 1칸이 몇 미터인지. 위경도 → 픽셀 환산에 쓴다. */
+  metersPerPx: number;
+}
+
+/** "역삼동 (37.5000,127.0364)" 꼴 문자열의 괄호 속 좌표. 없으면 null. */
+export function coordsIn(text: string): { lat: number; lon: number } | null {
+  const m = text.match(/\((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\)/);
+  return m ? { lat: Number(m[1]), lon: Number(m[2]) } : null;
+}
+
+/**
+ * 네코 산책 지도. macOS MapKit(키·개발자 계정 불필요)을 Rust 에서 부른다 — 지도 그림·장소·경로
+ * 요청은 Apple 서버로 간다.
+ */
+export const mapApi = {
+  /** 날씨용 현재 위치 명령을 그대로 쓴다. 결과 문자열 "현재 위치 (37.5000,127.0364)" 의 괄호를 읽는다. */
+  here: async (): Promise<{ lat: number; lon: number }> => {
+    const text = await invoke<string>("location_current");
+    const at = coordsIn(text);
+    if (!at) throw new Error(`위치를 읽지 못했어: ${text}`);
+    return at;
+  },
+  /** 날씨 칸의 위치(동네 이름이나 "현재 위치 (lat,lon)")가 가리키는 자리. 위치 권한이 없을 때 대신 쓴다. */
+  weatherSpot: (location: string) =>
+    invoke<{ lat: number; lon: number }>("weather_now", { location }).then(({ lat, lon }) => ({ lat, lon })),
+  /** 가로 spanM 미터를 width×height CSS 픽셀에 담은 지도. dark 면 어두운 지도. */
+  snapshot: (p: { lat: number; lon: number; spanM: number; width: number; height: number; dark: boolean }) =>
+    invoke<MapSnapshot>("map_snapshot", p),
+  /** 반경 radiusM 안의 공원·카페·도서관 같은 장소. */
+  places: (p: { lat: number; lon: number; radiusM: number }) => invoke<MapPlace[]>("map_places", p),
+  /** 두 점 사이 걷기 경로. [lat, lon] 점들(출발·도착 포함). 길을 못 찾으면 에러. */
+  walkRoute: (p: { from: [number, number]; to: [number, number] }) =>
+    invoke<[number, number][]>("map_walk_route", p),
+};
+
 export const settingsApi = {
   /** 없으면 null. API 키는 여기로 못 읽고 못 쓴다 — secretsApi. */
   get: (key: string) => invoke<string | null>("settings_get", { key }),

@@ -16,6 +16,21 @@
   width: 100%;
 }
 
+/* 산책 중: 자리(높이)는 그대로 두고 고양이만 숨긴다. 숨은 동안은 쓰다듬기도 안 된다. */
+.cat-canvas-wrap--away .cat-canvas-stage {
+  visibility: hidden;
+}
+
+.cat-canvas-away {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
 /* ── Pet area (wraps canvas + hearts) ── */
 .cat-canvas-pet-area {
   position: relative;

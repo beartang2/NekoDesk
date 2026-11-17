@@ -76,6 +76,18 @@ describe("조사 하위 에이전트", () => {
     expect(names, "하위 에이전트가 또 위임할 수 있으면 무한 재귀다").not.toContain("agent.delegate");
   });
 
+  it("only 를 주면 그 툴만 보여주고, 밖의 툴은 실행하지 않는다", async () => {
+    completion
+      .mockResolvedValueOnce(turn("", [{ id: "a", name: "todo.list", params: {} }]))
+      .mockResolvedValueOnce(turn("끝"));
+    await runSubagent("산책", undefined, ["web.search", "weather.get"]);
+
+    const tools = (completion.mock.calls[0][1] as { tools: Array<{ function: { name: string } }> }).tools;
+    expect(tools.map((t) => t.function.name).sort()).toEqual(["weather.get", "web.search"]);
+    const second = completion.mock.calls[1][0] as LlmMessage[];
+    expect(second.find((m) => m.role === "tool")?.content).toContain("쓸 수 없는 툴");
+  });
+
   it("상한에 닿으면 툴을 빼앗아 요약을 강제한다", async () => {
     // 계속 툴만 부르는 모델.
     completion.mockResolvedValue(

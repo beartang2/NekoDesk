@@ -52,6 +52,8 @@ function getSpriteImage(src: string): HTMLImageElement {
 interface CatCanvasProps {
   emotion: CatEmotion;
   onPet?: () => void;
+  /** 산책 나갔다. 걷는 그림이 생기기 전까지는 자리를 비워 두고 글로만 알린다. */
+  away?: boolean;
 }
 
 /**
@@ -65,7 +67,7 @@ function backingSize(): number {
   return Math.max(1, Math.round(SPRITE_DISPLAY_SIZE * dpr));
 }
 
-export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
+export function CatCanvas({ emotion, onPet, away }: CatCanvasProps) {
   const variantId = useCatStore((s) => s.variantId);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [frameIdx, setFrameIdx] = useState(0);
@@ -177,7 +179,8 @@ export function CatCanvas({ emotion, onPet }: CatCanvasProps) {
   }, [frameIdx, anim, variantId]);
 
   return (
-    <div className="cat-canvas-wrap">
+    <div className={`cat-canvas-wrap${away ? " cat-canvas-wrap--away" : ""}`}>
+      {away && <span className="cat-canvas-away">산책 중</span>}
       <div className={`cat-canvas-stage cat-canvas-stage--${displayEmotion}`}>
         <div
           ref={bindRef}

@@ -31,8 +31,8 @@
   flex-shrink: 0;
 }
 
-/* 메모는 맨 아래에 붙는 패널 폭만큼의 정사각형. 자리가 모자라면 포모도로가 먼저
-   접히고(RightPanel 이 잰다), 그래도 모자라면 이게 min-height 까지 납작해진다. */
+/* 메모는 맨 아래에 붙는 패널 폭만큼의 정사각형. 자리가 모자라면 산책 지도가 먼저
+   숨고, 다음에 포모도로가 접히고(RightPanel 이 잰다), 그래도 모자라면 이게 min-height 까지 납작해진다. */
 .panel-card--memo {
   margin-top: auto;
   flex: 0 1 auto;

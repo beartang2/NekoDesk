@@ -1044,6 +1044,7 @@ const MEMORY_KIND_LABELS: Record<string, string> = {
   preference: "취향",
   project: "진행 중",
   reference: "자료",
+  neko: "산책",
 };
 
 /**
