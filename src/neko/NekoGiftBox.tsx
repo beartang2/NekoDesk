@@ -18,6 +18,8 @@ function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: number }) {
   return <canvas ref={ref} width={size * dpr} height={size * dpr} style={{ width: size, height: size }} aria-hidden />;
 }
 
+const DAY = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric" });
+
 /**
  * 선물함(설정 › 고양이). 산책에서 주워 온 물건이 쌓이고, 바닥에 놓거나 치운다. 설계: docs/neko-gifts.md §3.
  * 놓은 자리는 무대 폭 비율이라 사이드바·아래 띠 어디서나 같은 자리에 보인다.
@@ -37,13 +39,13 @@ export function NekoGiftBox() {
         <p className="settings-section__desc">아직 받은 선물이 없어. 네코가 산책에서 주워 오면 여기 쌓여.</p>
       ) : (
         <>
-        <p className="settings-section__desc">칸을 네코 자리로 끌어다 놓으면 그 자리에 놓여(높이 놓으면 벽에 걸려). 무대에선 잡고 끌어 옮기고, 우클릭하면 옆에 뜨는 '정리'로 치워.</p>
+        <p className="settings-section__desc">칸을 네코 자리로 끌어다 놓아. 높이 두면 벽에 걸리고, 놓인 걸 우클릭하면 치울 수 있어.</p>
         <ul className="neko-gifts__grid">
           {[...gifts].reverse().map((g) => (
             <li
               key={g.id}
               className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`}
-              title={`${g.body || g.title}\n네코 자리로 끌어다 놓을 수 있어`}
+              title={`${g.body || g.title}\n${DAY.format(new Date(g.at))}에 받음${g.placed ? " · 무대에 놓여 있어" : ""}`}
               draggable
               onDragStart={(e) => {
                 e.dataTransfer.setData(GIFT_DND, g.id);
@@ -58,7 +60,6 @@ export function NekoGiftBox() {
             >
               <GiftThumb shape={g.shape} />
               <span className="neko-gifts__title">{g.title}</span>
-              <span className="neko-gifts__date">{new Date(g.at).toLocaleDateString()}</span>
               <button type="button" className="settings-btn neko-gifts__btn" onClick={() => place(g.id, g.placed ? null : "auto")}>
                 {g.placed ? "치우기" : "바닥에 놓기"}
               </button>
