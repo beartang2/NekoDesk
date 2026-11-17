@@ -339,6 +339,8 @@ interface NekoController {
 
 ## 6. 감독(Director) 규칙
 
+> 자세한 설계(신호·세션 상태·층과 우선순위·스케줄러 규칙·시간표 테스트)는 [`neko-p2-director.md`](neko-p2-director.md). 아래는 처음 잡은 틀이다.
+
 `deriveNeko(state) → NekoPlan` 은 순수 함수다. 시간에 따른 일은 스케줄러가 맡는다.
 
 ```ts
@@ -529,6 +531,8 @@ v26 은 **걷고, 돌아앉고, 소품을 앞에 놓는** 고양이다.
 - 설정: `NekoSettingsSection`
 - 회귀: `npm run qa:neko`
 - 스프라이트 자산은 P1 에서 바로 지웠다.
+- 꾸미기 창(단계별·RGB 털 색·칩 그림)과 말랑함 강화까지 끝냄.
+- P2 상세 설계: [`neko-p2-director.md`](neko-p2-director.md).
 
 | 단계 | 할 일 | 끝났다고 보는 기준 |
 |---|---|---|
