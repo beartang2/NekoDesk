@@ -128,6 +128,23 @@ describe("산책 머리", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it("주운 것은 모양을 검사해 선물함에 넣고, 일지에 알린다", async () => {
+    const { useNekoGifts } = await import("../neko/gifts");
+    useNekoGifts.setState({ gifts: [], loaded: true });
+    const rnd = vi.spyOn(Math, "random").mockReturnValue(0); // 무게 첫 칸 = 주운 것
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({
+      learned: [], diary: "d", gift_title: "병뚜껑", gift_body: "반짝여",
+      gift_shape: { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "silver" }, { t: "evil", code: "x" }] },
+    }));
+    const r = await startWalkBrain({ places: [], here: null }).result;
+    rnd.mockRestore();
+    expect(r.gift?.kind).toBe("trinket");
+    expect(r.gift?.shape?.parts).toEqual([{ t: "circle", x: 0, y: -6, r: 6, c: "silver" }]);
+    expect(r.content).toContain("선물함에 넣어 뒀어");
+    expect(useNekoGifts.getState().gifts.map((g) => g.title)).toEqual(["병뚜껑"]);
+  });
+
   it("조사가 매달려 있어도 abort 하면 바로 돌아온다", async () => {
     subagent.mockImplementation(() => new Promise(() => {}));
     const brain = startWalkBrain({ places: [], here: null });

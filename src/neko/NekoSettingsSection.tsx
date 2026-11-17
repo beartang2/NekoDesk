@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SwitchRow } from "../components/ui";
 import { NekoCustomizeModal } from "./NekoCustomizeModal";
+import { NekoGiftBox } from "./NekoGiftBox";
 import { useNekoStore } from "./nekoStore";
 import { coatSwatch, summarizeAppearance } from "./summarize";
 
@@ -29,6 +30,8 @@ export function NekoSettingsSection() {
       <p className="settings-section__desc">
         켜면 네코가 사이드바 패널에서 대화 입력창 아래 띠로 옮겨 가서 더 넓게 걸어 다녀. 어느 자리든 위쪽 가장자리를 끌어 높이를 바꿀 수 있어(고양이 크기가 높이를 따라가).
       </p>
+
+      <NekoGiftBox />
 
       {open && <NekoCustomizeModal onClose={() => setOpen(false)} />}
     </section>

@@ -6,6 +6,8 @@ import { getTool } from "./tool-registry";
 import { useSettingsStore } from "../stores/settingsStore";
 import { timeZone } from "../lib/time";
 import type { Memory, OpenAiToolSchema, ToolName } from "./types";
+import { GIFT_PALETTE, validateShape, type GiftShape } from "../neko/engine/gift-shape";
+import { useNekoGifts } from "../neko/gifts";
 
 /** 산책에서 가져올 수 있는 선물 종류. */
 export type GiftKind = "trinket" | "place" | "weather" | "link" | "memory" | "drawing" | "game";
@@ -19,6 +21,8 @@ export interface WalkGift {
   file?: string;
   /** place — 지도에 핀으로 꽂을 장소. */
   place?: MapPlace;
+  /** 주운 것·장소 기념품 — 네코 그림체로 그릴 물건 모양(검사를 거친 것). 선물함에 들어간다 */
+  shape?: GiftShape;
 }
 
 export interface WalkReport {
@@ -40,8 +44,8 @@ export interface WalkBrain {
 
 // ponytail: base 가 선물 빈도의 손잡이다. 써 보며 고친다.
 const GIFTS: Record<GiftKind, { base: number; label: string; hint: string }> = {
-  trinket: { base: 5, label: "주운 것", hint: "길에서 주운 작은 물건(나뭇잎·병뚜껑 같은 것). 뭘 주웠는지는 네가 정해" },
-  place: { base: 3, label: "가 본 곳", hint: "지나온 곳 하나를 소개해" },
+  trinket: { base: 5, label: "주운 것", hint: "길에서 주운 작은 물건(나뭇잎·병뚜껑 같은 것). 뭘 주웠는지는 네가 정하고 그 모양을 gift_shape 로" },
+  place: { base: 3, label: "가 본 곳", hint: "지나온 곳 하나를 소개하고, 거기서 주운 기념품(나뭇잎·각설탕 같은 것) 모양을 gift_shape 로" },
   weather: { base: 2, label: "날씨 쪽지", hint: "날씨를 보고 사용자에게 남기는 쪽지" },
   link: { base: 2, label: "읽을거리", hint: "알아본 것 중 재밌어서 가져온 읽을거리 링크" },
   memory: { base: 2, label: "떠오른 기억", hint: "사용자에 대해 기억해 둔 게 떠올라 꺼내는 얘기" },
@@ -105,6 +109,31 @@ const REPORT_TOOL = {
         gift_body: { type: "string", description: "선물에 붙이는 한두 문장. 재료에 없는 사실은 지어내지 마" },
         gift_url: { type: "string", description: "선물이 링크면 알아본 것에 나온 URL 그대로" },
         drawing_prompt: { type: "string", description: "선물이 그림일 때만. 그릴 장면을 영어로 자세히" },
+        // 그림체(선·밝은 면·그림자·크기)는 앱이 입힌다. 모델은 모양만 — docs/neko-gifts.md §2
+        gift_shape: {
+          type: "object",
+          description:
+            "선물이 주운 것·장소 기념품일 때만: 그 물건 모양. 32칸(가운데 x=0, 바닥 y=0, 위는 음수, 좌우 ±16)에 " +
+            "도형 3~8개로 단순하게. 뒤에 적은 도형이 위에 그려진다",
+          properties: {
+            parts: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  t: { type: "string", enum: ["circle", "ellipse", "rrect", "poly", "dot"] },
+                  x: { type: "number" }, y: { type: "number" }, r: { type: "number" },
+                  rx: { type: "number" }, ry: { type: "number" }, w: { type: "number" }, h: { type: "number" },
+                  rad: { type: "number" }, rot: { type: "number", description: "라디안" },
+                  pts: { type: "array", items: { type: "array", items: { type: "number" } }, description: "poly 꼭짓점 [x,y] 3~10개" },
+                  c: { type: "string", enum: Object.keys(GIFT_PALETTE) },
+                },
+                required: ["t", "c"],
+              },
+            },
+          },
+          required: ["parts"],
+        },
       },
       required: ["learned", "diary", "gift_title", "gift_body"],
     },
@@ -118,6 +147,7 @@ interface Structured {
   gift_body: string;
   gift_url: string;
   drawing_prompt: string;
+  gift_shape: unknown;
 }
 
 /** 산책하며 모은 것. abort 되면 그 순간의 이것으로 보고한다. */
@@ -154,7 +184,13 @@ export function startWalkBrain(ctx: { places: MapPlace[]; here: { lat: number; l
   // 사용자가 말을 걸면 기다리지 않는다 — 진행 중인 툴(검색·그림)은 끊기지 않으니 그 자리의 것으로 보고한다.
   const aborted = new Promise<void>((r) => ctrl.signal.addEventListener("abort", () => r(), { once: true }));
   return {
-    result: Promise.race([done, aborted]).then(() => compose(g)),
+    result: Promise.race([done, aborted]).then(() => {
+      const report = compose(g);
+      // 그림으로 그릴 물건이면 선물함에 넣는다(설계 docs/neko-gifts.md §3)
+      const gift = report.gift;
+      if (gift?.shape) try { useNekoGifts.getState().add({ title: gift.title, body: gift.body, shape: gift.shape }); } catch { /* 선물함이 안 돼도 보고는 한다 */ }
+      return report;
+    }),
     abort: () => ctrl.abort(),
   };
 }
@@ -256,6 +292,7 @@ async function walk(
     gift_body: str(p?.gift_body),
     gift_url: str(p?.gift_url),
     drawing_prompt: str(p?.drawing_prompt),
+    gift_shape: p?.gift_shape,
   };
 
   // 4. 그림 선물은 글이 나온 뒤에 그린다 — 뭘 그릴지가 그 글에 있다.
@@ -292,6 +329,7 @@ function compose(g: Gathered): WalkReport {
           ...(r.gift_url ? { url: r.gift_url } : {}),
           ...(g.file ? { file: g.file } : {}),
           ...(g.place ? { place: g.place } : {}),
+          ...(g.kind === "trinket" || g.kind === "place" ? { shape: validateShape(r.gift_shape) } : {}),
         }
       : g.material
         ? { kind: g.kind, title: GIFTS[g.kind].label, body: g.material, ...(g.place ? { place: g.place } : {}) }
@@ -300,7 +338,8 @@ function compose(g: Gathered): WalkReport {
   const diary = r?.diary || (g.findings ? "급하게 돌아왔어. 알아본 건 물어보면 얘기해 줄게." : "산책 다녀왔어.");
   const giftText = gift
     ? `\n\n**선물: ${gift.url ? `[${gift.title}](${gift.url})` : gift.title}**\n${gift.body}` +
-      (gift.file ? `\n(임시 보관함에 넣어 뒀어: ${gift.file})` : "")
+      (gift.file ? `\n(임시 보관함에 넣어 뒀어: ${gift.file})` : "") +
+      (gift.shape ? "\n(선물함에 넣어 뒀어 — 설정 › 고양이에서 바닥에 놓을 수 있어)" : "")
     : "";
   const content = diary + giftText;
 

@@ -93,12 +93,19 @@ function partPath(ctx, p) {
 }
 
 /**
- * (x, bottom) 에 모양을 그린다. unit = 한 칸의 px. 선 없이 면 → 같은 색 밝은 윗면(위쪽 절반에만) 순서로,
+ * (x, bottom) 에 모양을 그린다. unit = 한 칸의 px, edge = 가장자리 그림자 흐림(0 이면 없음). 선 없이 면 → 같은 색 밝은 윗면(위쪽 절반에만) 순서로,
  * 소품(상자의 밝은 띠, 그릇의 밝은 테)과 같은 결.
  */
-export function drawShape(ctx, shape, x, bottom, unit) {
+export function drawShape(ctx, shape, x, bottom, unit, edge = 0) {
   ctx.save();
   ctx.translate(x, bottom); ctx.scale(unit, unit);
+  // 고양이처럼 아주 옅은 그림자로 가장자리만 띄운다(선 없이도 흰 물건이 밝은 바닥에 묻히지 않게).
+  // 실루엣을 먼저 한 번 칠해 그림자를 바깥에만 두고, 도형은 그 위에 그림자 없이 칠한다. edge = 흐림(px, DPR 반영)
+  if (edge > 0) {
+    ctx.save(); ctx.shadowColor = "rgba(40, 28, 48, 0.32)"; ctx.shadowBlur = edge; ctx.fillStyle = GIFT_PALETTE.gray;
+    for (const p of shape.parts) { partPath(ctx, p); ctx.fill(); }
+    ctx.restore();
+  }
   for (const p of shape.parts) {
     const col = GIFT_PALETTE[p.c];
     ctx.fillStyle = col; partPath(ctx, p); ctx.fill();

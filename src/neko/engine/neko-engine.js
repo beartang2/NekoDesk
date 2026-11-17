@@ -2129,7 +2129,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       return [w, h, (x, b) => ctx.drawImage(it.image, x - w / 2, b - h, w, h)];
     }
     const bd = shapeBounds(it.shape), u = box / Math.max(bd.w, bd.h);
-    return [bd.w * u, bd.h * u, (x, b) => drawShape(ctx, it.shape, x - ((bd.x0 + bd.x1) / 2) * u, b, u)];
+    return [bd.w * u, bd.h * u, (x, b) => drawShape(ctx, it.shape, x - ((bd.x0 + bd.x1) / 2) * u, b, u, 4 * DPR)];
   }
   /** 바닥에 내려 두는가(누워 잠·입 쓰는 활동) */
   const carryOnFloor = () => cat.lie.x > 0.5 || (cat.act && MOUTH_ACTS.has(cat.act.key));
@@ -2162,6 +2162,27 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const pad = 3 * S;
     carryBox = { x: x0 - pad, y: y0 - pad, w: x1 - x0 + 2 * pad, h: y1 - y0 + 2 * pad };
   }
+  /* ---------- 놓아 둔 물건(선물) ----------
+     자리는 면 + 비율(u: 양끝 여백을 뺀 무대 폭 비율)로만 받는다. px 로 굳히지 않으니 자리를 옮기거나 높이를 끌어도
+     같은 자리·같은 배율에 있다(소품 배율 버그와 같은 문제가 생기지 않는다). 설계: docs/neko-gifts.md §4 */
+  const DECOR_SIZE = 26; // 한 변(S 단위) — 바닥에서도 알아보게, 머리(폭 74)보다는 한참 작게
+  let decor = [];        // { id, u, shape, t0 }
+  function setDecor(items) {
+    const prev = new Map(decor.map((d) => [d.id, d.t0]));
+    decor = (items || []).filter((d) => d && d.id != null && Number.isFinite(d.u)).map((d) => ({
+      id: String(d.id), u: clamp(d.u, 0, 1), shape: validateShape(d.shape), t0: prev.get(String(d.id)) ?? time, // 새로 놓인 것만 '뿅'
+    }));
+  }
+  function drawDecor() {
+    const m = 16 * S;
+    for (const d of decor) {
+      const bd = shapeBounds(d.shape), u = (DECOR_SIZE * S) / Math.max(bd.w, bd.h), x = m + d.u * Math.max(0, W - 2 * m);
+      ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = theme.shadow; // 고양이와 같은 바닥 그림자
+      ctx.beginPath(); ctx.ellipse(x, floorY + 1 * S, bd.w * u * 0.5, 2.6 * S, 0, 0, TAU); ctx.fill(); ctx.restore();
+      withPop(x, floorY, popIn(time - d.t0), () => drawShape(ctx, d.shape, x - ((bd.x0 + bd.x1) / 2) * u, floorY, u, 4 * DPR));
+    }
+  }
+
   /** 이 점(무대 px)이 문 물건 위인가 */
   function hitCarry(x, y) {
     const b = carryBox;
@@ -3415,6 +3436,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     ctx.beginPath(); ctx.ellipse(c.x + c.face * 6 * S, floorY + 1.5 * S, 58 * S * (0.55 + 0.45 * k), 6.5 * S * (0.55 + 0.45 * k), 0, 0, TAU); ctx.fill();
     ctx.restore();
 
+    drawDecor();
     drawActBack();
     composeCat();
 
@@ -3687,6 +3709,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       return out;
     },
     carried: () => carrying.slice(),
+    // 놓아 둔 물건(선물). 자리는 면 + 비율
+    setDecor,
     get carrying() { return carrying.length > 0; },
     hitCarry,
     carryRect: () => (carryBox ? { ...carryBox } : null),

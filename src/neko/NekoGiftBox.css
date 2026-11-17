@@ -1,0 +1,57 @@
+.neko-gifts {
+  margin-top: 14px;
+}
+.neko-gifts__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.neko-gifts__count {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.neko-gifts__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.neko-gifts__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  text-align: center;
+}
+/* 무대에 놓인 것: 테두리만 강조 */
+.neko-gifts__item--placed {
+  border-color: var(--accent);
+}
+.neko-gifts__title {
+  font-size: 11px;
+  line-height: 1.3;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.neko-gifts__date {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.neko-gifts__btn {
+  margin-top: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+}

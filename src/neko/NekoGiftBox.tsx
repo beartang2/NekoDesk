@@ -1,0 +1,54 @@
+import { useEffect, useRef } from "react";
+import { drawShape, shapeBounds, type GiftShape } from "./engine/gift-shape";
+import { useNekoGifts } from "./gifts";
+import "./NekoGiftBox.css";
+
+/** 선물 그림. 무대와 같은 그리기 함수(drawShape)라 그림체가 같다. */
+function GiftThumb({ shape, size = 44 }: { shape: GiftShape; size?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  useEffect(() => {
+    const ctx = ref.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    const b = shapeBounds(shape), u = (size * 0.78) / Math.max(b.w, b.h);
+    drawShape(ctx, shape, size / 2 - ((b.x0 + b.x1) / 2) * u, size / 2 + (b.h * u) / 2, u, 3 * dpr);
+  }, [shape, size, dpr]);
+  return <canvas ref={ref} width={size * dpr} height={size * dpr} style={{ width: size, height: size }} aria-hidden />;
+}
+
+/**
+ * 선물함(설정 › 고양이). 산책에서 주워 온 물건이 쌓이고, 바닥에 놓거나 치운다. 설계: docs/neko-gifts.md §3.
+ * 놓은 자리는 무대 폭 비율이라 사이드바·아래 띠 어디서나 같은 자리에 보인다.
+ */
+export function NekoGiftBox() {
+  const gifts = useNekoGifts((s) => s.gifts);
+  const place = useNekoGifts((s) => s.place);
+  useEffect(() => { void useNekoGifts.getState().load(); }, []);
+
+  return (
+    <div className="neko-gifts">
+      <div className="neko-gifts__head">
+        <span>선물함</span>
+        <span className="neko-gifts__count">{gifts.length}</span>
+      </div>
+      {gifts.length === 0 ? (
+        <p className="settings-section__desc">아직 받은 선물이 없어. 네코가 산책에서 주워 오면 여기 쌓여.</p>
+      ) : (
+        <ul className="neko-gifts__grid">
+          {[...gifts].reverse().map((g) => (
+            <li key={g.id} className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`} title={g.body || g.title}>
+              <GiftThumb shape={g.shape} />
+              <span className="neko-gifts__title">{g.title}</span>
+              <span className="neko-gifts__date">{new Date(g.at).toLocaleDateString()}</span>
+              <button type="button" className="settings-btn neko-gifts__btn" onClick={() => place(g.id, g.placed ? null : "auto")}>
+                {g.placed ? "치우기" : "바닥에 놓기"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

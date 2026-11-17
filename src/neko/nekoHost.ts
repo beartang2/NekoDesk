@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { createNeko, type NekoController } from "./engine/neko-engine";
 import { useNekoStore } from "./nekoStore";
+import { useNekoGifts } from "./gifts";
 
 /**
  * 네코는 앱에 하나다: 캔버스 하나 + 엔진 하나를 모듈에 두고, 자리(NekoSlot)가 바뀌면 캔버스만 옮긴다.
@@ -33,6 +34,10 @@ export function ensureNeko(): NekoController {
     useNekoStore.subscribe((s, prev) => {
       if (s.appearance !== prev.appearance) ctrl?.setAppearance(s.appearance);
     });
+    // 선물함에서 바닥에 놓은 물건(docs/neko-gifts.md)
+    const decor = () => ctrl?.setDecor(useNekoGifts.getState().gifts.flatMap((g) => (g.placed ? [{ id: g.id, u: g.placed.u, shape: g.shape }] : [])));
+    useNekoGifts.subscribe((s, prev) => { if (s.gifts !== prev.gifts) decor(); });
+    void useNekoGifts.getState().load().then(decor);
     subs.forEach((fn) => fn());
   }
   return ctrl;

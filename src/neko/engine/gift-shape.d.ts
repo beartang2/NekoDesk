@@ -23,4 +23,4 @@ export const DEFAULT_SHAPE: GiftShape;
 export function validateShape(raw: unknown): GiftShape;
 export function shapeBounds(shape: GiftShape): { x0: number; x1: number; top: number; w: number; h: number };
 /** (x, bottom) 에 그린다. unit = 한 칸의 px */
-export function drawShape(ctx: CanvasRenderingContext2D, shape: GiftShape, x: number, bottom: number, unit: number): void;
+export function drawShape(ctx: CanvasRenderingContext2D, shape: GiftShape, x: number, bottom: number, unit: number, edge?: number): void;

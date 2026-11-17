@@ -114,6 +114,8 @@ export interface NekoController {
   /** 입에서 뺀다(id 없으면 전부). 뺀 것을 돌려준다 */
   drop(id?: string): NekoCarried[];
   carried(): NekoCarried[];
+  /** 무대 바닥에 놓아 둔 물건(선물). u = 양끝 여백을 뺀 무대 폭 비율 0~1. 새로 놓인 것만 '뿅' 하고 나온다 */
+  setDecor(items: { id: string; u: number; shape: unknown }[]): void;
   readonly carrying: boolean;
   /** 이 점(무대 px, hit 와 같은 좌표)이 문 물건 위면 "bundle" */
   hitCarry(x: number, y: number): "bundle" | null;

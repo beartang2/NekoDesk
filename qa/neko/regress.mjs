@@ -243,6 +243,22 @@ try {
     await p.close();
   }
 
+  // 9-d) 바닥에 놓은 선물(docs/neko-gifts.md §4): 자리는 무대 폭 비율이라 크기·자리가 바뀌어도 같은 비율 자리에 그려진다
+  {
+    const p = await open(`?w=220&h=200&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
+    const r = await p.evaluate(() => {
+      const n = window.__neko, cv = document.getElementById("stage"), g = cv.getContext("2d");
+      n.setDecor([{ id: "x", u: 0, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]);
+      const red = () => { n.step(90); n.draw(); const dpr = cv.width / n.W, u = (26 * n.S) / 14;
+        const d = g.getImageData(Math.round(16 * n.S * dpr), Math.round((n.floorY - 7 * u) * dpr), 1, 1).data; return d[0] > 180 && d[1] < 140 && d[3] > 200; };
+      const a = red();
+      cv.style.width = "900px"; cv.style.height = "150px"; n.resize();
+      return { a, b: red() };
+    });
+    check("바닥에 놓은 선물: 크기·자리가 바뀌어도 비율 자리에 그려진다", `220×200 ${r.a} · 900×150 ${r.b}`, r.a && r.b);
+    await p.close();
+  }
+
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다
   for (const [w, h] of [[704, 282], [220, 150], [900, 150]]) {
     const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
