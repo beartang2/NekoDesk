@@ -216,6 +216,33 @@ try {
     await p.close();
   }
 
+  // 9-c) 입에 물기(docs/neko-gifts.md §6): 문 물건이 무대 크기·자리가 바뀌어도 입(머리)을 따라가고,
+  //      그 위를 누르면 쓰다듬기가 아니라 carryPress 가 온다. 누워 자면 바닥에 내려 둔다.
+  {
+    const p = await open(`?w=220&h=200&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, cv = document.getElementById("stage"), oc = new OffscreenCanvas(48, 40);
+      oc.getContext("2d").fillRect(0, 0, 48, 40);
+      n.carry([{ id: "a", kind: "image", image: await createImageBitmap(oc) }, { id: "b", kind: "shape", shape: { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "gold" }] } }]);
+      n.step(120); n.draw();
+      const near = () => { const b = n.carryRect(), h = n.cat.head; return Math.hypot(b.x + b.w / 2 - h.x, b.y - h.y) / n.S; };
+      const before = near();
+      cv.style.width = "900px"; cv.style.height = "150px"; n.resize(); n.step(60); n.draw();
+      const after = near();
+      const b = n.carryRect(), cx = b.x + b.w / 2, cy = b.y + b.h / 2, rect = cv.getBoundingClientRect();
+      let press = 0, pet = 0; n.on("carryPress", () => press++); n.on("pet", () => pet++);
+      for (const type of ["pointerdown", "pointerup"]) cv.dispatchEvent(new PointerEvent(type, { clientX: rect.left + cx, clientY: rect.top + cy, pointerId: 1, bubbles: true }));
+      n.setPose("lie"); n.step(300); n.draw();
+      const lb = n.carryRect(), onFloor = Math.abs(lb.y + lb.h - 3 * n.S - n.floorY) < 2;
+      const kept = n.carried().length, dropped = n.drop().length;
+      return { before, after, hit: n.hitCarry(2, 2), press, pet, onFloor, kept, dropped, left: n.carried().length };
+    });
+    check("입에 물기: 크기·자리가 바뀌어도 입을 따라간다(머리에서 떨어진 정도)", `${r.before.toFixed(1)} → ${r.after.toFixed(1)}`, Math.abs(r.after - r.before) < 6 && r.after < 40);
+    check("입에 물기: 문 물건을 누르면 carryPress(쓰다듬기 아님)", `carryPress ${r.press} · pet ${r.pet} · 빈 곳 ${r.hit}`, r.press === 1 && r.pet === 0 && r.hit === null);
+    check("입에 물기: 누워 자면 바닥에, 놓으면 비워진다", `바닥 ${r.onFloor} · 물던 ${r.kept} → 뺀 ${r.dropped} · 남은 ${r.left}`, r.onFloor && r.kept === 2 && r.dropped === 2 && r.left === 0);
+    await p.close();
+  }
+
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다
   for (const [w, h] of [[704, 282], [220, 150], [900, 150]]) {
     const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);

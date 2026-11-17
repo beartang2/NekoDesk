@@ -3,6 +3,17 @@
  */
 
 /** "custom" 이면 color(RGB)로 털 색 묶음을 만든다 */
+import type { GiftShape } from "./gift-shape";
+
+/** 입에 무는 물건(docs/neko-gifts.md §6). 이미지는 호스트가 다 불러온 것을 넘긴다 */
+export type NekoCarryItem =
+  | { id: string; kind: "shape"; shape: unknown }
+  | { id: string; kind: "image"; image: ImageBitmap | HTMLImageElement };
+/** 엔진이 들고 있는 꼴(모양은 검사를 거친 것) */
+export type NekoCarried =
+  | { id: string; kind: "shape"; shape: GiftShape }
+  | { id: string; kind: "image"; image: ImageBitmap | HTMLImageElement };
+
 export type NekoCoat = "black" | "cheese" | "gray" | "cream" | "white" | "custom";
 export type NekoPattern = "white" | "calico" | "tabby" | "point";
 export type NekoEye = "yellow" | "white" | "green" | "blue";
@@ -53,6 +64,10 @@ export interface NekoEvents {
   /** 상태 이름(접근성 라벨 등) */
   label: string;
   error: unknown;
+  /** 입에 문 목록이 바뀜 */
+  carry: NekoCarried[];
+  /** 문 물건 위에서 누름(무대 px). 끌어내기는 호스트가 시작한다 */
+  carryPress: { x: number; y: number; pointerId: number };
 }
 
 export interface NekoOptions {
@@ -94,6 +109,16 @@ export interface NekoController {
   resume(): void;
   destroy(): void;
   hit(x: number, y: number): boolean;
+  /** 입에 문다. 같은 id 면 바꾼다. 여럿이면 최대 3장이 겹쳐 보인다 */
+  carry(items: NekoCarryItem | NekoCarryItem[]): void;
+  /** 입에서 뺀다(id 없으면 전부). 뺀 것을 돌려준다 */
+  drop(id?: string): NekoCarried[];
+  carried(): NekoCarried[];
+  readonly carrying: boolean;
+  /** 이 점(무대 px, hit 와 같은 좌표)이 문 물건 위면 "bundle" */
+  hitCarry(x: number, y: number): "bundle" | null;
+  /** 문 물건이 그려진 사각형(무대 px). 안 물었으면 null */
+  carryRect(): { x: number; y: number; w: number; h: number } | null;
   on<K extends keyof NekoEvents>(ev: K, fn: (payload: NekoEvents[K]) => void): () => void;
   jump(): void;
   /** 몸을 콕 누른다: 눌렸다가 말랑함(soft)만큼 출렁이며 돌아온다. str 0~1.5 (기본 1) */

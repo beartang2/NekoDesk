@@ -13,6 +13,8 @@
  *  - 숨김·일시정지 때 멈춤, 프레임 제한(setMaxFps), 엔진 예외는 멈추고 "error" 이벤트
  * 설계: docs/neko-v26-integration.md
  */
+import { validateShape, shapeBounds, drawShape } from "./gift-shape.js";
+
 export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 strict
   /* ============================================================
      말랑 네코 — 부위별 2D 리그(몸통·머리·귀·다리 4개 IK·꼬리 사슬) 위에
@@ -436,6 +438,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     for (const key of ["len", "hind", "front"]) c.ll[key] = lerp(c.ll[key], LT[key], kb);
     if (c.act) actStep(dt);
     propsStep(dt);
+    carryStep(dt);
     c.actP = c.mode === "act" && c.act ? actPose() : null;
     const P = c.actP;
     const standY = floorY - standH() * S;
@@ -2101,6 +2104,70 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (A) { const s = actOf(A.key); if (s.drawFront) s.drawFront(A); }
     for (const e of effects) drawEffect(e);
   }
+  /* ---------- 입에 물기 ----------
+     아무 물건이나 문다(선물 모양·파일 아이콘). 문 상태는 앱 세션 동안만이고 저장은 호스트 몫이다.
+     자리는 매 프레임 머리의 입 기준점에서 구하므로 무대 크기·자리(사이드바·아래 띠·화면 띠)와 무관하다.
+     여럿이면 최대 3장을 부채처럼 겹친다 — 숫자 없이 하나인지 여럿인지만 보인다. 설계: docs/neko-gifts.md §6 */
+  const MOUTH = [FO + 9, 23];   // 머리 로컬: 턱 앞
+  const CARRY_SIZE = 24;        // 문 물건 한 변(S 단위) — 머리(폭 74)보다 한참 작게
+  const MOUTH_ACTS = new Set(["snack", "meal", "hungry", "groom"]); // 입을 쓰는 활동: 그동안은 앞 바닥에 내려 둔다
+  const carrying = [];
+  const carrySway = new Spring(0);
+  let carryBox = null;          // 마지막으로 그린 묶음의 사각형(무대 px)
+  const imgSize = (im) => { const w = im && (im.naturalWidth || im.width), h = im && (im.naturalHeight || im.height); return w > 0 && h > 0 ? [w, h] : null; };
+  function carryItem(it) {
+    if (!it || it.id == null) return null;
+    if (it.kind === "image") return it.image ? { id: String(it.id), kind: "image", image: it.image } : null;
+    return { id: String(it.id), kind: "shape", shape: validateShape(it.shape) };
+  }
+  /** 한 장의 그릴 크기(px): [폭, 높이, 그리기(x, 바닥)] */
+  function carryDims(it) {
+    const box = CARRY_SIZE * S;
+    if (it.kind === "image") {
+      const sz = imgSize(it.image); if (!sz) return null;
+      const k = box / Math.max(sz[0], sz[1]), w = sz[0] * k, h = sz[1] * k;
+      return [w, h, (x, b) => ctx.drawImage(it.image, x - w / 2, b - h, w, h)];
+    }
+    const bd = shapeBounds(it.shape), u = box / Math.max(bd.w, bd.h);
+    return [bd.w * u, bd.h * u, (x, b) => drawShape(ctx, it.shape, x - ((bd.x0 + bd.x1) / 2) * u, b, u)];
+  }
+  /** 바닥에 내려 두는가(누워 잠·입 쓰는 활동) */
+  const carryOnFloor = () => cat.lie.x > 0.5 || (cat.act && MOUTH_ACTS.has(cat.act.key));
+  function carryStep(dt) {
+    if (!carrying.length) return;
+    const c = cat, want = clamp(-c.vx / (700 * S), -0.35, 0.35) + c.headRot * 0.5;
+    carrySway.step(carryOnFloor() ? 0 : want, 70, 7, dt); // 고개·걸음을 살짝 늦게 따라 흔들린다
+  }
+  function drawCarry() {
+    carryBox = null;
+    if (!carrying.length) return;
+    const c = cat, items = carrying.slice(-3).map((it) => [it, carryDims(it)]).filter(([, d]) => d), n = items.length;
+    if (!n) return;
+    const floor = carryOnFloor(), m = H2W(MOUTH[0], MOUTH[1]);
+    // 누워 자면 머리 앞, 입을 쓰는 활동이면 배 밑(앞엔 그릇이 놓인다)
+    const px = !floor ? m[0] : cat.lie.x > 0.5 ? c.head.x + c.face * 26 * S : c.x - c.face * 6 * S, py = floor ? floorY : m[1];
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    items.forEach(([, d], i) => {
+      const off = (i - (n - 1) / 2) * 5 * S * c.face, w = d[0], h = d[1];
+      const bottom = floor ? py : py + h * 0.85; // 물 땐 윗부분을 이로 문다
+      x0 = Math.min(x0, px + off - w / 2); x1 = Math.max(x1, px + off + w / 2); y0 = Math.min(y0, bottom - h); y1 = Math.max(y1, bottom);
+    });
+    items.forEach(([, d], i) => {
+      const off = (i - (n - 1) / 2) * 5 * S * c.face, rot = (i - (n - 1) / 2) * 0.22 * c.face + carrySway.x, h = d[1];
+      ctx.save();
+      ctx.translate(px, py); ctx.rotate(floor ? (i - (n - 1) / 2) * 0.12 : rot); ctx.translate(-px, -py);
+      d[2](px + off, floor ? py : py + h * 0.85);
+      ctx.restore();
+    });
+    const pad = 3 * S;
+    carryBox = { x: x0 - pad, y: y0 - pad, w: x1 - x0 + 2 * pad, h: y1 - y0 + 2 * pad };
+  }
+  /** 이 점(무대 px)이 문 물건 위인가 */
+  function hitCarry(x, y) {
+    const b = carryBox;
+    return b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h ? "bundle" : null;
+  }
+
   function drawEffect(e) {
     if (e.kind === "note") drawNote(e);
     else if (e.kind === "text") {
@@ -3353,6 +3420,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
     drawFace();
     drawActFront();
+    drawCarry();
     drawEffects();
     if (showRig) drawRigOverlay();
   }
@@ -3425,6 +3493,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   canvas.addEventListener("pointerdown", (e) => {
     const [x, y] = toStage(e);
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
+    // 문 물건이 먼저: 입에서 끌어내기가 쓰다듬기·목덜미 잡기로 새지 않게. 끌어내기는 호스트가 한다
+    if (hitCarry(x, y)) { emit("carryPress", { x, y, pointerId: e.pointerId }); e.preventDefault(); return; }
     if (hitCat(x, y)) {
       // 바로 잡지 않는다: 움직이거나 잠깐 누르고 있으면 잡기, 그냥 떼면 '냥'
       press = { id: e.pointerId, x, y, t: performance.now(), grabbing: false };
@@ -3443,7 +3513,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       canvas.classList.add("dragging");
       grab(); emit("grab");
     }
-    if (!press) canvas.classList.toggle("can-grab", hitCat(x, y));
+    if (!press) canvas.classList.toggle("can-grab", hitCat(x, y) || !!hitCarry(x, y));
   });
   function endPress(e) {
     if (!press || e.pointerId !== press.id) return;
@@ -3601,6 +3671,25 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     resume() { if (paused) { paused = false; last = performance.now(); } },
     destroy() { cancelAnimationFrame(raf); paused = true; listeners.clear(); ro.disconnect(); },
     hit: hitCat,
+    // 입에 물기(docs/neko-gifts.md §6)
+    carry(items) {
+      for (const raw of Array.isArray(items) ? items : [items]) {
+        const it = carryItem(raw); if (!it) continue;
+        const i = carrying.findIndex((o) => o.id === it.id);
+        if (i >= 0) carrying[i] = it; else carrying.push(it);
+      }
+      emit("carry", carrying.slice());
+    },
+    drop(id) {
+      const out = [];
+      for (let i = carrying.length - 1; i >= 0; i--) if (id == null || carrying[i].id === String(id)) out.unshift(...carrying.splice(i, 1));
+      if (out.length) emit("carry", carrying.slice());
+      return out;
+    },
+    carried: () => carrying.slice(),
+    get carrying() { return carrying.length > 0; },
+    hitCarry,
+    carryRect: () => (carryBox ? { ...carryBox } : null),
     on,
     jump, walkTo, boing,
     // 시험용
