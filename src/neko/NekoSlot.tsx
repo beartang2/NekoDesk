@@ -33,35 +33,19 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
   // 산책 중엔 그릴 자리가 없다
   useLayoutEffect(() => { if (active && away) ctrl?.pause(); }, [ctrl, active, away]);
 
-  // 트랙패드 쓰다듬기: 고양이를 탭하면(엔진의 pet 이벤트) 쓰다듬기 모드를 켜고 끈다.
-  // 모드에선 커서가 숨고 트랙패드를 문지르는 만큼 쓰다듬는다(useTrackpadPet).
+  // 쓰다듬기: 고양이 몸 위에서 왔다 갔다 문지를 때만(useTrackpadPet). 탭은 엔진이 따로 쓰다듬기로 친다.
   const rub = useCallback(() => {
     // 너무 오래 만져 짜증 나면(react 가 false) 놀이 게이지는 오르지 않는다
     if (ctrl && !ctrl.react("pet")) return;
     onRubPet();
   }, [ctrl, onRubPet]);
-  const { isPetting, togglePetting, onHoverMove, bindRef } = useTrackpadPet(rub);
-  const setStageRef = useCallback((el: HTMLDivElement | null) => { stageRef.current = el; bindRef(el); }, [bindRef]);
-  useLayoutEffect(() => {
-    if (!ctrl || !active) return;
-    const offs = [
-      ctrl.on("pet", () => togglePetting()),
-      // 두 번 탭('냥')이면 쓰다듬기 모드는 끈다
-      ctrl.on("nyang", () => { if (document.pointerLockElement === stageRef.current) document.exitPointerLock(); }),
-    ];
-    return () => offs.forEach((f) => f());
-  }, [ctrl, active, togglePetting]);
-  // 쓰다듬기 모드(포인터 잠금)에선 클릭이 캔버스가 아니라 이 자리로 온다: 누르면 모드를 끈다
-  const onLockedDown = useCallback(() => {
-    if (document.pointerLockElement === stageRef.current) document.exitPointerLock();
-  }, []);
-
-  // 포인터 잠금이 막힌 환경의 폴백: 고양이 위에서 커서를 문질러도 쓰다듬는다(고양이 밖은 아님)
+  const { onBodyMove, onBodyLeave } = useTrackpadPet(rub);
   const onMove = useCallback((e: React.MouseEvent) => {
-    if (!ctrl || e.buttons) return;
+    if (!ctrl || e.buttons) return; // 누른 채 움직이면 잡기(엔진)
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    if (ctrl.hit(e.clientX - r.left, e.clientY - r.top)) onHoverMove(e);
-  }, [ctrl, onHoverMove]);
+    if (ctrl.hit(e.clientX - r.left, e.clientY - r.top)) onBodyMove(e.movementX, e.movementY);
+    else onBodyLeave();
+  }, [ctrl, onBodyMove, onBodyLeave]);
 
   // 높이 손잡이: 위쪽 가장자리를 끌면 그만큼 키가 바뀐다(손을 뗄 때 저장)
   const onHandleDown = useCallback((e: React.PointerEvent) => {
@@ -95,12 +79,7 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
       {away ? (
         <div className="neko-slot__away">산책 중</div>
       ) : (
-        <div
-          ref={setStageRef}
-          className={`neko-slot__stage${isPetting ? " neko-slot__stage--petting" : ""}`}
-          onMouseMove={onMove}
-          onPointerDown={onLockedDown}
-        />
+        <div ref={stageRef} className="neko-slot__stage" onMouseMove={onMove} onMouseLeave={onBodyLeave} />
       )}
     </div>
   );

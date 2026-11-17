@@ -1393,7 +1393,7 @@ export default function App() {
     prevIsRunning.current = isRunning;
   }, [isRunning, reward]);
 
-  // 쓰다듬기: 네코를 탭하거나(엔진) 쓰다듬기 모드에서 트랙패드를 문지르면(NekoSlot·useTrackpadPet) 부른다.
+  // 쓰다듬기: 네코를 탭하거나(엔진) 몸 위에서 왔다 갔다 문지르면(NekoSlot·useTrackpadPet) 부른다.
   // 가속도계는 M4에서 root 데몬이 필요해 폐기했다. 상자에서 나오기(3번)는 감독이 센다.
   const handlePet = useCallback(() => {
     pet();
