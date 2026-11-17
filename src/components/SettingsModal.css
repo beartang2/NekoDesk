@@ -687,6 +687,43 @@ code.rule-row__key {
   font-size: 10px;
 }
 
+/* 기억 내용: 눌러서 펼치는 버튼. 접혀 있을 땐 안의 rule-row__key 가 한 줄 말줄임
+   (버튼 자체엔 text-overflow 가 안 먹는 브라우저가 있어 안쪽 블록에 건다) */
+.memory-row__text {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: 16px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.memory-row__text .rule-row__key {
+  display: block;
+}
+.memory-row__text:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* 펼친 기억: 줄바꿈해서 다 보인다. 첫 줄이 뱃지·잊기 버튼(24px)과 같은 높이에 오게 위에 맞춘다 */
+.memory-row--open {
+  align-items: flex-start;
+}
+.memory-row--open .memory-row__text {
+  padding: 4px 0;
+}
+.memory-row--open .memory-row__text .rule-row__key {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+.memory-row--open .memory-row__kind {
+  margin-top: 5px;
+}
+
 /* ── 모델 프로필 ── */
 .profile-row {
   display: flex;

@@ -1052,6 +1052,14 @@ const MEMORY_KIND_LABELS: Record<string, string> = {
  */
 function MemoriesSection() {
   const [memories, setMemories] = useState<Memory[]>([]);
+  // 한 줄로 잘린 기억은 눌러서 펼쳐 읽는다
+  const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
+  const toggle = (id: number) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
 
   const refresh = useCallback(async () => {
     try {
@@ -1080,9 +1088,12 @@ function MemoriesSection() {
         <div className="rule-list">
           <AnimatePresence mode="popLayout" initial={false}>
             {memories.map((m) => (
-              <motion.div className="rule-row" key={m.id} {...listItem}>
+              // layout="position": 펼칠 때 크기까지 늘려 그리면 글자가 잠깐 찌그러진다. 아래 줄만 미끄러지게
+              <motion.div className={`rule-row${open.has(m.id) ? " memory-row--open" : ""}`} key={m.id} {...listItem} layout="position">
                 <span className="memory-row__kind">{MEMORY_KIND_LABELS[m.kind] ?? m.kind}</span>
-                <span className="rule-row__key" title={m.content}>{m.content}</span>
+                <button type="button" className="memory-row__text" aria-expanded={open.has(m.id)} onClick={() => toggle(m.id)}>
+                  <span className="rule-row__key">{m.content}</span>
+                </button>
                 <IconButton label="잊기" danger onClick={() => remove(m.id)}><Trash2 size={12} /></IconButton>
               </motion.div>
             ))}
