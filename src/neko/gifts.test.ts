@@ -44,6 +44,13 @@ describe("선물함", () => {
     expect(f.placed).toEqual({ surface: "floor", u: 0.35 }); // 벽 물건 자리는 비어 있는 셈
   });
 
+  it("노는 방식은 아는 것만 남긴다", () => {
+    const s = useNekoGifts.getState();
+    s.add({ id: "a", title: "a", body: "", shape: null, play: "roll" });
+    s.add({ id: "b", title: "b", body: "", shape: null, play: "dance" });
+    expect(useNekoGifts.getState().gifts.map((g) => g.play)).toEqual(["roll", undefined]);
+  });
+
   it("놓기·치우기가 저장되고, 다시 불러오면 모양을 다시 검사한다", async () => {
     const s = useNekoGifts.getState();
     s.add({ id: "x", title: "도토리", body: "", shape: { parts: [{ t: "ellipse", x: 0, y: -5, rx: 4, ry: 5, c: "brown" }] } });

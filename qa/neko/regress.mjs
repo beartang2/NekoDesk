@@ -285,6 +285,34 @@ try {
     await p.close();
   }
 
+  // 9-g) 선물 갖고 놀기(docs/neko-gifts.md §5): 노는 방식마다 다가가서 논다. 굴리기·물고 옮기기는 자리가 바뀌어 decorMove,
+  //      끝나면 물건이 숨지 않고 바닥에 있다. 벽에 건 건 올려다본다
+  {
+    const p = await open(`?w=680&h=300&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, out = {};
+      const shapes = { round: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] }, flat: { parts: [{ t: "ellipse", x: 0, y: -3, rx: 13, ry: 3, c: "gray" }] } };
+      n.setWander(false);
+      for (const [play, surface] of [["roll", "floor"], ["bat", "floor"], ["sniff", "floor"], ["sit_on", "floor"], ["carry", "floor"], ["sniff", "wall"]]) {
+        n.act(null); n.step(120); c.x = n.W * 0.75; c.vx = 0; n.step(60);
+        let moves = 0; const off = n.on("decorMove", () => moves++);
+        n.setDecor([{ id: "g", surface, u: 0.25, v: 0.5, play, shape: play === "sit_on" ? shapes.flat : shapes.round }]);
+        n.act("giftplay");
+        let acted = 0, minDx = 1e9;
+        for (let i = 0; i < 120 * 25; i++) { n.step(1); if (c.mode === "act") acted++; if (i % 10 === 0) { n.draw(); const b = n.cat.act; } }
+        n.draw();
+        const box = (() => { for (let y = 0; y < n.floorY + 2; y += 2) for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, y)) return [x, y]; return null; })();
+        n.act(null); n.step(10); off();
+        out[`${play}/${surface}`] = { acted: acted > 30, moves, visible: !!box, carrying: n.carried().length };
+      }
+      return out;
+    });
+    const ok = (k, needMove) => r[k].acted && r[k].visible && r[k].carrying === 0 && (!needMove || r[k].moves > 0);
+    check("선물 갖고 놀기: 굴리기·물고 옮기기는 옮겨 놓고 decorMove", `굴리기 ${JSON.stringify(r["roll/floor"])} · 물기 ${JSON.stringify(r["carry/floor"])}`, ok("roll/floor", true) && ok("carry/floor", true));
+    check("선물 갖고 놀기: 톡·냄새·위에 앉기·벽 올려다보기", ["bat/floor", "sniff/floor", "sit_on/floor", "sniff/wall"].map((k) => `${k} ${r[k].acted}`).join(" · "), ["bat/floor", "sniff/floor", "sit_on/floor", "sniff/wall"].every((k) => ok(k, false)));
+    await p.close();
+  }
+
   // 9-e) 화면 모드(docs/neko-screen-mode.md §9 E1~E5): 세계 = 창 전체, 캔버스는 고양이 둘레만 따라간다.
   //      크기 고정·바닥 지정·세계 좌표 hit·높이서 떨어지기·나비는 영역 안
   {

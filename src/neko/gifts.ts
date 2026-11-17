@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { settingsApi } from "../api/tauri";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
-import type { NekoDecorSpot } from "./engine/neko-engine";
+import type { NekoDecorSpot, NekoGiftPlay } from "./engine/neko-engine";
 
 /**
  * 선물함: 네코가 산책에서 주워 온 물건(설계 docs/neko-gifts.md §3·§4).
@@ -14,6 +14,7 @@ const KEY = "neko_gifts";
 /** 선물함 칸을 무대로 끌 때의 데이터 종류(HTML 끌어 놓기) */
 export const GIFT_DND = "application/x-neko-gift";
 export const MAX_GIFTS = 100;
+export const PLAYS: NekoGiftPlay[] = ["roll", "bat", "sniff", "sit_on", "carry"];
 
 /** 바닥: u = 무대 폭(양끝 여백 제외) 비율. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율. 모두 0~1 */
 export type GiftPlacement = NekoDecorSpot;
@@ -25,6 +26,8 @@ export interface NekoGift {
   title: string;
   body: string;
   shape: GiftShape;
+  /** 네코가 이걸로 노는 방식(산책 머리가 고름). 없으면 엔진이 모양으로 짐작 */
+  play?: NekoGiftPlay;
   placed?: GiftPlacement;
 }
 
@@ -51,7 +54,7 @@ interface GiftStore {
   loaded: boolean;
   load: () => Promise<void>;
   /** 모양은 받은 그대로 넘겨도 된다(여기서 검사한다) */
-  add: (g: Omit<NekoGift, "id" | "at" | "shape"> & Partial<Pick<NekoGift, "id" | "at">> & { shape: unknown }) => void;
+  add: (g: Omit<NekoGift, "id" | "at" | "shape" | "play"> & Partial<Pick<NekoGift, "id" | "at">> & { shape: unknown; play?: unknown }) => void;
   /** 바닥에 놓는다(자리를 안 주면 빈 곳). null 이면 치운다(선물함으로) */
   place: (id: string, spot: GiftPlacement | "auto" | null) => void;
   remove: (id: string) => void;
@@ -79,7 +82,8 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
     set((s) => ({ gifts: capGifts([...list, ...s.gifts.filter((g) => !list.some((o) => o.id === g.id))]), loaded: true }));
   },
   add(g) {
-    const gift: NekoGift = { id: g.id ?? crypto.randomUUID(), at: g.at ?? new Date().toISOString(), title: g.title, body: g.body, shape: validateShape(g.shape), ...(g.placed ? { placed: g.placed } : {}) };
+    const play = PLAYS.includes(g.play as NekoGiftPlay) ? (g.play as NekoGiftPlay) : undefined;
+    const gift: NekoGift = { id: g.id ?? crypto.randomUUID(), at: g.at ?? new Date().toISOString(), title: g.title, body: g.body, shape: validateShape(g.shape), ...(play ? { play } : {}), ...(g.placed ? { placed: g.placed } : {}) };
     const gifts = capGifts([...get().gifts, gift]);
     set({ gifts });
     persist(gifts);
@@ -100,3 +104,20 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
     persist(gifts);
   },
 }));
+
+// 개발 빌드에서만: 산책을 안 다녀와도 시험할 수 있게 견본 선물을 넣는다. 콘솔에서 nekoGift() — 넣고 바닥에 놓는다
+if (import.meta.env.DEV) {
+  const SAMPLES: { title: string; play: NekoGiftPlay; shape: unknown }[] = [
+    { title: "반짝이는 병뚜껑", play: "roll", shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "silver" }, { t: "circle", x: 0, y: -7, r: 5, c: "red" }, { t: "dot", x: -2, y: -9, c: "white" }] } },
+    { title: "단풍잎", play: "carry", shape: { parts: [{ t: "poly", pts: [[-10, -2], [-2, -12], [10, -14], [6, -4], [-4, 0]], c: "orange" }, { t: "rrect", x: -9, y: -2, w: 6, h: 1.4, rad: 0.7, rot: 0.5, c: "brown" }] } },
+    { title: "각설탕", play: "bat", shape: { parts: [{ t: "rrect", x: 0, y: -6, w: 12, h: 12, rad: 2, rot: 0, c: "white" }, { t: "dot", x: -2, y: -9, c: "silver" }] } },
+    { title: "납작한 조약돌", play: "sit_on", shape: { parts: [{ t: "ellipse", x: 0, y: -3.5, rx: 13, ry: 3.5, rot: 0, c: "gray" }, { t: "dot", x: -4, y: -5, c: "white" }] } },
+    { title: "도토리", play: "sniff", shape: { parts: [{ t: "ellipse", x: 0, y: -6, rx: 5, ry: 6, rot: 0, c: "brown" }, { t: "rrect", x: 0, y: -12, w: 11, h: 4, rad: 2, rot: 0, c: "orange" }] } },
+  ];
+  (window as unknown as { nekoGift: (i?: number) => string }).nekoGift = (i) => {
+    const s = SAMPLES[i ?? Math.floor(Math.random() * SAMPLES.length)], id = crypto.randomUUID();
+    useNekoGifts.getState().add({ id, title: s.title, body: "개발용 견본", shape: s.shape, play: s.play });
+    useNekoGifts.getState().place(id, "auto");
+    return `${s.title}(${s.play})`;
+  };
+}

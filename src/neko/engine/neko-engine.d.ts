@@ -49,7 +49,12 @@ export type NekoActivity =
   | "draw" | "music" | "butterfly" | "snack" | "stretch" | "typing" | "reading"
   | "stamp" | "groom" | "knead" | "yarn" | "box" | "window" | "climb"
   // P3: 감독이 에이전트 단계·앱 상황에 맞춰 고른다
-  | "think" | "wait" | "meal" | "hungry" | "dig" | "calendar" | "erase";
+  | "think" | "wait" | "meal" | "hungry" | "dig" | "calendar" | "erase"
+  // 놓아 둔 선물 갖고 놀기(docs/neko-gifts.md §5)
+  | "giftplay";
+
+/** 선물 노는 방식. 없으면 엔진이 모양으로 짐작한다 */
+export type NekoGiftPlay = "roll" | "bat" | "sniff" | "sit_on" | "carry";
 export type NekoTailSign =
   | "level" | "up" | "question" | "quiver" | "sway" | "down" | "puff" | "angry" | "thump";
 export type NekoReaction = "pet" | "nyang" | "startle" | "greet" | "cheer" | "proud" | "sulk" | "down";
@@ -139,7 +144,9 @@ export interface NekoController {
    * 무대에 놓아 둔 물건(선물). 바닥: u = 양끝 여백을 뺀 무대 폭 비율 0~1. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율 0~1.
    * 새로 놓인 것만 '뿅' 하고 나온다. 잡고 끌면 decorMove, 우클릭하면 decorRemove(저장은 호스트)
    */
-  setDecor(items: ({ id: string; shape: unknown } & NekoDecorSpot)[]): void;
+  setDecor(items: ({ id: string; shape: unknown; play?: NekoGiftPlay } & NekoDecorSpot)[]): void;
+  /** 놓아 둔 물건 수(감독이 '선물 갖고 놀기'를 고를지 볼 때) */
+  readonly decorCount: number;
   /** 이 점(무대 px)이 놓아 둔 물건 위면 그 id */
   hitDecor(x: number, y: number): string | null;
   /** 무대 px 의 한 점(물건 가운데)을 자리로. 선물함에서 끌어 놓을 때 */

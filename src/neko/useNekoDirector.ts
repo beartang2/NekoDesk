@@ -84,7 +84,9 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
         const wait = BOX_AFTER_MS[0] + Math.random() * (BOX_AFTER_MS[1] - BOX_AFTER_MS[0]);
         boxTimer = setTimeout(() => {
           boxTimer = null;
-          const kinds = ["box", "yarn", "butterfly"] as const;
+          // 놓아 둔 선물이 있으면 그걸 갖고 노는 것도 고른다(docs/neko-gifts.md §5). 다른 것보다 조금 자주
+          const gifts = (ctrl as { decorCount?: number }).decorCount ? (["giftplay", "giftplay"] as const) : [];
+          const kinds = ["box", "yarn", "butterfly", ...gifts] as const;
           box = { since: performance.now(), kind: kinds[Math.floor(Math.random() * kinds.length)] };
           boxPetBase = useNekoApp.getState().pets;
           boxExitTimer = setTimeout(leaveBox, BOX_STAY_MS);

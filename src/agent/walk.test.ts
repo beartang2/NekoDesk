@@ -134,7 +134,7 @@ describe("산책 머리", () => {
     const rnd = vi.spyOn(Math, "random").mockReturnValue(0); // 무게 첫 칸 = 주운 것
     subagent.mockResolvedValueOnce("");
     completion.mockResolvedValueOnce(report({
-      learned: [], diary: "d", gift_title: "병뚜껑", gift_body: "반짝여",
+      learned: [], diary: "d", gift_title: "병뚜껑", gift_body: "반짝여", gift_play: "roll",
       gift_shape: { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "silver" }, { t: "evil", code: "x" }] },
     }));
     const r = await startWalkBrain({ places: [], here: null }).result;
@@ -142,7 +142,7 @@ describe("산책 머리", () => {
     expect(r.gift?.kind).toBe("trinket");
     expect(r.gift?.shape?.parts).toEqual([{ t: "circle", x: 0, y: -6, r: 6, c: "silver" }]);
     expect(r.content).toContain("선물함에 넣어 뒀어");
-    expect(useNekoGifts.getState().gifts.map((g) => g.title)).toEqual(["병뚜껑"]);
+    expect(useNekoGifts.getState().gifts.map((g) => [g.title, g.play])).toEqual([["병뚜껑", "roll"]]);
   });
 
   it("조사가 매달려 있어도 abort 하면 바로 돌아온다", async () => {

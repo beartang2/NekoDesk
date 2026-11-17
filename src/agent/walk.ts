@@ -8,7 +8,7 @@ import { josa } from "../lib/hangul";
 import { timeZone } from "../lib/time";
 import type { Memory, OpenAiToolSchema, ToolName } from "./types";
 import { GIFT_PALETTE, validateShape, type GiftShape } from "../neko/engine/gift-shape";
-import { useNekoGifts } from "../neko/gifts";
+import { PLAYS, useNekoGifts } from "../neko/gifts";
 
 /** 산책에서 가져올 수 있는 선물 종류. */
 export type GiftKind = "trinket" | "place" | "weather" | "link" | "memory" | "drawing" | "game";
@@ -24,6 +24,8 @@ export interface WalkGift {
   place?: MapPlace;
   /** 주운 것·장소 기념품 — 네코 그림체로 그릴 물건 모양(검사를 거친 것). 선물함에 들어간다 */
   shape?: GiftShape;
+  /** 그 물건으로 노는 방식. 없으면 엔진이 모양으로 짐작 */
+  play?: string;
 }
 
 export interface WalkReport {
@@ -135,6 +137,11 @@ const REPORT_TOOL = {
           },
           required: ["parts"],
         },
+        gift_play: {
+          type: "string",
+          enum: PLAYS,
+          description: "gift_shape 를 적었을 때: 네가 그걸로 노는 방식. roll 굴리기(동근 것)·bat 앞발로 톡·sniff 냄새 맡기·sit_on 위에 앉기(납작한 것)·carry 물고 옮기기",
+        },
       },
       required: ["learned", "diary", "gift_title", "gift_body"],
     },
@@ -149,6 +156,7 @@ interface Structured {
   gift_url: string;
   drawing_prompt: string;
   gift_shape: unknown;
+  gift_play: string;
 }
 
 /** 산책하며 모은 것. abort 되면 그 순간의 이것으로 보고한다. */
@@ -189,7 +197,7 @@ export function startWalkBrain(ctx: { places: MapPlace[]; here: { lat: number; l
       const report = compose(g);
       // 그림으로 그릴 물건이면 선물함에 넣는다(설계 docs/neko-gifts.md §3)
       const gift = report.gift;
-      if (gift?.shape) try { useNekoGifts.getState().add({ title: gift.title, body: gift.body, shape: gift.shape }); } catch { /* 선물함이 안 돼도 보고는 한다 */ }
+      if (gift?.shape) try { useNekoGifts.getState().add({ title: gift.title, body: gift.body, shape: gift.shape, play: gift.play }); } catch { /* 선물함이 안 돼도 보고는 한다 */ }
       return report;
     }),
     abort: () => ctrl.abort(),
@@ -295,6 +303,7 @@ async function walk(
     gift_url: str(p?.gift_url),
     drawing_prompt: str(p?.drawing_prompt),
     gift_shape: p?.gift_shape,
+    gift_play: str(p?.gift_play),
   };
 
   // 4. 그림 선물은 글이 나온 뒤에 그린다 — 뭘 그릴지가 그 글에 있다.
@@ -331,7 +340,9 @@ function compose(g: Gathered): WalkReport {
           ...(r.gift_url ? { url: r.gift_url } : {}),
           ...(g.file ? { file: g.file } : {}),
           ...(g.place ? { place: g.place } : {}),
-          ...(g.kind === "trinket" || g.kind === "place" ? { shape: validateShape(r.gift_shape) } : {}),
+          ...(g.kind === "trinket" || g.kind === "place"
+            ? { shape: validateShape(r.gift_shape), ...(r.gift_play ? { play: r.gift_play } : {}) }
+            : {}),
         }
       : g.material
         ? { kind: g.kind, title: GIFTS[g.kind].label, body: g.material, ...(g.place ? { place: g.place } : {}) }
