@@ -1,16 +1,30 @@
 /* ── 산책 지도 ──
-   포모도로와 메모 사이 빈자리를 채운다. 최소 높이는 RightPanel 이 재서 지킨다(모자라면
-   right-panel--nomap 으로 숨김) — CSS min-height 를 주면 메모를 밀어 납작하게 만든다. */
+   펼치면 늘 정사각형, 머리글을 눌러 접는다. 자리가 모자라도 저절로 숨기지 않는다 — 접는 건 사용자가. */
 .panel-card--map {
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  flex: none;
   overflow: hidden;
 }
 
-.right-panel--nomap .panel-card--map {
-  display: none;
+/* 머리글 전체가 접기 버튼이다(포모도로 머리글과 같은 모양). */
+.map-card__header {
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: var(--r-lg) var(--r-lg) var(--r-sm) var(--r-sm);
+  cursor: pointer;
+  text-align: left;
+  padding: 10px 12px;
+  font-family: inherit;
+}
+
+.map-card__header:hover {
+  color: var(--text-primary);
+}
+
+.map-card__header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .map-card__dist {
@@ -22,9 +36,8 @@
 
 .map-card__body {
   position: relative;
-  flex: 1;
-  min-height: 0;
-  margin: 0 6px;
+  aspect-ratio: 1;
+  margin: 0 6px 6px;
   border-radius: var(--r-md);
   overflow: hidden;
   background: var(--layer-hover);

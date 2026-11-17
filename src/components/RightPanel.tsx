@@ -1250,10 +1250,6 @@ function Shelf() {
 
 // ── Right Panel ───────────────────────────────────────────────────────────────
 
-/** 산책 지도가 이보다 낮아지면 숨긴다. 다시 띄우는 건 MAP_SHOW_SLACK 만큼 더 생겼을 때. */
-const MAP_MIN_H = 110;
-const MAP_SHOW_SLACK = 8;
-
 export function RightPanel({
   onResizeStart,
   isResizing,
@@ -1265,12 +1261,12 @@ export function RightPanel({
   walk?: Walk | null;
   isDark?: boolean;
 }) {
-  // 포모도로와 메모 사이 빈자리는 산책 지도가 채운다. 자리가 모자라면 지도가 먼저 비키고,
-  // 그래도 모자라면(메모가 정사각형을 못 지키면) 포모도로를 한 줄로 접는다. 되돌리는 건
-  // 그만큼 자리가 생겼을 때만 — 숨기고 띄우는 기준이 같으면 경계에서 깜빡인다.
+  // 자리가 모자라면(메모가 정사각형을 못 지키면) 포모도로를 한 줄로 접는다. 되돌리는 건 그만큼
+  // 자리가 생겼을 때만 — 접고 펴는 기준이 같으면 경계에서 깜빡인다. 산책 지도는 저절로 숨기지 않는다
+  // (펼치면 정사각형, 접는 건 사용자가 — MapCard).
   const ref = useRef<HTMLElement>(null);
-  const [layout, setLayout] = useState({ tight: false, map: false });
-  const layoutRef = useRef(layout);
+  const [tight, setTight] = useState(false);
+  const tightRef = useRef(tight);
   const fullPomoH = useRef(0);
 
   useEffect(() => {
@@ -1283,26 +1279,19 @@ export function RightPanel({
       if (!memo || !pomo || !pomoCard) return;
       const squeezed = memo.offsetHeight < memo.offsetWidth - 1 || panel.scrollHeight > panel.clientHeight;
       const rowGap = parseFloat(getComputedStyle(panel).rowGap) || 0;
-      // 포모도로 아래·메모 위에 남는 자리. 지도가 떠 있으면 지도와 그 틈 하나가 곧 이 자리다
-      // (지도는 빈자리만 채우고 남을 밀지 않는다 — flex-basis 0).
-      let room = memo.offsetTop - (pomoCard.offsetTop + pomoCard.offsetHeight) - rowGap;
-      let { tight, map } = layoutRef.current;
-      if (!tight) fullPomoH.current = pomo.offsetHeight;
-      if (tight) {
-        const grow = fullPomoH.current - pomo.offsetHeight;
-        if (!squeezed && room >= grow) {
-          tight = false;
-          room -= grow;
-        }
-      } else if (squeezed && !map) {
-        tight = true;
+      // 메모 바로 위 카드(지도) 아래로 남는 빈자리(메모는 margin-top: auto 로 바닥에 붙는다)
+      const above = (memo.previousElementSibling as HTMLElement | null) ?? pomoCard;
+      const room = memo.offsetTop - (above.offsetTop + above.offsetHeight) - rowGap;
+      let next = tightRef.current;
+      if (!next) fullPomoH.current = pomo.offsetHeight;
+      if (next) {
+        if (!squeezed && room >= fullPomoH.current - pomo.offsetHeight) next = false;
+      } else if (squeezed) {
+        next = true;
       }
-      map = map
-        ? !squeezed && room - rowGap >= MAP_MIN_H
-        : !tight && room - rowGap >= MAP_MIN_H + MAP_SHOW_SLACK;
-      if (tight === layoutRef.current.tight && map === layoutRef.current.map) return;
-      layoutRef.current = { tight, map };
-      setLayout(layoutRef.current);
+      if (next === tightRef.current) return;
+      tightRef.current = next;
+      setTight(next);
     };
     // 카드 높이(할 일 추가, 아코디언, 일정)가 바뀌어도 다시 잰다.
     const ro = new ResizeObserver(check);
@@ -1314,7 +1303,7 @@ export function RightPanel({
   return (
     <aside
       ref={ref}
-      className={`right-panel ${layout.tight ? "right-panel--tight" : ""} ${layout.map ? "" : "right-panel--nomap"}`}
+      className={`right-panel ${tight ? "right-panel--tight" : ""}`}
     >
       {onResizeStart && (
         <div

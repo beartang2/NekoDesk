@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Map as MapIcon } from "lucide-react";
+import { ChevronDown, Map as MapIcon } from "lucide-react";
 import { mapApi, type MapSnapshot } from "../api/tauri";
 import { useSettingsStore } from "../stores/settingsStore";
 import { NekoWalker } from "../neko/NekoWalker";
@@ -25,8 +25,15 @@ export const hereOnce = () =>
 /** 이보다 가까이는 당기지 않는다 — 동네가 안 보인다. */
 const MIN_SPAN_M = 400;
 
-/** 산책 지도. 가운데가 나(집), 네코는 산책 경로 위 지금 자리. 다녀오면 선물 받은 곳에 핀. */
+const OPEN_KEY = "nekodesk_map_open";
+
+/**
+ * 산책 지도. 가운데가 나(집), 네코는 산책 경로 위 지금 자리. 다녀오면 선물 받은 곳에 핀.
+ * 펼치면 늘 정사각형이고, 머리글을 눌러 접는다(껐다 켜도 기억한다). 자리가 모자라도 저절로 숨지 않는다.
+ */
 export function MapCard({ walk, isDark }: { walk: Walk | null; isDark: boolean }) {
+  const [open, setOpen] = useState(() => localStorage.getItem(OPEN_KEY) !== "0");
+  const toggle = () => setOpen((v) => { localStorage.setItem(OPEN_KEY, v ? "0" : "1"); return !v; });
   const bodyRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [here, setHere] = useState<LatLon | null>(null);
@@ -41,8 +48,8 @@ export function MapCard({ walk, isDark }: { walk: Walk | null; isDark: boolean }
     return () => ro.disconnect();
   }, []);
 
-  // 숨은 카드(자리가 모자라 RightPanel 이 접음)는 위치를 묻지 않는다 — 실제로 보일 때 처음 묻는다.
-  const visible = size.w > 0 && size.h > 0;
+  // 접힌 지도는 위치를 묻지도, 지도를 받지도 않는다 — 펼쳐 보일 때 처음 묻는다.
+  const visible = open && size.w > 0 && size.h > 0;
   // 받은 위치는 같은 객체라 다시 불러도 그대로다. 대신 쓴 좌표였으면 그사이 진짜 위치로 바뀐다.
   useEffect(() => {
     if (!visible) return;
@@ -103,10 +110,15 @@ export function MapCard({ walk, isDark }: { walk: Walk | null; isDark: boolean }
 
   return (
     <div className="panel-card panel-card--map">
-      <div className="panel-card__header">
+      <button className="panel-card__header map-card__header" onClick={toggle} aria-expanded={open} title={open ? "지도 접기" : "지도 펼치기"}>
         <span className="draw-header-title"><MapIcon size={10} strokeWidth={2} /> 지도</span>
-        {live && <span className="map-card__dist">{Math.round(Math.hypot(...at))}m</span>}
-      </div>
+        <span className="map-card__header-right">
+          {live && <span className="map-card__dist">{Math.round(Math.hypot(...at))}m</span>}
+          <ChevronDown size={12} strokeWidth={2.25} className={`acc-chevron ${open ? "acc-chevron--up" : ""}`} aria-hidden="true" />
+        </span>
+      </button>
+      <div className={`acc-wrap ${open ? "acc-wrap--open" : ""}`}>
+      <div className="acc-inner">
       <div ref={bodyRef} className="map-card__body">
         {map && <img className="map-card__img" src={map.dataUrl} width={map.w} height={map.h} alt="" />}
         {visible && (
@@ -127,6 +139,8 @@ export function MapCard({ walk, isDark }: { walk: Walk | null; isDark: boolean }
             <NekoWalker size={24} walking={stepping} facingLeft={facingLeft} />
           </div>
         )}
+      </div>
+      </div>
       </div>
     </div>
   );
