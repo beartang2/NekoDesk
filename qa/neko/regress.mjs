@@ -200,6 +200,21 @@ try {
     await p.close();
   }
 
+  // 9-0) 창 크기를 바꾸는 동안 깜빡이지 않는다: 크기 알림을 받은 그 자리에서 다시 그려, 캔버스가 빈 채로 화면에 나가지 않는다
+  {
+    const p = await open(`?w=220&h=200&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
+    const r = await p.evaluate(() => {
+      const n = window.__neko, cv = document.getElementById("stage"), g = cv.getContext("2d");
+      const inked = () => { const d = g.getImageData(0, 0, cv.width, cv.height).data; for (let i = 3; i < d.length; i += 16) if (d[i] > 200) return true; return false; };
+      n.step(60); n.draw();
+      let blank = 0;
+      for (let k = 0; k < 20; k++) { cv.style.width = 220 + k * 13 + "px"; cv.style.height = 200 + (k % 5) * 9 + "px"; n.resize(); if (!inked()) blank++; }
+      return { blank };
+    });
+    check("창 크기 바꾸는 동안: 크기가 바뀐 직후에도 그림이 있다(깜빡임 없음)", `20번 중 빈 캔버스 ${r.blank}`, r.blank === 0);
+    await p.close();
+  }
+
   // 9-a) 활동 도중 자리가 바뀌어도(사이드바 → 채팅 바 아래, 높이 끌기) 소품이 고양이와 같은 배율·간격을 지킨다.
   //      예전엔 고양이만 새 크기가 되고 상자는 옛 크기·자리에 남았다. 고양이 자리는 무대 폭 비율을 지킨다.
   for (const [act, key, w, h] of [["box", "box", 900, 150], ["box", "box", 220, 320], ["hungry", "bowl", 900, 150]]) {
@@ -299,10 +314,10 @@ try {
         n.setDecor([{ id: "g", surface, u: 0.25, v: 0.5, play, shape: play === "sit_on" ? shapes.flat : shapes.round }]);
         n.act("giftplay");
         let acted = 0, minDx = 1e9;
-        for (let i = 0; i < 120 * 25; i++) { n.step(1); if (c.mode === "act") acted++; if (i % 10 === 0) { n.draw(); const b = n.cat.act; } }
-        n.draw();
+        for (let i = 0; i < 120 * 25; i++) { n.step(1); if (c.mode === "act") acted++; if (i % 10 === 0) n.draw(); }
+        // 그만하게 한 뒤에 본다: 마침 물고 옮기는 중이었어도 그 자리에 내려놓아야 한다
+        n.act(null); n.step(30); n.draw(); off();
         const box = (() => { for (let y = 0; y < n.floorY + 2; y += 2) for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, y)) return [x, y]; return null; })();
-        n.act(null); n.step(10); off();
         out[`${play}/${surface}`] = { acted: acted > 30, moves, visible: !!box, carrying: n.carried().length };
       }
       return out;

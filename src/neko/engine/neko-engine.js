@@ -3677,16 +3677,25 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (WORLD) { // 캔버스는 고양이 둘레만: 크기는 S 를 따르고 자리는 그릴 때마다(placeRegion)
       RW = Math.round(REGION[0] * S); RH = Math.round(REGION[1] * S);
       canvas.style.width = RW + "px"; canvas.style.height = RH + "px";
-      canvas.width = Math.round(RW * DPR); canvas.height = Math.round(RH * DPR);
+      setBacking(RW, RH);
     } else {
       RX = 0; RY = 0; RW = W; RH = H;
-      canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+      setBacking(W, H);
     }
     if (W0 > 1 && (S !== S0 || W !== W0 || floorY !== F0)) rescaleWorld(W0, S0, F0);
     cat.x = clamp(cat.x || W * 0.45, 70 * S, W - 70 * S);
     if (GROUND.has(cat.mode)) cat.y = floorY - standH() * S;
     for (const j of cat.jig) j.init = false;
     cat.tailRoot.init = false;
+    // 바로 다시 그린다. 크기 알림(ResizeObserver)은 rAF 다음·화면에 내보내기 전에 오는데, 캔버스 크기를 바꾸면
+    // 그림이 지워져 그 프레임엔 빈 캔버스가 나갔다 — 창을 끄는 동안 매 프레임 깜빡였다. (처음 한 번은 아직 자세가 없다)
+    if (W0 > 1 && !paused) { try { draw(); } catch (err) { paused = true; console.error("[neko]", err); emit("error", err); } }
+  }
+  /** 캔버스 픽셀 크기. 같으면 건드리지 않는다 — 같은 값을 넣어도 그림이 지워진다 */
+  function setBacking(w, h) {
+    const bw = Math.round(w * DPR), bh = Math.round(h * DPR);
+    if (canvas.width !== bw) canvas.width = bw;
+    if (canvas.height !== bh) canvas.height = bh;
   }
   /**
    * 무대 크기가 바뀌었을 때(자리 옮김·높이 끌기) 이미 px 로 굳은 것들을 새 배율에 맞춘다. 고양이는 그릴 때마다 S 를
