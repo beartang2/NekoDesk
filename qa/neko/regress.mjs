@@ -200,6 +200,22 @@ try {
     await p.close();
   }
 
+  // 9-a) 활동 도중 자리가 바뀌어도(사이드바 → 채팅 바 아래, 높이 끌기) 소품이 고양이와 같은 배율·간격을 지킨다.
+  //      예전엔 고양이만 새 크기가 되고 상자는 옛 크기·자리에 남았다. 고양이 자리는 무대 폭 비율을 지킨다.
+  for (const [act, key, w, h] of [["box", "box", 900, 150], ["box", "box", 220, 320], ["hungry", "bowl", 900, 150]]) {
+    const p = await open(`?w=220&h=200&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
+    const before = await p.evaluate(([act, key]) => {
+      const n = window.__neko; n.act(act); n.step(360); const o = n.cat.act[key];
+      return { w: (o.w ?? 0) / n.S, dx: (o.x - n.cat.x) / n.S, at: n.cat.x / n.W };
+    }, [act, key]);
+    await p.evaluate(([w, h]) => { const s = document.getElementById("stage"); s.style.width = w + "px"; s.style.height = h + "px"; }, [w, h]);
+    await p.waitForTimeout(150);
+    const after = await p.evaluate((key) => { const n = window.__neko, o = n.cat.act[key]; return { w: (o.w ?? 0) / n.S, dx: (o.x - n.cat.x) / n.S, at: n.cat.x / n.W }; }, key);
+    const ok = Math.abs(after.w - before.w) < 0.5 && Math.abs(after.dx - before.dx) < 0.5 && Math.abs(after.at - before.at) < 0.02;
+    check(`자리 220×200 → ${w}×${h} (${act}): 소품이 고양이를 따라 커지고 옮겨진다`, `폭 ${before.w.toFixed(1)}→${after.w.toFixed(1)} · 간격 ${before.dx.toFixed(1)}→${after.dx.toFixed(1)} · 자리 ${before.at.toFixed(2)}→${after.at.toFixed(2)}`, ok);
+    await p.close();
+  }
+
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다
   for (const [w, h] of [[704, 282], [220, 150], [900, 150]]) {
     const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);

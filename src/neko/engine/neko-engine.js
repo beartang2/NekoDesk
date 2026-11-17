@@ -3360,6 +3360,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /* ---------- 크기 · 초기화 ---------- */
   function resize() {
     const r = canvas.getBoundingClientRect();
+    const W0 = W, S0 = S, F0 = floorY;
     W = Math.max(1, r.width); H = Math.max(1, r.height); DPR = Math.min(window.devicePixelRatio || 1, MAX_DPR);
     canvas.width = Math.round(W * DPR);
     canvas.height = Math.round(H * DPR);
@@ -3367,10 +3368,41 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     // 앱 패널: 높이로 크기를 정하고(높이 200px → 몸 약 80px), 폭이 좁으면 몸이 무대에 들어오게만 줄인다
     // 폭 제한: 꼬리를 뒤로 뻗고 수염까지 무대 안에 들어오는 만큼(W/250). 사이드바가 좁으면 폭을 넓혀야 더 커진다
     S = SCALE_MODE === "height" ? clamp(Math.min(floorY / 240, W / 250), 0.35, 1.4) : clamp(Math.min(W / 600, floorY / 300), 0.55, 1.4);
+    if (W0 > 1 && (S !== S0 || W !== W0 || floorY !== F0)) rescaleWorld(W0, S0, F0);
     cat.x = clamp(cat.x || W * 0.45, 70 * S, W - 70 * S);
     if (GROUND.has(cat.mode)) cat.y = floorY - standH() * S;
     for (const j of cat.jig) j.init = false;
     cat.tailRoot.init = false;
+  }
+  /**
+   * 무대 크기가 바뀌었을 때(자리 옮김·높이 끌기) 이미 px 로 굳은 것들을 새 배율에 맞춘다. 고양이는 그릴 때마다 S 를
+   * 곱해 바로 새 크기가 되지만, 활동 소품(상자·공·그릇·나비…)과 효과 입자는 시작할 때의 px 그대로라 고양이와
+   * 안 맞았다. 고양이 자리는 무대 폭에 대한 비율을 지키고(사이드바 → 채팅 바 아래로 옮기면 왼쪽 끝에 붙어 있었다),
+   * 나머지는 '고양이에서 얼마나 떨어졌나'와 '바닥에서 얼마나 떴나'를 k 배 한다 — 소품마다 따로 고치지 않는다.
+   */
+  function rescaleWorld(W0, S0, F0) {
+    const c = cat, k = S / S0, ax0 = c.x, ax1 = (c.x / W0) * W;
+    const mx = (x) => ax1 + (x - ax0) * k, my = (y) => floorY + (y - F0) * k;
+    const move = (o) => {
+      if (!o || typeof o.x !== "number") return;
+      o.x = mx(o.x);
+      if (typeof o.y === "number") o.y = my(o.y);
+      if (typeof o.tx === "number") o.tx = mx(o.tx);
+      if (typeof o.ty === "number") o.ty = my(o.ty);
+      for (const key of ["w", "h", "r", "vx", "vy"]) if (typeof o[key] === "number") o[key] *= k;
+    };
+    // 활동 상태 A 바로 아래의 소품 객체들(x 를 가진 것). 배열·숫자 칸은 뜻이 제각각이라 건드리지 않는다
+    if (c.act) for (const v of Object.values(c.act)) if (v && typeof v === "object" && !Array.isArray(v)) move(v);
+    for (const e of effects) move(e);
+    // 고양이 몸에 딸린 점들: 안 옮기면 다리·꼬리·머리가 옛 자리에서 늘어났다가 따라온다
+    c.head.x = mx(c.head.x); c.head.y = my(c.head.y); c.headAnc = [mx(c.headAnc[0]), my(c.headAnc[1])];
+    for (const L of c.legs) L.foot.set(mx(L.foot.x), my(L.foot.y));
+    for (const t of c.tail) { t.x = t.px = mx(t.x); t.y = t.py = my(t.y); }
+    c.scruff.set(mx(c.scruff.x), my(c.scruff.y));
+    if (c.target != null) c.target = mx(c.target);
+    c.vx *= k; c.vy *= k;
+    if (!GROUND.has(c.mode)) c.y = my(c.y);
+    c.x = ax1;
   }
   function initPose() {
     const c = cat;
