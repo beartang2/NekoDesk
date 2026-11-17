@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAT_VARIANTS } from "../cat/spriteData";
-import { DEFAULT_APPEARANCE, DOCK_H, SIDEBAR_H, migrateVariant, normalizeAppearance, normalizeStage, spriteVariantOf } from "./nekoStore";
+import { DEFAULT_APPEARANCE, DOCK_H, SIDEBAR_H, migrateVariant, normalizeAppearance, normalizeStage } from "./nekoStore";
 
 describe("nekoStore 정리 함수", () => {
   it("알 수 없는 값은 기본값으로, 무늬는 중복 없이", () => {
@@ -22,12 +21,6 @@ describe("nekoStore 정리 함수", () => {
     expect(migrateVariant("white")).toEqual({ coat: "white", patterns: [] });
     expect(migrateVariant("tuxedo")).toEqual({ coat: "black", patterns: ["white"], eye: "yellow" });
     expect(migrateVariant(null)).toBeNull();
-  });
-
-  it("스프라이트로 그리는 곳은 옮겨 온 외형에서 같은 털색으로 돌아온다", () => {
-    for (const v of CAT_VARIANTS) {
-      expect(spriteVariantOf(normalizeAppearance({ ...DEFAULT_APPEARANCE, ...migrateVariant(v.id) }))).toBe(v.id);
-    }
   });
 
   it("자리 높이는 범위 안으로", () => {

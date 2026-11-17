@@ -553,8 +553,9 @@ v26 은 **걷고, 돌아앉고, 소품을 앞에 놓는** 고양이다.
 ## 13. 지우거나 바꿀 것
 
 - 지움: `src/cat/CatCanvas.tsx`, `CatCanvas.css`, `spriteData.ts`, `src/assets/cat/*`, `stores/catStore.ts`(옮기기 끝난 뒤)
-  - develop 에선 `CatCanvas` 만 지웠다. 부팅 화면·빈 대화(`ChatEmptyState`)·빠른 질문(`NekoHead`)·산책 지도(`MapCard`)가 아직 스프라이트로 그려서
-    `spriteData`·`catStore`·`NekoHead`·스프라이트 자산은 남겼다. `catStore` 는 네코 외형에 가장 가까운 털색을 따른다(`spriteVariantOf`).
+  - 다 지웠다(2026-11-17). 부팅 화면은 엔진 네코가 졸다가 기지개를 켜고(`NekoBootCat`), 빈 대화·빠른 질문·산책 지도는
+    엔진으로 한 번 그린 정지 그림(`NekoPortrait`, 외형별로 localStorage 에 둔다)을 쓴다. 빠른 질문 창은 열릴 때
+    `reloadAppearance` 로 외형을 다시 읽는다.
     그림 그리기 지식의 `{{NEKO_LOOK}}` 은 `nekoStore` 외형을 읽는다.
 - 바꿈:
   - `agent/types.ts` `CatEmotion` 은 PET_STATE·게임 호환용으로만 남는다. 세션 감정은 P2 에서 `NekoSessionState` 로 바꿨다(풀의 `catEmotion` 은 지움).

@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Map as MapIcon } from "lucide-react";
 import { mapApi, type MapSnapshot } from "../api/tauri";
 import { useSettingsStore } from "../stores/settingsStore";
-import { NekoHead } from "../cat/NekoHead";
-import { useCatStore } from "../stores/catStore";
+import { NekoPortrait } from "../neko/NekoPortrait";
 import { positionAt, toMeters, walkEnd, walkedAt, type LatLon, type Pt, type Walk } from "../lib/walk";
 import "./MapCard.css";
 
@@ -28,7 +27,6 @@ const MIN_SPAN_M = 400;
 
 /** 산책 지도. 가운데가 나(집), 네코는 산책 경로 위 지금 자리. 다녀오면 선물 받은 곳에 핀. */
 export function MapCard({ walk, isDark }: { walk: Walk | null; isDark: boolean }) {
-  const variantId = useCatStore((s) => s.variantId);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [here, setHere] = useState<LatLon | null>(null);
@@ -122,7 +120,7 @@ export function MapCard({ walk, isDark }: { walk: Walk | null; isDark: boolean }
         )}
         {visible && (
           <div className="map-card__neko" style={{ left: neko[0], top: neko[1] }}>
-            <NekoHead variantId={variantId} size={17} />
+            <NekoPortrait size={24} />
           </div>
         )}
       </div>

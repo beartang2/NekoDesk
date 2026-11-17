@@ -6,8 +6,8 @@ import { ArrowUp, Camera, Clipboard, TextSelect, X } from "lucide-react";
 import { syncWindowTheme } from "../lib/window-theme";
 import { resizeImageForLlm } from "../lib/image";
 import { decode } from "../lib/decode";
-import { NekoHead } from "../cat/NekoHead";
-import { reloadCatVariant, useCatStore } from "../stores/catStore";
+import { NekoPortrait } from "../neko/NekoPortrait";
+import { reloadAppearance } from "../neko/nekoStore";
 import {
   QUICK_ACTIONS,
   QUICK_ASK_EVENT,
@@ -50,7 +50,6 @@ function snippet(s: string, max = 42): string {
  * 있다 — 그걸 말없이 대화 기록에 남기면 안 된다.
  */
 export function QuickAsk() {
-  const variantId = useCatStore((s) => s.variantId);
   const [ctx, setCtx] = useState<QuickContext>(EMPTY);
   const [text, setText] = useState("");
   const [useSelection, setUseSelection] = useState(true);
@@ -70,7 +69,7 @@ export function QuickAsk() {
     syncWindowTheme();
     const unlisten = listen<QuickContext>(QUICK_CONTEXT_EVENT, (e) => {
       syncWindowTheme();
-      reloadCatVariant();
+      reloadAppearance();
       setCtx(e.payload);
       setText("");
       setUseSelection(true);
@@ -125,7 +124,7 @@ export function QuickAsk() {
     <div className="quick" onKeyDown={onKeyDown}>
       <div className="quick__main">
       <div className="quick__row">
-        <NekoHead className="quick__cat" variantId={variantId} />
+        <NekoPortrait className="quick__cat" size={34} />
         <input
           ref={inputRef}
           className="quick__input"

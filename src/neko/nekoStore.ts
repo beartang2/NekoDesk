@@ -47,7 +47,7 @@ const LEGACY_VARIANT_KEY = "nekodesk_cat_variant";
 /** 예전 스프라이트 색 → v26 외형. 브라운은 치즈 + 줄무늬(브라운 태비), 화이트는 '하양' 털 색. */
 export function migrateVariant(id: string | null): Partial<NekoAppearance> | null {
   const map: Record<string, Partial<NekoAppearance>> = {
-    // 지금 스프라이트 털색(spriteData CAT_VARIANTS)
+    // 마지막 스프라이트 털색들
     cheese: { coat: "cheese", patterns: ["tabby", "white"] },
     tabby: { coat: "gray", patterns: ["tabby", "white"] },
     tuxedo: { coat: "black", patterns: ["white"], eye: "yellow" },
@@ -65,17 +65,6 @@ export function migrateVariant(id: string | null): Partial<NekoAppearance> | nul
   return m ? { patterns: [], ...m } : null;
 }
 
-/**
- * 외형 → 가장 가까운 스프라이트 털색(migrateVariant 의 거꾸로). 부팅 화면·빈 대화·빠른 질문·산책 지도는
- * 아직 스프라이트(catStore)로 그린다 — 털색 고르기가 꾸미기로 바뀌어서 catStore 가 이걸로 따라온다.
- */
-export function spriteVariantOf(a: NekoAppearance): string {
-  if (a.patterns.includes("point")) return "siamese";
-  if (a.patterns.includes("calico")) return "calico";
-  if (a.coat === "black") return "tuxedo";
-  if (a.coat === "gray") return a.patterns.includes("tabby") ? "tabby" : "russianblue";
-  return "cheese";
-}
 
 const clampH = (v: number, r: { min: number; max: number }) => Math.round(Math.min(r.max, Math.max(r.min, v)));
 
@@ -187,3 +176,12 @@ export const useNekoStore = create<NekoStore>((set, get) => ({
     }
   },
 }));
+
+/**
+ * 저장된 외형을 다시 읽는다. 빠른 질문 창처럼 따로 뜬 창이 열릴 때 부른다 — 외형은 메인 창이 바꾸고,
+ * 같은 localStorage 를 쓰지만 이 창의 스토어는 처음 뜰 때 한 번만 읽었다.
+ */
+export function reloadAppearance(): void {
+  const local = readLocal<NekoAppearance>(APPEARANCE_KEY);
+  if (local) useNekoStore.setState({ appearance: normalizeAppearance(local) });
+}
