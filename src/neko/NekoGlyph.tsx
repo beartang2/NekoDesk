@@ -47,9 +47,22 @@ function Ears({ hx, hy, ear }: { hx: number; hy: number; ear: Shape["ear"] }) {
   );
 }
 
-function Tufts({ xs, y, len }: { xs: number[]; y: number; len: number }) {
-  return <path d={xs.map((x) => `M${x - 1.3} ${y - 0.6} L${x} ${y + len} L${x + 1.3} ${y - 0.6} Z`).join(" ")} />;
+/**
+ * 털 뭉치 윤곽: 타원 둘레에 바깥으로 뾰족한 털 끝을 n 개 낸다. 털 끝 길이는 위(top)에서 아래(bottom)로
+ * 바뀌고, 0 이하인 곳은 매끈하다(top 을 음수로 주면 아래쪽에만 털이 난다).
+ */
+function fuzz(cx: number, cy: number, rx: number, ry: number, n: number, top: number, bottom: number) {
+  const pts: string[] = [];
+  for (let k = 0; k < n * 2; k++) {
+    const t = (k / (n * 2)) * Math.PI * 2;
+    const lift = k % 2 ? Math.max(0, top + (bottom - top) * ((Math.sin(t) + 1) / 2)) : 0;
+    pts.push(`${(cx + (rx + lift) * Math.cos(t)).toFixed(2)} ${(cy + (ry + lift) * Math.sin(t)).toFixed(2)}`);
+  }
+  return `M${pts.join(" L")} Z`;
 }
+
+// 털 끝을 살짝 둥글려 가시처럼 보이지 않게
+const SOFT_TIPS = { stroke: "currentColor", strokeWidth: 0.7, strokeLinejoin: "round" } as const;
 
 /** 서 있는 옆모습. 오른쪽을 본다 */
 export function CatGlyph({ shape, className }: { shape: Shape; className?: string }) {
@@ -59,7 +72,8 @@ export function CatGlyph({ shape, className }: { shape: Shape; className?: strin
   const hx = cx + rx - 2, hy = cy - ry - 1.2, hr = 4.6;
   const legXs = [cx - rx + 2.6, cx - rx + 5.2, cx + rx - 5.4, cx + rx - 2.8];
   const bx = cx - rx + 1.6, by = cy - 1.2;
-  const furW = shape.fur === "long" ? 1.4 : shape.fur === "medium" ? 0.6 : 0;
+  // 털 길이: 단모는 매끈, 중모는 배·볼에 털 가장자리, 장모는 온몸이 복슬하고 목 갈기·두꺼운 꼬리
+  const fur = shape.fur, furW = fur === "long" ? 2.6 : fur === "medium" ? 1 : 0;
   return (
     <svg className={className} viewBox="0 0 36 30" fill="currentColor" aria-hidden="true">
       {/* 꼬리 */}
@@ -79,18 +93,14 @@ export function CatGlyph({ shape, className }: { shape: Shape; className?: strin
         {legXs.map((x) => <line key={x} x1={x} y1={cy} x2={x} y2={FLOOR - 1.2} />)}
       </g>
       {/* 몸통·목·머리 */}
-      <ellipse cx={cx} cy={cy} rx={rx} ry={ry} />
+      {fur === "short" ? <ellipse cx={cx} cy={cy} rx={rx} ry={ry} />
+        : fur === "medium" ? <path d={fuzz(cx, cy, rx, ry, 15, -0.6, 2.5)} {...SOFT_TIPS} />
+        : <path d={fuzz(cx, cy, rx + 0.4, ry + 0.4, 17, 1.4, 3.4)} {...SOFT_TIPS} />}
       <path d={`M${cx + rx - 6} ${cy - ry + 0.5} L${hx - 1} ${hy + 2} L${hx + 1.5} ${hy + 3} L${cx + rx} ${cy} Z`} />
-      <circle cx={hx} cy={hy} r={hr} />
+      {fur === "long" && <path d={fuzz(hx - 0.6, hy + hr - 0.2, 3.4, 2.8, 9, -0.5, 2.8)} {...SOFT_TIPS} />}
+      {fur === "short" ? <circle cx={hx} cy={hy} r={hr} />
+        : <path d={fuzz(hx, hy, hr, hr, 12, fur === "long" ? -0.4 : -1.4, fur === "long" ? 2.2 : 1.7)} {...SOFT_TIPS} />}
       <Ears hx={hx} hy={hy} ear={shape.ear} />
-      {/* 털 길이: 중모는 배·가슴에 조금, 장모는 배·가슴·볼에 길게 */}
-      {shape.fur !== "short" && (
-        <>
-          <Tufts xs={shape.fur === "long" ? [cx - 4.5, cx - 1.5, cx + 1.5] : [cx - 2.5, cx + 0.5]} y={cy + ry - 0.4} len={shape.fur === "long" ? 2.6 : 1.6} />
-          <Tufts xs={[hx - 1.2]} y={hy + hr - 0.3} len={shape.fur === "long" ? 3 : 1.8} />
-          {shape.fur === "long" && <path d={`M${hx + hr - 0.8} ${hy + 0.6} L${hx + hr + 1.6} ${hy + 2.2} L${hx + hr - 1.6} ${hy + 2.8} Z`} />}
-        </>
-      )}
     </svg>
   );
 }
