@@ -19,7 +19,9 @@ const MAX_PARTS = 12;
 const HALF = 16;
 
 const num = (v, lo, hi, dflt) => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt);
-const color = (c) => (typeof c === "string" && GIFT_PALETTE[c] ? c : "gray");
+// 자기 칸만 본다: "constructor"·"toString" 같은 이름이 프로토타입을 타고 통과하면 그릴 때 예외가 나고,
+// 그 모양이 선물함에 저장돼 켤 때마다 엔진이 멈췄다
+const color = (c) => (typeof c === "string" && Object.hasOwn(GIFT_PALETTE, c) ? c : "gray");
 
 /** 동글동글한 조약돌. 모양이 다 망가졌을 때 대신 쓴다. */
 export const DEFAULT_SHAPE = Object.freeze({

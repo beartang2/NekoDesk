@@ -19,6 +19,12 @@ describe("validateShape", () => {
     ]);
   });
 
+  it("프로토타입 이름(constructor·toString·__proto__)은 색으로 치지 않는다", () => {
+    for (const c of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      expect(validateShape({ parts: [{ t: "circle", x: 0, y: -4, r: 4, c }] }).parts[0]).toMatchObject({ c: "gray" });
+    }
+  });
+
   it("도형은 12개까지, 다각형 꼭짓점은 10개까지(3개 미만은 버림)", () => {
     const many = Array.from({ length: 20 }, () => ({ t: "circle", x: 0, y: -4, r: 2, c: "red" }));
     expect(validateShape({ parts: many }).parts).toHaveLength(12);
