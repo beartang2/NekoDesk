@@ -19,8 +19,7 @@ import {
 } from "../agent/llm-client";
 import { getStoredAccent, saveAccentHex, setAccentVars } from "../theme-colors";
 import { useThemePref } from "../lib/theme";
-import { CAT_VARIANTS } from "../cat/spriteData";
-import { useCatStore } from "../stores/catStore";
+import { NekoSettingsSection } from "../neko/NekoSettingsSection";
 import { useSettingsStore, type ImageProvider, type ToolMode } from "../stores/settingsStore";
 import { getAllTools, getTool } from "../agent/tool-registry";
 import {
@@ -1476,9 +1475,6 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: SettingsModalProps) {
-  // 고양이 외형은 catStore 소유. prop 대신 스토어를 직접 읽고 바꾼다.
-  const catVariantId = useCatStore((s) => s.variantId);
-  const onCatVariantChange = useCatStore((s) => s.setVariant);
   // Accent color (full hex — hue + saturation + lightness 모두 반영)
   const themePref = useThemePref((s) => s.pref);
   const setThemePref = useThemePref((s) => s.setPref);
@@ -1576,26 +1572,8 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                 </div>
               </section>
 
-              {/* ── 고양이 색상 ──────────────────────────────────────── */}
-              <section className="settings-section">
-                <h3 className="settings-section__title">고양이 색상</h3>
-                <div className="cat-variant-grid">
-                  {CAT_VARIANTS.map((v) => (
-                    <button
-                      key={v.id}
-                      className={`cat-skin-option ${v.id === catVariantId ? "cat-skin-option--active" : ""}`}
-                      onClick={() => onCatVariantChange(v.id)}
-                    >
-                      {/* 고른 테두리가 옆 칸으로 미끄러져 옮겨 간다. */}
-                      {v.id === catVariantId && (
-                        <motion.span layoutId="cat-skin-ring" className="cat-skin-option__ring" transition={EASE} />
-                      )}
-                      <span className="cat-skin-swatch" style={{ background: v.swatchCss }} />
-                      <span>{v.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
+              {/* ── 고양이(네코): 외형·자리 ─────────────────────────── */}
+              <NekoSettingsSection />
 
               {/* ── 날씨 ──────────────────────────────────────────────── */}
               <WeatherSection />

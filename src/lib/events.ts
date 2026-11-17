@@ -22,6 +22,8 @@ interface EventMap {
   startGame: StartGamePayload;
   /** 포모도로·커스텀 타이머가 끝났다. 네코가 할 말. */
   timerDone: string;
+  /** 네코에게 주는 신호: 밥 주기·놀아주기 버튼(useNekoBridge 가 활동으로 바꾼다) */
+  nekoCue: { kind: "feed" | "play" };
 }
 
 type Handler<T> = (payload: T) => void;

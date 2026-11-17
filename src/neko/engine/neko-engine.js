@@ -70,6 +70,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     cheese: { name: "치즈", body: "#e2984a", light: "#fff4e6", alt: "black", tabby: ["#eeb06c", "#c46e2c"], point: { body: "#f7eee2", pt: "#d98a45" } },
     gray: { name: "회색", body: "#8f8b98", light: "#f8f6fb", alt: "cream", tabby: ["#aeaab6", "#66626f"], point: { body: "#ecebf0", pt: "#6c7290" } },
     cream: { name: "크림", body: "#ead2ac", light: "#fffaf2", alt: "gray", tabby: ["#f2dfbf", "#d2a873"], point: { body: "#f8f1e6", pt: "#d3ab7e" } },
+    // 앱에서 더함: 예전 '화이트' 고양이를 옮겨 오려고(흰 반점 무늬와는 별개로 온몸이 흰 털)
+    white: { name: "하양", body: "#f2efe9", light: "#ffffff", alt: "cheese", tabby: ["#f5f2ec", "#cdc4b8"], point: { body: "#f7f5f1", pt: "#b8aea4" } },
   };
   const EYES = {
     yellow: { name: "노랑", c: "#f2cd3a" },
@@ -3122,6 +3124,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     canvas.height = Math.round(H * DPR);
     floorY = DESKTOP ? H - 6 : Math.round(H * 0.84);
     // 앱 패널: 높이로 크기를 정하고(높이 200px → 몸 약 80px), 폭이 좁으면 몸이 무대에 들어오게만 줄인다
+    // 폭 제한: 꼬리를 뒤로 뻗고 수염까지 무대 안에 들어오는 만큼(W/250). 사이드바가 좁으면 폭을 넓혀야 더 커진다
     S = SCALE_MODE === "height" ? clamp(Math.min(floorY / 240, W / 250), 0.35, 1.4) : clamp(Math.min(W / 600, floorY / 300), 0.55, 1.4);
     cat.x = clamp(cat.x || W * 0.45, 70 * S, W - 70 * S);
     if (GROUND.has(cat.mode)) cat.y = floorY - standH() * S;

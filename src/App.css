@@ -60,7 +60,6 @@ textarea {
   /* tauri.conf.json 의 trafficLightPosition.y 가 이 값의 절반이어야 신호등이
      헤더 세로 가운데에 온다. 둘 중 하나를 바꾸면 다른 쪽도 같이 바꿀 것. */
   --titlebar-h:    40px;
-  --cat-panel-h:   150px;
 
   /* 읽기 폭. 한 줄이 70자를 넘으면 다음 줄 첫 글자를 찾기 어려워진다. */
   --reading-w: 720px;
@@ -478,9 +477,10 @@ html, body, #root {
 .cat-panel {
   flex-shrink: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 0;
+  flex-direction: column; /* 네코 무대(높이 조절) 위, 게이지·버튼 아래 */
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0 0 4px;
   position: relative;
   border-radius: var(--r-lg);
   background-color: var(--bg-surface);

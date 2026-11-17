@@ -2,7 +2,7 @@
  * 말랑 네코 엔진 타입. 구현은 neko-engine.js (v26 시안을 감싼 것, 설계: docs/neko-v26-integration.md).
  */
 
-export type NekoCoat = "black" | "cheese" | "gray" | "cream";
+export type NekoCoat = "black" | "cheese" | "gray" | "cream" | "white";
 export type NekoPattern = "white" | "calico" | "tabby" | "point";
 export type NekoEye = "yellow" | "white" | "green" | "blue";
 export type NekoFur = "short" | "medium" | "long";

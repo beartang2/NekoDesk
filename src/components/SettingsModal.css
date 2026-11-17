@@ -1181,3 +1181,22 @@ code.rule-row__key {
   padding: 0;
   background: none;
 }
+
+/* ── 고양이(네코) 외형 ── */
+.neko-settings__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+}
+.neko-settings__label {
+  flex: 0 0 56px;
+  padding-top: 6px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.neko-settings__row input[type="range"] {
+  flex: 1;
+  margin-top: 6px;
+  accent-color: var(--accent);
+}
