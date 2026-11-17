@@ -200,7 +200,27 @@ try {
     await p.close();
   }
 
-  // 10) 그리기 시간(DPR 2)
+  // 10) 쓰다듬기: 처음엔 웃고(하트), 너무 오래 만지면 웃음을 멈추고 귀를 젖히고 피한다(같은 쪽으로 꾸준히)
+  {
+    const p = await open();
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat; n.step(240); const x0 = c.x;
+      let firstOk = null, smileWhileSulk = 0, sulkFrames = 0, sulkAge = 0, earSum = 0, refused = 0, back = 0, prevDx = 0;
+      for (let i = 0; i < 120 * 18; i++) {
+        if (i % 40 === 0 && i < 120 * 15) { const ok = n.react("pet"); if (firstOk === null) firstOk = ok; if (!ok) refused++; }
+        n.step(1);
+        sulkAge = c.petSulk > 0 ? sulkAge + 1 : 0; // 짜증이 시작되고 0.5초(눈·귀가 바뀌는 시간) 뒤부터 본다
+        if (sulkAge > 60) { sulkFrames++; smileWhileSulk = Math.max(smileWhileSulk, c.smile.x); earSum += (c.ears[0].x + c.ears[1].x) / 2; } // 두 귀 평균(시선 쪽으로 귀가 돌아 한쪽이 덜 젖혀진다)
+        const dx = (c.x - x0) / n.S; if (i % 60 === 0) { if (Math.sign(dx) * (dx - prevDx) < -2) back++; prevDx = dx; }
+      }
+      return { firstOk, smileWhileSulk, sulkFrames, ear: earSum / Math.max(1, sulkFrames), refused, moved: Math.abs((c.x - x0) / n.S), back };
+    });
+    const ok = r.firstOk === true && r.refused > 0 && r.smileWhileSulk < 0.15 && r.ear > 0.25 && r.moved > 40 && r.back === 0;
+    check("쓰다듬기 과자극: 웃음 멈춤·귀 젖힘·피함", `거절 ${r.refused}번 · 짜증 중 웃음 ${r.smileWhileSulk.toFixed(2)} · 귀 ${r.ear.toFixed(2)} · ${r.moved.toFixed(0)}단위 피함 · 되돌아옴 ${r.back}`, ok);
+    await p.close();
+  }
+
+  // 11) 그리기 시간(DPR 2)
   {
     const p = await open("", { width: 760, height: 1000 }, 2);
     const ms = {};
