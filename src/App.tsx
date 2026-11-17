@@ -17,7 +17,9 @@ import { ChatEmptyState, EmptyStateCat, SpriteCat } from "./components/ChatEmpty
 import { getBootAnimation } from "./cat/spriteData";
 import { useCatStore } from "./stores/catStore";
 import { NekoSlot } from "./neko/NekoSlot";
-import { useNekoBridge } from "./neko/useNekoBridge";
+import { useNekoDirector } from "./neko/useNekoDirector";
+import { useNekoApp } from "./neko/director/stores";
+import { SLEEPY_MS } from "./neko/director/derive";
 import { useNekoStore } from "./neko/nekoStore";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPanel";
@@ -80,7 +82,6 @@ import "./App.css";
 
 // ── Session types ─────────────────────────────────────────────────────────────
 
-const SLEEPY_AFTER_MS = 5 * 60 * 1000;
 /** 산책 기록(lib/walk 의 Walk). 다녀온 뒤에도 남겨 다음 산책까지의 간격을 잰다. */
 const WALK_KEY = "neko_walk";
 /** 산책은 이만큼에 한 번까지 — Claude 를 쓰는 일이라 자주 나가면 예산을 먹는다. */
@@ -854,6 +855,7 @@ function Composer({
       })
     );
     setFiles((prev) => [...prev, ...newFiles]);
+    if (newFiles.length > 0) appEvents.emit("nekoHint", { kind: "attach" });
   }
 
   // 창 어디에 떨어뜨려도 첨부한다. 첨부 버튼과 같은 File 이라 처리도 같다.
@@ -1377,16 +1379,10 @@ export default function App() {
   const { state: rpgState, dayCount, canFeed, feed, playAction, pet, reward } = useCatRpg();
 
   const isRunning = pool.isRunning(activeId);
-  const catEmotion = pool.catEmotion(activeId);
   const error = pool.error(activeId);
-  const [lastUserActivityAt, setLastUserActivityAt] = useState(() => Date.now());
-  const [now, setNow] = useState(() => Date.now());
 
-  const markUserActivity = useCallback(() => {
-    const timestamp = Date.now();
-    setLastUserActivityAt(timestamp);
-    setNow(timestamp);
-  }, []);
+  // 네코 감독의 '앱을 쓰는 중'(5분 무활동이면 졸림). 키 입력·클릭·스크롤은 useNekoDirector 가 직접 센다
+  const markUserActivity = useCallback(() => { useNekoApp.getState().markActive(); }, []);
 
   // 에이전트 루프 완료 시 play +5
   const prevIsRunning = useRef(isRunning);
@@ -1397,67 +1393,17 @@ export default function App() {
     prevIsRunning.current = isRunning;
   }, [isRunning, reward]);
 
-  useEffect(() => {
-    if (isRunning) {
-      setNow(Date.now());
-      return;
-    }
-
-    const id = window.setInterval(() => {
-      setNow(Date.now());
-    }, 30000);
-
-    return () => window.clearInterval(id);
-  }, [isRunning]);
-
-  const [isBoxMode, setIsBoxMode] = useState(false);
-  const boxPetCountRef = useRef(0);
-  const BOX_EXIT_PET_COUNT = 3;
-  const [actionEmotion, setActionEmotion] = useState<CatEmotion | null>(null);
-  const actionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const triggerActionEmotion = useCallback((emotion: CatEmotion, durationMs = 2500) => {
-    if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
-    setActionEmotion(emotion);
-    actionTimerRef.current = setTimeout(() => {
-      setActionEmotion(null);
-      actionTimerRef.current = null;
-    }, durationMs);
-  }, []);
-
-  const isBoxModeRef = useRef(isBoxMode);
-  isBoxModeRef.current = isBoxMode;
-
   // 쓰다듬기: 네코를 탭하거나(엔진) 쓰다듬기 모드에서 트랙패드를 문지르면(NekoSlot·useTrackpadPet) 부른다.
-  // 가속도계는 M4에서 root 데몬이 필요해 폐기했다.
+  // 가속도계는 M4에서 root 데몬이 필요해 폐기했다. 상자에서 나오기(3번)는 감독이 센다.
   const handlePet = useCallback(() => {
     pet();
-    if (isBoxModeRef.current) {
-      boxPetCountRef.current += 1;
-      if (boxPetCountRef.current >= BOX_EXIT_PET_COUNT) {
-        boxPetCountRef.current = 0;
-        setIsBoxMode(false);
-      }
-    }
+    useNekoApp.getState().notePet();
   }, [pet]);
 
-  // play >= 80이면 랜덤으로 box 상태 진입 (30~120초 간격)
-  useEffect(() => {
-    if (isRunning || rpgState.play < 80) {
-      setIsBoxMode(false);
-      return;
-    }
-    const delay = 30_000 + Math.random() * 90_000;
-    const id = window.setTimeout(() => { boxPetCountRef.current = 0; setIsBoxMode(true); }, delay);
-    return () => window.clearTimeout(id);
-  }, [isRunning, rpgState.play]);
-
-  // box 상태는 60초 후 자동 해제
-  useEffect(() => {
-    if (!isBoxMode) return;
-    const id = window.setTimeout(() => setIsBoxMode(false), 60_000);
-    return () => window.clearTimeout(id);
-  }, [isBoxMode]);
+  // 게임 훅이 주는 감정(예전 triggerActionEmotion) → 네코 감독의 게임 층(표 5.1)
+  const nekoGameEmotion = useCallback((emotion: CatEmotion, durationMs?: number) => {
+    useNekoApp.getState().setGameEmotion(emotion, durationMs);
+  }, []);
 
   const promptTokens = pool.contextTokens(activeId);
   const displayHunger =
@@ -1465,35 +1411,27 @@ export default function App() {
       ? 100
       : Math.max(0, Math.round(100 - (promptTokens / modelContextLength) * 100));
 
-  const isGaugeSleepy = displayHunger < 30 || rpgState.play < 20;
-  const displayEmotion: CatEmotion =
-    !isRunning && actionEmotion
-      ? actionEmotion
-      : !isRunning && (now - lastUserActivityAt >= SLEEPY_AFTER_MS || isGaugeSleepy)
-      ? "sleepy"
-      : isBoxMode && !isRunning
-      ? "cozy"
-      : catEmotion;
-
   // ── 밥 주기 = 컨텍스트 compact ───────────────────────────────────────────────
   const [isCompacting, setIsCompacting] = useState(false);
 
   const handleFeed = useCallback(async () => {
     if (isCompacting) return;
-    appEvents.emit("nekoCue", { kind: "feed" }); // 네코: 간식 그릇이 '뿅'
+    const neko = useNekoApp.getState();
 
     const msgs = (allMessages[activeId] ?? []).filter(
       (m) => m.role === "user" || m.role === "assistant"
     );
 
     if (msgs.length < 2) {
-      // 요약할 대화 없음 → 그냥 hunger 회복
+      // 요약할 대화 없음 → 그냥 hunger 회복. 네코는 간식 한 번(끝나면 떨기)
       feed();
-      triggerActionEmotion("proud");
+      neko.setFeeding(true);
+      window.setTimeout(() => useNekoApp.getState().setFeeding(false), 1500);
       return;
     }
 
     setIsCompacting(true);
+    neko.setFeeding(true); // 네코: 요약이 끝날 때까지 간식을 먹는다
     try {
       const llmMessages: LlmMessage[] = msgs.map((m) => ({
         role: m.role as "user" | "assistant",
@@ -1517,15 +1455,15 @@ export default function App() {
 
       pool.clearContextTokens(activeId);
       feed();
-      triggerActionEmotion("proud");
     } catch {
       // compact 실패해도 무음 처리
     } finally {
       setIsCompacting(false);
+      useNekoApp.getState().setFeeding(false); // 다 먹으면 떨기 + 행복
     }
-  }, [isCompacting, allMessages, activeId, feed, triggerActionEmotion, setAllMessages, setCompactSummaries, setSummaryExpanded, pool]);
+  }, [isCompacting, allMessages, activeId, feed, setAllMessages, setCompactSummaries, setSummaryExpanded, pool]);
 
-  const wordChain = useWordChainGame(triggerActionEmotion);
+  const wordChain = useWordChainGame(nekoGameEmotion);
 
   useEffect(() => {
     return appEvents.on("wordchainVerdict", ({ exists }) => {
@@ -1644,6 +1582,7 @@ export default function App() {
     setSessions((prev) => [session, ...prev]);
     setAllMessages((prev) => ({ ...prev, [session.id]: makeInitialMessages() }));
     setActiveId(session.id);
+    appEvents.emit("nekoHint", { kind: "newChat" });
   }
 
   // ── Delete session ────────────────────────────────────────────────────────
@@ -1738,7 +1677,7 @@ export default function App() {
   const [menuMounted, setMenuMounted] = useState(false);
   if (menuOpen && !menuMounted) setMenuMounted(true);
   const [gameSpeech, setGameSpeech] = useState<string | null>(null);
-  const game = useDrawingGame(triggerActionEmotion, setGameSpeech, () => reward(10));
+  const game = useDrawingGame(nekoGameEmotion, setGameSpeech, () => reward(10));
 
   useEffect(() => {
     if (game.phase !== "idle") {
@@ -1783,11 +1722,11 @@ export default function App() {
   useEffect(() => {
     return appEvents.on("timerDone", (text) => {
       setGameSpeech(text);
-      triggerActionEmotion("happy", 6000);
+      nekoGameEmotion("happy", 6000);
       // 그사이 그림 게임이 말풍선을 바꿨으면 그건 지우지 않는다.
       setTimeout(() => setGameSpeech((cur) => (cur === text ? null : cur)), 6000);
     });
-  }, [triggerActionEmotion]);
+  }, [nekoGameEmotion]);
 
   // game.start 도구 이벤트 처리 (MINI_GAMES 정의 이후에 위치)
   useEffect(() => {
@@ -1807,8 +1746,25 @@ export default function App() {
   const [walk, setWalk] = useState<Walk | null>(null);
   const [away, setAway] = useState(false);
   const brainRef = useRef<WalkBrain | null>(null);
-  const lastActivityRef = useRef(lastUserActivityAt);
-  lastActivityRef.current = lastUserActivityAt;
+  // 쉬는지는 네코 감독의 '앱을 쓰는 중'(useNekoApp.lastActiveAt: 입력·클릭·스크롤·밥·놀이)으로 본다.
+  // 감독이 재우는 때(SLEEPY_MS)부터 졸고, 다시 쓰면 서둘러 온다. 구독으로 봐서 App 은 졸기 시작·깰 때만 다시 그린다.
+  const [idle, setIdle] = useState(false);
+  const hurryHomeRef = useRef(() => {});
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const arm = (at: number) => {
+      clearTimeout(t);
+      setIdle(false);
+      t = setTimeout(() => setIdle(true), at + SLEEPY_MS - performance.now());
+    };
+    arm(useNekoApp.getState().lastActiveAt);
+    const off = useNekoApp.subscribe((s, p) => {
+      if (s.lastActiveAt === p.lastActiveAt) return;
+      arm(s.lastActiveAt);
+      hurryHomeRef.current();
+    });
+    return () => { clearTimeout(t); off(); };
+  }, []);
 
   const saveWalk = useCallback((w: Walk) => {
     setWalk(w);
@@ -1842,7 +1798,7 @@ export default function App() {
     if (walk && Date.now() - walkEnd(walk) < WALK_GAP_MS) {
       return `다음 산책까지 ${Math.ceil((walkEnd(walk) + WALK_GAP_MS - Date.now()) / 60_000)}분`;
     }
-    const asked = lastActivityRef.current;
+    const asked = useNekoApp.getState().lastActiveAt;
     const home = await hereOnce();
     const found = home ? await mapApi.places({ lat: home.lat, lon: home.lon, radiusM: 800 }).catch(() => []) : [];
     const stops = home ? pickPlaces(home, found) : [];
@@ -1854,7 +1810,7 @@ export default function App() {
         .catch(() => null);
     }
     // 위치·길을 묻는 사이(위치만 15초까지 걸린다) 사용자가 돌아왔으면 나가지 않는다.
-    if (lastActivityRef.current !== asked) return "위치·길을 찾는 사이 사용자가 돌아옴";
+    if (useNekoApp.getState().lastActiveAt !== asked) return "위치·길을 찾는 사이 사용자가 돌아옴";
     const route = legs ?? fallbackLegs();
     const dwell = route.slice(1).map(() => (2 + Math.random() * 3) * 60_000);
     const w: Walk = { home, onMap: !!legs, places: legs ? stops : found, path: buildPath(route, Date.now(), WALK_MS, dwell) };
@@ -1868,7 +1824,7 @@ export default function App() {
   if (import.meta.env.DEV) (window as unknown as { nekoWalk: () => Promise<string> }).nekoWalk = () => departRef.current();
 
   // 졸기 시작하고 10–40분 더 조용하면 나간다. 그사이 사용자가 돌아오거나 일을 시키면 취소(box 모드와 같은 꼴).
-  const dozing = !isRunning && now - lastUserActivityAt >= SLEEPY_AFTER_MS;
+  const dozing = idle && !isRunning;
   useEffect(() => {
     if (!dozing || away) return;
     // 지난 산책 뒤 간격이 안 찼으면 그만큼 더 미룬다 — 안 그러면 다녀온 뒤 계속 조용해도 다시 안 나갔다.
@@ -1879,7 +1835,7 @@ export default function App() {
 
   // 산책 중에 사용자가 돌아오면 남은 길을 버리고 1–2분 안에 곧장 온다. 머리도 그때까지 알아낸 것으로 정리한다.
   const hurryingRef = useRef(false);
-  useEffect(() => {
+  hurryHomeRef.current = () => {
     // 이미 2분 안에 오는 중이면(서두르는 중 포함) 그대로 둔다 — 글자를 칠 때마다 불린다.
     if (!away || !walk || hurryingRef.current || walkEnd(walk) - Date.now() <= 2 * 60_000) return;
     hurryingRef.current = true;
@@ -1899,9 +1855,7 @@ export default function App() {
       saveWalk({ ...w, path: hurryHome(w.path, Date.now(), route) });
       hurryingRef.current = false;
     });
-  // 사용자가 움직였을 때만 본다.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastUserActivityAt]);
+  };
 
   // 다녀오면 산책 일지를 지금 대화에 남긴다. prompt 는 이 대화에서만 쓰는 단기기억이라
   // 답 칸의 prompt 로 넣는다(buildHistory) — 사용자 말로 넣으면 시킨 일로 읽힌다.
@@ -1925,10 +1879,10 @@ export default function App() {
       conversationApi.save(sid, "assistant", report.content, undefined, serializeMeta({ prompt })).catch(() => {});
       saveWalk({ ...w, done: true, pin: report.gift?.place });
       playAction();
-      triggerActionEmotion("happy", 5000);
+      nekoGameEmotion("happy", 5000); // 감독의 게임 층: 행복 + 꼬리 떨기
     }, Math.max(0, walkEnd(w) - Date.now()));
     return () => window.clearTimeout(id);
-  }, [walk, saveWalk, playAction, triggerActionEmotion]);
+  }, [walk, saveWalk, playAction, nekoGameEmotion]);
 
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   // 사라지는 애니메이션을 보여주려고 퇴장이 끝날 때까지 붙여둔다.
@@ -1951,8 +1905,8 @@ export default function App() {
     scrollToBottomRef.current = scrollFn;
   }, []);
   const { isDark, pref: themePref, cycle: cycleTheme } = useTheme();
-  // 네코(v26 엔진): 표시 감정 → 기분·자세·활동·꼬리 반응(설계 표 5.1). 자리는 NekoSlot 두 곳 중 설정에 맞는 곳
-  useNekoBridge({ emotion: displayEmotion, isDark, onPet: handlePet });
+  // 네코 감독(설계 docs/neko-p2-director.md): 세션 상태·앱 상황 → 계획 → 스케줄러 → 엔진. 자리는 NekoSlot 두 곳 중 설정에 맞는 곳
+  useNekoDirector({ activeId, isDark, needs: { hunger: displayHunger, play: rpgState.play }, onPet: handlePet });
   useZoom();
   const activeSession = sessions.find((s) => s.id === activeId);
 
@@ -2106,7 +2060,7 @@ export default function App() {
           feedCountToday: rpgState.feedCountToday,
           isCompacting,
           onFeed: () => { void handleFeed(); },
-          onPlay: () => { appEvents.emit("nekoCue", { kind: "play" }); triggerActionEmotion("happy"); launchRandomGame(); },
+          onPlay: () => { useNekoApp.getState().play(); launchRandomGame(); }, // 털실·나비 6초 → 게임이 이어받음
           onPet: handlePet,
         }}
         onResizeStart={sidebarVisible ? (e) => startDrag("sidebar", e) : undefined}

@@ -4,7 +4,6 @@ import { appEvents } from "../lib/events";
 import { notifyIfAway, toNotificationBody } from "../lib/notify";
 import { useMessageStore } from "../stores/messageStore";
 import { runAgentLoop, runTextTask } from "../agent/agent-loop";
-import { getTool, isStaticTool } from "../agent/tool-registry";
 import type {
   AgentStep,
   CatEmotion,
@@ -21,6 +20,9 @@ import { historyBudget } from "../agent/agent-context";
 import { getModelContextLength, summarizeConversation } from "../agent/llm-client";
 import { isClaudeActive, useSettingsStore } from "../stores/settingsStore";
 import { activeModelName } from "../stores/modelProfiles";
+import { CANCEL_MESSAGE } from "../neko/director/session";
+import { useNekoSessions } from "../neko/director/stores";
+import type { NekoSignal } from "../neko/director/types";
 
 export interface PendingConfirm {
   sessionId: string;
@@ -398,21 +400,12 @@ function withToolsNote(text: string, m: ChatMessage): string {
   return text ? `${text}\n\n${note}` : note;
 }
 
-/** 무언가를 바꾼 툴인가. registry 의 readOnly 로 판단한다(MCP 는 모르니 아니라고 본다). */
-function changedSomething(tool: string): boolean {
-  return isStaticTool(tool) && !getTool(tool).readOnly;
-}
-
-function deriveFinalEmotion(steps: AgentStep[]): CatEmotion {
-  if (steps.some((s) => s.status === "error")) return "error";
-  if (steps.some((s) => changedSomething(s.tool) && s.status === "done")) return "happy";
-  if (steps.length > 0) return "proud";
-  return "idle";
-}
-
 /**
  * Per-session agent pool — enables parallel processing across sessions.
- * Each session has its own isRunning / catEmotion / error / abortRef.
+ * Each session has its own isRunning / error / abortRef.
+ *
+ * 네코: 루프 이벤트를 신호로 바꿔 세션마다 네코 상태에 넣는다(설계 docs/neko-p2-director.md §3).
+ * 토큰 이벤트는 단계가 바뀔 때만 신호를 보낸다 — 예전엔 토큰마다 감정 객체를 새로 만들어 App 이 토큰마다 다시 그려졌다.
  */
 // 마지막으로 잰 프롬프트 크기. 메모리에만 두면 껐다 켰을 때 대화는 DB 에서 그대로
 // 돌아오는데 사용량만 0 으로 보였다. (지운 대화의 값이 남지만 숫자 하나라 둔다.)
@@ -432,7 +425,8 @@ export function useAgentPool() {
   // Use a ref for fast reads inside async loops, and state for UI reactivity
   const runningSetRef = useRef<Set<string>>(new Set());
   const [runningSet, setRunningSet] = useState<Set<string>>(new Set());
-  const [catEmotions, setCatEmotions] = useState<Record<string, CatEmotion>>({});
+  /** 세션마다 마지막으로 보낸 신호 종류(생각·답 토큰이 쏟아질 때 같은 신호를 거른다) */
+  const lastSignalRef = useRef<Record<string, NekoSignal["type"]>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [sessionTokens, setSessionTokens] = useState<Record<string, number>>(loadContextTokens);
   useEffect(() => {
@@ -458,8 +452,10 @@ export function useAgentPool() {
     setRunningSet(new Set(runningSetRef.current));
   }
 
-  function setCatEmotion(id: string, emotion: CatEmotion) {
-    setCatEmotions((prev) => ({ ...prev, [id]: emotion }));
+  function signal(id: string, sig: NekoSignal) {
+    if ((sig.type === "thinking" || sig.type === "answering") && lastSignalRef.current[id] === sig.type) return;
+    lastSignalRef.current[id] = sig.type;
+    useNekoSessions.getState().dispatch(id, sig);
   }
 
   const patchSessionMessages = (
@@ -491,7 +487,7 @@ export function useAgentPool() {
       const controller = new AbortController();
       abortRefs.current[sessionId] = controller;
       setRunning(sessionId, true);
-      setCatEmotion(sessionId, "curious");
+      signal(sessionId, { type: "run_start" });
       setErrors((prev) => ({ ...prev, [sessionId]: null }));
 
       // displayText: UI와 DB에 보이는 텍스트 (생략 시 userText와 동일)
@@ -559,7 +555,7 @@ export function useAgentPool() {
       function handleEvent(event: LoopEvent) {
         switch (event.type) {
           case "step_start":
-            setCatEmotion(sessionId, "curious");
+            signal(sessionId, { type: "thinking" });
             thinkingBuffer = ""; // 새 스텝의 생각 시작
             // 앞 턴의 글이 아직 남아 있다면 답이 아니었다(재촉받고 다시 도는 중). 새 글이
             // 오면 그걸로 바꾼다 — 안 비우면 "찾아볼게" 뒤에 새 답이 이어 붙는다.
@@ -568,12 +564,16 @@ export function useAgentPool() {
 
           case "thinking_token":
             thinkingBuffer += event.token;
-            setCatEmotion(sessionId, "working");
+            signal(sessionId, { type: "thinking" }); // 네코는 '생각 중'(단계가 바뀔 때만 보낸다)
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
                 m.id === assistantId ? { ...m, thinking: thinkingBuffer.trimStart() } : m
               )
             );
+            break;
+
+          case "tool_start":
+            signal(sessionId, { type: "tool_start", tool: event.tool, params: event.params });
             break;
 
           case "plan_updated":
@@ -584,7 +584,7 @@ export function useAgentPool() {
 
           case "step_done":
             finalSteps = [...finalSteps, event.step];
-            setCatEmotion(sessionId, "working");
+            if (event.step.tool !== "user.ask") signal(sessionId, { type: "tool_end", tool: event.step.tool });
             // 툴을 불렀으니 이번 턴 텍스트는 답이 아니라 중얼거림이다. 아코디언에
             // step.thought 로 이미 보인다. 안 비우면 턴마다 버블에 쌓인다.
             streamBuffer = "";
@@ -597,7 +597,7 @@ export function useAgentPool() {
 
           case "step_error":
             finalSteps = [...finalSteps, event.step];
-            setCatEmotion(sessionId, "error");
+            signal(sessionId, { type: "step_error", tool: event.step.tool, cancelled: event.step.errorMessage === CANCEL_MESSAGE });
             streamBuffer = "";
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
@@ -672,7 +672,7 @@ export function useAgentPool() {
 
           case "streaming_token":
             streamBuffer += event.token;
-            setCatEmotion(sessionId, "working");
+            signal(sessionId, { type: "answering" });
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
                 m.id === assistantId
@@ -686,6 +686,7 @@ export function useAgentPool() {
             break;
 
           case "confirm_needed":
+            signal(sessionId, { type: "wait", kind: "confirm", danger: event.isDangerous });
             // 딴 데 가 있으면 확인 창이 떠도 모른다. 대답할 때까지 루프가 멈춰 있다.
             void notifyIfAway("네코가 확인을 기다려", toNotificationBody(event.code, 120));
             setPendingConfirm({
@@ -700,6 +701,7 @@ export function useAgentPool() {
             break;
 
           case "clarify_needed":
+            signal(sessionId, { type: "wait", kind: "clarify", danger: false });
             void notifyIfAway("네코가 물어볼 게 있어", toNotificationBody(event.question, 120));
             setPendingClarify({
               sessionId,
@@ -721,7 +723,7 @@ export function useAgentPool() {
             const images = finalSteps
               .map((s) => s.imageDataUrl)
               .filter((url): url is string => !!url);
-            setCatEmotion(sessionId, emotion ?? deriveFinalEmotion(finalSteps));
+            signal(sessionId, { type: "done", petState: emotion });
             setRunning(sessionId, false);
             setPendingConfirm(null);
             setPendingClarify(null);
@@ -763,7 +765,7 @@ export function useAgentPool() {
             conversationApi
               .save(sessionId, "assistant", `연결 실패: ${event.message}`, undefined, serializeMeta({ steps: finalSteps, model }))
               .catch(() => {});
-            setCatEmotion(sessionId, "error");
+            signal(sessionId, { type: "loop_error" });
             setRunning(sessionId, false);
             setPendingConfirm(null);
             setPendingClarify(null);
@@ -805,7 +807,7 @@ export function useAgentPool() {
       // 거슬리면 오류일 땐 대기열을 남겨 두고 사용자가 다시 보내게 한다.
       if (!controller.signal.aborted) sendWaiting(sessionId);
     },
-    // patchSessionMessages / setRunning / setCatEmotion are defined in render scope
+    // patchSessionMessages / setRunning / signal are defined in render scope
     // but don't capture stale state — they use functional setters or refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
@@ -824,7 +826,7 @@ export function useAgentPool() {
       // 진행 중인 fetch 를 실제로 끊는다. llama.cpp 가 생성을 중단한다.
       abortRefs.current[sessionId]?.abort();
       setRunning(sessionId, false);
-      setCatEmotion(sessionId, "idle");
+      signal(sessionId, { type: "abort" });
       // 되묻는 중에 멈춰도 promise 를 풀어 준다. 안 그러면 루프가 대답을 영영 기다린다.
       setPendingClarify((prev) => {
         if (prev?.sessionId !== sessionId) return prev;
@@ -851,8 +853,6 @@ export function useAgentPool() {
 
   return {
     isRunning: (sessionId: string) => runningSet.has(sessionId),
-    catEmotion: (sessionId: string): CatEmotion =>
-      catEmotions[sessionId] ?? "idle",
     error: (sessionId: string): string | null => errors[sessionId] ?? null,
     clearError: (sessionId: string) =>
       setErrors((prev) => ({ ...prev, [sessionId]: null })),
@@ -867,11 +867,13 @@ export function useAgentPool() {
       setQueue(sessionId, (queueRef.current[sessionId] ?? []).filter((q) => q.id !== id)),
     pendingConfirm,
     confirmResolve: (decision: PermissionDecision) => {
+      if (pendingConfirm) signal(pendingConfirm.sessionId, { type: "wait_end", approved: decision !== "deny" });
       pendingConfirm?.resolve(decision);
       setPendingConfirm(null);
     },
     pendingClarify,
     clarifyResolve: (answer: string) => {
+      if (pendingClarify) signal(pendingClarify.sessionId, { type: "wait_end", approved: true });
       pendingClarify?.resolve(answer);
       setPendingClarify(null);
     },

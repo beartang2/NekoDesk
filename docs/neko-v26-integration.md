@@ -532,7 +532,7 @@ v26 은 **걷고, 돌아앉고, 소품을 앞에 놓는** 고양이다.
 - 회귀: `npm run qa:neko`
 - 스프라이트 자산은 P1 에서 바로 지웠다.
 - 꾸미기 창(단계별·RGB 털 색·칩 그림)과 말랑함 강화까지 끝냄.
-- P2 상세 설계: [`neko-p2-director.md`](neko-p2-director.md).
+- **P2 감독 완료**: [`neko-p2-director.md`](neko-p2-director.md). 루프에 `tool_start`, 세션별 네코 상태, 도구별 활동, 결과 꼬리 언어, 밥 = 간식 되풀이, 깨어남 = 기지개, 키 입력·클릭·스크롤도 '앱을 쓰는 중'.
 
 | 단계 | 할 일 | 끝났다고 보는 기준 |
 |---|---|---|
@@ -549,8 +549,8 @@ v26 은 **걷고, 돌아앉고, 소품을 앞에 놓는** 고양이다.
 
 - 지움: `src/cat/CatCanvas.tsx`, `CatCanvas.css`, `spriteData.ts`, `src/assets/cat/*`, `stores/catStore.ts`(옮기기 끝난 뒤)
 - 바꿈:
-  - `agent/types.ts` `CatEmotion` 은 호환용으로 남긴다. P2 뒤 `NekoSessionState` 로 바꾼다.
-  - `App.tsx` 의 `displayEmotion`·`isBoxMode`·`triggerActionEmotion` 은 감독으로 옮긴다.
+  - `agent/types.ts` `CatEmotion` 은 PET_STATE·게임 호환용으로만 남는다. 세션 감정은 P2 에서 `NekoSessionState` 로 바꿨다(풀의 `catEmotion` 은 지움).
+  - `App.tsx` 의 `displayEmotion`·`isBoxMode`·`triggerActionEmotion` 은 P2 에서 감독으로 옮겼다(`useNekoBridge` 지움).
 - 문서:
   - `docs/plan.md` §13 의 '픽셀아트 기반' 원칙은 이 문서로 대체한다고 적는다.
   - `docs/cat-rpg.md` §6 감정 표는 이 문서 §5 를 가리키게 한다.
