@@ -7,7 +7,7 @@ import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { josa } from "../lib/hangul";
 import { timeZone } from "../lib/time";
 import type { Memory, OpenAiToolSchema, ToolName } from "./types";
-import { GIFT_COLORS, validateShape, type GiftShape } from "../neko/engine/gift-shape";
+import { GIFT_COLORS, drawShape, shapeBounds, validateShape, type GiftShape } from "../neko/engine/gift-shape";
 import { PLAYS, useNekoGifts } from "../neko/gifts";
 
 /** 산책에서 가져올 수 있는 선물 종류. */
@@ -89,6 +89,47 @@ export function rollGift(weights: Record<GiftKind, number>, random: () => number
 }
 
 /** 구조화 답을 툴 호출로 받는다 — Claude 가 낸 인자는 tool-calls 가 이미 JSON 으로 풀어 준다. */
+/** 선물 모양 스키마. 산책 보고와 그림 점검(SHAPE_FIX_TOOL)이 같이 쓴다. 그림체는 앱이 입히고 모델은 모양만 */
+const GIFT_SHAPE_SCHEMA = {
+  type: "object",
+  description:
+    "선물이 주운 것·장소 기념품일 때만: 그 물건 모양. 32칸(가운데 x=0, 바닥 y=0, 위는 음수, 좌우 ±16). " +
+    "한눈에 그 물건으로 알아보게 — 실루엣을 정확히(뾰족한 데는 poly round 0), 특징은 line 으로(잎맥·꼭지·주름·톱니), " +
+    "같은 색 .dark·.light 로 그늘·무늬. 도형 8~20개, 뒤에 적은 게 위. 입체감·그림자는 앱이 입힌다",
+  properties: {
+    parts: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          t: { type: "string", enum: ["circle", "ellipse", "rrect", "poly", "line", "dot"] },
+          x: { type: "number" }, y: { type: "number" }, r: { type: "number", description: "circle 반지름, dot 크기(0.3~2)" },
+          rx: { type: "number" }, ry: { type: "number" }, w: { type: "number", description: "rrect 폭, line 굵기(0.3~4)" }, h: { type: "number" },
+          rad: { type: "number" }, rot: { type: "number", description: "라디안" },
+          pts: { type: "array", items: { type: "array", items: { type: "number" } }, description: "poly(3~24)·line(2~12) 점 [x,y]" },
+          round: { type: "number", description: "poly 꼭짓점 둥글기. 0 이면 뾰족(기본 1.2)" },
+          c: { type: "string", enum: GIFT_COLORS },
+        },
+        required: ["t", "c"],
+      },
+    },
+  },
+  required: ["parts"],
+};
+
+/**
+ * 그린 선물을 모델에게 보여 주고 한 번 고치게 하는 툴(설계 docs/neko-gifts.md §2). 도형 목록만 보고 그리면
+ * 무엇인지 모를 그림이 나오기 쉬워서, 실제로 그려진 모습을 보고 "이게 그것으로 보이나"를 한 번 따진다.
+ */
+const SHAPE_FIX_TOOL = {
+  type: "function",
+  function: {
+    name: "gift_shape_fix",
+    description: "고친 선물 모양을 낸다",
+    parameters: { type: "object", properties: { gift_shape: GIFT_SHAPE_SCHEMA }, required: ["gift_shape"] },
+  },
+} as OpenAiToolSchema;
+
 const REPORT_TOOL = {
   type: "function",
   function: {
@@ -115,32 +156,7 @@ const REPORT_TOOL = {
         gift_url: { type: "string", description: "선물이 링크면 알아본 것에 나온 URL 그대로" },
         drawing_prompt: { type: "string", description: "선물이 그림일 때만. 그릴 장면을 영어로 자세히" },
         // 그림체(선·밝은 면·그림자·크기)는 앱이 입힌다. 모델은 모양만 — docs/neko-gifts.md §2
-        gift_shape: {
-          type: "object",
-          description:
-            "선물이 주운 것·장소 기념품일 때만: 그 물건 모양. 32칸(가운데 x=0, 바닥 y=0, 위는 음수, 좌우 ±16). " +
-            "한눈에 그 물건으로 알아보게 — 실루엣을 정확히(뾰족한 데는 poly round 0), 특징은 line 으로(잎맥·꼭지·주름·톱니), " +
-            "같은 색 .dark·.light 로 그늘·무늬. 도형 8~20개, 뒤에 적은 게 위. 입체감·그림자는 앱이 입힌다",
-          properties: {
-            parts: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  t: { type: "string", enum: ["circle", "ellipse", "rrect", "poly", "line", "dot"] },
-                  x: { type: "number" }, y: { type: "number" }, r: { type: "number", description: "circle 반지름, dot 크기(0.3~2)" },
-                  rx: { type: "number" }, ry: { type: "number" }, w: { type: "number", description: "rrect 폭, line 굵기(0.3~4)" }, h: { type: "number" },
-                  rad: { type: "number" }, rot: { type: "number", description: "라디안" },
-                  pts: { type: "array", items: { type: "array", items: { type: "number" } }, description: "poly(3~24)·line(2~12) 점 [x,y]" },
-                  round: { type: "number", description: "poly 꼭짓점 둥글기. 0 이면 뾰족(기본 1.2)" },
-                  c: { type: "string", enum: GIFT_COLORS },
-                },
-                required: ["t", "c"],
-              },
-            },
-          },
-          required: ["parts"],
-        },
+        gift_shape: GIFT_SHAPE_SCHEMA,
         gift_size: {
           type: "string",
           enum: ["small", "medium", "large"],
@@ -317,6 +333,13 @@ async function walk(
     gift_size: str(p?.gift_size),
   };
 
+  // 3-1. 주운 것·기념품 그림: 그려진 모습을 보여 주고 알아보기 어려우면 한 번 고치게 한다
+  if ((g.kind === "trinket" || g.kind === "place") && g.report.gift_shape) {
+    const fixed = await refineShape(g.report.gift_title || GIFTS[g.kind].label, g.report.gift_shape, me, signal);
+    if (fixed) g.report.gift_shape = fixed;
+  }
+  if (signal.aborted) return;
+
   // 4. 그림 선물은 글이 나온 뒤에 그린다 — 뭘 그릴지가 그 글에 있다.
   if (g.kind === "drawing" && g.report.drawing_prompt) {
     try {
@@ -338,6 +361,48 @@ async function walk(
   // 비슷한 기억 판정에 모델을 몇 번 더 부르므로 보고를 붙잡지 않는다.
   // 한 문장을 넘는 건 남기지 않는다 — 웹에서 온 글이라 길수록 지시문이 섞여 들 틈이 크다.
   if (keep && keep.content.length <= 120) void saveMemory(`산책하다 알게 됨: ${keep.content}`, "neko").catch(() => {});
+}
+
+/** 모양을 실제로 그려 PNG 로. 캔버스를 못 쓰는 곳(테스트 등)이면 null */
+function renderShape(shape: GiftShape, size = 256): string | null {
+  try {
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = size;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#f4f1ea"; // 앱 무대와 같은 바탕
+    ctx.fillRect(0, 0, size, size);
+    const b = shapeBounds(shape), u = (size * 0.78) / Math.max(b.w, b.h);
+    drawShape(ctx, shape, size / 2 - ((b.x0 + b.x1) / 2) * u, size / 2 + (b.h * u) / 2, u, 6);
+    return cv.toDataURL("image/png");
+  } catch {
+    return null;
+  }
+}
+
+/** 그린 선물을 보여 주고 알아보기 어려우면 고친 모양을 받는다. 못 하면 null(처음 모양 그대로 쓴다) */
+async function refineShape(title: string, raw: unknown, me: string, signal: AbortSignal): Promise<unknown | null> {
+  const url = renderShape(validateShape(raw));
+  if (!url) return null;
+  const turn = await fetchCompletionMessage(
+    [
+      { role: "system", content: ["너는 산책에서 주워 온 물건을 그린 고양이 네코야. gift_shape_fix 툴로 답해.", section("네 성격과 말투", me)].filter(Boolean).join("\n\n") },
+      {
+        role: "user",
+        content: [
+          { type: "text", text:
+            `네가 '${title}'(으)로 그린 그림이야. 처음 보는 사람이 바로 '${title}'인 걸 알아볼까? ` +
+            "알아보기 어려운 데(실루엣·특징 선·색·비율)를 고쳐 gift_shape 를 다시 내. 이미 잘 알아보이면 그대로 내." },
+          { type: "image_url", image_url: { url } },
+        ],
+      },
+    ],
+    { tools: [SHAPE_FIX_TOOL] },
+    undefined,
+    signal
+  ).catch(() => null);
+  const fixed = turn?.toolCalls.find((c) => c.name === "gift_shape_fix")?.params?.gift_shape;
+  return fixed && typeof fixed === "object" ? fixed : null;
 }
 
 function compose(g: Gathered): WalkReport {

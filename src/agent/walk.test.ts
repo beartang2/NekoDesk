@@ -145,6 +145,27 @@ describe("산책 머리", () => {
     expect(useNekoGifts.getState().gifts.map((g) => [g.title, g.play])).toEqual([["병뚜껑", "roll"]]);
   });
 
+  it("그린 선물을 그림으로 보여 주고, 고친 모양이 오면 그걸 쓴다", async () => {
+    // jsdom 엔 캔버스가 없어 그리기 함수만 받아 주는 가짜를 쓴다
+    const ctx = new Proxy({}, { get: (_, k) => (k === "createLinearGradient" ? () => ({ addColorStop() {} }) : () => {}) });
+    const gc = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
+    const td = vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/png;base64,AA");
+    const rnd = vi.spyOn(Math, "random").mockReturnValue(0); // 주운 것
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({
+      learned: [], diary: "d", gift_title: "단풍잎", gift_body: "b",
+      gift_shape: { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "red" }] },
+    }));
+    completion.mockResolvedValueOnce({ text: "", reasoning: "", toolCalls: [{ id: "f", name: "gift_shape_fix", params: {
+      gift_shape: { parts: [{ t: "poly", round: 0, c: "red", pts: [[0, -20], [8, -6], [-8, -6]] }] },
+    } }] });
+    const r = await startWalkBrain({ places: [], here: null }).result;
+    rnd.mockRestore(); gc.mockRestore(); td.mockRestore();
+    const sent = completion.mock.calls[1][0] as LlmMessage[];
+    expect(JSON.stringify(sent[1].content)).toContain("data:image/png;base64,AA");
+    expect(r.gift?.shape?.parts[0]).toMatchObject({ t: "poly", round: 0 });
+  });
+
   it("조사가 매달려 있어도 abort 하면 바로 돌아온다", async () => {
     subagent.mockImplementation(() => new Promise(() => {}));
     const brain = startWalkBrain({ places: [], here: null });
