@@ -30,7 +30,6 @@ textarea {
   --sidebar-w:     220px;
   --right-panel-w: 210px;
   --titlebar-h:    40px;
-  --cat-panel-h:   150px;
 
   /* ── Type ───────────────────────────────────────────────────────────────── */
   /* JetBrains/Fira/Cascadia 는 macOS 기본 미탑재라 어차피 fallback 됐다.
@@ -339,9 +338,10 @@ html, body, #root {
   flex-shrink: 0;
   border-top: 1px solid var(--border);
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 0;
+  flex-direction: column; /* 네코 무대(높이 조절) 위, 게이지·버튼 아래 */
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0 0 4px;
   position: relative;
   background: var(--bg-surface);
 }

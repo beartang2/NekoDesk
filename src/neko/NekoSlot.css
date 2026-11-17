@@ -1,0 +1,41 @@
+/* 네코 자리: 사이드바 패널 / 채팅 바 아래 띠. 높이는 손잡이로 바꾼다(nekoStore). */
+.neko-slot {
+  position: relative;
+  flex-shrink: 0;
+  width: 100%;
+}
+.neko-slot--dock {
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+.neko-slot__stage {
+  position: absolute;
+  inset: 0;
+}
+.neko-slot__stage--petting { cursor: none; }
+
+.neko-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  outline: none;
+}
+.neko-canvas.can-grab { cursor: grab; }
+.neko-canvas.dragging { cursor: grabbing; }
+.neko-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+
+/* 높이 손잡이: 위쪽 가장자리 6px. 사이드바 폭 손잡이와 같은 느낌 */
+.neko-slot__handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -3px;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 2;
+}
+.neko-slot__handle:hover,
+.neko-slot__handle:active {
+  background: var(--accent-dim);
+}

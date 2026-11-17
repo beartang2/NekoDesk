@@ -5,7 +5,9 @@ import { Sun, Moon, Settings, Paperclip, PanelLeftClose, PanelLeftOpen, PanelRig
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
-import { CatCanvas } from "./cat/CatCanvas";
+import { NekoSlot } from "./neko/NekoSlot";
+import { useNekoBridge } from "./neko/useNekoBridge";
+import { useNekoStore } from "./neko/nekoStore";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPanel";
 import { MenuModal } from "./components/MenuModal";
@@ -139,7 +141,6 @@ function TitleBar({
 function Sidebar({
   onNew,
   onDelete,
-  emotion,
   rpg,
   onResizeStart,
   isResizing,
@@ -150,7 +151,6 @@ function Sidebar({
 }: {
   onNew: () => void;
   onDelete: (id: string) => void;
-  emotion: CatEmotion;
   rpg: {
     dayCount: number;
     hunger: number;
@@ -210,7 +210,7 @@ function Sidebar({
           <div className="cat-game-bubble">{gameSpeech}</div>
         )}
         <div className="cat-panel__ctx">{contextTokens.toLocaleString()} / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}</div>
-        <CatCanvas emotion={emotion} onPet={rpg.onPet} />
+        <NekoSlot placement="sidebar" onRubPet={rpg.onPet} />
         <CatStatusPanel
           dayCount={rpg.dayCount}
           hunger={rpg.hunger}
@@ -647,8 +647,9 @@ export default function App() {
   const setSessions = useSessionStore((s) => s.setSessions);
   const setActiveId = useSessionStore((s) => s.setActiveId);
 
-  // ── Cat variant ───────────────────────────────────────────────────────────
-  // 고양이 외형은 catStore 가 소유한다(CatCanvas 가 구독, SettingsModal 이 변경).
+  // ── Neko ──────────────────────────────────────────────────────────────────
+  // 네코 외형·자리는 nekoStore 가 소유한다(NekoSlot·엔진이 구독, SettingsModal 이 변경). 시작 때 DB 값을 읽는다.
+  useEffect(() => { void useNekoStore.getState().load(); }, []);
 
   // ── Model context length (from llama.cpp /props) ─────────────────────────
   const [modelContextLength, setModelContextLength] = useState<number | null>(null);
@@ -871,8 +872,18 @@ export default function App() {
   const isBoxModeRef = useRef(isBoxMode);
   isBoxModeRef.current = isBoxMode;
 
-  // 쓰다듬기는 이제 CatCanvas 안에서 트랙패드로 처리한다(useTrackpadPet).
+  // 쓰다듬기: 네코를 탭하거나(엔진) 쓰다듬기 모드에서 트랙패드를 문지르면(NekoSlot·useTrackpadPet) 부른다.
   // 가속도계는 M4에서 root 데몬이 필요해 폐기했다.
+  const handlePet = useCallback(() => {
+    pet();
+    if (isBoxModeRef.current) {
+      boxPetCountRef.current += 1;
+      if (boxPetCountRef.current >= BOX_EXIT_PET_COUNT) {
+        boxPetCountRef.current = 0;
+        setIsBoxMode(false);
+      }
+    }
+  }, [pet]);
 
   // play >= 80이면 랜덤으로 box 상태 진입 (30~120초 간격)
   useEffect(() => {
@@ -913,6 +924,7 @@ export default function App() {
 
   const handleFeed = useCallback(async () => {
     if (isCompacting) return;
+    appEvents.emit("nekoCue", { kind: "feed" }); // 네코: 간식 그릇이 '뿅'
 
     const msgs = (allMessages[activeId] ?? []).filter(
       (m) => m.role === "user" || m.role === "assistant"
@@ -1139,6 +1151,8 @@ export default function App() {
     scrollToBottomRef.current = scrollFn;
   }, []);
   const { isDark, toggle: toggleTheme } = useTheme();
+  // 네코(v26 엔진): 표시 감정 → 기분·자세·활동·꼬리 반응(설계 표 5.1). 자리는 NekoSlot 두 곳 중 설정에 맞는 곳
+  useNekoBridge({ emotion: displayEmotion, isDark, onPet: handlePet });
   useZoom();
   const activeSession = sessions.find((s) => s.id === activeId);
 
@@ -1231,7 +1245,6 @@ export default function App() {
       <Sidebar
         onNew={handleNew}
         onDelete={handleDelete}
-        emotion={displayEmotion}
         gameSpeech={gameSpeech}
         rpg={{
           dayCount,
@@ -1241,17 +1254,8 @@ export default function App() {
           feedCountToday: rpgState.feedCountToday,
           isCompacting,
           onFeed: () => { void handleFeed(); },
-          onPlay: () => { triggerActionEmotion("happy"); launchRandomGame(); },
-          onPet: () => {
-            pet();
-            if (isBoxMode) {
-              boxPetCountRef.current += 1;
-              if (boxPetCountRef.current >= BOX_EXIT_PET_COUNT) {
-                boxPetCountRef.current = 0;
-                setIsBoxMode(false);
-              }
-            }
-          },
+          onPlay: () => { appEvents.emit("nekoCue", { kind: "play" }); triggerActionEmotion("happy"); launchRandomGame(); },
+          onPet: handlePet,
         }}
         onResizeStart={sidebarVisible ? (e) => startDrag("sidebar", e) : undefined}
         isResizing={isDragging === "sidebar"}
@@ -1328,6 +1332,7 @@ export default function App() {
           onActivity={markUserActivity}
           isRunning={isRunning || wordChain.phase === "cat_turn"}
         />
+        <NekoSlot placement="dock" onRubPet={handlePet} />
       </main>
 
       <ErrorBoundary label="패널">

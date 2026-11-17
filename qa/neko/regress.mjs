@@ -182,9 +182,10 @@ try {
     await p.close();
   }
 
-  // 9) 앱 패널 크기(220×200, 높이 기준): 고양이가 무대 밖으로 잘리지 않는가(산책 켜고 20초)
-  {
-    const p = await open("?w=220&h=200&scale=height&transparent=1", { width: 760, height: 1000 }, 1);
+  // 9) 앱 자리 크기(높이 기준): 고양이가 무대 밖으로 잘리지 않는가(산책 켜고 20초).
+  //    사이드바 패널 최소·기본·최대 높이와 채팅 바 아래 띠
+  for (const [w, h] of [[220, 150], [220, 200], [220, 320], [320, 320], [900, 150]]) {
+    const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 1000 }, 1);
     await p.click("#wander"); // 산책 다시 켬
     const r = await p.evaluate(() => {
       const n = window.__neko, cv = document.getElementById("stage"), g = cv.getContext("2d"); let cut = 0, frames = 0;
@@ -195,7 +196,7 @@ try {
         if (edge) cut++; }
       return { cut, frames, S: n.S };
     });
-    check("패널 220×200: 고양이가 가장자리에서 잘림", `${r.frames}장 중 ${r.cut}장 (크기 ${r.S.toFixed(2)})`, r.cut === 0);
+    check(`자리 ${w}×${h}: 고양이가 가장자리에서 잘림`, `${r.frames}장 중 ${r.cut}장 (크기 ${r.S.toFixed(2)})`, r.cut === 0);
     await p.close();
   }
 
