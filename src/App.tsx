@@ -74,6 +74,7 @@ import type {
 import { fetchLoadedModel, summarizeConversation } from "./agent/llm-client";
 import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl, saveProfiles } from "./stores/modelProfiles";
 import { listen } from "@tauri-apps/api/event";
+import { useNekoScreen } from "./neko/remoteNeko";
 import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
 import { clock, parseDbTime, setTimeZone } from "./lib/time";
 
@@ -1735,6 +1736,8 @@ export default function App() {
   // 경로는 떠날 때 다 정해 저장한다 — 자리는 시각만으로 나와서 껐다 켜도 이어 걷는다(lib/walk).
   const [walk, setWalk] = useState<Walk | null>(null);
   const [away, setAway] = useState(false);
+  // 모니터 화면 자리면 화면 창을 띄운다(산책 중엔 숨긴다)
+  useNekoScreen(away);
   const brainRef = useRef<WalkBrain | null>(null);
   // 쉬는지는 네코 감독의 '앱을 쓰는 중'(useNekoApp.lastActiveAt: 입력·클릭·스크롤·밥·놀이)으로 본다.
   // 감독이 재우는 때(SLEEPY_MS)부터 졸고, 다시 쓰면 서둘러 온다. 구독으로 봐서 App 은 졸기 시작·깰 때만 다시 그린다.

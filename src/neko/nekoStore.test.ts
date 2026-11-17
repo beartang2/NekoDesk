@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_APPEARANCE, DOCK_H, SIDEBAR_H, migrateVariant, normalizeAppearance, normalizeStage } from "./nekoStore";
+import { DEFAULT_APPEARANCE, DOCK_H, SCREEN_SCALE, SIDEBAR_H, migrateVariant, normalizeAppearance, normalizeStage } from "./nekoStore";
 
 describe("nekoStore 정리 함수", () => {
   it("알 수 없는 값은 기본값으로, 무늬는 중복 없이", () => {
@@ -24,7 +24,18 @@ describe("nekoStore 정리 함수", () => {
   });
 
   it("자리 높이는 범위 안으로", () => {
-    expect(normalizeStage({ placement: "dock", sidebarH: 9999, dockH: 10 })).toEqual({ placement: "dock", sidebarH: SIDEBAR_H.max, dockH: DOCK_H.min });
-    expect(normalizeStage(null)).toEqual({ placement: "sidebar", sidebarH: SIDEBAR_H.def, dockH: DOCK_H.def });
+    expect(normalizeStage({ placement: "dock", sidebarH: 9999, dockH: 10 })).toMatchObject({ placement: "dock", sidebarH: SIDEBAR_H.max, dockH: DOCK_H.min });
+    expect(normalizeStage(null)).toEqual({
+      placement: "sidebar", sidebarH: SIDEBAR_H.def, dockH: DOCK_H.def, screenScale: SCREEN_SCALE.def, screenOnTop: true,
+    });
+  });
+
+  it("모니터 화면 자리: 크기는 범위 안으로, '항상 위'는 꺼야만 꺼진다", () => {
+    expect(normalizeStage({ placement: "screen", screenScale: 9, screenOnTop: false })).toMatchObject({
+      placement: "screen", screenScale: SCREEN_SCALE.max, screenOnTop: false,
+    });
+    expect(normalizeStage({ placement: "wall", screenScale: 0.777, screenOnTop: "no" })).toMatchObject({
+      placement: "sidebar", screenScale: 0.78, screenOnTop: true,
+    });
   });
 });

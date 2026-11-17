@@ -1,0 +1,12 @@
+/* 화면 창(neko-screen)의 캔버스. 바탕은 main.tsx 가 붙이는 capture-window 로 투명하다.
+   세계 모드라 크기와 자리(transform)는 엔진이 매 프레임 정한다 — 여기선 왼쪽 위에 붙여 두기만 */
+.neko-screen__canvas {
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: block;
+  touch-action: none;
+  outline: none;
+}
+.neko-screen__canvas.can-grab { cursor: grab; }
+.neko-screen__canvas.dragging { cursor: grabbing; }

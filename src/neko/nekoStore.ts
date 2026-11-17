@@ -6,24 +6,29 @@ import type { NekoAppearance, NekoPattern } from "./engine/neko-engine";
  * 네코 외형·자리 스토어. 예전 catStore(스프라이트 variantId 하나)를 대신한다.
  *
  * - 외형: 털 색·무늬(+씨앗)·눈·털 길이·귀·꼬리·체형·다리·말랑함
- * - 자리: 사이드바 패널(기본) / 채팅 바 아래 띠, 각 자리의 높이
+ * - 자리: 사이드바 패널(기본) / 채팅 바 아래 띠 / 모니터 화면(docs/neko-screen-mode.md), 각 자리의 높이·크기
  *
  * 저장은 RPG 처럼 Tauri settings DB(`neko_appearance`, `neko_stage`). 브라우저 개발 모드처럼
  * invoke 가 없으면 localStorage 만 쓴다. 첫 화면이 깜빡이지 않게 localStorage 를 먼저 읽고,
  * DB 값이 오면 덮는다. 예전 `nekodesk_cat_variant` 는 처음 한 번 옮겨 온다(설계 §8).
  */
 
-export type NekoPlacement = "sidebar" | "dock";
+export type NekoPlacement = "sidebar" | "dock" | "screen";
 export interface NekoStageSettings {
   placement: NekoPlacement;
   /** 사이드바 패널 무대 높이(px) */
   sidebarH: number;
   /** 채팅 바 아래 띠 높이(px) */
   dockH: number;
+  /** 모니터 화면 자리의 고양이 크기(엔진 배율 S). 0.8 이면 몸길이 약 80pt */
+  screenScale: number;
+  /** 모니터 화면 자리: 모든 창 위에 둔다(끄면 모든 창 아래, 바탕화면 아이콘 위) */
+  screenOnTop: boolean;
 }
 
 export const SIDEBAR_H = { min: 150, max: 320, def: 200 } as const;
 export const DOCK_H = { min: 120, max: 240, def: 170 } as const;
+export const SCREEN_SCALE = { min: 0.55, max: 1.4, def: 0.8 } as const;
 
 export const DEFAULT_APPEARANCE: NekoAppearance = {
   coat: "cream",
@@ -38,7 +43,6 @@ export const DEFAULT_APPEARANCE: NekoAppearance = {
   legs: "normal",
   soft: 0.6,
 };
-const DEFAULT_STAGE: NekoStageSettings = { placement: "sidebar", sidebarH: SIDEBAR_H.def, dockH: DOCK_H.def };
 
 const APPEARANCE_KEY = "neko_appearance";
 const STAGE_KEY = "neko_stage";
@@ -93,11 +97,15 @@ export function normalizeAppearance(raw: unknown): NekoAppearance {
 export function normalizeStage(raw: unknown): NekoStageSettings {
   const s = (raw && typeof raw === "object" ? raw : {}) as Partial<NekoStageSettings>;
   return {
-    placement: s.placement === "dock" ? "dock" : "sidebar",
+    placement: s.placement === "dock" || s.placement === "screen" ? s.placement : "sidebar",
     sidebarH: clampH(Number.isFinite(s.sidebarH) ? (s.sidebarH as number) : SIDEBAR_H.def, SIDEBAR_H),
     dockH: clampH(Number.isFinite(s.dockH) ? (s.dockH as number) : DOCK_H.def, DOCK_H),
+    screenScale: clampScale(Number.isFinite(s.screenScale) ? (s.screenScale as number) : SCREEN_SCALE.def),
+    screenOnTop: s.screenOnTop !== false,
   };
 }
+
+const clampScale = (v: number) => Math.round(Math.min(SCREEN_SCALE.max, Math.max(SCREEN_SCALE.min, v)) * 100) / 100;
 
 function readLocal<T>(key: string): T | null {
   try {
@@ -138,6 +146,8 @@ interface NekoStore {
   setPlacement: (p: NekoPlacement) => void;
   /** 높이를 바꾼다. persist=false 면 끌고 있는 중(손을 뗄 때 저장) */
   setStageHeight: (which: NekoPlacement, h: number, persist?: boolean) => void;
+  /** 모니터 화면 자리 설정(크기·항상 위) */
+  setScreen: (patch: Partial<Pick<NekoStageSettings, "screenScale" | "screenOnTop">>) => void;
   /** DB 값으로 덮기(앱 시작 때 한 번) */
   load: () => Promise<void>;
 }
@@ -161,6 +171,11 @@ export const useNekoStore = create<NekoStore>((set, get) => ({
     const stage = which === "sidebar" ? { ...cur, sidebarH: clampH(h, SIDEBAR_H) } : { ...cur, dockH: clampH(h, DOCK_H) };
     set({ stage });
     if (persist) save(STAGE_KEY, stage);
+  },
+  setScreen: (patch) => {
+    const stage = normalizeStage({ ...get().stage, ...patch });
+    set({ stage });
+    save(STAGE_KEY, stage);
   },
   load: async () => {
     const [a, s] = await Promise.all([

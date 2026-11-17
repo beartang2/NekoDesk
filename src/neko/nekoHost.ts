@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { createNeko, type NekoController } from "./engine/neko-engine";
 import { useNekoStore } from "./nekoStore";
+import { getRemoteNeko, onRemoteNeko } from "./remoteNeko";
 import { useNekoGifts } from "./gifts";
 
 /**
@@ -43,10 +44,17 @@ export function ensureNeko(): NekoController {
   return ctrl;
 }
 
-/** 엔진이 만들어지면 다시 그린다(그 전엔 null). */
+// 모니터 화면 자리면 엔진은 화면 창에 있다(remoteNeko). 여기 엔진은 쉰다 — 다른 자리로 돌아오면 NekoSlot 이 resume
+useNekoStore.subscribe((s) => { if (s.stage.placement === "screen") ctrl?.pause(); });
+
+/** 엔진이 만들어지면 다시 그린다(그 전엔 null). 모니터 화면 자리면 화면 창 엔진의 대리(준비 전엔 null). */
 export function useNekoController(): NekoController | null {
   return useSyncExternalStore(
-    (fn) => { subs.add(fn); return () => subs.delete(fn); },
-    () => ctrl,
+    (fn) => {
+      subs.add(fn);
+      const off = onRemoteNeko(fn);
+      return () => { subs.delete(fn); off(); };
+    },
+    () => (useNekoStore.getState().stage.placement === "screen" ? getRemoteNeko() : ctrl),
   );
 }
