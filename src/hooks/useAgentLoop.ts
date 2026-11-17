@@ -4,6 +4,9 @@ import { appEvents } from "../lib/events";
 import { useMessageStore } from "../stores/messageStore";
 import { runAgentLoop } from "../agent/agent-loop";
 import type { AgentStep, CatEmotion, ContentPart, LlmMessage, LoopEvent } from "../agent/types";
+import { CANCEL_MESSAGE } from "../neko/director/session";
+import { useNekoSessions } from "../neko/director/stores";
+import type { NekoSignal } from "../neko/director/types";
 
 export interface PendingConfirm {
   sessionId: string;
@@ -108,17 +111,12 @@ function buildHistory(messages: ChatMessage[]): LlmMessage[] {
     }));
 }
 
-function deriveFinalEmotion(steps: AgentStep[]): CatEmotion {
-  if (steps.some((s) => s.status === "error")) return "error";
-  const writes = ["todo.add", "todo.complete", "schedule.add", "code.exec"];
-  if (steps.some((s) => writes.includes(s.tool) && s.status === "done")) return "happy";
-  if (steps.length > 0) return "proud";
-  return "idle";
-}
-
 /**
  * Per-session agent pool — enables parallel processing across sessions.
- * Each session has its own isRunning / catEmotion / error / abortRef.
+ * Each session has its own isRunning / error / abortRef.
+ *
+ * 네코: 루프 이벤트를 신호로 바꿔 세션마다 네코 상태에 넣는다(설계 docs/neko-p2-director.md §3).
+ * 토큰 이벤트는 단계가 바뀔 때만 신호를 보낸다 — 예전엔 토큰마다 감정 객체를 새로 만들어 App 이 토큰마다 다시 그려졌다.
  */
 export function useAgentPool() {
   // 메시지 상태는 messageStore 소유. 비동기 루프는 getState() 로 최신값을 읽어
@@ -126,7 +124,8 @@ export function useAgentPool() {
   // Use a ref for fast reads inside async loops, and state for UI reactivity
   const runningSetRef = useRef<Set<string>>(new Set());
   const [runningSet, setRunningSet] = useState<Set<string>>(new Set());
-  const [catEmotions, setCatEmotions] = useState<Record<string, CatEmotion>>({});
+  /** 세션마다 마지막으로 보낸 신호 종류(생각·답 토큰이 쏟아질 때 같은 신호를 거른다) */
+  const lastSignalRef = useRef<Record<string, NekoSignal["type"]>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [sessionTokens, setSessionTokens] = useState<Record<string, number>>({});
   // 예전에는 boolean 플래그였다. 플래그는 소비 루프만 멈출 뿐 진행 중인
@@ -141,8 +140,10 @@ export function useAgentPool() {
     setRunningSet(new Set(runningSetRef.current));
   }
 
-  function setCatEmotion(id: string, emotion: CatEmotion) {
-    setCatEmotions((prev) => ({ ...prev, [id]: emotion }));
+  function signal(id: string, sig: NekoSignal) {
+    if ((sig.type === "thinking" || sig.type === "answering") && lastSignalRef.current[id] === sig.type) return;
+    lastSignalRef.current[id] = sig.type;
+    useNekoSessions.getState().dispatch(id, sig);
   }
 
   const patchSessionMessages = (
@@ -158,7 +159,7 @@ export function useAgentPool() {
       const controller = new AbortController();
       abortRefs.current[sessionId] = controller;
       setRunning(sessionId, true);
-      setCatEmotion(sessionId, "curious");
+      signal(sessionId, { type: "run_start" });
       setErrors((prev) => ({ ...prev, [sessionId]: null }));
 
       // displayText: UI와 DB에 보이는 텍스트 (생략 시 userText와 동일)
@@ -200,17 +201,18 @@ export function useAgentPool() {
       function handleEvent(event: LoopEvent) {
         switch (event.type) {
           case "step_start":
-            setCatEmotion(sessionId, "curious");
+          case "thinking_token":
+            // 생각 문장은 화면에 보여주지 않는다(말풍선엔 고정 "생각 중…"). 네코는 '생각 중'
+            signal(sessionId, { type: "thinking" });
             break;
 
-          case "thinking_token":
-            // 생각 문장은 화면에 보여주지 않는다(말풍선엔 고정 "생각 중…"). 고양이 표정만 바꾼다.
-            setCatEmotion(sessionId, "working");
+          case "tool_start":
+            signal(sessionId, { type: "tool_start", tool: event.tool, params: event.params });
             break;
 
           case "step_done":
             finalSteps = [...finalSteps, event.step];
-            setCatEmotion(sessionId, "working");
+            if (event.step.tool !== "user.ask") signal(sessionId, { type: "tool_end", tool: event.step.tool });
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
                 m.id === assistantId ? { ...m, steps: [...finalSteps] } : m
@@ -220,7 +222,7 @@ export function useAgentPool() {
 
           case "step_error":
             finalSteps = [...finalSteps, event.step];
-            setCatEmotion(sessionId, "error");
+            signal(sessionId, { type: "step_error", tool: event.step.tool, cancelled: event.step.errorMessage === CANCEL_MESSAGE });
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
                 m.id === assistantId ? { ...m, steps: [...finalSteps] } : m
@@ -230,7 +232,7 @@ export function useAgentPool() {
 
           case "streaming_token":
             streamBuffer += event.token;
-            setCatEmotion(sessionId, "working");
+            signal(sessionId, { type: "answering" });
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
                 m.id === assistantId
@@ -247,6 +249,7 @@ export function useAgentPool() {
             break;
 
           case "confirm_needed":
+            signal(sessionId, { type: "wait", kind: "confirm", danger: event.isDangerous });
             setPendingConfirm({
               sessionId,
               language: event.language,
@@ -258,6 +261,7 @@ export function useAgentPool() {
             break;
 
           case "clarify_needed":
+            signal(sessionId, { type: "wait", kind: "clarify", danger: false });
             setPendingClarify({
               sessionId,
               question: event.question,
@@ -281,7 +285,7 @@ export function useAgentPool() {
             const images = finalSteps
               .map((s) => s.imageDataUrl)
               .filter((url): url is string => !!url);
-            setCatEmotion(sessionId, emotion ?? deriveFinalEmotion(finalSteps));
+            signal(sessionId, { type: "done", petState: emotion });
             setRunning(sessionId, false);
             setPendingConfirm(null);
             setPendingClarify(null);
@@ -298,7 +302,7 @@ export function useAgentPool() {
           }
 
           case "error":
-            setCatEmotion(sessionId, "error");
+            signal(sessionId, { type: "loop_error" });
             setRunning(sessionId, false);
             setPendingConfirm(null);
             setPendingClarify(null);
@@ -320,7 +324,7 @@ export function useAgentPool() {
         handleEvent(event);
       }
     },
-    // patchSessionMessages / setRunning / setCatEmotion are defined in render scope
+    // patchSessionMessages / setRunning / signal are defined in render scope
     // but don't capture stale state — they use functional setters or refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
@@ -331,7 +335,7 @@ export function useAgentPool() {
       // 진행 중인 fetch 를 실제로 끊는다. llama.cpp 가 생성을 중단한다.
       abortRefs.current[sessionId]?.abort();
       setRunning(sessionId, false);
-      setCatEmotion(sessionId, "idle");
+      signal(sessionId, { type: "abort" });
       setPendingClarify((prev) => (prev?.sessionId === sessionId ? null : prev));
       setPendingConfirm((prev) => (prev?.sessionId === sessionId ? null : prev));
       useMessageStore.getState().patch(sessionId, (msgs) =>
@@ -343,8 +347,6 @@ export function useAgentPool() {
 
   return {
     isRunning: (sessionId: string) => runningSet.has(sessionId),
-    catEmotion: (sessionId: string): CatEmotion =>
-      catEmotions[sessionId] ?? "idle",
     error: (sessionId: string): string | null => errors[sessionId] ?? null,
     clearError: (sessionId: string) =>
       setErrors((prev) => ({ ...prev, [sessionId]: null })),
@@ -355,11 +357,13 @@ export function useAgentPool() {
     stop,
     pendingConfirm,
     confirmResolve: (ok: boolean) => {
+      if (pendingConfirm) signal(pendingConfirm.sessionId, { type: "wait_end", approved: ok });
       pendingConfirm?.resolve(ok);
       setPendingConfirm(null);
     },
     pendingClarify,
     clarifyResolve: (answer: string) => {
+      if (pendingClarify) signal(pendingClarify.sessionId, { type: "wait_end", approved: true });
       pendingClarify?.resolve(answer);
       setPendingClarify(null);
     },

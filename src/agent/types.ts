@@ -152,6 +152,8 @@ export interface AgentStep {
 /** Emitted during the loop so React can show live progress */
 export type LoopEvent =
   | { type: "step_start"; iteration: number }
+  /** 도구를 실행하기 바로 앞(확인을 받은 뒤). 네코가 도구를 쓰는 '동안' 그 도구의 활동을 보인다 */
+  | { type: "tool_start"; tool: string; params: Record<string, unknown> }
   | { type: "step_done"; step: AgentStep }
   | { type: "step_error"; step: AgentStep }
   | { type: "thinking_token"; token: string }

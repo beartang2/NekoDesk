@@ -222,6 +222,8 @@ export async function* runAgentLoop(
       }
     }
 
+    yield { type: "tool_start", tool: toolName, params: parsed.params };
+
     try {
       if (isMcpTool(toolName)) {
         // MCP tool execution

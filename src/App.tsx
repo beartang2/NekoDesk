@@ -6,7 +6,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentStepAccordion } from "./components/AgentStepAccordion";
 import { NekoSlot } from "./neko/NekoSlot";
-import { useNekoBridge } from "./neko/useNekoBridge";
+import { useNekoDirector } from "./neko/useNekoDirector";
+import { useNekoApp } from "./neko/director/stores";
 import { useNekoStore } from "./neko/nekoStore";
 import { CatStatusPanel } from "./components/CatStatusPanel";
 import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPanel";
@@ -32,7 +33,6 @@ import "./App.css";
 
 // ── Session types ─────────────────────────────────────────────────────────────
 
-const SLEEPY_AFTER_MS = 5 * 60 * 1000;
 
 // 세션 상태는 sessionStore 가 소유한다(Session/makeSession 도 거기서 재노출).
 
@@ -483,6 +483,7 @@ function Composer({
       })
     );
     setFiles((prev) => [...prev, ...newFiles]);
+    if (newFiles.length > 0) appEvents.emit("nekoHint", { kind: "attach" });
   }
 
   function removeAttachedFile(index: number) {
@@ -821,16 +822,10 @@ export default function App() {
   const { state: rpgState, dayCount, canFeed, feed, playAction, pet, reward } = useCatRpg();
 
   const isRunning = pool.isRunning(activeId);
-  const catEmotion = pool.catEmotion(activeId);
   const error = pool.error(activeId);
-  const [lastUserActivityAt, setLastUserActivityAt] = useState(() => Date.now());
-  const [now, setNow] = useState(() => Date.now());
 
-  const markUserActivity = useCallback(() => {
-    const timestamp = Date.now();
-    setLastUserActivityAt(timestamp);
-    setNow(timestamp);
-  }, []);
+  // 네코 감독의 '앱을 쓰는 중'(5분 무활동이면 졸림). 키 입력·클릭·스크롤은 useNekoDirector 가 직접 센다
+  const markUserActivity = useCallback(() => { useNekoApp.getState().markActive(); }, []);
 
   // 에이전트 루프 완료 시 play +5
   const prevIsRunning = useRef(isRunning);
@@ -841,67 +836,17 @@ export default function App() {
     prevIsRunning.current = isRunning;
   }, [isRunning, reward]);
 
-  useEffect(() => {
-    if (isRunning) {
-      setNow(Date.now());
-      return;
-    }
-
-    const id = window.setInterval(() => {
-      setNow(Date.now());
-    }, 30000);
-
-    return () => window.clearInterval(id);
-  }, [isRunning]);
-
-  const [isBoxMode, setIsBoxMode] = useState(false);
-  const boxPetCountRef = useRef(0);
-  const BOX_EXIT_PET_COUNT = 3;
-  const [actionEmotion, setActionEmotion] = useState<CatEmotion | null>(null);
-  const actionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const triggerActionEmotion = useCallback((emotion: CatEmotion, durationMs = 2500) => {
-    if (actionTimerRef.current) clearTimeout(actionTimerRef.current);
-    setActionEmotion(emotion);
-    actionTimerRef.current = setTimeout(() => {
-      setActionEmotion(null);
-      actionTimerRef.current = null;
-    }, durationMs);
-  }, []);
-
-  const isBoxModeRef = useRef(isBoxMode);
-  isBoxModeRef.current = isBoxMode;
-
   // 쓰다듬기: 네코를 탭하거나(엔진) 쓰다듬기 모드에서 트랙패드를 문지르면(NekoSlot·useTrackpadPet) 부른다.
-  // 가속도계는 M4에서 root 데몬이 필요해 폐기했다.
+  // 가속도계는 M4에서 root 데몬이 필요해 폐기했다. 상자에서 나오기(3번)는 감독이 센다.
   const handlePet = useCallback(() => {
     pet();
-    if (isBoxModeRef.current) {
-      boxPetCountRef.current += 1;
-      if (boxPetCountRef.current >= BOX_EXIT_PET_COUNT) {
-        boxPetCountRef.current = 0;
-        setIsBoxMode(false);
-      }
-    }
+    useNekoApp.getState().notePet();
   }, [pet]);
 
-  // play >= 80이면 랜덤으로 box 상태 진입 (30~120초 간격)
-  useEffect(() => {
-    if (isRunning || rpgState.play < 80) {
-      setIsBoxMode(false);
-      return;
-    }
-    const delay = 30_000 + Math.random() * 90_000;
-    const id = window.setTimeout(() => { boxPetCountRef.current = 0; setIsBoxMode(true); }, delay);
-    return () => window.clearTimeout(id);
-  }, [isRunning, rpgState.play]);
-
-  // box 상태는 60초 후 자동 해제
-  useEffect(() => {
-    if (!isBoxMode) return;
-    const id = window.setTimeout(() => setIsBoxMode(false), 60_000);
-    return () => window.clearTimeout(id);
-  }, [isBoxMode]);
+  // 게임 훅이 주는 감정(예전 triggerActionEmotion) → 네코 감독의 게임 층(표 5.1)
+  const nekoGameEmotion = useCallback((emotion: CatEmotion, durationMs?: number) => {
+    useNekoApp.getState().setGameEmotion(emotion, durationMs);
+  }, []);
 
   const promptTokens = pool.contextTokens(activeId);
   const displayHunger =
@@ -909,35 +854,27 @@ export default function App() {
       ? 100
       : Math.max(0, Math.round(100 - (promptTokens / modelContextLength) * 100));
 
-  const isGaugeSleepy = displayHunger < 30 || rpgState.play < 20;
-  const displayEmotion: CatEmotion =
-    !isRunning && actionEmotion
-      ? actionEmotion
-      : !isRunning && (now - lastUserActivityAt >= SLEEPY_AFTER_MS || isGaugeSleepy)
-      ? "sleepy"
-      : isBoxMode && !isRunning
-      ? "cozy"
-      : catEmotion;
-
   // ── 밥 주기 = 컨텍스트 compact ───────────────────────────────────────────────
   const [isCompacting, setIsCompacting] = useState(false);
 
   const handleFeed = useCallback(async () => {
     if (isCompacting) return;
-    appEvents.emit("nekoCue", { kind: "feed" }); // 네코: 간식 그릇이 '뿅'
+    const neko = useNekoApp.getState();
 
     const msgs = (allMessages[activeId] ?? []).filter(
       (m) => m.role === "user" || m.role === "assistant"
     );
 
     if (msgs.length < 2) {
-      // 요약할 대화 없음 → 그냥 hunger 회복
+      // 요약할 대화 없음 → 그냥 hunger 회복. 네코는 간식 한 번(끝나면 떨기)
       feed();
-      triggerActionEmotion("proud");
+      neko.setFeeding(true);
+      window.setTimeout(() => useNekoApp.getState().setFeeding(false), 1500);
       return;
     }
 
     setIsCompacting(true);
+    neko.setFeeding(true); // 네코: 요약이 끝날 때까지 간식을 먹는다
     try {
       const llmMessages: LlmMessage[] = msgs.map((m) => ({
         role: m.role as "user" | "assistant",
@@ -961,15 +898,15 @@ export default function App() {
 
       pool.clearContextTokens(activeId);
       feed();
-      triggerActionEmotion("proud");
     } catch {
       // compact 실패해도 무음 처리
     } finally {
       setIsCompacting(false);
+      useNekoApp.getState().setFeeding(false); // 다 먹으면 떨기 + 행복
     }
-  }, [isCompacting, allMessages, activeId, feed, triggerActionEmotion, setAllMessages, setCompactSummaries, setSummaryExpanded, pool]);
+  }, [isCompacting, allMessages, activeId, feed, setAllMessages, setCompactSummaries, setSummaryExpanded, pool]);
 
-  const wordChain = useWordChainGame(triggerActionEmotion);
+  const wordChain = useWordChainGame(nekoGameEmotion);
 
   useEffect(() => {
     return appEvents.on("wordchainGameover", () => {
@@ -1051,6 +988,7 @@ export default function App() {
     setSessions((prev) => [session, ...prev]);
     setAllMessages((prev) => ({ ...prev, [session.id]: makeInitialMessages() }));
     setActiveId(session.id);
+    appEvents.emit("nekoHint", { kind: "newChat" });
   }
 
   // ── Delete session ────────────────────────────────────────────────────────
@@ -1092,7 +1030,7 @@ export default function App() {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [gameSpeech, setGameSpeech] = useState<string | null>(null);
-  const game = useDrawingGame(triggerActionEmotion, setGameSpeech, () => reward(10));
+  const game = useDrawingGame(nekoGameEmotion, setGameSpeech, () => reward(10));
 
   useEffect(() => {
     if (game.phase !== "idle") {
@@ -1151,8 +1089,8 @@ export default function App() {
     scrollToBottomRef.current = scrollFn;
   }, []);
   const { isDark, toggle: toggleTheme } = useTheme();
-  // 네코(v26 엔진): 표시 감정 → 기분·자세·활동·꼬리 반응(설계 표 5.1). 자리는 NekoSlot 두 곳 중 설정에 맞는 곳
-  useNekoBridge({ emotion: displayEmotion, isDark, onPet: handlePet });
+  // 네코 감독(설계 docs/neko-p2-director.md): 세션 상태·앱 상황 → 계획 → 스케줄러 → 엔진. 자리는 NekoSlot 두 곳 중 설정에 맞는 곳
+  useNekoDirector({ activeId, isDark, needs: { hunger: displayHunger, play: rpgState.play }, onPet: handlePet });
   useZoom();
   const activeSession = sessions.find((s) => s.id === activeId);
 
@@ -1254,7 +1192,7 @@ export default function App() {
           feedCountToday: rpgState.feedCountToday,
           isCompacting,
           onFeed: () => { void handleFeed(); },
-          onPlay: () => { appEvents.emit("nekoCue", { kind: "play" }); triggerActionEmotion("happy"); launchRandomGame(); },
+          onPlay: () => { useNekoApp.getState().play(); launchRandomGame(); }, // 털실·나비 6초 → 게임이 이어받음
           onPet: handlePet,
         }}
         onResizeStart={sidebarVisible ? (e) => startDrag("sidebar", e) : undefined}
