@@ -21,6 +21,7 @@ vi.mock("../api/tauri", () => ({
   shelfApi: { add: vi.fn() },
 }));
 
+import { memoryApi } from "../api/tauri";
 import { giftWeights, rollGift, startWalkBrain, type GiftKind } from "./walk";
 
 const ALL: Record<GiftKind, boolean> = {
@@ -87,7 +88,27 @@ describe("산책 머리", () => {
     subagent.mockResolvedValueOnce("");
     completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b" }));
     await startWalkBrain({ places: [], here: null }).result;
-    expect(subagent.mock.calls[0][2]).toEqual(["web.search", "web.scrape", "weather.get", "memory.search"]);
+    expect(subagent.mock.calls[0][2]).toEqual(["web.search", "weather.get"]);
+  });
+
+  it("검색 지시엔 사용자 기억을 넣지 않는다 — 네코 제 기억(지난 산책)만", async () => {
+    vi.mocked(memoryApi.list).mockResolvedValueOnce([
+      { id: 1, kind: "preference", content: "사용자는 비밀 프로젝트 X 를 한다", created_at: "", use_count: 0 },
+      { id: 2, kind: "neko", content: "산책하다 알게 됨: 고양이는 하루 16시간 잔다", created_at: "", use_count: 0 },
+    ]);
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b" }));
+    await startWalkBrain({ places: [], here: null }).result;
+    const task = subagent.mock.calls[0][0] as string;
+    expect(task).not.toContain("비밀 프로젝트");
+    expect(task).toContain("16시간");
+  });
+
+  it("한 문장을 넘는 건 오래 기억하지 않는다", async () => {
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({ learned: [{ content: "가".repeat(121), impressive: true }], diary: "d", gift_title: "t", gift_body: "b" }));
+    await startWalkBrain({ places: [], here: null }).result;
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("abort 하면 reject 없이 그때까지 알아낸 것으로 보고한다", async () => {

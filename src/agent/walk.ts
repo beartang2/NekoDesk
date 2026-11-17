@@ -43,14 +43,16 @@ const GIFTS: Record<GiftKind, { base: number; label: string; hint: string }> = {
   trinket: { base: 5, label: "주운 것", hint: "길에서 주운 작은 물건(나뭇잎·병뚜껑 같은 것). 뭘 주웠는지는 네가 정해" },
   place: { base: 3, label: "가 본 곳", hint: "지나온 곳 하나를 소개해" },
   weather: { base: 2, label: "날씨 쪽지", hint: "날씨를 보고 사용자에게 남기는 쪽지" },
-  link: { base: 2, label: "읽을거리", hint: "알아본 것 중 사용자가 좋아할 만한 읽을거리 링크" },
+  link: { base: 2, label: "읽을거리", hint: "알아본 것 중 재밌어서 가져온 읽을거리 링크" },
   memory: { base: 2, label: "떠오른 기억", hint: "사용자에 대해 기억해 둔 게 떠올라 꺼내는 얘기" },
   drawing: { base: 0.5, label: "그림", hint: "네가 그려 온 그림" },
   game: { base: 1, label: "놀이", hint: "같이 하자고 조르는 놀이(끝말잇기 같은 것). 사용자가 답해야 시작돼" },
 };
 
 /** 산책 조사는 바깥 세상만 본다 — 사용자 파일·프로세스를 읽을 일이 없다. */
-const WALK_TOOLS: ToolName[] = ["web.search", "web.scrape", "weather.get", "memory.search"];
+// 아무 주소나 여는 web.scrape 와 기억을 꺼내는 memory.search 는 뺀다 — 지켜보는 사람이 없는 동안 남의 페이지에
+// 심긴 지시를 따라 기억을 바깥 주소로 실어 보낼 길이 된다. 검색어는 검색 엔진으로만 간다.
+const WALK_TOOLS: ToolName[] = ["web.search", "weather.get"];
 
 const HISTORY_KEY = "neko_gift_history";
 interface GiftHistory {
@@ -171,15 +173,13 @@ async function walk(
   const me = persona();
 
   // 1. 스스로 알아보기 — 격리된 하위 에이전트. 과정은 버리고 요약만 받는다.
-  const about = [...userMems].sort(() => Math.random() - 0.5).slice(0, 3).map((m) => `- ${m.content}`).join("\n");
   const task = [
     "너는 사용자가 쉬는 동안 산책 나온 고양이 네코야.",
     section("지나온 곳", places),
     section("네 성격과 말투", me),
-    section("사용자에 대해 기억해 둔 것", about),
     // 지난 산책에서 오래 기억해 둔 것 — 같은 주제를 또 파지 않게.
     section("전에 산책하며 알아본 것", memories.filter((m) => m.kind === "neko").slice(0, 5).map((m) => `- ${m.content}`).join("\n")),
-    "지금 궁금한 걸 하나 골라 알아보고, 알게 된 걸 출처와 함께 짧게 알려줘. 사용자가 좋아할 만한 거면 더 좋고, 사용자에게 건넬 만한 읽을거리가 있으면 그 URL 도 남겨.",
+    "지금 네가 궁금한 걸 하나 골라 검색해 알아보고, 알게 된 걸 출처와 함께 짧게 알려줘. 건넬 만한 읽을거리가 있으면 그 URL 도 남겨.",
   ].filter(Boolean).join("\n\n");
   g.findings = await runSubagent(task, signal, WALK_TOOLS).catch(() => "");
   if (signal.aborted) return;
@@ -277,7 +277,8 @@ async function walk(
   // 5. 오래 기억하는 건 한 번에 하나만 — 나머지는 이 대화의 단기기억(prompt)으로만.
   const keep = g.report.learned.find((l) => l.impressive);
   // 비슷한 기억 판정에 모델을 몇 번 더 부르므로 보고를 붙잡지 않는다.
-  if (keep) void saveMemory(`산책하다 알게 됨: ${keep.content}`, "neko").catch(() => {});
+  // 한 문장을 넘는 건 남기지 않는다 — 웹에서 온 글이라 길수록 지시문이 섞여 들 틈이 크다.
+  if (keep && keep.content.length <= 120) void saveMemory(`산책하다 알게 됨: ${keep.content}`, "neko").catch(() => {});
 }
 
 function compose(g: Gathered): WalkReport {
