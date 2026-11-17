@@ -1,7 +1,17 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useNekoApp } from "./director/stores";
-import { createRemoteNeko, dispatchEvt, type NekoCmd } from "./remoteNeko";
+import { useNekoStore } from "./nekoStore";
+import { createRemoteNeko, dispatchEvt, getRemoteNeko, link, type NekoCmd } from "./remoteNeko";
+
+const tauri = vi.hoisted(() => ({
+  handlers: new Map<string, (e: { payload: unknown }) => void>(),
+  sent: [] as [string, string, unknown][],
+}));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (ev: string, fn: (e: { payload: unknown }) => void) => { tauri.handlers.set(ev, fn); return () => {}; },
+  emitTo: async (to: string, ev: string, payload?: unknown) => { tauri.sent.push([to, ev, payload]); },
+}));
 
 describe("remoteNeko(대리 컨트롤러)", () => {
   it("부른 것을 그대로 화면 창에 넘기고, 값이 필요한 것만 여기서 답한다", () => {
@@ -33,5 +43,27 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     off();
     dispatchEvt({ ev: "activity", payload: null });
     expect(got).toEqual(["box"]);
+  });
+
+  it("다른 자리에 갔다 화면으로 돌아오면 준비 신호를 다시 받아 대리를 세우고 외형을 넘긴다", () => {
+    const ready = () => tauri.handlers.get("neko-screen-ready")?.({ payload: undefined });
+    const sentNow = () => tauri.sent.splice(0).map(([, ev, p]) => (ev === "neko-cmd" ? (p as NekoCmd).m : ev));
+    useNekoStore.setState((s) => ({ stage: { ...s.stage, placement: "screen" } }));
+    link();
+    expect(sentNow()).toEqual(["neko-screen-ping"]);
+    ready();
+    expect(getRemoteNeko()).not.toBeNull();
+    expect(sentNow()).toEqual(["setAppearance", "neko-screen-scale"]);
+
+    useNekoStore.getState().setPlacement("sidebar");
+    expect(getRemoteNeko()).toBeNull();
+    useNekoStore.getState().setPlacement("screen");
+    expect(sentNow()).toEqual(["neko-screen-ping"]); // 숨겨 둔 화면 창에 다시 달라고 한다
+    ready();
+    expect(getRemoteNeko()).not.toBeNull();
+    expect(sentNow()).toEqual(["setAppearance", "neko-screen-scale"]);
+
+    useNekoStore.getState().setAppearance({ soft: 0.3 });
+    expect(tauri.sent[tauri.sent.length - 1]?.[2]).toMatchObject({ m: "setAppearance", args: [expect.objectContaining({ soft: 0.3 })] });
   });
 });

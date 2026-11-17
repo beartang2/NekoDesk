@@ -76,8 +76,11 @@ export function createRemoteNeko(send: Send = sendToScreen): NekoController {
 }
 
 let linked = false;
+/** 화면 창에 준비 신호를 다시 달라고 한다. 창이 아직 없으면 아무도 안 받는다 — 그땐 창이 뜨며 스스로 보낸다 */
+const ping = () => void emitTo(SCREEN_LABEL, "neko-screen-ping").catch(() => {});
+
 /** 메인 창에서 한 번. 화면 창이 준비되면 대리를 세우고, 자리를 떠나면 내린다 */
-function link(): void {
+export function link(): void {
   if (linked) return;
   linked = true;
   const isScreen = () => useNekoStore.getState().stage.placement === "screen";
@@ -93,11 +96,14 @@ function link(): void {
     if (s.appearance !== p.appearance) remote?.setAppearance(s.appearance);
     if (s.stage.placement !== p.stage.placement) {
       if (s.stage.placement !== "screen") remote = null;
+      // 다른 자리에 갔다 돌아왔다: 화면 창은 숨겨 둔 채 살아 있어서 준비 신호를 다시 보내지 않는다.
+      // 다시 달라고 해야 대리가 서고 외형·감독 명령이 넘어간다
+      else if (!remote) ping();
       notify();
     }
   });
   // 메인 창이 다시 떴는데 화면 창은 살아 있을 때(개발 중 새로 고침): 준비 신호를 다시 받는다
-  void emitTo(SCREEN_LABEL, "neko-screen-ping").catch(() => {});
+  ping();
 }
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
