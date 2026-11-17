@@ -9,6 +9,11 @@
   font-weight: 600;
   margin-bottom: 8px;
 }
+.neko-gifts__open {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 3px 10px;
+}
 .neko-gifts__count {
   font-weight: 400;
   color: var(--text-muted);
@@ -18,8 +23,8 @@
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
 }
 .neko-gifts__item {
   position: relative;
@@ -59,16 +64,19 @@
   padding: 2px 6px;
 }
 
-/* 선물 칸을 끄는 동안: 메뉴 창 덮개를 비켜서 뒤의 네코 자리에 놓을 수 있게 */
+/* 선물함 창: 꾸미기 창(neko-cz) 틀에 폭만 좁게 */
+.neko-cz.neko-gifts-modal {
+  width: min(560px, 100%);
+}
+.neko-gifts-modal h2 .neko-gifts__count {
+  font-size: 13px;
+}
+
+/* 선물 칸을 끄는 동안: 선물함 창과 메뉴 창 덮개를 비켜서 뒤의 네코 자리에 놓을 수 있게 */
+.neko-gift-dragging .neko-gifts-layer,
 .neko-gift-dragging .menu-backdrop {
   pointer-events: none;
   opacity: 0.2;
   transition: opacity 0.15s;
 }
 
-.neko-gifts__more {
-  display: block;
-  margin: 6px auto 0;
-  font-size: 11px;
-  padding: 3px 10px;
-}
