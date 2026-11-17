@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { drawShape, shapeBounds, type GiftShape } from "./engine/gift-shape";
 import { GIFT_DND, useNekoGifts } from "./gifts";
 import "./NekoGiftBox.css";
@@ -18,6 +18,8 @@ function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: number }) {
   return <canvas ref={ref} width={size * dpr} height={size * dpr} style={{ width: size, height: size }} aria-hidden />;
 }
 
+/** 접어 둘 때 보이는 칸 수 — 설정 폭에서 두 줄 */
+const FOLD = 8;
 const DAY = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric" });
 
 /**
@@ -27,6 +29,9 @@ const DAY = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", d
 export function NekoGiftBox() {
   const gifts = useNekoGifts((s) => s.gifts);
   const place = useNekoGifts((s) => s.place);
+  const [all, setAll] = useState(false);
+  const list = [...gifts].reverse();
+  const shown = all ? list : list.slice(0, FOLD);
   useEffect(() => { void useNekoGifts.getState().load(); }, []);
 
   return (
@@ -41,7 +46,7 @@ export function NekoGiftBox() {
         <>
         <p className="settings-section__desc">칸을 네코 자리로 끌어다 놓아. 높이 두면 벽에 걸리고, 놓인 걸 우클릭하면 치울 수 있어.</p>
         <ul className="neko-gifts__grid">
-          {[...gifts].reverse().map((g) => (
+          {shown.map((g) => (
             <li
               key={g.id}
               className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`}
@@ -66,6 +71,11 @@ export function NekoGiftBox() {
             </li>
           ))}
         </ul>
+        {list.length > FOLD && (
+          <button type="button" className="settings-btn neko-gifts__more" onClick={() => setAll(!all)}>
+            {all ? "접기" : `${list.length - FOLD}개 더 보기`}
+          </button>
+        )}
         </>
       )}
     </div>

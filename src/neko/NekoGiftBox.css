@@ -14,26 +14,20 @@
   color: var(--text-muted);
 }
 .neko-gifts__grid {
-  /* 칸 높이를 정해 두고 2.5줄만 보인다 — 셋째 줄 그림이 반쯤 걸려 아래로 더 있는 게 보인다 */
-  --row: 106px;
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-  grid-auto-rows: var(--row);
   gap: 6px;
-  max-height: calc(var(--row) * 2.5 + 12px);
-  overflow-y: auto;
 }
 .neko-gifts__item {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 2px;
-  padding: 4px;
+  padding: 8px 4px 6px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-surface);
@@ -70,4 +64,11 @@
   pointer-events: none;
   opacity: 0.2;
   transition: opacity 0.15s;
+}
+
+.neko-gifts__more {
+  display: block;
+  margin: 6px auto 0;
+  font-size: 11px;
+  padding: 3px 10px;
 }
