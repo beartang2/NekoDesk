@@ -24,6 +24,8 @@ mod claude;
 mod security;
 mod procs;
 mod glow;
+#[cfg(target_os = "macos")]
+mod neko_screen;
 mod shelf;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
@@ -922,6 +924,27 @@ mod commands {
         crate::glow::take()
     }
 
+    /// 네코 '모니터 화면' 자리 켜고 끄기. 메인 창이 자리·산책·'항상 위에 두기'가 바뀔 때 부른다.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn neko_screen_show(app: tauri::AppHandle, on: bool, on_top: bool) -> Result<(), AppError> {
+        crate::neko_screen::show(&app, on, on_top)
+    }
+
+    /// 화면 창: 커서가 고양이 위다(고양이 위에 있는 동안 계속 알린다).
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_catch(on: bool) -> Result<(), AppError> {
+        crate::neko_screen::set_catch(on)
+    }
+
+    /// 화면 창: 판 크기와 바닥. 아직 모르면 null.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_layout() -> Option<crate::neko_screen::Layout> {
+        crate::neko_screen::layout()
+    }
+
     /// 열린 포트를 쓰는 프로세스와 CPU·메모리를 많이 쓰는 프로세스. 읽기 전용.
     #[tauri::command(async)]
     pub fn process_list(port: Option<u16>) -> crate::procs::Snapshot {
@@ -1275,6 +1298,12 @@ pub fn run() {
             commands::process_list,
             commands::glow_alert,
             commands::glow_take,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_show,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_catch,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_layout,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,

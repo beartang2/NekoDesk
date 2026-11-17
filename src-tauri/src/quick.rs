@@ -111,7 +111,7 @@ fn present(win: &tauri::WebviewWindow) {
 #[cfg(target_os = "macos")]
 pub fn install_panel(win: &tauri::WebviewWindow) {
     if let Ok(ptr) = win.ns_window() {
-        if !unsafe { macos::make_panel(ptr.cast(), true) } {
+        if !unsafe { macos::make_panel(ptr.cast(), true, true) } {
             log::warn!("빠른 질문 창을 패널로 못 바꿨어 — 일반 창으로 뜬다");
         }
     }
@@ -225,7 +225,9 @@ pub(crate) mod macos {
     /// TaoWindow 의 `focusable` 변수도 같은 자리에 둔다 — tao 가 그 이름으로 읽는다.
     ///
     /// `round` 는 빠른 질문 창처럼 떠 있는 상자일 때. 화면을 덮는 캡처 막은 네모 그대로.
-    pub unsafe fn make_panel(window: *mut AnyObject, round: bool) -> bool {
+    /// `key` 가 false 면 키 창이 못 되는 패널(NekoPassivePanel). 화면 네코처럼 눌러도
+    /// 사용자가 치던 앱의 키보드를 뺏으면 안 되는 창(neko_screen.rs).
+    pub unsafe fn make_panel(window: *mut AnyObject, round: bool, key: bool) -> bool {
         use objc2::runtime::ClassBuilder;
         use objc2::sel;
 
@@ -236,13 +238,15 @@ pub(crate) mod macos {
             return false;
         }
 
-        let cls = match AnyClass::get(c"NekoQuickPanel") {
+        let name = if key { c"NekoQuickPanel" } else { c"NekoPassivePanel" };
+        let cls = match AnyClass::get(name) {
             Some(c) => c,
             None => {
-                let Some(mut b) = ClassBuilder::new(c"NekoQuickPanel", panel_cls) else { return false };
+                let Some(mut b) = ClassBuilder::new(name, panel_cls) else { return false };
                 b.add_ivar::<Bool>(c"focusable");
                 // 테두리 없는 창은 기본으로 키 윈도우가 못 된다 — 그러면 글자를 못 친다.
-                b.add_method(sel!(canBecomeKeyWindow), yes as extern "C-unwind" fn(_, _) -> _);
+                let can_key = if key { yes } else { no };
+                b.add_method(sel!(canBecomeKeyWindow), can_key as extern "C-unwind" fn(_, _) -> _);
                 // 메인 창이 되면 앱의 메인 창 자리를 뺏는다.
                 b.add_method(sel!(canBecomeMainWindow), no as extern "C-unwind" fn(_, _) -> _);
                 b.register()

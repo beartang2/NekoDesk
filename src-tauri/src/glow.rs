@@ -75,7 +75,7 @@ mod macos {
     /// 커서가 있는 화면을 덮어 띄운다. 키 창으로 만들지 않는다 — 하던 입력을 빼앗지 않게. main thread 전용.
     pub unsafe fn cover_cursor_screen(window: *mut AnyObject) -> Option<GlowAt> {
         let (event_cls, screen_cls) = (AnyClass::get(c"NSEvent")?, AnyClass::get(c"NSScreen")?);
-        make_panel(window, false);
+        make_panel(window, false, true);
         let _: () = msg_send![window, setIgnoresMouseEvents: Bool::YES];
         let mouse: NSPoint = msg_send![event_cls, mouseLocation];
         let screens: *mut AnyObject = msg_send![screen_cls, screens];

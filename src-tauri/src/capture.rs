@@ -78,6 +78,9 @@ pub struct Rect {
 pub struct Target {
     pub id: u32,
     pub app: String,
+    /// 창 주인 프로세스. 화면 네코가 전체화면 영상인지 볼 때 쓴다(neko_screen.rs). 막엔 안 보낸다.
+    #[serde(skip)]
+    pub pid: i32,
     #[serde(flatten)]
     pub rect: Rect,
 }
@@ -212,6 +215,16 @@ fn overlap(a: &Rect, b: &Rect) -> f64 {
 
 /// 고르게 하고 찍는다. 그만두면 None. 끝날 때까지 돌아오지 않는다(main thread 에서 부르지 말 것).
 pub fn run(app: &AppHandle) -> Result<Option<Vec<u8>>, AppError> {
+    // 화면 네코는 찍히지 않게 숨긴다. 밝기 지도도 화면을 읽으니 그 전에, 사라질 때까지 기다린 뒤.
+    if crate::neko_screen::set_capture(app, true) {
+        std::thread::sleep(SETTLE);
+    }
+    let shot = run_inner(app);
+    crate::neko_screen::set_capture(app, false);
+    shot
+}
+
+fn run_inner(app: &AppHandle) -> Result<Option<Vec<u8>>, AppError> {
     let state = app.state::<CaptureState>();
     let (tx, rx) = mpsc::channel();
     let screens = on_main(app, || unsafe { macos::screens() })?;
@@ -348,7 +361,7 @@ pub fn is_active(app: &AppHandle) -> bool {
     app.state::<CaptureState>().0.lock().map(|g| g.is_some()).unwrap_or(false)
 }
 
-fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T + Send + 'static) -> Result<T, AppError> {
+pub(crate) fn on_main<T: Send + 'static>(app: &AppHandle, f: impl FnOnce() -> T + Send + 'static) -> Result<T, AppError> {
     let (tx, rx) = mpsc::channel();
     app.run_on_main_thread(move || {
         let _ = tx.send(f());
@@ -419,7 +432,7 @@ fn shoot(picked: &Pick) -> Result<Option<Vec<u8>>, AppError> {
 }
 
 #[cfg(target_os = "macos")]
-mod macos {
+pub(crate) mod macos {
     use super::{Rect, Target};
     use crate::quick::macos::{make_panel, ns_string, to_rust};
     use objc2::msg_send;
@@ -619,7 +632,7 @@ mod macos {
     /// 막 창을 그 모니터 전체에 덮고 띄운다. 앱은 활성화하지 않는다 — 전체화면 앱
     /// 위에서 부르면 네코가 있는 데스크톱으로 화면이 넘어가 버린다. main thread 전용.
     pub unsafe fn cover(window: *mut AnyObject, rect: Rect) {
-        make_panel(window, false);
+        make_panel(window, false, true);
         // NSScreen 좌표(왼쪽 아래 원점)로 되돌린다.
         let main_top = screens().first().map(|s| s.h).unwrap_or(0.0);
         let frame = NSRect::new(NSPoint::new(rect.x, main_top - rect.y - rect.h), NSSize::new(rect.w, rect.h));
@@ -706,7 +719,8 @@ mod macos {
                 continue;
             }
             let app = to_rust(get(info, c"kCGWindowOwnerName")).unwrap_or_default();
-            out.push(Target { id: id as u32, app, rect: Rect { x, y, w, h } });
+            let pid = num(info, c"kCGWindowOwnerPID").unwrap_or(0.0) as i32;
+            out.push(Target { id: id as u32, app, pid, rect: Rect { x, y, w, h } });
         }
         CFRelease(list);
         out
@@ -731,7 +745,7 @@ mod tests {
             Rect { x: 0.0, y: 0.0, w: 1512.0, h: 982.0 },
             Rect { x: 1512.0, y: -100.0, w: 1920.0, h: 1080.0 },
         ];
-        let window = |id, x| Target { id, app: String::new(), rect: Rect { x, y: 100.0, w: 300.0, h: 300.0 } };
+        let window = |id, x| Target { id, app: String::new(), pid: 0, rect: Rect { x, y: 100.0, w: 300.0, h: 300.0 } };
         // 오른쪽에만 있는 창, 왼쪽으로 더 걸친 창, 오른쪽으로 더 걸친 창.
         let windows = [window(1, 1600.0), window(2, 1300.0), window(3, 1450.0)];
         let ids = |ws: Vec<Target>| ws.iter().map(|t| t.id).collect::<Vec<_>>();

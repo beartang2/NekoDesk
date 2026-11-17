@@ -7,7 +7,8 @@
     "quick",
     "capture-*",
     "viewer",
-    "glow"
+    "glow",
+    "neko-screen"
   ],
   "permissions": [
     "core:default",
