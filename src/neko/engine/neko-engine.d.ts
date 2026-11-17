@@ -76,6 +76,8 @@ export interface NekoEvents {
   carry: NekoCarried[];
   /** 문 물건 위에서 누름(무대 px). 끌어내기는 호스트가 시작한다 */
   carryPress: { x: number; y: number; pointerId: number };
+  /** 화면 모드: 열린 가장자리(setEdges·walkOut)에서 고양이 가운데가 세계 밖으로 나간 순간 한 번 */
+  edge: "left" | "right";
   /** 놓아 둔 물건을 끌어 옮김 */
   decorMove: { id: string } & NekoDecorSpot;
   /** 놓아 둔 물건을 우클릭함: (x, y) = 그 물건 오른쪽 위(무대 px). 호스트가 거기에 '정리' 버튼을 띄운다 */
@@ -133,6 +135,15 @@ export interface NekoController {
   setScale(s: number | null): void;
   /** 바닥(세계 y). 화면 모드에선 visibleFrame 바닥. null 이면 무대 아래쪽 */
   setGround(y: number | null): void;
+  /**
+   * 화면 모드 여러 모니터(docs/neko-screen-mode.md 3단계): 세계에 놓인 모든 것(고양이·궤적·잡은 손·나비·소품·효과)을
+   * (dx, dy) 세계 px 만큼 옮긴다. 속도·방향은 그대로. 호스트 순서: shiftWorld → setGround → setEdges
+   */
+  shiftWorld(dx: number, dy: number): void;
+  /** 열린 쪽은 벽이 아니다: walkTo·walkOut 으로만 넘어간다(산책·마우스 따라가기는 안 넘음). 기본 둘 다 닫힘. 닫힌 쪽 밖이면 걸어 들어온다 */
+  setEdges(e: { left: boolean; right: boolean }): void;
+  /** 그쪽을 열고 가장자리 너머(몸이 다 넘어가는 만큼)로 걸어간다. 넘어가는 순간 "edge" */
+  walkOut(side: "left" | "right"): void;
   /** 지금 그리는 영역(세계 좌표). 화면 모드에선 고양이 둘레, 아니면 무대 전체 */
   readonly region: { x: number; y: number; w: number; h: number };
   /** 입에 문다. 같은 id 면 바꾼다. 여럿이면 최대 3장이 겹쳐 보인다 */

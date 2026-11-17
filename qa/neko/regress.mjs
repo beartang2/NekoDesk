@@ -367,6 +367,46 @@ try {
     await p.close();
   }
 
+  // 9-h) 화면 모드 여러 모니터(docs/neko-screen-mode.md 3단계): 닫힌 가장자리는 벽, walkOut 하면 넘어가며 edge 한 번,
+  //      shiftWorld 하면 걷던 걸음 그대로 새 화면 쪽에서 이어 걷고, 잡고 끌던 중에도 커서 밑에 그대로, 창 크기가 바뀌어도 자리 그대로
+  {
+    const p = await browser.newPage({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, o = {}, edges = [];
+      n.on("edge", (s) => edges.push(s));
+      n.setGround(760); n.step(200);
+      // 닫혀 있으면 화면 밖으로 시켜도 안에서 멈춘다
+      n.walkTo(5000); n.step(120 * 12); o.closed = c.x < n.W && edges.length === 0;
+      // 오른쪽으로 나가기 → edge 한 번
+      n.walkOut("right"); let t = 0; while (!edges.length && t < 120 * 15) { n.step(1); t++; }
+      o.edge = edges.join(",");
+      const vx = c.vx, x0 = c.x, W = n.W;
+      // 호스트: 창을 오른쪽 모니터로 → shiftWorld(-옛 폭) → setGround → setEdges(닫힘)
+      n.shiftWorld(-W, 0); n.setGround(760); n.setEdges({ left: false, right: false });
+      o.shift = Math.abs(c.x - (x0 - W)) < 1 && c.mode === "walk" && Math.sign(c.vx) === Math.sign(vx);
+      n.step(120 * 3); o.after = c.x > 0 && c.x < n.W && edges.length === 1;
+      // 창 크기가 바뀌어도(다른 모니터) 고양이 자리는 그대로
+      const xb = c.x; n.resize(); o.resizeKeeps = Math.abs(c.x - xb) < 0.01;
+      // 잡고 끄는 중에 옮겨도 목덜미 자리가 같이 옮겨진다
+      n.step(240); const s0 = { x: c.scruff.x, y: c.scruff.y }; n.shiftWorld(300, -40);
+      o.grabShift = Math.abs(c.scruff.x - s0.x - 300) < 0.01 && Math.abs(c.scruff.y - s0.y + 40) < 0.01;
+      n.shiftWorld(-300, 40);
+      // 닫힌 쪽 밖에 있으면 순간이동하지 않고 걸어 들어온다
+      n.step(240); c.x = -150; n.setEdges({ left: false, right: false }); const xs = [c.x];
+      for (let i = 0; i < 120 * 6; i++) { n.step(1); if (i % 60 === 0) xs.push(c.x); }
+      o.walkIn = xs.every((x, i) => i === 0 || x >= xs[i - 1] - 0.5) && c.x > 0 && xs[1] < 0;
+      return o;
+    });
+    check("여러 모니터: 닫힌 가장자리는 벽, walkOut 이면 넘어가며 edge 한 번", `닫힘 ${r.closed} · edge ${r.edge}`, r.closed && r.edge === "right");
+    check("여러 모니터: shiftWorld 뒤에도 걷던 걸음 그대로 새 화면에서 이어 걷는다", `옮김 ${r.shift} · 이어 걷기 ${r.after}`, r.shift && r.after);
+    check("여러 모니터: 창 크기가 바뀌어도 자리 그대로 · 끌던 손도 같이 옮김 · 밖이면 걸어 들어옴", `크기 ${r.resizeKeeps} · 손 ${r.grabShift} · 걸어 들어옴 ${r.walkIn}`, r.resizeKeeps && r.grabShift && r.walkIn);
+    await p.close();
+  }
+
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다
   for (const [w, h] of [[704, 282], [220, 150], [900, 150]]) {
     const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
