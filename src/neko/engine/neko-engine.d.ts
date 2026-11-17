@@ -33,7 +33,9 @@ export type NekoMood = "idle" | "happy" | "sleepy" | "curious";
 export type NekoPose = "stand" | "sit" | "loaf" | "lie";
 export type NekoActivity =
   | "draw" | "music" | "butterfly" | "snack" | "stretch" | "typing" | "reading"
-  | "stamp" | "groom" | "knead" | "yarn" | "box" | "window" | "climb";
+  | "stamp" | "groom" | "knead" | "yarn" | "box" | "window" | "climb"
+  // P3: 감독이 에이전트 단계·앱 상황에 맞춰 고른다
+  | "think" | "wait" | "meal" | "hungry" | "dig" | "calendar" | "erase";
 export type NekoTailSign =
   | "level" | "up" | "question" | "quiver" | "sway" | "down" | "puff" | "angry" | "thump";
 export type NekoReaction = "pet" | "nyang" | "startle" | "greet" | "cheer" | "proud" | "sulk" | "down";

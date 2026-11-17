@@ -3,11 +3,11 @@ import type { ToolCue } from "./types";
 
 /**
  * 도구 → 활동(설계 docs/neko-p2-director.md §4). 도구가 하는 일을 고양이가 '흉내' 낸다.
- * 지금 있는 활동 14개로 맞췄다. P3 에서 새 활동(달력 보기·상자 뒤지기·골똘히)이 생기면 이 표만 바꾼다.
+ * P3 에서 달력 보기·지우기·상자 뒤지기·골똘히를 더했다.
  */
 
 /** 엔진이 스스로 끝내는 활동 */
-export const ONE_SHOT: ReadonlySet<NekoActivity> = new Set(["stamp", "snack", "stretch", "climb"]);
+export const ONE_SHOT: ReadonlySet<NekoActivity> = new Set(["stamp", "snack", "stretch", "climb", "erase"]);
 
 /** 결과 판정에서 '무언가를 바꾼' 도구(떨기) */
 export const WRITE_TOOLS: ReadonlySet<string> = new Set([
@@ -19,16 +19,16 @@ const TABLE: Record<string, NekoActivity> = {
   "todo.list_done": "reading",
   "todo.add": "typing",
   "todo.complete": "stamp",
-  "schedule.list": "reading", // P3: 달력 보기
+  "schedule.list": "calendar",
   "schedule.add": "stamp",
-  "schedule.delete": "stamp", // P3: 지우기 변형
+  "schedule.delete": "erase",
   "code.exec": "typing",
   "web.search": "window",
   "web.scrape": "reading",
   "weather.get": "window",
   "game.start": "draw", // 끝말잇기는 아래에서 타이핑으로
-  file: "box", // P3: 상자 뒤지기
-  "file.upload": "box",
+  file: "dig",
+  "file.upload": "dig",
   clipboard: "knead",
   "math.eval": "draw",
 };
@@ -47,7 +47,7 @@ export function isMusicScript(params: Record<string, unknown> | undefined): bool
 export function toolCue(name: string, params?: Record<string, unknown>): ToolCue {
   let activity: NekoActivity = TABLE[name] ?? "typing";
   if (name === "code.exec" && isMusicScript(params)) activity = "music";
-  if (name === "game.start" && params?.type === "wordchain") activity = "typing"; // P3: 골똘히
+  if (name === "game.start" && params?.type === "wordchain") activity = "think";
   return { name, activity, oneShot: ONE_SHOT.has(activity), writes: WRITE_TOOLS.has(name) };
 }
 

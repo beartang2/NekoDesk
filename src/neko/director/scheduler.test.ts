@@ -54,7 +54,8 @@ describe("스케줄러 시간표(설계 §8.1)", () => {
     w.to(9);
     expect(w.ctrl.seen("react:")).toEqual(["0.8 react:startle", "5.1 react:cheer"]);
     expect(w.ctrl.seen("tail:question")).toContain("0.8 tail:question:3");
-    expect(w.ctrl.seen("act:")).toEqual(["3.0 act:typing", "4.5 act:null"]);
+    // 생각이 0.5초 이어지면 골똘히 → 확인을 기다림 → 승인하면 잠깐 정리하고 타이핑 → 결과
+    expect(w.ctrl.seen("act:")).toEqual(["0.5 act:think", "0.8 act:wait", "3.0 act:null", "3.0 act:typing", "4.5 act:null"]);
     expect(w.ctrl.seen("mood:")).toEqual(["0.0 mood:curious", "3.0 mood:idle", "4.5 mood:happy", "7.6 mood:idle"]);
   });
 
@@ -104,15 +105,15 @@ describe("스케줄러 시간표(설계 §8.1)", () => {
     expect(w.ctrl.seen("react:")).toEqual([]);
   });
 
-  it("7) 밥 주기(요약 20초): 간식을 되풀이하고, 먹던 간식을 마저 먹은 뒤 떨기", () => {
+  it("7) 밥 주기(요약 20초): 끝날 때까지 밥 먹기 → 다 먹으면 세수 + 떨기", () => {
     const w = world();
     w.set(0, { feeding: { since: 0 } });
     w.set(20, { feeding: null, fedAt: 20000 });
     w.react(20, [{ type: "react", kind: "cheer", gate: "result" }]);
     w.to(32);
-    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:snack", "9.4 act:snack", "18.8 act:snack"]);
-    expect(w.ctrl.seen("react:")).toEqual(["28.4 react:cheer"]);
-    expect(w.ctrl.seen("mood:")).toEqual(["20.0 mood:happy", "22.5 mood:idle"]);
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:meal", "20.0 act:groom", "23.5 act:null"]);
+    expect(w.ctrl.seen("react:")).toEqual(["20.6 react:cheer"]);
+    expect(w.ctrl.seen("mood:")).toEqual(["20.0 mood:happy", "23.5 mood:idle"]);
   });
 
   it("8) 5분 무활동 → 식빵 졸림 → 6분 누워 자기 → 돌아오면 기지개 → 인사", () => {
@@ -181,17 +182,17 @@ describe("스케줄러 규칙", () => {
     w.sig(3, { type: "wait_end", approved: true });
     w.sig(3, { type: "tool_start", tool: "todo.complete" });
     w.to(4);
-    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "2.2 act:null", "3.0 act:stamp"]);
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "2.2 act:wait", "3.0 act:null", "3.0 act:stamp"]);
   });
 
-  it("생각이 2초를 넘으면 그때 활동을 정리하고 앉는다", () => {
+  it("생각이 2초를 넘으면 그때 앉아서 골똘히", () => {
     const w = world();
     w.sig(0, { type: "run_start" });
     w.sig(0, { type: "tool_start", tool: "web.search" });
     w.sig(2, { type: "tool_end", tool: "web.search" });
     w.sig(2, { type: "thinking" });
     w.to(5);
-    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "4.0 act:null"]);
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "4.0 act:think"]);
     expect(w.ctrl.seen("pose:").filter((x) => !x.startsWith("0.0"))).toEqual(["4.0 pose:sit"]);
   });
 
@@ -200,8 +201,7 @@ describe("스케줄러 규칙", () => {
     w.sig(0, { type: "run_start" });
     w.sig(0, { type: "tool_start", tool: "schedule.add" });
     w.sig(1, { type: "wait", kind: "clarify", danger: false });
-    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:stamp", "1.0 act:null"]);
-    expect(w.ctrl.activity).toBeNull();
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:stamp", "1.0 act:wait"]);
   });
 
   it("기다리는 동안 꼬리 물음표를 2.5초마다 다시 건다", () => {
@@ -210,6 +210,17 @@ describe("스케줄러 규칙", () => {
     w.sig(1, { type: "wait", kind: "clarify", danger: false });
     w.to(7);
     expect(w.ctrl.seen("tail:question")).toEqual(["1.0 tail:question:3", "3.5 tail:question:3", "6.0 tail:question:3"]);
+  });
+
+  it("일정 지우기는 지우기를 끝까지 하고 떨기", () => {
+    const w = world();
+    w.sig(0, { type: "run_start" });
+    w.sig(1, { type: "tool_start", tool: "schedule.delete" });
+    w.sig(1.2, { type: "tool_end", tool: "schedule.delete" });
+    w.sig(1.3, { type: "done", petState: null });
+    w.to(8);
+    expect(w.ctrl.seen("act:")).toEqual(["0.5 act:think", "1.0 act:erase"]);
+    expect(w.ctrl.seen("react:")).toEqual(["5.4 react:cheer"]);
   });
 
   it("오래 걸리는 발도장 도구는 다시 찍는다", () => {

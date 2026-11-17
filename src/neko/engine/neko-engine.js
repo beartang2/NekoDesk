@@ -2060,6 +2060,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const e = effects[i];
       e.t += dt; e.x += e.vx * dt; e.y += e.vy * dt;
       if (e.kind === "crumb") e.vy += 900 * S * dt;
+      if (e.kind === "paper") { e.vy += 520 * S * dt; e.vx *= Math.exp(-dt * 1.5); e.rot += e.vr * dt; }
       if (e.kind === "note") e.x += Math.sin(e.t * 3 + e.ph) * 12 * S * dt;
       if (e.kind === "puff") { e.vx *= Math.exp(-dt * 6); e.vy *= Math.exp(-dt * 6); }
       if (e.t > e.life || (e.kind === "crumb" && e.y > floorY)) effects.splice(i, 1);
@@ -2103,6 +2104,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       ctx.save(); ctx.globalAlpha = Math.min(1, (1 - u) * 2.2); ctx.fillStyle = e.col; ctx.translate(e.x, e.y); ctx.beginPath();
       ctx.moveTo(0, r * 0.35); ctx.bezierCurveTo(-r * 1.1, -r * 0.35, -r * 0.45, -r * 1.05, 0, -r * 0.45);
       ctx.bezierCurveTo(r * 0.45, -r * 1.05, r * 1.1, -r * 0.35, 0, r * 0.35); ctx.fill(); ctx.restore();
+    }
+    else if (e.kind === "paper") { // 상자에서 튀어나온 종이 한 장(글자 대신 회색 줄)
+      const u = e.t / e.life, s = S;
+      ctx.save(); ctx.globalAlpha = Math.min(1, (1 - u) * 3); ctx.translate(e.x, e.y); ctx.rotate(e.rot); ctx.scale(Math.cos(e.t * 5 + e.ph), 1);
+      ctx.fillStyle = "#fbfaf6"; roundRect(ctx, -6 * s, -8 * s, 12 * s, 16 * s, 1.2 * s); ctx.fill();
+      ctx.fillStyle = "#cfc9d6"; for (let i = 0; i < 4; i++) ctx.fillRect(-4 * s, (-5 + i * 3) * s, (i === 3 ? 5 : 8) * s, 1 * s);
+      ctx.restore();
     }
     else if (e.kind === "puff") {
       const u = e.t / e.life; ctx.save(); ctx.globalAlpha = 1 - u; ctx.fillStyle = e.col;
@@ -2558,9 +2566,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   });
 
   /* ----- 발도장 ----- */
-  function cellCenter(cal, col, row) { // 달력 칸 가운데. col 0 이 고양이 쪽
-    const w = 34 * S, top = floorY - 36 * S, near = cal.x - (cal.face * w) / 2;
-    return [near + cal.face * (col + 0.5) * (w / 5), top + 8 * S + (row + 0.5) * 6 * S];
+  function cellCenter(cal, col, row) { // 달력 칸 가운데. col 0 이 고양이 쪽. cal.sc: 크기 배율(달력 보기·지우기는 크게)
+    const k = cal.sc || 1, w = 34 * S * k, top = floorY - 36 * S * k, near = cal.x - (cal.face * w) / 2;
+    return [near + cal.face * (col + 0.5) * (w / 5), top + 8 * S * k + (row + 0.5) * 6 * S * k];
   }
   function drawPawPrint(x, y, s) {
     ctx.fillStyle = "#f2a7b8";
@@ -2568,7 +2576,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     for (const [dx, dy] of [[-2.2, -1.6], [-0.75, -2.6], [0.75, -2.6], [2.2, -1.6]]) { ctx.beginPath(); ctx.arc(x + dx * s, y + dy * s, 0.8 * s, 0, TAU); ctx.fill(); }
   }
   function drawCalendar(cal) {
-    const w = 34 * S, h = 34 * S, x0 = cal.x - w / 2, top = floorY - 36 * S, s = S;
+    const s = S * (cal.sc || 1), w = 34 * s, h = 34 * s, x0 = cal.x - w / 2, top = floorY - 36 * s;
     ctx.fillStyle = "#c3905f"; ctx.fillRect(cal.x - 1.2 * s, top + h - 2 * s, 2.4 * s, floorY - top - h + 2 * s); // 받침
     roundRect(ctx, cal.x - 9 * s, floorY - 2.2 * s, 18 * s, 2.2 * s, 1 * s); ctx.fill();
     ctx.fillStyle = "#fbfaf6"; roundRect(ctx, x0, top, w, h, 2 * s); ctx.fill();
@@ -2578,7 +2586,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     for (let r = 1; r < 4; r++) ctx.fillRect(x0 + 1 * s, top + (8 + r * 6) * s - 0.3 * s, w - 2 * s, 0.6 * s);
     ctx.fillStyle = "#d9d3df"; // 날짜 자리
     for (let r = 0; r < 4; r++) for (let col = 0; col < 5; col++) { const [cx, cy] = cellCenter(cal, col, r); ctx.beginPath(); ctx.arc(cx - 1.6 * s, cy - 1.6 * s, 0.6 * s, 0, TAU); ctx.fill(); }
-    for (const m of cal.marks) { const [cx, cy] = cellCenter(cal, m.col, m.row); withPop(cx, cy, popIn(time - m.t0), () => drawPawPrint(cx, cy, s)); }
+    for (const m of cal.marks) {
+      const [cx, cy] = cellCenter(cal, m.col, m.row), a = 1 - (m.fade || 0);
+      if (a <= 0) continue;
+      ctx.save(); ctx.globalAlpha *= a; withPop(cx, cy, popIn(time - m.t0), () => drawPawPrint(cx, cy, s)); ctx.restore();
+    }
   }
   defineActivity("stamp", { // 앞발을 번쩍 들었다가 달력 칸에 꾹, 젤리 발자국이 뿅. 두 번 찍고 뿌듯하게
     name: "발도장", label: "발도장 찍는 중", room: 70,
@@ -2887,6 +2899,207 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     },
   });
 
+
+
+  /* ================= P3 활동: 골똘히 · 기다림 · 밥 먹기 · 빈 그릇 · 상자 뒤지기 · 달력 보기 · 지우기 =================
+     감독(director)이 에이전트 단계·앱 상황에 맞춰 고른다(설계 docs/neko-v26-integration.md §7). 글자는 띄우지 않는다. */
+
+  /** 동공을 가운데로: 화면 밖(사용자)을 똑바로 보는 시선 */
+  const lookAtUser = () => H2W(FO, 1);
+
+  defineActivity("think", { // 골똘히: 앉아서 고개를 이쪽저쪽 갸웃하며 위를 올려다보고, 가끔 앞발로 턱을 괸다. 꼬리 끝은 자주 까딱
+    name: "골똘히", label: "생각하는 중",
+    pose(A, ramp) {
+      const c = cat, u = A.t % 9.5, side = Math.floor(A.t / 2.7) % 2 ? -1 : 1;
+      const chin = u > 4.6 && u < 8.2 ? smooth((u - 4.6) / 0.5) * (1 - smooth((u - 7.6) / 0.6)) : 0; // 턱 괴기
+      const chinQ = [FO + 6, 25];
+      return {
+        sit: true, ear: -0.04, lid: lerp(0.3, 0.42, chin), expr: "idle",
+        tt: lerp(0.04 + 0.13 * side, 0.08, chin) * ramp,
+        look: [c.head.x + c.face * (36 + 14 * side) * S, c.head.y - 64 * S], // 앞 위쪽 허공
+        feetW: chin, feet: chin > 0 ? { [NEAR_FRONT]: (L, h) => pawToFace(A, L, h, chinQ, chinQ, 1.0, [0, 0], 12) } : null,
+        pawFront: chin > 0.05,
+        head: (anc) => { A.anc = anc; const o = A.headOff || [0, 0]; return [anc[0] + o[0] * chin, anc[1] + o[1] * chin]; },
+        tail: sitTail({ sway: 2, period: 6, still: 0.3, flick: [0.9, 2, 12, 0.3] }),
+      };
+    },
+  });
+
+  defineActivity("wait", { // 기다림(확인·질문): 앉아서 화면 앞(사용자)을 똑바로 보고 귀를 쫑긋. 가끔 앞발을 들썩, 고개를 살짝 갸웃
+    name: "기다림", label: "기다리는 중",
+    pose(A, ramp) {
+      const c = cat, u = A.t % 4.4;
+      const lift = u > 2.8 && u < 3.5 ? Math.sin((Math.PI * (u - 2.8)) / 0.7) : 0; // 앞발 들썩
+      const tilt = Math.floor(A.t / 4.4) % 2 ? 0.13 : -0.02; // 갸웃 번갈아
+      return {
+        sit: true, ear: -0.12, lid: 0, expr: "curious", tt: tilt * ramp, look: lookAtUser(),
+        feetW: lift, feet: lift > 0 ? { [NEAR_FRONT]: (L) => [L.footW[0], gnd(false) - 6 * S * lift] } : null,
+        tail: sitTail({ sway: 1.5, period: 7, still: 0.5, flick: [3, 6, 10, 0.4] }),
+      };
+    },
+  });
+
+  /** 밥그릇에 고개를 묻고 오물오물(간식·밥 먹기가 같이 쓴다). done: 다 먹은 뒤 지난 시간(없으면 -1) */
+  function eatPose(A, ramp, done) {
+    const c = cat, down = done < 0 ? ramp : 1 - smooth(done / 0.5);
+    const chew = done < 0 && A.t > 0.95 ? Math.max(0, Math.sin((A.t - 0.95) * 13)) : 0;
+    return {
+      tilt: 0.15 * down, dy: 3 * down, ear: 0.08, tt: 0.3 * down,
+      head: (anc) => [lerp(anc[0], A.bowl.x - c.face * 7 * S, down), lerp(anc[1], floorY - 37 * S + chew * 1.6 * S, down)],
+      expr: (done < 0 && A.t > 1.05) || done >= 0.4 ? "happy" : "idle", // 냠냠 먹는 동안은 웃는 눈(오물오물은 머리 까딱으로)
+    };
+  }
+  defineActivity("meal", { // 밥 먹기(대화 요약 동안): 그릇에 고개를 묻고 냠냠. 그릇이 비어 가면 사료가 '뿅' 하고 다시 채워진다(끝은 감독이 정함)
+    name: "밥 먹기", label: "밥 먹는 중", room: 82,
+    start(A, kit) {
+      const bowl = (A.bowl = { x: ahead(64), left: 7 }); A.next = 1.05;
+      kit.front(() => [bowl.x, floorY], () => drawBowl(bowl.x, bowl.left, 1));
+      burst(bowl.x, floorY - 12 * S);
+    },
+    step(A) {
+      if (A.t < A.next) return;
+      const b = A.bowl;
+      if (b.left > 1) {
+        b.left--; A.next += rand(0.7, 0.95);
+        const m = H2W(FO, 14);
+        for (let i = 0; i < 3; i++) effects.push({ kind: "crumb", x: m[0] + rand(-4, 4) * S, y: m[1] + 4 * S, vx: rand(-30, 30) * S, vy: rand(-80, -30) * S, t: 0, life: 1.2 });
+      } else { b.left = 7; A.next += 0.9; burst(b.x, floorY - 16 * S, 6, "#c2834a"); } // 더 담아 준다
+    },
+    pose: (A, ramp) => eatPose(A, ramp, -1),
+  });
+
+  defineActivity("hungry", { // 빈 그릇: 빈 그릇 앞에 앉아 사용자를 보며 기다리고, 가끔 앞발로 그릇을 톡(그릇이 달그락 흔들린다)
+    name: "빈 그릇", label: "밥 기다리는 중", room: 70,
+    start(A, kit) {
+      const bowl = (A.bowl = { x: ahead(56), rot: 0, rv: 0 }); A.tapT = 2.4; A.tap = -1;
+      kit.front(() => [bowl.x, floorY], () => {
+        ctx.save(); ctx.translate(bowl.x, floorY); ctx.rotate(bowl.rot); ctx.translate(-bowl.x, -floorY);
+        drawBowl(bowl.x, 0, 1); ctx.restore();
+      });
+      burst(bowl.x, floorY - 12 * S);
+    },
+    step(A, dt) {
+      const b = A.bowl;
+      b.rv += (-b.rot * 260 - b.rv * 8) * dt; b.rot += b.rv * dt; // 달그락: 바닥을 축으로 흔들렸다 멈춘다
+      A.tapT -= dt;
+      if (A.tap < 0 && A.tapT <= 0) A.tap = 0;
+      if (A.tap >= 0) {
+        const prev = A.tap; A.tap += dt;
+        if (prev < 0.34 && A.tap >= 0.34) b.rv += cat.face * 2.6; // 톡
+        if (A.tap > 0.8) { A.tap = -1; A.tapT = rand(3, 5.5); }
+      }
+    },
+    pose(A) {
+      const c = cat, b = A.bowl, u = A.tap, rim = [b.x - c.face * 17 * S, floorY - 13 * S], up = [rim[0] - c.face * 5 * S, rim[1] - 10 * S];
+      let w = 0, pt = null;
+      if (u >= 0) {
+        if (u < 0.26) { pt = up; w = smooth(u / 0.26); }
+        else if (u < 0.36) { const e = smooth((u - 0.26) / 0.1); pt = [lerp(up[0], rim[0], e), lerp(up[1], rim[1], e)]; w = 1; }
+        else { pt = rim; w = 1 - smooth((u - 0.36) / 0.4); }
+      }
+      const atBowl = u >= 0 || A.t % 6.5 > 4.8; // 가끔 그릇을 내려다본다
+      return {
+        sit: true, ear: 0.12, lid: 0.24, expr: "idle", tt: atBowl ? 0.2 : 0.02,
+        look: atBowl ? [b.x, floorY - 10 * S] : lookAtUser(),
+        feetW: w, feet: pt ? { [NEAR_FRONT]: () => pt } : null,
+        tail: sitTail({ sway: 1, period: 9, still: 0.6, flick: [5, 9, 8, 0.5] }),
+      };
+    },
+  });
+
+  defineActivity("dig", { // 상자 뒤지기(파일 도구): 상자 가장자리에 기대 앞발로 안을 뒤적뒤적, 고개를 넣었다 뺐다, 가끔 종이가 툭 튀어나온다
+    name: "상자 뒤지기", label: "상자 뒤지는 중", room: 104,
+    start(A, kit) {
+      const box = (A.box = { x: ahead(72), w: 62 * S, h: 32 * S }); A.paperT = 1.4; A.lastPaper = null;
+      kit.back(() => [box.x, floorY], () => drawBox(box, "back"));
+      kit.front(() => [box.x, floorY], () => drawBox(box, "front"));
+      burst(box.x, floorY - 30 * S);
+    },
+    step(A, dt) {
+      A.paperT -= dt;
+      if (A.paperT <= 0 && A.t > 1) {
+        A.paperT = rand(1.6, 2.8);
+        const b = A.box, e = { kind: "paper", x: b.x + rand(-8, 8) * S, y: floorY - b.h - 2 * S, vx: rand(-50, 50) * S, vy: -rand(150, 200) * S, t: 0, life: 1.3, rot: rand(-0.5, 0.5), vr: rand(-5, 5), ph: rand(0, 6) };
+        effects.push(e); A.lastPaper = e;
+      }
+      if (A.lastPaper && A.lastPaper.t > A.lastPaper.life) A.lastPaper = null;
+    },
+    pose(A, ramp) {
+      const c = cat, b = A.box, rimY = floorY - b.h, near = b.x - c.face * (b.w / 2 - 10 * S);
+      const sc = A.t * TAU * 3.2, dig = (k) => [near + c.face * (4 + 4 * Math.sin(sc + k * Math.PI)) * S, rimY + (7 + 3 * Math.cos(sc + k * Math.PI)) * S];
+      const cyc = A.t % 3.4, inBox = cyc < 2.2 ? smooth(cyc / 0.4) : 1 - smooth((cyc - 2.2) / 0.4); // 고개를 넣었다 뺐다
+      const pp = A.lastPaper;
+      return {
+        tilt: 0.2 * ramp, dy: 2 * ramp, ear: -0.06, expr: "curious", lid: 0.05, tt: 0.18 * inBox,
+        head: (anc) => [lerp(anc[0], b.x - c.face * 16 * S, 0.6 * inBox * ramp), lerp(anc[1], rimY - 8 * S, 0.75 * inBox * ramp)], // 고개를 상자 쪽으로 쑥
+        look: pp ? [pp.x, pp.y] : [b.x, rimY + 6 * S],
+        feetW: ramp, feet: { [NEAR_FRONT]: () => dig(0), [FAR_FRONT]: () => dig(1) },
+        tail: { base: 214, curl: 4, hook: 12, sway: 9, period: 1.4, still: 0, flick: null, dyn: TAIL_CALM },
+      };
+    },
+  });
+
+  /** 달력 칸 몇 개에 이미 찍힌 발도장(일정) */
+  function someMarks(n, maxCol = 2) {
+    const out = [];
+    while (out.length < n) { const col = Math.floor(Math.random() * (maxCol + 1)), row = Math.floor(Math.random() * 4); if (!out.some((m) => m.col === col && m.row === row)) out.push({ col, row, t0: -99 }); }
+    return out;
+  }
+  defineActivity("calendar", { // 달력 보기(일정 조회): 달력을 세워 두고 칸을 차례로 훑는다. 일정(발도장)이 있는 칸에선 앞발로 가리키고 끄덕
+    name: "달력 보기", label: "달력 보는 중", room: 90,
+    start(A, kit) {
+      const cal = (A.cal = { x: ahead(60), face: cat.face, sc: 1.35, marks: someMarks(3), plan: [], done: 0 });
+      A.cell = -1; A.next = 0.7; A.dwell = 0.5; A.since = 0;
+      kit.back(() => [cal.x, floorY], () => drawCalendar(cal));
+      burst(cal.x, floorY - 18 * S);
+    },
+    step(A) {
+      if (A.t < A.next) return;
+      A.cell = (A.cell + 1) % 20; A.since = A.t;
+      const col = A.cell % 5, row = Math.floor(A.cell / 5);
+      A.marked = A.cal.marks.some((m) => m.col === col && m.row === row);
+      A.dwell = A.marked ? 1.4 : 0.42; A.next = A.t + A.dwell;
+    },
+    pose(A) {
+      const c = cat, k = Math.max(0, A.cell), cc = cellCenter(A.cal, k % 5, Math.floor(k / 5));
+      const p = clamp((A.t - A.since) / A.dwell, 0, 1), w = A.marked ? Math.sin(Math.PI * p) : 0;
+      return {
+        sit: true, ear: -0.06, lid: 0.12, expr: "idle", tt: 0.07 + (A.marked ? 0.06 * Math.sin(p * TAU * 2) : 0),
+        look: A.cell < 0 ? null : cc, feetW: w, feet: w > 0 ? { [NEAR_FRONT]: () => [cc[0] - c.face * 3 * S, cc[1] + 1 * S] } : null,
+        tail: calmTail(4),
+      };
+    },
+  });
+
+  defineActivity("erase", { // 지우기(일정 삭제): 달력의 발도장 하나를 앞발로 쓱쓱 문질러 지운다(먼지가 폴폴). 다 지우면 뿌듯하게
+    name: "지우기", label: "일정 지우는 중", room: 90,
+    start(A, kit) {
+      const marks = someMarks(2, 1).concat(someMarks(1, 4).filter((m) => m.col > 1)), target = marks[0];
+      const cal = (A.cal = { x: ahead(60), face: cat.face, sc: 1.35, marks, plan: [], done: 0 });
+      A.target = target;
+      kit.back(() => [cal.x, floorY], () => drawCalendar(cal));
+      burst(cal.x, floorY - 18 * S);
+    },
+    step(A, dt) {
+      const m = A.target;
+      if (A.t > 1.0 && A.t < 2.6) {
+        m.fade = clamp((A.t - 1.1) / 1.3, 0, 1);
+        if (Math.random() < dt * 9) { const [x, y] = cellCenter(A.cal, m.col, m.row); effects.push({ kind: "puff", x: x + rand(-3, 3) * S, y, vx: rand(-40, 40) * S, vy: rand(-50, -20) * S, t: 0, life: 0.5, col: "#e3dce6", r: rand(1.2, 2) }); }
+      }
+      if (A.t > 2.6 && !A.gone) { A.gone = true; A.cal.marks = A.cal.marks.filter((x) => x !== m); }
+      if (A.t > 3.8) endAct();
+    },
+    pose(A) {
+      const c = cat, m = A.target, cc = cellCenter(A.cal, m.col, m.row), u = A.t;
+      const w = u < 0.7 ? 0 : u < 1.0 ? smooth((u - 0.7) / 0.3) : u < 2.6 ? 1 : 1 - smooth((u - 2.6) / 0.35);
+      const pt = [cc[0] - c.face * 2 * S + Math.sin(u * 17) * 3.2 * S * (u > 1 && u < 2.6 ? 1 : 0), cc[1]];
+      const happy = u > 2.9;
+      return {
+        sit: true, ear: -0.05, lid: happy ? null : 0.12, expr: happy ? "happy" : "idle", look: happy ? null : cc,
+        feetW: w, feet: w > 0 ? { [NEAR_FRONT]: () => pt } : null, tail: calmTail(5),
+      };
+    },
+  });
 
 
   /* ----- 벽 타기 ----- */

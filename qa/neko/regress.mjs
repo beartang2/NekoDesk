@@ -29,10 +29,10 @@ async function open(query = "", viewport = { width: 760, height: 1000 }, dpr = 1
   return p;
 }
 const pick = (p, id) => p.click(`label:has(#${id})`);
-const ACTS = ["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb"];
+const ACTS = ["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb", "think", "wait", "meal", "hungry", "dig", "calendar", "erase"];
 
 try {
-  // 1) 활동 14개를 12초씩 + 빠르게 바꾸기 + 밖에서 활동 더하기: 값이 깨지지 않는가
+  // 1) 활동 21개를 12초씩 + 빠르게 바꾸기 + 밖에서 활동 더하기: 값이 깨지지 않는가
   {
     const p = await open();
     const r = await p.evaluate((ACTS) => {
@@ -45,7 +45,7 @@ try {
       n.act("wave"); n.step(240); n.draw();
       return { bad, finite: ok(), act: n.activity };
     }, ACTS);
-    check("활동 14개·빠른 전환·외부 활동: 값 유한", r.bad.length ? r.bad.join(",") : "모두 정상", r.bad.length === 0 && r.finite && r.act === "wave");
+    check("활동 21개·빠른 전환·외부 활동: 값 유한", r.bad.length ? r.bad.join(",") : "모두 정상", r.bad.length === 0 && r.finite && r.act === "wave");
     await p.close();
   }
 

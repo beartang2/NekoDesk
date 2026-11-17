@@ -9,10 +9,12 @@ import type { DirectorInput, NekoLayer, NekoPlan } from "./types";
 
 /** 도구가 끝나고 '생각'으로 가도 이만큼은 그 도구의 활동을 이어 간다(앉았다 섰다 하지 않게) */
 export const THINK_GRACE_MS = 2000;
+/** 생각이 이만큼 이어지면 골똘히 활동을 시작한다 */
+export const THINK_DELAY_MS = 500;
 /** 놀아주기: 털실·나비를 이만큼 논 뒤 게임이 이어받는다 */
 export const PLAY_MS = 6000;
-/** 밥을 다 먹고 행복한 여운 */
-export const FED_MS = 2500;
+/** 밥을 다 먹고 행복한 여운(세수) */
+export const FED_MS = 3500;
 /** 결과 반응 전 여운(스케줄러와 같은 값) */
 export const RESULT_LINGER_MS = 600;
 /** 무활동: 졸림(식빵) → 누워 자기 */
@@ -39,12 +41,12 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
 
   // 1) 기다림: 확인·질문을 기다리는 동안은 무엇보다 먼저(밥 먹다가도)
   if (s.phase === "waiting") {
-    return out(plan("waiting", { mood: "curious", pose: "sit", tailHold: "question", instance: `waiting:${s.since}` }));
+    return out(plan("waiting", { mood: "curious", pose: "sit", activity: "wait", tailHold: "question", instance: `waiting:${s.since}` }));
   }
 
-  // 2) 밥 먹기(대화 요약 중): 간식을 끝날 때까지 되풀이
+  // 2) 밥 먹기(대화 요약 중): 끝날 때까지 냠냠(그릇이 비면 다시 채워진다)
   if (input.feeding) {
-    return out(plan("meal", { activity: "snack", oneShot: true, repeat: true, instance: `meal:${input.feeding.since}` }));
+    return out(plan("meal", { activity: "meal", instance: `meal:${input.feeding.since}` }));
   }
 
   // 3) 에이전트
@@ -60,7 +62,10 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
       const c = lt.cue;
       return out(plan("tool", { activity: c.activity, oneShot: c.oneShot, repeat: false, dwell: !c.oneShot, instance: `tool:${c.name}:${lt.startedAt}` }));
     }
-    return out(plan("think", { mood: "curious", pose: "sit", instance: `think:${s.since}` })); // P3: 골똘히
+    // 골똘히는 생각이 조금 이어질 때만(곧바로 도구가 오면 앉았다 일어나기만 하고 지나가게)
+    const settled = now >= s.since + THINK_DELAY_MS;
+    if (!settled) at(s.since + THINK_DELAY_MS);
+    return out(plan("think", { mood: "curious", pose: "sit", activity: settled ? "think" : null, instance: `think:${s.since}` }));
   }
   if (s.phase === "answering") {
     return out(plan("answer", { activity: "typing", dwell: true, instance: "answer" }));
@@ -77,7 +82,7 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
   // 밥을 다 먹은 여운
   if (input.fedAt !== null && now < input.fedAt + FED_MS) {
     at(input.fedAt + FED_MS);
-    return out(plan("fed", { mood: "happy", instance: `fed:${input.fedAt}` }));
+    return out(plan("fed", { mood: "happy", activity: "groom", instance: `fed:${input.fedAt}` })); // 다 먹고 세수
   }
 
   // 4) 놀아주기: 털실·나비(게임보다 위 — 게임이 바로 덮지 않게)
@@ -105,11 +110,14 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
   // 7) 배고픔·심심(표 5.4): 배고픔 낮음은 힘없음(눈은 뜸), 놀이 낮음은 심심 — 졸림과 나눈다
   const { hunger, play } = input.needs;
   if (hunger < 10) return out(plan("weak", { pose: "loaf" }));
-  if (hunger < 30) return out(plan("hungry", { pose: "sit" })); // P3: 빈 그릇 앞에서 기다리기
+  if (hunger < 30) return out(plan("hungry", { pose: "sit", activity: "hungry" })); // 빈 그릇 앞에서 기다리기
   if (play < 20) return out(plan("bored", { pose: "loaf" }));
 
-  // 8) 신남: 상자에 쏙
-  if (input.box) return out(plan("box", { activity: "box", instance: `box:${input.box.since}` }));
+  // 8) 신남: 혼자 논다(상자에 쏙·털실·나비 중 하나)
+  if (input.box) {
+    const k = input.box.kind ?? "box";
+    return out(plan("box", { activity: k, instance: `box:${input.box.since}`, wander: k !== "box" }));
+  }
 
   // 9) 기본: 서서 산책
   return out(plan("base", { wander: true }));
