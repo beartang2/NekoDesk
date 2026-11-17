@@ -50,8 +50,8 @@ describe("스케줄러 시간표(설계 §8.1)", () => {
     w.sig(0, { type: "run_start" });
     w.sig(0.8, { type: "wait", kind: "confirm", danger: true });
     w.sig(3, { type: "wait_end", approved: true });
-    w.sig(3, { type: "tool_start", tool: "code.exec" });
-    w.sig(4, { type: "tool_end", tool: "code.exec" });
+    w.sig(3, { type: "tool_start", tool: "fs.write" });
+    w.sig(4, { type: "tool_end", tool: "fs.write" });
     w.sig(4.1, { type: "thinking" });
     w.sig(4.5, { type: "done", petState: null });
     w.to(9);

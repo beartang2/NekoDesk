@@ -32,6 +32,15 @@ describe("도구 → 활동", () => {
     expect(toolCue("fs.write").writes).toBe(true);
   });
 
+  it("순차 실행이어도 바꾸는 게 없으면 쓰기가 아니다", () => {
+    for (const t of ["plan.set", "plan.complete", "user.ask", "agent.delegate", "game.start", "game.judge", "code.exec"]) {
+      expect(toolCue(t).writes, t).toBe(false);
+    }
+    for (const t of ["todo.add", "schedule.add", "fs.edit", "memory.save", "airdrop.send", "file.upload", "image.generate"]) {
+      expect(toolCue(t).writes, t).toBe(true);
+    }
+  });
+
   it("MCP·모르는 도구는 타이핑", () => {
     expect(toolCue("mcp__github__list_issues")).toMatchObject({ activity: "typing", oneShot: false, writes: false });
   });

@@ -144,8 +144,8 @@ type ResultKind = "wrote" | "used" | "plain" | "failed" | "cancelled" | "error" 
 | `loop_error` | error | 꼬리펑 → 내리기 | 서기, 3초 |
 | 사용자가 실행을 취소 | cancelled | 내리기 | 앉기, 2초 |
 | 마지막 도구가 실패하고 끝남 | failed | 탁탁(sulk) | 서기, 3초 |
-| 쓰기 도구 성공(`todo.add`·`todo.complete`·`schedule.add`·`schedule.delete`·`code.exec`·`file.upload`) | wrote | 떨기(cheer) | 행복, 서기 |
-| 도구를 썼음 | used | 세우기(proud) | 행복, 앉기 |
+| 바꾸는 도구 성공(registry `changes`: 할 일·일정 추가/완료/삭제, `fs.write`·`fs.edit`, `memory.save`, `file.upload`·`airdrop.send`, `image.generate`) | wrote | 떨기(cheer) | 행복, 서기 |
+| 도구를 썼음(찾아보기만) | used | 세우기(proud) | 기본, 앉기 |
 | 도구 없이 답만 | plain | — | 기본 |
 
 - 지금 판정은 '중간에 오류가 한 번이라도 있으면 error' 다. 하지만 에이전트는 오류 뒤에 다시 시도해서 성공하는 일이 많다. 그래서 **마지막 도구가 실패했을 때만** 실패로 본다. 중간 오류는 그때그때 탁탁으로 이미 보여 준다.

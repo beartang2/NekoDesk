@@ -134,7 +134,8 @@ export function resultLook(kind: ResultKind, petState: CatEmotion | null): { moo
   }
   switch (kind) {
     case "wrote": return { mood: "happy", pose: "stand", holdMs: 2500 };
-    case "used": return { mood: "happy", pose: "sit", holdMs: 2500 };
+    // 찾아보기만 했으면 기본 표정으로 앉는다(꼬리만 세운다 — resultReactions). 기쁨은 실제로 바꾼 일에만
+    case "used": return { mood: "idle", pose: "sit", holdMs: 2500 };
     case "failed": return { mood: "idle", pose: "stand", holdMs: 3000 };
     case "cancelled": return { mood: "idle", pose: "sit", holdMs: 2000 };
     case "error": return { mood: "idle", pose: "stand", holdMs: 3000 };

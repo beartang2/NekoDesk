@@ -11,9 +11,9 @@ import type { ToolCue } from "./types";
 /** 엔진이 스스로 끝내는 활동 */
 export const ONE_SHOT: ReadonlySet<NekoActivity> = new Set(["stamp", "snack", "stretch", "climb", "erase"]);
 
-/** 결과 판정에서 '무언가를 바꾼' 도구(떨기). registry 의 readOnly 로 본다(MCP 는 모르니 아니라고 본다) */
+/** 결과 판정에서 '무언가를 바꾼' 도구. registry 의 changes 표시로 본다(MCP 는 모르니 아니라고 본다) */
 export function writesSomething(name: string): boolean {
-  return isStaticTool(name) && !getTool(name).readOnly;
+  return isStaticTool(name) && getTool(name).changes === true;
 }
 
 /** 빠진 도구는 타입 검사가 잡는다(user.ask 는 기다림이라 뺀다) */

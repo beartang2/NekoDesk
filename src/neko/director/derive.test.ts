@@ -61,7 +61,7 @@ describe("계획: 층과 우선순위(설계 §5.2)", () => {
   it("결과는 여운 + 길이만큼 보이고 끝나면 아래층으로", () => {
     const s = sess([0, { type: "run_start" }], [10, { type: "tool_start", tool: "web.search" }], [20, { type: "tool_end", tool: "web.search" }], [1000, { type: "done", petState: null }]);
     const a = deriveNeko(input({ session: s }), 1500);
-    expect(a.plan).toMatchObject({ layer: "result", pose: "sit", mood: "happy" });
+    expect(a.plan).toMatchObject({ layer: "result", pose: "sit", mood: "idle" }); // 찾아보기만 했다
     expect(a.recheckAt).toBe(1000 + 600 + 2500);
     expect(layer(input({ session: s }), 4100)).toBe("base");
   });

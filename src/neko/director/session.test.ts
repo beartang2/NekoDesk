@@ -55,11 +55,11 @@ describe("세션 상태", () => {
   it("중간 오류는 그 자리에서 탁탁, 다시 시도해 성공하면 결과는 성공", () => {
     const { s, reactions } = run([
       [0, { type: "run_start" }],
-      [1, { type: "tool_start", tool: "code.exec" }],
-      [2, { type: "step_error", tool: "code.exec", cancelled: false }],
+      [1, { type: "tool_start", tool: "fs.write" }],
+      [2, { type: "step_error", tool: "fs.write", cancelled: false }],
       [2.1, { type: "thinking" }],
-      [3, { type: "tool_start", tool: "code.exec" }],
-      [4, { type: "tool_end", tool: "code.exec" }],
+      [3, { type: "tool_start", tool: "fs.write" }],
+      [4, { type: "tool_end", tool: "fs.write" }],
       [5, { type: "done", petState: null }],
     ]);
     expect(kinds(reactions)).toEqual(["sulk", "cheer"]);
@@ -134,8 +134,10 @@ describe("결과 판정", () => {
     expect(judgeResult(base, "abort")).toBe("aborted");
   });
 
-  it("결과 모습: 도구를 썼으면 앉아서 뿌듯, 답만이면 바로 기본", () => {
-    expect(resultLook("used", null)).toEqual({ mood: "happy", pose: "sit", holdMs: 2500 });
+  it("결과 모습: 바꿨으면 기뻐하고, 찾아보기만 했으면 기본 표정으로 앉고, 답만이면 바로 기본", () => {
+    expect(resultLook("wrote", null)).toMatchObject({ mood: "happy" });
+    expect(resultLook("used", null)).toEqual({ mood: "idle", pose: "sit", holdMs: 2500 });
+    expect(resultLook("used", "proud")).toMatchObject({ mood: "happy", pose: "sit" });
     expect(resultLook("plain", null).holdMs).toBe(0);
     expect(resultLook("plain", "sleepy")).toMatchObject({ mood: "sleepy", pose: "loaf" });
   });

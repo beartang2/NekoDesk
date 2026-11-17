@@ -128,6 +128,12 @@ export interface ToolEntry {
    * false 면 순차 실행한다(쓰기·확인 필요·순서 의존).
    */
   readOnly: boolean;
+  /**
+   * 사용자 쪽에 실제로 뭔가를 남기거나 바꾸는가(파일·할 일·일정·기억, 보내기, 새 그림).
+   * readOnly 와 다르다 — plan.set·user.ask·game.* 은 순차 실행이지만 바꾸는 건 없다.
+   * 네코가 일을 마친 뒤 기뻐할지 정하는 데 쓴다(neko/director/toolActivity.ts)
+   */
+  changes?: true;
   execute: (params: Record<string, unknown>) => Promise<unknown>;
   summarize: (result: unknown) => string;
 }
@@ -173,6 +179,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["content"],
     },
     readOnly: false,
+    changes: true,
     execute: async (p) =>
       todosApi.add(
         p["content"] as string,
@@ -190,6 +197,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["id"],
     },
     readOnly: false,
+    changes: true,
     execute: async (p) => todosApi.complete(p["id"] as number),
     summarize: () => "완료 처리됨",
   },
@@ -231,6 +239,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["title", "start_at"],
     },
     readOnly: false,
+    changes: true,
     execute: async (p) =>
       scheduleApi.add(p["title"] as string, p["start_at"] as string, (p["end_at"] as string | undefined) || null),
     summarize: (r) => `일정 추가됨: ${(r as ScheduleEvent).title}`,
@@ -247,6 +256,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["ids"],
     },
     readOnly: false,
+    changes: true,
     execute: async (p) => scheduleApi.delete(p["ids"] as number[]),
     summarize: (r) => {
       const n = r as number;
@@ -416,6 +426,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     // 부작용은 없지만 호출마다 무료 한도·요금을 쓴다. 한 번에 하나씩.
     readOnly: false,
+    changes: true, // 새 그림을 만들어 낸다
     execute: async (p) => {
       const { provider, cfModel, googleModel } = useSettingsStore.getState().imageGen;
       const model = provider === "google" ? googleModel : cfModel;
@@ -560,6 +571,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["url", "filename"],
     },
     readOnly: false,
+    changes: true,
     execute: async (p) => {
       const url = p["url"] as string;
       const fieldName = (p["field_name"] as string | undefined) ?? "file";
@@ -631,6 +643,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["path", "content"],
     },
     readOnly: false,
+    changes: true,
     execute: async () => {
       throw new Error("fs.write 는 에이전트 루프가 확인을 받은 뒤 실행해야 하는 툴이야");
     },
@@ -656,6 +669,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["path", "old_string", "new_string"],
     },
     readOnly: false,
+    changes: true,
     execute: async () => {
       throw new Error("fs.edit 은 에이전트 루프가 확인을 받은 뒤 실행해야 하는 툴이야");
     },
@@ -746,6 +760,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["content"],
     },
     readOnly: false,
+    changes: true,
     execute: async (p) => saveMemory(p["content"] as string, (p["kind"] as string | undefined) ?? "fact"),
     summarize: (r) => {
       const { content, replaced } = r as Awaited<ReturnType<typeof saveMemory>>;
@@ -835,6 +850,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["paths"],
     },
     readOnly: false,
+    changes: true,
     execute: async (p) => airdropApi.send((p["paths"] as string[]) ?? []),
     summarize: (r) =>
       `AirDrop 시트를 열었어 (파일 ${r as number}개). 받을 기기는 시트에서 골라줘.`,
