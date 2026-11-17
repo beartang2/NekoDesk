@@ -2179,7 +2179,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /* ---------- 놓아 둔 물건(선물) ----------
      자리는 면 + 비율로만 받는다. 바닥: u = 양끝 여백을 뺀 무대 폭 비율. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율.
      px 로 굳히지 않으니 자리를 옮기거나 높이를 끌어도 같은 자리·같은 배율에 있다(소품 배율 버그와 같은 문제가 안 생긴다).
-     잡고 끌면 옮기고(decorMove), 우클릭하면 치운다(decorRemove) — 저장은 호스트 몫. 설계: docs/neko-gifts.md §4 */
+     잡고 끌면 옮기고(decorMove), 우클릭하면 그 옆에 '정리' 버튼을 띄울 자리를 알린다(decorMenu) — 저장·버튼은 호스트 몫.
+     설계: docs/neko-gifts.md §4 */
   const DECOR_SIZE = 26;   // 한 변(S 단위) — 바닥에서도 알아보게, 머리(폭 74)보다는 한참 작게
   // 노는 방식(§5). 모델이 고르고, 없으면 모양으로 짐작한다: 납작하면 위에 앉기, 동글면 굴리기, 그 밖엔 앞발로 톡
   const PLAYS = new Set(["roll", "bat", "sniff", "sit_on", "carry"]);
@@ -3801,13 +3802,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     press = null;
   }
   canvas.addEventListener("pointerup", endPress);
-  // 우클릭: 놓아 둔 물건이면 치운다(선물함으로). 그 밖에선 기본 메뉴를 막지 않는다
+  // 우클릭: 놓아 둔 물건이면 바로 치우지 않고, 호스트가 그 오른쪽 위에 '정리' 버튼을 띄우게 자리를 알린다.
+  // 그 밖에선 기본 메뉴를 막지 않는다
   canvas.addEventListener("contextmenu", (e) => {
-    const [x, y] = toStage(e), id = hitDecor(x, y);
-    if (!id) return;
+    const [x, y] = toStage(e), id = hitDecor(x, y), d = id && decor.find((o) => o.id === id);
+    if (!d || !d.box) return;
     e.preventDefault();
-    decor = decor.filter((o) => o.id !== id);
-    emit("decorRemove", { id });
+    emit("decorMenu", { id, x: d.box.x + d.box.w, y: d.box.y });
   });
   canvas.addEventListener("pointercancel", endPress);
   canvas.addEventListener("keydown", (e) => {

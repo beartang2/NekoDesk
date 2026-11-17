@@ -42,3 +42,21 @@
 .neko-slot__handle:active {
   background: var(--accent-dim);
 }
+
+/* 놓아 둔 선물을 우클릭하면 그 오른쪽 위에 뜨는 '정리' 버튼 */
+.neko-slot__tidy {
+  position: absolute;
+  z-index: 3;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  white-space: nowrap;
+  transform: translateY(-100%);
+}
+.neko-slot__tidy:hover { border-color: var(--accent); }

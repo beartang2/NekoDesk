@@ -279,7 +279,7 @@ try {
     const p = await open(`?w=320&h=240&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
     const r = await p.evaluate(() => {
       const n = window.__neko, cv = document.getElementById("stage"), rect = () => cv.getBoundingClientRect(), ev = [];
-      n.on("decorMove", (e) => ev.push(["move", e])); n.on("decorRemove", (e) => ev.push(["remove", e]));
+      n.on("decorMove", (e) => ev.push(["move", e])); n.on("decorMenu", (e) => ev.push(["menu", e]));
       n.setWander(false); n.cat.x = n.W * 0.8; n.step(60);
       n.setDecor([{ id: "g", surface: "floor", u: 0.1, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]);
       n.step(90); n.draw();
@@ -293,10 +293,13 @@ try {
       cv.style.width = "900px"; cv.style.height = "150px"; n.resize(); n.step(60); n.draw();
       const b2 = boxOf(), span = n.floorY - (26 * n.S) - 10 * n.S, wallOk = !!b2 && moved && moved.surface === "wall";
       const R2 = rect(); cv.dispatchEvent(new MouseEvent("contextmenu", { clientX: R2.left + b2[0] + 2, clientY: R2.top + b2[1] + 2, bubbles: true, cancelable: true }));
-      return { moved, hitBefore, wallOk, removed: ev.some(([k, e]) => k === "remove" && e.id === "g"), gone: !boxOf(), span: Math.round(span) };
+      // 우클릭은 바로 치우지 않고 '정리' 버튼 자리(물건 오른쪽 위)를 알린다 — 물건은 그대로
+      const menu = ev.find(([k]) => k === "menu"), mx = menu && menu[1];
+      const menuOk = !!mx && mx.id === "g" && Math.abs(mx.x - b2[0]) < 60 * n.S && mx.y < b2[1] + 4;
+      return { moved, hitBefore, wallOk, menuOk, kept: !!boxOf(), span: Math.round(span) };
     });
     check("놓아 둔 선물: 잡고 위로 끌면 벽에 걸린다(decorMove)", JSON.stringify(r.moved), !!r.moved && r.moved.surface === "wall" && r.moved.v > 0 && r.moved.v <= 1);
-    check("놓아 둔 선물: 크기·자리가 바뀌어도 벽 자리에 있고, 우클릭하면 치워진다", `벽 ${r.wallOk} · 치움 ${r.removed} · 사라짐 ${r.gone}`, r.hitBefore && r.wallOk && r.removed && r.gone);
+    check("놓아 둔 선물: 크기·자리가 바뀌어도 벽 자리에 있고, 우클릭하면 바로 치우지 않고 정리 버튼 자리를 알린다", `벽 ${r.wallOk} · 버튼 자리 ${r.menuOk} · 그대로 ${r.kept}`, r.hitBefore && r.wallOk && r.menuOk && r.kept);
     await p.close();
   }
 

@@ -78,8 +78,8 @@ export interface NekoEvents {
   carryPress: { x: number; y: number; pointerId: number };
   /** 놓아 둔 물건을 끌어 옮김 */
   decorMove: { id: string } & NekoDecorSpot;
-  /** 놓아 둔 물건을 우클릭으로 치움 */
-  decorRemove: { id: string };
+  /** 놓아 둔 물건을 우클릭함: (x, y) = 그 물건 오른쪽 위(무대 px). 호스트가 거기에 '정리' 버튼을 띄운다 */
+  decorMenu: { id: string; x: number; y: number };
 }
 
 export interface NekoOptions {
@@ -142,7 +142,7 @@ export interface NekoController {
   carried(): NekoCarried[];
   /**
    * 무대에 놓아 둔 물건(선물). 바닥: u = 양끝 여백을 뺀 무대 폭 비율 0~1. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율 0~1.
-   * 새로 놓인 것만 '뿅' 하고 나온다. 잡고 끌면 decorMove, 우클릭하면 decorRemove(저장은 호스트)
+   * 새로 놓인 것만 '뿅' 하고 나온다. 잡고 끌면 decorMove, 우클릭하면 decorMenu(저장·버튼은 호스트)
    */
   setDecor(items: ({ id: string; shape: unknown; play?: NekoGiftPlay } & NekoDecorSpot)[]): void;
   /** 놓아 둔 물건 수(감독이 '선물 갖고 놀기'를 고를지 볼 때) */

@@ -37,7 +37,7 @@ export function NekoGiftBox() {
         <p className="settings-section__desc">아직 받은 선물이 없어. 네코가 산책에서 주워 오면 여기 쌓여.</p>
       ) : (
         <>
-        <p className="settings-section__desc">칸을 네코 자리로 끌어다 놓으면 그 자리에 놓여(높이 놓으면 벽에 걸려). 무대에선 잡고 끌어 옮기고, 우클릭하면 치워.</p>
+        <p className="settings-section__desc">칸을 네코 자리로 끌어다 놓으면 그 자리에 놓여(높이 놓으면 벽에 걸려). 무대에선 잡고 끌어 옮기고, 우클릭하면 옆에 뜨는 '정리'로 치워.</p>
         <ul className="neko-gifts__grid">
           {[...gifts].reverse().map((g) => (
             <li

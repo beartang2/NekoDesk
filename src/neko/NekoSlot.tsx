@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useRef } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { ensureNeko, nekoCanvas, useNekoController } from "./nekoHost";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
@@ -34,6 +34,20 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
   }, [active, away]);
   // 산책 중엔 그릴 자리가 없다
   useLayoutEffect(() => { if (active && away) ctrl?.pause(); }, [ctrl, active, away]);
+
+  // 놓아 둔 선물을 우클릭하면 그 오른쪽 위에 '정리' 버튼. 누르면 선물함으로, 다른 데를 누르거나 Esc 면 닫는다
+  const [decorMenu, setDecorMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  useEffect(() => (ctrl && active ? ctrl.on("decorMenu", setDecorMenu) : undefined), [ctrl, active]);
+  useEffect(() => {
+    if (!decorMenu) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !(e.target as Element)?.closest?.(".neko-slot__tidy")) setDecorMenu(null);
+    };
+    const t = setTimeout(() => setDecorMenu(null), 6000); // 그냥 두면 저절로 닫힌다
+    window.addEventListener("pointerdown", close, true);
+    window.addEventListener("keydown", close);
+    return () => { clearTimeout(t); window.removeEventListener("pointerdown", close, true); window.removeEventListener("keydown", close); };
+  }, [decorMenu]);
 
   // 쓰다듬기: 고양이 몸 위에서 왔다 갔다 문지를 때만(useTrackpadPet). 탭은 엔진이 따로 쓰다듬기로 친다.
   const rub = useCallback(() => {
@@ -103,6 +117,17 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
           onDragOver={onGiftOver}
           onDrop={onGiftDrop}
         />
+      )}
+      {decorMenu && !away && (
+        <button
+          type="button"
+          className="neko-slot__tidy"
+          style={{ left: decorMenu.x + 2, top: Math.max(2, decorMenu.y - 4) }}
+          title="선물함으로 치우기"
+          onClick={() => { useNekoGifts.getState().place(decorMenu.id, null); setDecorMenu(null); }}
+        >
+          정리
+        </button>
       )}
     </div>
   );
