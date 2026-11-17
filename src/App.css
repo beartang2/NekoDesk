@@ -169,9 +169,11 @@ html, body, #root {
 }
 
 /* ── Layout ── */
+/* 셋째 줄(auto)은 '채팅 바 아래' 네코 자리. 사이드바부터 오른쪽 패널까지 창 폭 전체를 쓰고,
+   네코가 사이드바에 있으면 비어서 높이가 0 이다(NekoSlot 이 null). */
 .app {
   display: grid;
-  grid-template-rows: var(--titlebar-h) 1fr;
+  grid-template-rows: var(--titlebar-h) 1fr auto;
   grid-template-columns: var(--sidebar-w) 1fr var(--right-panel-w);
   height: 100%;
   transition: grid-template-columns var(--dur-sheet) var(--ease-out-quint), scale var(--dur-control) var(--ease-standard);

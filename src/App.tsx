@@ -2165,7 +2165,6 @@ export default function App() {
             onCancelQueued={(id) => pool.cancelQueued(activeId, id)}
             history={userHistory}
           />
-          <NekoSlot placement="dock" onRubPet={handlePet} away={away} />
         </div>
       </main>
 
@@ -2177,6 +2176,10 @@ export default function App() {
           isDark={isDark}
         />
       </ErrorBoundary>
+
+      {/* '채팅 바 아래' 네코 자리: 창 맨 아래 한 줄, 사이드바부터 오른쪽 패널 끝까지(.app 셋째 줄).
+          채팅 칸 안(.chat-dock)에 두면 대화 폭만큼만 생겼다. --dock-h 는 이제 입력창만 잰다. */}
+      <NekoSlot placement="dock" onRubPet={handlePet} away={away} />
     </div>
   );
 }

@@ -4,7 +4,12 @@
   flex-shrink: 0;
   width: 100%;
 }
+/* 창 맨 아래 한 줄(.app 의 셋째 줄)을 전체 폭으로. 높이 손잡이가 위로 3px 삐져나가
+   채팅 입력창(z 3) 밑에 깔리지 않게 그보다 위에 둔다. */
 .neko-slot--dock {
+  grid-row: 3;
+  grid-column: 1 / -1;
+  z-index: 4;
   border-top: 1px solid var(--border);
   background: var(--bg-surface);
 }
