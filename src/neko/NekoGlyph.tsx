@@ -84,22 +84,28 @@ export function CatGlyph({ shape, className }: { shape: Shape; className?: strin
 }
 
 /**
- * 털 길이: 위쪽 피부 띠에서 털 가닥이 늘어진다. 단모는 짧고 곧게, 중모는 중간 길이로 살짝 휘게,
- * 장모는 길게 물결치며 흘러내린다
+ * 털 길이: 모피 장식 띠. 위는 몽글몽글한 털 뿌리, 아래로 끝이 둥근 털 다발이 촘촘히 늘어진다.
+ * 다발 길이를 조금씩 다르게 하고 뒤 겹(옅게)을 엇갈려 넣어 풍성한 모피처럼 보이게. 다발 길이로 단모·중모·장모를 나눈다
  */
-const FUR_LEN = { short: 4.5, medium: 11, long: 19 } as const;
+const FUR_LEN = { short: 4.5, medium: 10.5, long: 17.5 } as const;
+const FUR_VAR = [1, 0.84, 0.95, 0.8, 1, 0.88, 0.92]; // 다발마다 길이를 조금씩
+function lock(x: number, y0: number, w: number, len: number, curl: number) {
+  const f = (n: number) => n.toFixed(2), tx = x + curl, ty = y0 + len;
+  return `M${f(x - w / 2)} ${f(y0)} C${f(x - w / 2)} ${f(y0 + len * 0.55)} ${f(tx - w * 0.38)} ${f(ty - len * 0.18)} ${f(tx)} ${f(ty)}`
+    + ` C${f(tx + w * 0.38)} ${f(ty - len * 0.18)} ${f(x + w / 2)} ${f(y0 + len * 0.55)} ${f(x + w / 2)} ${f(y0)} Z`;
+}
 export function FurGlyph({ fur, className }: { fur: NekoAppearance["fur"]; className?: string }) {
-  const len = FUR_LEN[fur], y0 = 6.5;
-  const strands = [7, 12.5, 18, 23.5, 29].map((x) => {
-    if (fur === "short") return `M${x} ${y0} L${x - 0.6} ${y0 + len}`;
-    if (fur === "medium") return `M${x} ${y0} Q${x - 0.4} ${y0 + len * 0.6} ${x - 2.4} ${y0 + len}`;
-    const y1 = y0 + len / 3, y2 = y0 + (len * 2) / 3; // 장모: S자로 두 번 굽이친다
-    return `M${x} ${y0} C${x - 2.6} ${y1 - 1} ${x + 1.4} ${y1 + 1} ${x - 0.8} ${y2} S${x - 3.2} ${y0 + len - 1} ${x - 2.4} ${y0 + len}`;
-  });
+  const L = FUR_LEN[fur], y0 = 7, xs = [5.4, 9.7, 14, 18.3, 22.6, 26.9, 31.2];
+  const curl = (i: number) => (i % 2 ? 0.7 : -0.7) - L * 0.07; // 번갈아 살짝 휘고, 전체로는 왼쪽으로 흘러내린다
+  const back = xs.slice(0, -1).map((x, i) => lock(x + 2.15, y0, 4.2, L * FUR_VAR[(i + 3) % 7] * 1.06, curl(i + 1))).join(" ");
+  const front = xs.map((x, i) => lock(x, y0, 4.4, L * FUR_VAR[i], curl(i))).join(" ");
+  // 위쪽 털 뿌리: 몽글몽글한 띠
+  const top = `M3.2 8.6 ${xs.map((x) => `Q${x} ${1.4} ${(x + 2.15).toFixed(2)} 4.4`).join(" ")} L33 8.6 Z`;
   return (
-    <svg className={className} viewBox="0 0 36 30" aria-hidden="true">
-      <rect x={3} y={2.5} width={30} height={5} rx={2.5} fill="currentColor" />
-      <path d={strands.join(" ")} fill="none" stroke="currentColor" strokeWidth={2.3} strokeLinecap="round" strokeLinejoin="round" />
+    <svg className={className} viewBox="0 0 36 30" fill="currentColor" aria-hidden="true">
+      <path d={back} opacity={0.45} stroke="currentColor" strokeWidth={1.2} strokeLinejoin="round" />
+      <path d={front} stroke="currentColor" strokeWidth={1.2} strokeLinejoin="round" />
+      <path d={top} stroke="currentColor" strokeWidth={1.2} strokeLinejoin="round" />
     </svg>
   );
 }
