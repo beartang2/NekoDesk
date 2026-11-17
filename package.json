@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "test:rust": "cd src-tauri && cargo test --lib",
     "test:all": "npm run typecheck && npm run test && npm run test:rust",
-    "eval": "vitest run --config vitest.eval.config.ts"
+    "eval": "vitest run --config vitest.eval.config.ts",
+    "qa:neko": "node qa/neko/regress.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
