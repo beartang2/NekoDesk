@@ -253,7 +253,7 @@ function BootSplash() {
       // 안쪽 로더의 transition 도 여기로 올라온다. 자기 것만 듣는다.
       onTransitionEnd={(e) => { if (e.target === e.currentTarget) setPhase("gone"); }}
     >
-      <NekoBootCat size={96} durationMs={BOOT_MS} onDone={() => setAnimDone(true)} />
+      <NekoBootCat size={170} durationMs={BOOT_MS} onDone={() => setAnimDone(true)} />
       <LatticeLoader label={`${nekoName} 깨우는 중`} status="working" showTimer={false} />
     </div>
   );
