@@ -87,6 +87,9 @@ pub fn delete(conn: &Connection, id: i64) -> AppResult<bool> {
 ///
 /// 점수는 맞은 검색어 수다. 동점이면 자주 쓰인 것, 그 다음 최근 것을 앞세운다 —
 /// 실제로 도움이 됐던 기억이 다시 도움이 될 가능성이 높다.
+///
+/// 산책 기억(`neko`)은 빼고 찾는다. 네코가 혼자 웹에서 보고 온 것이라, 대화 컨텍스트로 떠오르면
+/// 남의 페이지에 심긴 지시가 본 대화에 섞인다. 산책(목록으로 읽음)과 설정 화면에서만 쓴다.
 pub fn search(conn: &Connection, terms: &[String], limit: usize) -> AppResult<Vec<Memory>> {
     if terms.is_empty() {
         return Ok(Vec::new());
@@ -106,7 +109,7 @@ pub fn search(conn: &Connection, terms: &[String], limit: usize) -> AppResult<Ve
 
     let sql = format!(
         "SELECT id, kind, content, created_at, use_count FROM memories
-         WHERE {where_clause}
+         WHERE kind != 'neko' AND ({where_clause})
          ORDER BY ({score_clause}) DESC, use_count DESC, id DESC
          LIMIT ?"
     );
@@ -180,6 +183,16 @@ mod tests {
         let found = search(&c, &terms(&["고양이"]), 5).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].content, "사용자는 고양이를 키운다");
+    }
+
+    #[test]
+    fn walk_memories_never_surface_in_search() {
+        let c = setup();
+        save(&c, "neko", "산책하다 알게 됨: 고양이는 하루 16시간 잔다").unwrap();
+        save(&c, "fact", "사용자는 고양이를 키운다").unwrap();
+        let found = search(&c, &terms(&["고양이"]), 5).unwrap();
+        assert_eq!(found.iter().map(|m| m.kind.as_str()).collect::<Vec<_>>(), ["fact"]);
+        assert_eq!(list(&c).unwrap().len(), 2);
     }
 
     #[test]

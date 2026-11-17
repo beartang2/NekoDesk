@@ -62,7 +62,9 @@ export async function saveMemory(content: string, kind: string): Promise<Memory 
   const text = content.trim();
   const stale: Memory[] = [];
   try {
-    for (const m of similarMemories(text, await memoryApi.list())) {
+    // 산책 기억(neko)은 웹에서 온 것이라 사용자 기억을 대신하지 못하게 같은 쪽끼리만 견준다.
+    const sameSide = (await memoryApi.list()).filter((m) => (m.kind === "neko") === (kind === "neko"));
+    for (const m of similarMemories(text, sameSide)) {
       if (await replaces(m.content, text)) stale.push(m);
     }
   } catch {
