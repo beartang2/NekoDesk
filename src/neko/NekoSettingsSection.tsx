@@ -61,6 +61,7 @@ export function NekoSettingsSection() {
               step={0.05}
               value={scale}
               onChange={(e) => setScreen({ screenScale: Number(e.target.value) })}
+              style={{ "--fill": `${((scale - SCREEN_SCALE.min) / (SCREEN_SCALE.max - SCREEN_SCALE.min)) * 100}%` } as React.CSSProperties}
               aria-label={`화면 속 ${name} 크기`}
             />
           </label>

@@ -143,7 +143,7 @@
   .neko-cz__tune .neko-cz__btn { grid-column: 1 / -1; justify-self: start; }
 }
 .neko-cz__tune label { font-size: 13px; font-weight: 600; }
-.neko-cz__tune input[type="range"] { width: 100%; accent-color: var(--accent); }
+.neko-cz__tune input[type="range"] { width: 100%; }
 .neko-cz__tune output { min-width: 3ch; text-align: right; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 
 .neko-cz__btn {

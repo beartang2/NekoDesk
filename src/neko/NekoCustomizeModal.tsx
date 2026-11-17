@@ -255,6 +255,7 @@ export function NekoCustomizeModal({ onClose }: { onClose: () => void }) {
                       <span aria-hidden="true">단단</span>
                       {/* 손을 떼면 미리보기를 콕 눌러 지금 말랑함을 바로 보여 준다 */}
                       <input id="neko-cz-soft" type="range" min={0} max={100} value={Math.round(a.soft * 100)}
+                        style={{ "--fill": `${a.soft * 100}%` } as React.CSSProperties}
                         onChange={(e) => setAppearance({ soft: Number(e.target.value) / 100 })}
                         onPointerUp={() => preview?.boing(1)}
                         onKeyUp={(e) => { if (e.key.startsWith("Arrow") || e.key === "Home" || e.key === "End") preview?.boing(1); }} />
