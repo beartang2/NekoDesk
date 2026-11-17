@@ -26,7 +26,7 @@ export function NekoSettingsSection() {
       <div className="neko-settings__summary">
         <i className="cat-skin-swatch" style={{ background: coatSwatch(a) }} />
         <span className="neko-settings__summary-text">{summarizeAppearance(a)}</span>
-        <button type="button" className="settings-btn" onClick={() => setOpen(true)}>{name} 꾸미기</button>
+        <button type="button" className="settings-btn" onClick={() => setOpen(true)}>네코 꾸미기</button>
       </div>
 
       <SwitchRow label="채팅 바 아래로 내리기" checked={placement === "dock"} onChange={(on) => setPlacement(on ? "dock" : "sidebar")} />

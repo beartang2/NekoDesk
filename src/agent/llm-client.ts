@@ -193,7 +193,7 @@ function buildAgentSystemPrompt(native: boolean): string {
 
   const rules = isClaudeActive() ? CLAUDE_RULES : BEHAVIOR_RULES;
 
-  return `너는 NekoDesk 고양이 어시스턴트야. 사용자를 돕기 위해 툴을 사용해.${profileSection}${customSection}${toolsSection}${skillsSection}
+  return `너는 NekoDesk 고양이 어시스턴트 ${josa(nekoNameOf(useSettingsStore.getState()), "이야/야")}. 사용자를 돕기 위해 툴을 사용해.${profileSection}${customSection}${toolsSection}${skillsSection}
 
 ${rules}${modeSection}
 

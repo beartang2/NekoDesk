@@ -1055,7 +1055,6 @@ const MEMORY_KIND_LABELS: Record<string, string> = {
  * 알고 있는지 보이고 지울 수 있어야 한다.
  */
 function MemoriesSection() {
-  const name = useSettingsStore(nekoNameOf);
   const [memories, setMemories] = useState<Memory[]>([]);
   // 한 줄로 잘린 기억은 눌러서 펼쳐 읽는다
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
@@ -1083,7 +1082,7 @@ function MemoriesSection() {
 
   return (
     <section className="settings-section">
-      <h3 className="settings-section__title">{josa(name, "이/가")} 기억하는 것</h3>
+      <h3 className="settings-section__title">네코가 기억하는 것</h3>
       <p className="settings-section__desc">
         대화하면서 알게 된 것들이에요. 다음 대화에서도 관련된 것만 자동으로 떠올려요.
       </p>
