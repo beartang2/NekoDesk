@@ -37,7 +37,7 @@ export function ensureNeko(): NekoController {
       if (s.appearance !== prev.appearance) ctrl?.setAppearance(s.appearance);
     });
     // 선물함에서 바닥에 놓은 물건(docs/neko-gifts.md)
-    const decor = () => ctrl?.setDecor(useNekoGifts.getState().gifts.flatMap((g) => (g.placed ? [{ id: g.id, shape: g.shape, play: g.play, ...g.placed }] : [])));
+    const decor = () => ctrl?.setDecor(useNekoGifts.getState().gifts.flatMap((g) => (g.placed ? [{ id: g.id, shape: g.shape, play: g.play, size: g.size, ...g.placed }] : [])));
     // 무대에서 끌어 옮기면 선물함에 적는다(우클릭 '정리'는 자리 쪽 버튼이 한다 — NekoSlot)
     ctrl.on("decorMove", ({ id, ...spot }) => useNekoGifts.getState().place(id, spot));
     useNekoGifts.subscribe((s, prev) => { if (s.gifts !== prev.gifts) decor(); });

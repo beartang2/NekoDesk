@@ -44,6 +44,13 @@ describe("선물함", () => {
     expect(f.placed).toEqual({ surface: "floor", u: 0.35 }); // 벽 물건 자리는 비어 있는 셈
   });
 
+  it("크기는 small·medium·large 만 남긴다(없으면 엔진이 medium)", () => {
+    const s = useNekoGifts.getState();
+    s.add({ id: "s", title: "s", body: "", shape: null, size: "large" });
+    s.add({ id: "t", title: "t", body: "", shape: null, size: "huge" });
+    expect(useNekoGifts.getState().gifts.map((g) => g.size)).toEqual(["large", undefined]);
+  });
+
   it("노는 방식은 아는 것만 남긴다", () => {
     const s = useNekoGifts.getState();
     s.add({ id: "a", title: "a", body: "", shape: null, play: "roll" });

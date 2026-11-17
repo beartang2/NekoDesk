@@ -26,6 +26,8 @@ export interface WalkGift {
   shape?: GiftShape;
   /** 그 물건으로 노는 방식. 없으면 엔진이 모양으로 짐작 */
   play?: string;
+  /** 실제 물건 크기(small·medium·large). 없으면 medium */
+  size?: string;
 }
 
 export interface WalkReport {
@@ -139,6 +141,11 @@ const REPORT_TOOL = {
           },
           required: ["parts"],
         },
+        gift_size: {
+          type: "string",
+          enum: ["small", "medium", "large"],
+          description: "gift_shape 를 적었을 때: 실제 물건 크기. small 병뚜껑·도토리·단추, medium 단풍잎·조약돌·솔방울, large 나뭇가지·깃털 다발(그래도 고양이보다 작은 것)",
+        },
         gift_play: {
           type: "string",
           enum: PLAYS,
@@ -159,6 +166,7 @@ interface Structured {
   drawing_prompt: string;
   gift_shape: unknown;
   gift_play: string;
+  gift_size: string;
 }
 
 /** 산책하며 모은 것. abort 되면 그 순간의 이것으로 보고한다. */
@@ -199,7 +207,7 @@ export function startWalkBrain(ctx: { places: MapPlace[]; here: { lat: number; l
       const report = compose(g);
       // 그림으로 그릴 물건이면 선물함에 넣는다(설계 docs/neko-gifts.md §3)
       const gift = report.gift;
-      if (gift?.shape) try { useNekoGifts.getState().add({ title: gift.title, body: gift.body, shape: gift.shape, play: gift.play }); } catch { /* 선물함이 안 돼도 보고는 한다 */ }
+      if (gift?.shape) try { useNekoGifts.getState().add({ title: gift.title, body: gift.body, shape: gift.shape, play: gift.play, size: gift.size }); } catch { /* 선물함이 안 돼도 보고는 한다 */ }
       return report;
     }),
     abort: () => ctrl.abort(),
@@ -306,6 +314,7 @@ async function walk(
     drawing_prompt: str(p?.drawing_prompt),
     gift_shape: p?.gift_shape,
     gift_play: str(p?.gift_play),
+    gift_size: str(p?.gift_size),
   };
 
   // 4. 그림 선물은 글이 나온 뒤에 그린다 — 뭘 그릴지가 그 글에 있다.
@@ -343,7 +352,7 @@ function compose(g: Gathered): WalkReport {
           ...(g.file ? { file: g.file } : {}),
           ...(g.place ? { place: g.place } : {}),
           ...(g.kind === "trinket" || g.kind === "place"
-            ? { shape: validateShape(r.gift_shape), ...(r.gift_play ? { play: r.gift_play } : {}) }
+            ? { shape: validateShape(r.gift_shape), ...(r.gift_play ? { play: r.gift_play } : {}), ...(r.gift_size ? { size: r.gift_size } : {}) }
             : {}),
         }
       : g.material

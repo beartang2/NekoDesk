@@ -6,8 +6,11 @@
 import type { GiftShape } from "./gift-shape";
 
 /** 입에 무는 물건(docs/neko-gifts.md §6). 이미지는 호스트가 다 불러온 것을 넘긴다 */
+/** 물건의 실제 크기(그리는 크기 배율). 없으면 medium */
+export type NekoGiftSize = "small" | "medium" | "large";
+
 export type NekoCarryItem =
-  | { id: string; kind: "shape"; shape: unknown }
+  | { id: string; kind: "shape"; shape: unknown; size?: NekoGiftSize }
   | { id: string; kind: "image"; image: ImageBitmap | HTMLImageElement };
 /** 엔진이 들고 있는 꼴(모양은 검사를 거친 것) */
 export type NekoCarried =
@@ -155,13 +158,13 @@ export interface NekoController {
    * 무대에 놓아 둔 물건(선물). 바닥: u = 양끝 여백을 뺀 무대 폭 비율 0~1. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율 0~1.
    * 새로 놓인 것만 '뿅' 하고 나온다. 잡고 끌면 decorMove, 우클릭하면 decorMenu(저장·버튼은 호스트)
    */
-  setDecor(items: ({ id: string; shape: unknown; play?: NekoGiftPlay } & NekoDecorSpot)[]): void;
+  setDecor(items: ({ id: string; shape: unknown; play?: NekoGiftPlay; size?: NekoGiftSize } & NekoDecorSpot)[]): void;
   /** 놓아 둔 물건 수(감독이 '선물 갖고 놀기'를 고를지 볼 때) */
   readonly decorCount: number;
   /** 이 점(무대 px)이 놓아 둔 물건 위면 그 id */
   hitDecor(x: number, y: number): string | null;
   /** 무대 px 의 한 점(물건 가운데)을 자리로. 선물함에서 끌어 놓을 때 */
-  decorSpotAt(x: number, y: number, shape: unknown): NekoDecorSpot;
+  decorSpotAt(x: number, y: number, shape: unknown, size?: NekoGiftSize): NekoDecorSpot;
   readonly carrying: boolean;
   /** 이 점(무대 px, hit 와 같은 좌표)이 문 물건 위면 "bundle" */
   hitCarry(x: number, y: number): "bundle" | null;

@@ -407,6 +407,21 @@ try {
     await p.close();
   }
 
+  // 9-i) 선물 크기(small·medium·large): 같은 모양도 실제 크기대로 다르게 그리고, 큰 것도 고양이 몸보다 작다
+  {
+    const p = await open(`?w=680&h=240&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
+    const r = await p.evaluate(() => {
+      const n = window.__neko, shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      n.cat.x = n.W * 0.5; n.step(30);
+      n.setDecor([{ id: "s", surface: "floor", u: 0.05, size: "small", shape }, { id: "m", surface: "floor", u: 0.3, shape }, { id: "l", surface: "floor", u: 0.95, size: "large", shape }]);
+      n.step(120); n.draw();
+      const width = (id) => { let a = null, b = null; for (let x = 0; x < n.W; x += 0.5) for (let y = n.floorY - 40 * n.S; y < n.floorY; y += 1) if (n.hitDecor(x, y) === id) { a ??= x; b = x; break; } return b - a; };
+      return { s: width("s"), m: width("m"), l: width("l"), body: 100 * n.S };
+    });
+    check("선물 크기: small < medium < large, large 도 고양이 몸보다 작다", `폭 ${r.s.toFixed(0)} · ${r.m.toFixed(0)} · ${r.l.toFixed(0)} (몸 ${r.body.toFixed(0)})`, r.s < r.m && r.m < r.l && r.l < r.body);
+    await p.close();
+  }
+
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다
   for (const [w, h] of [[704, 282], [220, 150], [900, 150]]) {
     const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);

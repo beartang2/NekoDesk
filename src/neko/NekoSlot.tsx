@@ -74,7 +74,7 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
     if (!ctrl || !gift) return;
     e.preventDefault();
     const r = e.currentTarget.getBoundingClientRect();
-    useNekoGifts.getState().place(id, ctrl.decorSpotAt(e.clientX - r.left, e.clientY - r.top, gift.shape));
+    useNekoGifts.getState().place(id, ctrl.decorSpotAt(e.clientX - r.left, e.clientY - r.top, gift.shape, gift.size));
   }, [ctrl]);
 
   // 높이 손잡이: 위쪽 가장자리를 끌면 그만큼 키가 바뀐다(손을 뗄 때 저장)
