@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Check, Eye, Feather, Palette, Sparkles, Waves, X, type LucideIcon } from "lucide-react";
 import { createNeko, type NekoAppearance, type NekoController, type NekoPattern, type NekoPose } from "./engine/neko-engine";
 import { useNekoStore } from "./nekoStore";
-import { CatGlyph, EyeGlyph, PatternGlyph, PoseGlyph } from "./NekoGlyph";
+import { CatGlyph, EyeGlyph, FurGlyph, PatternGlyph, PoseGlyph } from "./NekoGlyph";
 import { coatSwatch, summarizeAppearance } from "./summarize";
 import "./NekoCustomizeModal.css";
 
@@ -241,7 +241,7 @@ export function NekoCustomizeModal({ onClose }: { onClose: () => void }) {
 
               {STEPS[step].key === "fur" && (
                 <div className="neko-cz__pickers">
-                  <Field legend="털 길이"><Chips name="털 길이" opts={FURS} value={a.fur} onPick={set("fur")} tile glyph={(k) => cat({ fur: k })} /></Field>
+                  <Field legend="털 길이"><Chips name="털 길이" opts={FURS} value={a.fur} onPick={set("fur")} tile glyph={(k) => <FurGlyph className="neko-cz__glyph" fur={k} />} /></Field>
                   <Field legend="귀"><Chips name="귀" opts={EARS} value={a.ear} onPick={set("ear")} tile glyph={(k) => cat({ ear: k })} /></Field>
                   <Field legend="꼬리"><Chips name="꼬리" opts={TAILS} value={a.tail} onPick={set("tail")} tile glyph={(k) => cat({ tail: k })} /></Field>
                 </div>
