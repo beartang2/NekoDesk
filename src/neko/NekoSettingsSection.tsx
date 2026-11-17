@@ -3,6 +3,8 @@ import { Segmented, SwitchRow, type Option } from "../components/ui";
 import { NekoCustomizeModal } from "./NekoCustomizeModal";
 import { NekoGiftBox } from "./NekoGiftBox";
 import { SCREEN_SCALE, useNekoStore, type NekoPlacement } from "./nekoStore";
+import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
+import { josa } from "../lib/hangul";
 import { coatSwatch, summarizeAppearance } from "./summarize";
 
 /**
@@ -17,11 +19,12 @@ const PLACES: Option<NekoPlacement>[] = [
   { value: "dock", label: "채팅 바 아래" },
   ...(IS_MAC ? [{ value: "screen" as const, label: "모니터 화면" }] : []),
 ];
-const PLACE_DESC: Record<NekoPlacement, string> = {
-  sidebar: "사이드바 패널에서 지내. 위쪽 가장자리를 끌어 높이를 바꾸면 고양이 크기가 따라가.",
-  dock: "대화 입력창 아래 띠로 내려가서 더 넓게 걸어 다녀. 위쪽 가장자리를 끌어 높이를 바꿀 수 있어.",
-  screen: "앱 밖으로 나가 맥 화면 맨 아래(Dock 위)를 걸어 다녀. 고양이 위에서만 클릭을 받고 나머지는 뒤로 지나가. ⌥ 를 누르고 있으면 고양이도 통과해.",
-};
+/** 자리 설명. 문장 속 호칭은 지어 준 이름(조사는 받침에 맞춘다) */
+const placeDesc = (place: NekoPlacement, name: string): string => ({
+  sidebar: `${josa(name, "이/가")} 사이드바 패널에서 지내. 위쪽 가장자리를 끌어 높이를 바꾸면 고양이 크기가 따라가.`,
+  dock: `${josa(name, "이/가")} 대화 입력창 아래 띠로 내려가서 더 넓게 걸어 다녀. 위쪽 가장자리를 끌어 높이를 바꿀 수 있어.`,
+  screen: `${josa(name, "이/가")} 앱 밖으로 나가 맥 화면 맨 아래(Dock 위)를 걸어 다녀. ${name} 위에서만 클릭을 받고 나머지는 뒤로 지나가. ⌥ 를 누르고 있으면 ${name}도 통과해.`,
+})[place];
 
 export function NekoSettingsSection() {
   const a = useNekoStore((s) => s.appearance);
@@ -31,6 +34,7 @@ export function NekoSettingsSection() {
   const scale = useNekoStore((s) => s.stage.screenScale);
   const setScreen = useNekoStore((s) => s.setScreen);
   const [open, setOpen] = useState(false);
+  const name = useSettingsStore(nekoNameOf);
 
   return (
     <section className="settings-section neko-settings">
@@ -43,7 +47,7 @@ export function NekoSettingsSection() {
       </div>
 
       <Segmented value={placement} onChange={setPlacement} options={PLACES} />
-      <p className="settings-section__desc">{PLACE_DESC[placement]}</p>
+      <p className="settings-section__desc">{placeDesc(placement, name)}</p>
       {placement === "screen" && (
         <>
           <SwitchRow label="항상 위에 두기" checked={onTop} onChange={(v) => setScreen({ screenOnTop: v })} />
@@ -57,7 +61,7 @@ export function NekoSettingsSection() {
               step={0.05}
               value={scale}
               onChange={(e) => setScreen({ screenScale: Number(e.target.value) })}
-              aria-label="화면 고양이 크기"
+              aria-label={`화면 속 ${name} 크기`}
             />
           </label>
         </>

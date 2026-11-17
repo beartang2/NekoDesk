@@ -3,6 +3,7 @@ import { createNeko, type NekoController } from "./engine/neko-engine";
 import { useNekoStore } from "./nekoStore";
 import { getRemoteNeko, onRemoteNeko } from "./remoteNeko";
 import { useNekoGifts } from "./gifts";
+import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 
 /**
  * 네코는 앱에 하나다: 캔버스 하나 + 엔진 하나를 모듈에 두고, 자리(NekoSlot)가 바뀌면 캔버스만 옮긴다.
@@ -19,10 +20,10 @@ export function nekoCanvas(): HTMLCanvasElement {
     canvas.className = "neko-canvas";
     canvas.tabIndex = 0;
     canvas.setAttribute("role", "img");
-    canvas.setAttribute(
-      "aria-label",
-      "고양이 네코. 누르면 쓰다듬고, 빠르게 두 번 누르면 뛰어올라요. 누른 채로 끌면 목덜미를 잡아 들어 올려요.",
-    );
+    const label = (s = useSettingsStore.getState()) =>
+      `고양이 ${nekoNameOf(s)}. 누르면 쓰다듬고, 빠르게 두 번 누르면 뛰어올라요. 누른 채로 끌면 목덜미를 잡아 들어 올려요.`;
+    canvas.setAttribute("aria-label", label());
+    useSettingsStore.subscribe((s) => canvas?.setAttribute("aria-label", label(s)));
   }
   return canvas;
 }
