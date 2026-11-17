@@ -4,13 +4,14 @@ import type { NekoAppearance, NekoPattern, NekoPose } from "./engine/neko-engine
 /**
  * 꾸미기 칩에 붙는 작은 그림. 글자만 보고 고르지 않게, 고르면 어떤 모양이 되는지 보여 준다.
  *
- * - CatGlyph: 옆모습 실루엣(체형·다리·털 길이·귀·꼬리를 반영). currentColor 로 칠해 칩 색을 따른다
+ * - CatGlyph: 옆모습 실루엣(체형·다리·귀·꼬리를 반영). currentColor 로 칠해 칩 색을 따른다
+ * - FurGlyph: 털 길이는 고양이 모양 대신 털 가닥 길이로(실루엣 윤곽으론 작은 크기에서 구분이 안 된다)
  * - PoseGlyph: 서기·앉기·식빵·누워 자기 실루엣
  * - PatternGlyph: 털 색 동그라미 위에 무늬(흰 반점·삼색·줄무늬·포인트)
  * - EyeGlyph: 아몬드 눈 + 홍채 색
  */
 
-type Shape = Pick<NekoAppearance, "build" | "legs" | "fur" | "ear" | "tail">;
+type Shape = Pick<NekoAppearance, "build" | "legs" | "ear" | "tail">;
 
 const LEG = { short: 3, normal: 5, long: 7.5 } as const;
 const BODY = { slim: [8.5, 3.6], normal: [9.5, 4.4], chubby: [10.6, 5.6] } as const;
@@ -47,22 +48,6 @@ function Ears({ hx, hy, ear }: { hx: number; hy: number; ear: Shape["ear"] }) {
   );
 }
 
-/**
- * 털 뭉치 윤곽: 타원 둘레를 촘촘히 따라가며 바깥으로 둥글게 부푼 털 뭉치 n 개를 낸다(구름처럼 둥근 끝, 가시처럼
- * 뾰족하지 않게). 뭉치 높이는 위(top)에서 아래(bottom)로 바뀌고, 0 이하인 곳은 매끈하다
- * (top 을 음수로 주면 아래쪽에만 털이 난다).
- */
-function fluff(cx: number, cy: number, rx: number, ry: number, n: number, top: number, bottom: number) {
-  const N = 144, pts: string[] = [];
-  for (let i = 0; i < N; i++) {
-    const t = (i / N) * Math.PI * 2;
-    const L = Math.max(0, top + (bottom - top) * ((Math.sin(t) + 1) / 2));
-    const out = L * Math.abs(Math.sin((n * t) / 2)); // 꼭대기는 둥글고 사이는 오목한 물결
-    pts.push(`${(cx + (rx + out) * Math.cos(t)).toFixed(2)} ${(cy + (ry + out) * Math.sin(t)).toFixed(2)}`);
-  }
-  return `M${pts.join(" L")} Z`;
-}
-
 /** 서 있는 옆모습. 오른쪽을 본다 */
 export function CatGlyph({ shape, className }: { shape: Shape; className?: string }) {
   const leg = LEG[shape.legs];
@@ -71,20 +56,18 @@ export function CatGlyph({ shape, className }: { shape: Shape; className?: strin
   const hx = cx + rx - 2, hy = cy - ry - 1.2, hr = 4.6;
   const legXs = [cx - rx + 2.6, cx - rx + 5.2, cx + rx - 5.4, cx + rx - 2.8];
   const bx = cx - rx + 1.6, by = cy - 1.2;
-  // 털 길이: 단모는 매끈, 중모는 배·볼에 털 가장자리, 장모는 온몸이 복슬하고 목 갈기·두꺼운 꼬리
-  const fur = shape.fur, furW = fur === "long" ? 2.6 : fur === "medium" ? 1 : 0;
   return (
     <svg className={className} viewBox="0 0 36 30" fill="currentColor" aria-hidden="true">
       {/* 꼬리 */}
       {shape.tail === "bob" ? (
-        <circle cx={bx - 1.4} cy={by - 1.2} r={2.3 + furW * 0.4} />
+        <circle cx={bx - 1.4} cy={by - 1.2} r={2.3} />
       ) : (
         <path
           d={`M${bx} ${by} C${bx - 4} ${by - 1} ${bx - 6} ${by - 6} ${bx - 4.6} ${by - 10.5}`}
           fill="none"
           stroke="currentColor"
           strokeLinecap="round"
-          strokeWidth={(shape.tail === "fluffy" ? 4.2 : 2) + furW}
+          strokeWidth={shape.tail === "fluffy" ? 4.2 : 2}
         />
       )}
       {/* 다리 */}
@@ -92,21 +75,38 @@ export function CatGlyph({ shape, className }: { shape: Shape; className?: strin
         {legXs.map((x) => <line key={x} x1={x} y1={cy} x2={x} y2={FLOOR - 1.2} />)}
       </g>
       {/* 몸통·목·머리 */}
-      {fur === "short" ? <ellipse cx={cx} cy={cy} rx={rx} ry={ry} />
-        : fur === "medium" ? <path d={fluff(cx, cy, rx, ry, 9, -1.2, 2.5)} />
-        : <path d={fluff(cx, cy, rx + 0.2, ry + 0.2, 11, 1.4, 3)} />}
+      <ellipse cx={cx} cy={cy} rx={rx} ry={ry} />
       <path d={`M${cx + rx - 6} ${cy - ry + 0.5} L${hx - 1} ${hy + 2} L${hx + 1.5} ${hy + 3} L${cx + rx} ${cy} Z`} />
-      {fur === "long" && <path d={fluff(hx - 0.6, hy + hr - 0.4, 3.4, 2.8, 7, -0.4, 2.4)} />}
-      {fur === "short" ? <circle cx={hx} cy={hy} r={hr} />
-        : <path d={fluff(hx, hy, hr, hr, 10, fur === "long" ? -0.4 : -1.6, fur === "long" ? 1.8 : 1.4)} />}
+      <circle cx={hx} cy={hy} r={hr} />
       <Ears hx={hx} hy={hy} ear={shape.ear} />
+    </svg>
+  );
+}
+
+/**
+ * 털 길이: 위쪽 피부 띠에서 털 가닥이 늘어진다. 단모는 짧고 곧게, 중모는 중간 길이로 살짝 휘게,
+ * 장모는 길게 물결치며 흘러내린다
+ */
+const FUR_LEN = { short: 4.5, medium: 11, long: 19 } as const;
+export function FurGlyph({ fur, className }: { fur: NekoAppearance["fur"]; className?: string }) {
+  const len = FUR_LEN[fur], y0 = 6.5;
+  const strands = [7, 12.5, 18, 23.5, 29].map((x) => {
+    if (fur === "short") return `M${x} ${y0} L${x - 0.6} ${y0 + len}`;
+    if (fur === "medium") return `M${x} ${y0} Q${x - 0.4} ${y0 + len * 0.6} ${x - 2.4} ${y0 + len}`;
+    const y1 = y0 + len / 3, y2 = y0 + (len * 2) / 3; // 장모: S자로 두 번 굽이친다
+    return `M${x} ${y0} C${x - 2.6} ${y1 - 1} ${x + 1.4} ${y1 + 1} ${x - 0.8} ${y2} S${x - 3.2} ${y0 + len - 1} ${x - 2.4} ${y0 + len}`;
+  });
+  return (
+    <svg className={className} viewBox="0 0 36 30" aria-hidden="true">
+      <rect x={3} y={2.5} width={30} height={5} rx={2.5} fill="currentColor" />
+      <path d={strands.join(" ")} fill="none" stroke="currentColor" strokeWidth={2.3} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
 /** 미리보기 자세 칩 그림 */
 export function PoseGlyph({ pose, ear, className }: { pose: NekoPose; ear: Shape["ear"]; className?: string }) {
-  if (pose === "stand") return <CatGlyph className={className} shape={{ build: "normal", legs: "normal", fur: "short", ear, tail: "long" }} />;
+  if (pose === "stand") return <CatGlyph className={className} shape={{ build: "normal", legs: "normal", ear, tail: "long" }} />;
   return (
     <svg className={className} viewBox="0 0 36 30" fill="currentColor" aria-hidden="true">
       {pose === "sit" && (
