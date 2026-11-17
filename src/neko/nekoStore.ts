@@ -27,6 +27,7 @@ export const DOCK_H = { min: 120, max: 240, def: 170 } as const;
 
 export const DEFAULT_APPEARANCE: NekoAppearance = {
   coat: "cream",
+  color: "#c8a27a",
   patterns: [],
   seed: 7,
   eye: "yellow",
@@ -64,7 +65,8 @@ export function normalizeAppearance(raw: unknown): NekoAppearance {
   const pick = <T extends string>(v: unknown, ok: readonly T[], d: T): T => (ok.includes(v as T) ? (v as T) : d);
   const d = DEFAULT_APPEARANCE;
   return {
-    coat: pick(a.coat, ["black", "cheese", "gray", "cream", "white"] as const, d.coat),
+    coat: pick(a.coat, ["black", "cheese", "gray", "cream", "white", "custom"] as const, d.coat),
+    color: typeof a.color === "string" && /^#[0-9a-f]{6}$/i.test(a.color) ? a.color.toLowerCase() : d.color,
     patterns: Array.isArray(a.patterns)
       ? [...new Set(a.patterns.filter((p): p is NekoPattern => ["white", "calico", "tabby", "point"].includes(p as string)))]
       : [],
@@ -97,10 +99,17 @@ function readLocal<T>(key: string): T | null {
   }
 }
 
-async function save(key: string, value: unknown) {
-  const raw = JSON.stringify(value);
-  try { localStorage.setItem(key, raw); } catch { /* 저장 공간 없음 등 — 무시 */ }
-  await settingsApi.set(key, raw).catch(() => {}); // 브라우저 개발 모드엔 Tauri 가 없다
+// 색 고르기 창을 끌 때처럼 값이 연달아 바뀌면 마지막 값만 0.25초 뒤에 한 번 저장한다
+const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function save(key: string, value: unknown) {
+  const prev = saveTimers.get(key);
+  if (prev) clearTimeout(prev);
+  saveTimers.set(key, setTimeout(() => {
+    saveTimers.delete(key);
+    const raw = JSON.stringify(value);
+    try { localStorage.setItem(key, raw); } catch { /* 저장 공간 없음 등 — 무시 */ }
+    settingsApi.set(key, raw).catch(() => {}); // 브라우저 개발 모드엔 Tauri 가 없다
+  }, 250));
 }
 
 function initialAppearance(): NekoAppearance {
@@ -130,19 +139,19 @@ export const useNekoStore = create<NekoStore>((set, get) => ({
   setAppearance: (patch) => {
     const appearance = normalizeAppearance({ ...get().appearance, ...patch });
     set({ appearance });
-    void save(APPEARANCE_KEY, appearance);
+    save(APPEARANCE_KEY, appearance);
   },
   reroll: () => get().setAppearance({ seed: (Math.random() * 4294967296) >>> 0 }),
   setPlacement: (placement) => {
     const stage = { ...get().stage, placement };
     set({ stage });
-    void save(STAGE_KEY, stage);
+    save(STAGE_KEY, stage);
   },
   setStageHeight: (which, h, persist = true) => {
     const cur = get().stage;
     const stage = which === "sidebar" ? { ...cur, sidebarH: clampH(h, SIDEBAR_H) } : { ...cur, dockH: clampH(h, DOCK_H) };
     set({ stage });
-    if (persist) void save(STAGE_KEY, stage);
+    if (persist) save(STAGE_KEY, stage);
   },
   load: async () => {
     const [a, s] = await Promise.all([
@@ -151,7 +160,7 @@ export const useNekoStore = create<NekoStore>((set, get) => ({
     ]);
     try {
       if (a) set({ appearance: normalizeAppearance(JSON.parse(a)) });
-      else void save(APPEARANCE_KEY, get().appearance); // 처음: 옮겨 온(또는 기본) 외형을 DB 에도 남긴다
+      else save(APPEARANCE_KEY, get().appearance); // 처음: 옮겨 온(또는 기본) 외형을 DB 에도 남긴다
       if (s) set({ stage: normalizeStage(JSON.parse(s)) });
     } catch {
       /* 깨진 값 — 지금 값을 유지 */

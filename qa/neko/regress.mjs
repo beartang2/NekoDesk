@@ -200,6 +200,29 @@ try {
     await p.close();
   }
 
+  // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다
+  for (const [w, h] of [[704, 282], [220, 150], [900, 150]]) {
+    const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
+    const r = await p.evaluate(() => {
+      const n = window.__neko, cv = document.getElementById("stage"), g = cv.getContext("2d"), out = {};
+      n.setWander(false);
+      for (const soft of [0, 0.6, 1]) {
+        n.setAppearance({ soft }); n.step(240); let worst = 99;
+        for (let j = 0; j < 4; j++) {
+          n.jump();
+          for (let i = 0; i < 160; i++) { n.step(1); if (i % 3) continue; n.draw();
+            const W = cv.width, d = g.getImageData(0, 0, W, 12).data;
+            for (let y = 0; y < 12 && y < worst; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 40) { worst = y; break; } }
+          n.step(120);
+        }
+        out[soft] = worst;
+      }
+      return out;
+    });
+    check(`점프 ${w}×${h}: 천장까지 여유(px, 말랑함 0/0.6/1)`, [0, 0.6, 1].map((k) => (r[k] === 99 ? "12+" : r[k])).join(" / "), Object.values(r).every((v) => v >= 2));
+    await p.close();
+  }
+
   // 10) 쓰다듬기: 처음엔 웃고(하트), 너무 오래 만지면 웃음을 멈추고 귀를 젖히고 피한다(같은 쪽으로 꾸준히)
   {
     const p = await open();
@@ -217,6 +240,28 @@ try {
     });
     const ok = r.firstOk === true && r.refused > 0 && r.smileWhileSulk < 0.15 && r.ear > 0.25 && r.moved > 40 && r.back === 0;
     check("쓰다듬기 과자극: 웃음 멈춤·귀 젖힘·피함", `거절 ${r.refused}번 · 짜증 중 웃음 ${r.smileWhileSulk.toFixed(2)} · 귀 ${r.ear.toFixed(2)} · ${r.moved.toFixed(0)}단위 피함 · 되돌아옴 ${r.back}`, ok);
+    await p.close();
+  }
+
+  // 10-b) 말랑함: 콕 눌렀을 때 출렁임 크기·길이가 값을 따라 확실히 달라진다(0 < 0.6 < 1)
+  {
+    const p = await open();
+    const r = await p.evaluate(() => {
+      const n = window.__neko, out = {};
+      n.setWander(false);
+      for (const soft of [0, 0.6, 1]) {
+        n.setAppearance({ soft }); n.setPose("stand"); n.step(240);
+        const belly = () => Math.max(...n.debug.bodyWorld().map((q) => q[1]));
+        const rest = belly();
+        n.boing(1);
+        let peak = 0, frames = 0;
+        for (let f = 1; f <= 240; f++) { n.step(1); const d = Math.abs(belly() - rest) / n.S; peak = Math.max(peak, d); if (d > 0.6) frames = f; }
+        out[soft] = { peak, frames };
+      }
+      return out;
+    });
+    const ok = r[0].peak < r[0.6].peak && r[0.6].peak < r[1].peak && r[1].peak > 8 && r[1].peak > 4 * r[0].peak && r[1].frames > 3 * Math.max(1, r[0].frames);
+    check("말랑함: 콕 눌림 출렁임 0 < 0.6 < 1", [0, 0.6, 1].map((k) => `${k}: ${r[k].peak.toFixed(1)}단위/${r[k].frames}f`).join(" · "), ok);
     await p.close();
   }
 
