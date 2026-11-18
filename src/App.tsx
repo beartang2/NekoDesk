@@ -35,7 +35,7 @@ import { UpdatePrompt } from "./components/Update";
 import { openViewer, imageName, nowStamp } from "./components/Viewer";
 import { maskHome } from "./lib/home";
 import { useCatRpg } from "./hooks/useCatRpg";
-import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi, mapApi } from "./api/tauri";
+import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi, mapApi, SYNC_CHANGED, type SyncChanged } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { isClaudeActive, nekoNameOf, useSettingsStore } from "./stores/settingsStore";
@@ -1153,25 +1153,26 @@ export default function App() {
   const setAllMessages = useMessageStore((s) => s.setAll);
 
   // ── Per-session compact summaries (상단 접이식 요약 바) ──────────────────────
-  const [compactSummaries, setCompactSummaries] = useState<Record<string, string>>(() => {
-    const result: Record<string, string> = {};
-    sessions.forEach((s) => {
-      const saved = localStorage.getItem(`nekodesk_compact_${s.id}`);
-      if (saved) result[s.id] = saved;
-    });
-    return result;
-  });
+  // 요약은 세션 목록(sessionStore, DB)에 있다 — 다른 기기에서 한 요약도 여기로 온다
+  const compactSummaries = useMemo(
+    () => Object.fromEntries(sessions.flatMap((s) => (s.summary ? [[s.id, s.summary]] : []))) as Record<string, string>,
+    [sessions],
+  );
   const [summaryExpanded, setSummaryExpanded] = useState(false);
 
   // Track which sessions have had messages loaded from DB
   const loadedSessionsRef = useRef<Set<string>>(new Set());
 
-  async function loadSessionMessages(sessionId: string) {
+  /** fresh: 다른 기기에서 바뀌어 다시 읽는다 — 비었으면(요약·지움) 화면도 비운다 */
+  async function loadSessionMessages(sessionId: string, fresh = false) {
     if (loadedSessionsRef.current.has(sessionId)) return;
     loadedSessionsRef.current.add(sessionId);
     try {
       const msgs = await conversationApi.load(sessionId);
-      if (msgs.length === 0) return;
+      if (msgs.length === 0) {
+        if (fresh) setAllMessages((prev) => (prev[sessionId]?.some((m) => m.isStreaming) ? prev : { ...prev, [sessionId]: makeInitialMessages() }));
+        return;
+      }
       const chatMessages: ChatMessage[] = msgs.map((m) => {
         const meta = parseMeta(m.meta);
         // 예전 저장분은 본문 뒤에 "첨부 파일:" 목록이 붙어 있다. 보낸 모습으로 되돌린다.
@@ -1402,17 +1403,13 @@ export default function App() {
       const previousSummary = compactSummaries[activeId] || undefined;
       const summary = await summarizeConversation(llmMessages, previousSummary);
 
-      // 요약은 챗버블이 아닌 상단 요약 바에 표시
-      setCompactSummaries((prev) => ({ ...prev, [activeId]: summary }));
-      localStorage.setItem(`nekodesk_compact_${activeId}`, summary);
+      // 요약은 챗버블이 아닌 상단 요약 바에 표시. DB 에 적고 그 세션 메시지를 지운다(다른 기기도 같이)
+      await useSessionStore.getState().compact(activeId, summary);
       setSummaryExpanded(false);
 
       // 대화 메시지는 초기화 (새 시작)
       setAllMessages((prev) => ({ ...prev, [activeId]: makeInitialMessages() }));
       loadedSessionsRef.current.delete(activeId); // 재로드 방지
-
-      // DB 초기화
-      await conversationApi.delete(activeId);
 
       pool.clearContextTokens(activeId);
       feed();
@@ -1422,7 +1419,7 @@ export default function App() {
       setIsCompacting(false);
       useNekoApp.getState().setFeeding(false); // 다 먹으면 떨기 + 행복
     }
-  }, [isCompacting, allMessages, activeId, feed, setAllMessages, setCompactSummaries, setSummaryExpanded, pool]);
+  }, [isCompacting, allMessages, activeId, feed, setAllMessages, setSummaryExpanded, pool]);
 
   const wordChain = useWordChainGame(nekoGameEmotion);
 
@@ -1517,6 +1514,22 @@ export default function App() {
 
   // 세션/activeId 영속화는 sessionStore 액션 안에서 처리한다(예전 useEffect 대체).
 
+  // ── 다른 기기에서 온 메시지·요약·지움 ─────────────────────────────────────
+  // 바뀐 세션은 캐시를 버리고, 열린 세션이면 다시 읽는다. 답을 쓰는 중인 세션은 건드리지 않는다
+  useEffect(() => {
+    const un = listen<SyncChanged>(SYNC_CHANGED, ({ payload }) => {
+      const active = useSessionStore.getState().activeId;
+      for (const id of payload.sessions) {
+        if (useMessageStore.getState().messages[id]?.some((m) => m.isStreaming)) continue;
+        loadedSessionsRef.current.delete(id);
+        if (id === active) void loadSessionMessages(id, true);
+        else setAllMessages((prev) => { const { [id]: _, ...rest } = prev; return rest; });
+      }
+    });
+    return () => { un.then((f) => f()); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Load messages for active session on mount & on session switch ─────────
   useEffect(() => {
     void loadSessionMessages(activeId);
@@ -1552,7 +1565,6 @@ export default function App() {
     conversationApi.delete(id).catch(() => {});
     loadedSessionsRef.current.delete(id);
     localStorage.removeItem(`nekodesk_compact_${id}`);
-    setCompactSummaries((prev) => { const { [id]: _, ...rest } = prev; return rest; });
 
     const remaining = sessions.filter((s) => s.id !== id);
 

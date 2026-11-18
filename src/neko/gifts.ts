@@ -92,6 +92,8 @@ interface GiftStore {
   gifts: NekoGift[];
   loaded: boolean;
   load: () => Promise<void>;
+  /** DB 를 다시 읽어 그대로 바꾼다(다른 기기에서 선물이 오거나 빠졌을 때, sync-changed) */
+  reload: () => Promise<void>;
   /** 모양은 받은 그대로 넘겨도 된다(여기서 검사한다) */
   add: (g: Omit<NekoGift, "id" | "at" | "shape" | "play" | "size"> & Partial<Pick<NekoGift, "id" | "at">> & { shape: unknown; play?: unknown; size?: unknown }) => void;
   /**
@@ -105,6 +107,23 @@ interface GiftStore {
   played: (id: string, at: number) => void;
 }
 
+/** 저장된 JSON 을 선물 목록으로. 모양도 한 번 더 검사한다 — 손으로 고친 DB, 예전 꼴, 다른 기기에서 온 것이 엔진까지 가지 않게 */
+function parseGifts(raw: string | null): NekoGift[] {
+  try {
+    const parsed = raw ? (JSON.parse(raw) as NekoGift[]) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((g) => g && g.id).map((g) => ({
+        ...g,
+        shape: validateShape(g.shape),
+        // 장소가 생기기 전에 놓인 것(장소가 없거나 모르는 장소)은 그 크기가 들어가는 가장 작은 장소로
+        ...(g.placed && !Object.prototype.hasOwnProperty.call(PLACE_NAME, g.placed.at) ? { placed: { ...g.placed, at: smallestPlace(g.size) } } : {}),
+      }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function persist(gifts: NekoGift[]) {
   void settingsApi.set(KEY, JSON.stringify(gifts)).catch(() => {});
 }
@@ -114,24 +133,14 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
   loaded: false,
   async load() {
     if (get().loaded) return;
-    const raw = await settingsApi.get(KEY).catch(() => null);
-    let list: NekoGift[] = [];
-    try {
-      const parsed = raw ? (JSON.parse(raw) as NekoGift[]) : [];
-      // 저장된 모양도 한 번 더 검사한다 — 손으로 고친 DB 나 예전 꼴이 엔진까지 가지 않게
-      list = Array.isArray(parsed)
-        ? parsed.filter((g) => g && g.id).map((g) => ({
-          ...g,
-          shape: validateShape(g.shape),
-          // 장소가 생기기 전에 놓인 것(장소가 없거나 모르는 장소)은 그 크기가 들어가는 가장 작은 장소로
-          ...(g.placed && !Object.prototype.hasOwnProperty.call(PLACE_NAME, g.placed.at) ? { placed: { ...g.placed, at: smallestPlace(g.size) } } : {}),
-        }))
-        : [];
-    } catch {
-      list = [];
-    }
+    const list = parseGifts(await settingsApi.get(KEY).catch(() => null));
     // 불러오는 사이 들어온 선물(산책에서 막 돌아옴)은 뒤에 붙인다
     set((s) => ({ gifts: capGifts([...list, ...s.gifts.filter((g) => !list.some((o) => o.id === g.id))]), loaded: true }));
+  },
+  async reload() {
+    const raw = await settingsApi.get(KEY).catch(() => undefined);
+    if (raw === undefined) return;
+    set({ gifts: capGifts(parseGifts(raw)), loaded: true });
   },
   add(g) {
     const play = PLAYS.includes(g.play as NekoGiftPlay) ? (g.play as NekoGiftPlay) : undefined;

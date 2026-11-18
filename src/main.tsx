@@ -17,6 +17,7 @@ import { pruneOldSessions } from "./stores/sessionStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { startMemoryTidy } from "./neko/memoryTidy";
 import { startAmbient } from "./neko/ambient";
+import { startSync } from "./lib/sync";
 
 
 // 같은 번들을 여러 창이 쓴다. ⌃⇧N 창("quick")은 입력만 받고, 캡처 막("capture-N")은
@@ -41,6 +42,8 @@ if (isViewer) document.documentElement.classList.add("viewer-window");
 // 오래된 대화 지우기(설정). 메인 창만, 켤 때 한 번
 if (!isQuick && !isCapture && !isViewer && !isGlow && !isNekoScreen && !isNekoDecor && !panel) {
   void pruneOldSessions(useSettingsStore.getState().sessionRetention).catch(() => {});
+  // 세션 목록·같이 쓰는 설정을 DB 에서 읽고, 다른 기기에서 온 것을 받는다(설정 › 동기화)
+  startSync();
   // 꾸미기·선물함 창과 네코 외형·자리·선물을 맞춘다
   startNekoWindowSync();
   // 쉴 때 기억 정리(설정 › 네코가 기억하는 것). 졸 때 하루 한 번
