@@ -473,11 +473,12 @@ pub(crate) mod macos {
         pub video: bool,
     }
 
-    /// 패널로 바꾸고 클릭을 흘린다. main thread 전용.
+    /// 패널로 바꾸고 클릭을 흘린다. ⌘H 로 앱을 숨겨도 마당(고양이·선물)은 남는다. main thread 전용.
     pub unsafe fn setup(window: *mut AnyObject) -> bool {
         let ok = make_panel(window, false, false);
         let _: () = msg_send![window, setCollectionBehavior: CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY | STATIONARY | IGNORES_CYCLE];
         let _: () = msg_send![window, setIgnoresMouseEvents: Bool::YES];
+        let _: () = msg_send![window, setCanHide: Bool::NO];
         ok
     }
 
