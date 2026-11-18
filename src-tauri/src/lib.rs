@@ -480,6 +480,13 @@ mod commands {
         crate::db::conversations::delete(&conn, &session_id)
     }
 
+    /// 마지막으로 쓴 지 days 일 지난 세션의 대화를 지운다(keep 은 빼고). 지운 세션 id.
+    #[tauri::command(async)]
+    pub fn conversation_prune(db: State<'_, DbState>, days: u32, keep: Vec<String>) -> Result<Vec<String>, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::conversations::prune(&conn, days, &keep)
+    }
+
     /// 부팅 화면이 끝나면 프런트가 부른다. 작게 뜬 창이 같은 가운데에서 본 크기로
     /// 부드럽게 커지고, 다 커진 뒤에 돌아온다 — 프런트는 그때 부팅 화면을 걷는다.
     #[tauri::command]
@@ -1261,6 +1268,7 @@ pub fn run() {
             commands::conversation_save,
             commands::conversation_load,
             commands::conversation_delete,
+            commands::conversation_prune,
             commands::weather_get,
             commands::weather_now,
             commands::window_boot_done,

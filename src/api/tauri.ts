@@ -234,6 +234,8 @@ export const conversationApi = {
   save: (sessionId: string, role: string, content: string, attachments?: string, meta?: string) =>
     invoke<void>("conversation_save", { sessionId, role, content, attachments, meta }),
   delete: (sessionId: string) => invoke<void>("conversation_delete", { sessionId }),
+  /** 마지막으로 쓴 지 days 일 지난 세션의 대화를 지운다(keep 은 빼고). 지운 세션 id */
+  prune: (days: number, keep: string[]) => invoke<string[]>("conversation_prune", { days, keep }),
 };
 
 export const execHistoryApi = {

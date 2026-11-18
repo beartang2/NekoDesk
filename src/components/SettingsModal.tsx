@@ -857,6 +857,25 @@ function MemorySection() {
   );
 }
 
+function SessionRetentionSection() {
+  const days = useSettingsStore((s) => s.sessionRetention);
+  const setDays = useSettingsStore((s) => s.setSessionRetention);
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">오래된 대화 지우기</h3>
+      <p className="settings-section__desc">
+        마지막으로 쓴 지 이만큼 지난 대화를 앱을 켤 때 지운다. 지금 열린 대화와 기억은 남는다. 지운 대화는 되살릴 수 없다.
+        이 설정이 처음 생긴 날부터 그 기간 동안은 아무것도 지우지 않는다.
+      </p>
+      <Segmented
+        value={String(days)}
+        onChange={(v) => setDays(v === "0" ? 0 : v === "90" ? 90 : 30)}
+        options={[{ value: "0", label: "끔" }, { value: "30", label: "30일" }, { value: "90", label: "90일" }]}
+      />
+    </section>
+  );
+}
+
 // ── User profile section ──────────────────────────────────────────────────────
 
 const USER_PROFILE_KEY = "nekodesk_user_profile";
@@ -1647,6 +1666,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
               {/* ── 툴 호출 방식 ──────────────────────────────────────── */}
               <ToolModeSection />
               <MemorySection />
+              <SessionRetentionSection />
             </>
           )}
           {tab === "connect" && (

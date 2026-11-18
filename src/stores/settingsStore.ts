@@ -60,7 +60,15 @@ const K = {
   weatherLocation: "nekodesk_weather_location",
   claudeContext: "nekodesk_claude_context",
   autoCompact: "nekodesk_auto_compact",
+  sessionRetention: "nekodesk_session_retention",
 } as const;
+
+/** 오래된 대화를 지우는 기준(일). 0 이면 끔 */
+export type SessionRetention = 0 | 30 | 90;
+function loadSessionRetention(): SessionRetention {
+  const raw = localStorage.getItem(K.sessionRetention);
+  return raw === "0" ? 0 : raw === "90" ? 90 : 30;
+}
 
 function loadClaudeContext(): Record<string, number> {
   try {
@@ -120,6 +128,8 @@ interface SettingsStore {
   claudeContext: Record<string, number>;
   /** 대화가 예산에 차 가면 앞 대화를 혼자 요약한다(useAgentLoop.autoCompact). */
   autoCompact: boolean;
+  /** 마지막으로 쓴 지 이만큼(일) 지난 대화를 켤 때 지운다(sessionStore.pruneOldSessions). 0 이면 끔 */
+  sessionRetention: SessionRetention;
   /** auto 모드에서 서버가 `tools` 를 거부해 json 으로 내려앉았다. 영속화하지 않는다. */
   nativeToolsDegraded: boolean;
   setLlmUrl: (url: string) => void;
@@ -133,6 +143,7 @@ interface SettingsStore {
   setWeatherLocation: (v: string) => void;
   setClaudeContext: (model: string, tokens: number) => void;
   setAutoCompact: (on: boolean) => void;
+  setSessionRetention: (days: SessionRetention) => void;
   setNativeToolsDegraded: (v: boolean) => void;
 }
 
@@ -149,6 +160,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   weatherLocation: localStorage.getItem(K.weatherLocation) ?? "Seoul",
   claudeContext: loadClaudeContext(),
   autoCompact: localStorage.getItem(K.autoCompact) !== "off",
+  sessionRetention: loadSessionRetention(),
   nativeToolsDegraded: false,
 
   setLlmUrl: (url) => {
@@ -197,6 +209,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setAutoCompact: (on) => {
     localStorage.setItem(K.autoCompact, on ? "on" : "off");
     set({ autoCompact: on });
+  },
+  setSessionRetention: (days) => {
+    localStorage.setItem(K.sessionRetention, String(days));
+    set({ sessionRetention: days });
   },
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));

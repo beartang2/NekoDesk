@@ -54,6 +54,21 @@ pub fn delete(conn: &Connection, session_id: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// 마지막 메시지가 `days` 일보다 오래된 세션을 통째로 지우고 그 id 를 돌려준다. `keep`(지금 열린 세션)은
+/// 빼고. 메시지가 하나도 없는 세션은 언제 썼는지 몰라서 걸리지 않는다.
+pub fn prune(conn: &Connection, days: u32, keep: &[String]) -> AppResult<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT session_id FROM conversation_messages GROUP BY session_id
+         HAVING MAX(created_at) < datetime('now', ?1)",
+    )?;
+    let old = stmt.query_map(params![format!("-{days} days")], |r| r.get::<_, String>(0))?;
+    let gone: Vec<String> = old.collect::<Result<Vec<_>, _>>()?.into_iter().filter(|id| !keep.contains(id)).collect();
+    for id in &gone {
+        delete(conn, id)?;
+    }
+    Ok(gone)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,6 +122,30 @@ mod tests {
         let meta = r#"{"steps":[{"tool":"web.search"}]}"#;
         save(&c, "s1", "assistant", "찾았어", None, Some(meta)).unwrap();
         assert_eq!(load(&c, "s1").unwrap()[0].meta.as_deref(), Some(meta));
+    }
+
+    #[test]
+    fn prunes_sessions_whose_last_message_is_old() {
+        let c = setup();
+        let at = |s: &str, ago: &str| {
+            c.execute(
+                "INSERT INTO conversation_messages (session_id, role, content, created_at) VALUES (?1, 'user', 'x', datetime('now', ?2))",
+                params![s, ago],
+            )
+            .unwrap();
+        };
+        at("old", "-40 days");
+        at("old", "-31 days");
+        at("revived", "-60 days"); // 옛날에 시작했어도 어제 썼으면 남는다
+        at("revived", "-1 days");
+        at("open", "-95 days"); // 지금 열린 세션
+        at("fresh", "-0 days");
+        let gone = prune(&c, 30, &["open".to_string()]).unwrap();
+        assert_eq!(gone, vec!["old".to_string()]);
+        assert!(load(&c, "old").unwrap().is_empty());
+        assert_eq!(load(&c, "revived").unwrap().len(), 2);
+        assert_eq!(load(&c, "open").unwrap().len(), 1);
+        assert_eq!(prune(&c, 90, &[]).unwrap(), vec!["open".to_string()]);
     }
 
     #[test]
