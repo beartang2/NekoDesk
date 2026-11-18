@@ -88,28 +88,28 @@ it("pickPlaces 는 한쪽 방향으로 고르고 같은 이름은 한 번만", (
   }
 });
 
-describe("nextWalkAt: 끼니 산책 3번 + 추가 산책(2시간 간격)", () => {
+describe("nextWalkAt: 정기 산책(아침·점심·저녁) + 추가 산책(2시간 간격)", () => {
   const t = (h: number, m = 0) => new Date(2026, 10, 18, h, m).getTime();
   const min = 60_000, wait = 10 * min;
-  it("끼니 시간대에 졸면 기다리지 않고 바로", () => {
-    expect(nextWalkAt({ dozeAt: t(12, 30), lastWalk: null, extraWait: wait })).toEqual({ at: t(12, 30), meal: true });
+  it("정기 산책 시간대에 졸면 기다리지 않고 바로", () => {
+    expect(nextWalkAt({ dozeAt: t(12, 30), lastWalk: null, extraWait: wait })).toEqual({ at: t(12, 30), routine: true });
   });
-  it("끼니 시간대가 열리면 바로 — 2시간 간격은 안 본다", () => {
+  it("정기 산책 시간대가 열리면 바로 — 2시간 간격은 안 본다", () => {
     const lastWalk = { start: t(6, 0), end: t(6, 30) };
-    expect(nextWalkAt({ dozeAt: t(6, 50), lastWalk, extraWait: wait })).toEqual({ at: t(7, 0), meal: true });
+    expect(nextWalkAt({ dozeAt: t(6, 50), lastWalk, extraWait: wait })).toEqual({ at: t(7, 0), routine: true });
   });
-  it("그 끼니에 이미 다녀왔으면(추가 산책이어도) 다시 안 나가고 추가 산책 규칙대로", () => {
+  it("그 시간대에 이미 다녀왔으면(추가 산책이어도) 다시 안 나가고 추가 산책 규칙대로", () => {
     const lastWalk = { start: t(12, 5), end: t(12, 35) };
-    expect(nextWalkAt({ dozeAt: t(13, 0), lastWalk, extraWait: wait })).toEqual({ at: t(14, 35), meal: false });
+    expect(nextWalkAt({ dozeAt: t(13, 0), lastWalk, extraWait: wait })).toEqual({ at: t(14, 35), routine: false });
   });
-  it("끼니 밖: 졸고 나서 기다린 뒤, 지난 산책 끝나고 2시간 뒤 중 늦은 때", () => {
-    expect(nextWalkAt({ dozeAt: t(10, 0), lastWalk: { start: t(8, 30), end: t(9, 0) }, extraWait: wait })).toEqual({ at: t(11, 0), meal: false });
-    expect(nextWalkAt({ dozeAt: t(15, 0), lastWalk: { start: t(10, 0), end: t(10, 30) }, extraWait: wait })).toEqual({ at: t(15, 10), meal: false });
+  it("시간대 밖: 졸고 나서 기다린 뒤, 지난 산책 끝나고 2시간 뒤 중 늦은 때", () => {
+    expect(nextWalkAt({ dozeAt: t(10, 0), lastWalk: { start: t(8, 30), end: t(9, 0) }, extraWait: wait })).toEqual({ at: t(11, 0), routine: false });
+    expect(nextWalkAt({ dozeAt: t(15, 0), lastWalk: { start: t(10, 0), end: t(10, 30) }, extraWait: wait })).toEqual({ at: t(15, 10), routine: false });
   });
-  it("추가 산책을 기다리는 사이 끼니가 열리면 끼니가 먼저", () => {
-    expect(nextWalkAt({ dozeAt: t(11, 30), lastWalk: { start: t(10, 0), end: t(10, 30) }, extraWait: wait })).toEqual({ at: t(12, 0), meal: true });
+  it("추가 산책을 기다리는 사이 정기 산책 시간대가 열리면 그게 먼저", () => {
+    expect(nextWalkAt({ dozeAt: t(11, 30), lastWalk: { start: t(10, 0), end: t(10, 30) }, extraWait: wait })).toEqual({ at: t(12, 0), routine: true });
   });
-  it("오늘 끼니가 다 지났으면 추가 산책 규칙대로(내일 아침은 그보다 늦다)", () => {
-    expect(nextWalkAt({ dozeAt: t(21, 0), lastWalk: null, extraWait: wait })).toEqual({ at: t(21, 10), meal: false });
+  it("오늘 정기 산책이 다 지났으면 추가 산책 규칙대로(내일 아침은 그보다 늦다)", () => {
+    expect(nextWalkAt({ dozeAt: t(21, 0), lastWalk: null, extraWait: wait })).toEqual({ at: t(21, 10), routine: false });
   });
 });

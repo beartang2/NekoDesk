@@ -39,7 +39,7 @@ import { useSessionStore, makeSession, type Session } from "./stores/sessionStor
 import { isClaudeActive, nekoNameOf, useSettingsStore } from "./stores/settingsStore";
 import { budgetBlockReason } from "./stores/claudeBudget";
 import { startWalkBrain, type WalkBrain } from "./agent/walk";
-import { buildPath, EXTRA_WAIT_MS, fallbackLegs, hurryHome, nextWalkAt, pickPlaces, positionAt, toLatLon, toMeters, walkEnd, walkStart, WALK_MS, type Pt, type Walk } from "./lib/walk";
+import { buildPath, EXTRA_WAIT_MS, fallbackLegs, hurryHome, nextWalkAt, pickPlaces, routineName, positionAt, toLatLon, toMeters, walkEnd, walkStart, WALK_MS, type Pt, type Walk } from "./lib/walk";
 import { hereOnce } from "./components/MapCard";
 import { DEFAULT_SIDEBAR_W, useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
@@ -82,7 +82,7 @@ import "./App.css";
 
 // ── Session types ─────────────────────────────────────────────────────────────
 
-/** 산책 기록(lib/walk 의 Walk). 다녀온 뒤에도 남겨 다음 산책(끼니·추가 산책 간격)을 정한다. */
+/** 산책 기록(lib/walk 의 Walk). 다녀온 뒤에도 남겨 다음 산책(정기 산책·추가 산책 간격)을 정한다. */
 const WALK_KEY = "neko_walk";
 /** 다녀온 지난 산책의 시작·끝(다음 산책 정하기용). 아직 안 다녀왔거나 기록이 없으면 null */
 const lastWalkOf = (w: Walk | null) => (w?.done ? { start: walkStart(w), end: walkEnd(w) } : null);
@@ -1796,11 +1796,11 @@ export default function App() {
     const blocked = budgetBlockReason();
     if (blocked) return blocked;
     if (walk && !walk.done) return "지난 산책 보고를 기다리는 중";
-    // 끼니 산책이면 간격을 안 보고, 아니면 지난 산책 끝나고 2시간(lib/walk nextWalkAt)
+    // 정기 산책(아침·점심·저녁)이면 간격을 안 보고, 아니면 지난 산책 끝나고 2시간(lib/walk nextWalkAt)
     const plan = nextWalkAt({ dozeAt: Date.now(), lastWalk: lastWalkOf(walk), extraWait: 0 });
     if (plan.at > Date.now() + 1000) {
-      return plan.meal
-        ? `다음 산책: ${new Date(plan.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} 끼니 산책`
+      return plan.routine
+        ? `다음 산책: ${new Date(plan.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} ${routineName(plan.at) ?? ""} 산책`.replace("  ", " ")
         : `다음 산책까지 ${Math.ceil((plan.at - Date.now()) / 60_000)}분`;
     }
     const asked = useNekoApp.getState().lastActiveAt;
@@ -1828,7 +1828,7 @@ export default function App() {
   // 개발 빌드에서만: 개발자 도구 콘솔에서 nekoWalk() 로 바로 내보낸다 — 안 그러면 확인에 15–45분 걸린다.
   if (import.meta.env.DEV) (window as unknown as { nekoWalk: () => Promise<string> }).nekoWalk = () => departRef.current();
 
-  // 졸고 있으면 끼니 시간대(7–9·12–14·18–20시)엔 바로, 아니면 5–20분 더 조용하고 지난 산책 2시간 뒤 나간다(lib/walk nextWalkAt).
+  // 졸고 있으면 정기 산책 시간대(아침 7–9·점심 12–14·저녁 18–20시)엔 바로, 아니면 5–20분 더 조용하고 지난 산책 2시간 뒤 나간다(lib/walk nextWalkAt).
   // 그사이 사용자가 돌아오거나 일을 시키면 취소하고, 다시 졸 때 새로 구한다.
   const dozing = idle && !isRunning;
   useEffect(() => {
