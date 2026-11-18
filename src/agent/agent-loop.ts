@@ -657,6 +657,7 @@ export async function* runAgentLoop(
     // 확인 다이얼로그·사용자 질문이 끼어들고, 앞 호출의 부작용에 의존할 수 있다.
     const parallelIdx = calls.map((_, idx) => idx).filter((idx) => isParallelSafe(calls[idx].name));
     if (parallelIdx.length > 1) {
+      for (const idx of parallelIdx) yield { type: "tool_start", tool: calls[idx].name, params: calls[idx].params };
       await Promise.all(parallelIdx.map((idx) => runCall(calls[idx], steps[idx])));
       for (const idx of parallelIdx) {
         executed.push({ call: calls[idx], step: steps[idx] });
@@ -683,6 +684,7 @@ export async function* runAgentLoop(
           step.status = "error";
           step.summary = "오류: 조사할 내용(task)이 비어 있어";
         } else {
+          yield { type: "tool_start", tool: call.name, params: call.params };
           step.summary = await runSubagent(task, signal);
           step.result = step.summary;
           step.status = "done";
@@ -698,6 +700,7 @@ export async function* runAgentLoop(
       // 루프가 상태를 들고 있다. 세션이 병렬로 도는 앱이라 모듈 전역에 두면
       // 두 대화의 계획이 서로를 덮어쓴다.
       if (call.name === "plan.set" || call.name === "plan.complete") {
+        yield { type: "tool_start", tool: call.name, params: call.params };
         try {
           if (call.name === "plan.set") {
             plan.set((call.params["steps"] as string[]) ?? []);
@@ -817,6 +820,7 @@ export async function* runAgentLoop(
         }
       }
 
+      yield { type: "tool_start", tool: call.name, params: call.params };
       await runCall(call, step, approved);
       executed.push({ call, step });
       yield step.status === "error"

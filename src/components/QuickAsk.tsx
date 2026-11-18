@@ -6,8 +6,9 @@ import { ArrowUp, Camera, Clipboard, TextSelect, X } from "lucide-react";
 import { syncWindowTheme } from "../lib/window-theme";
 import { resizeImageForLlm } from "../lib/image";
 import { decode } from "../lib/decode";
-import { NekoHead } from "../cat/NekoHead";
-import { reloadCatVariant, useCatStore } from "../stores/catStore";
+import { NekoPortrait } from "../neko/NekoPortrait";
+import { reloadAppearance } from "../neko/nekoStore";
+import { nekoNameOf, reloadNekoName, useSettingsStore } from "../stores/settingsStore";
 import {
   QUICK_ACTIONS,
   QUICK_ASK_EVENT,
@@ -50,7 +51,6 @@ function snippet(s: string, max = 42): string {
  * 있다 — 그걸 말없이 대화 기록에 남기면 안 된다.
  */
 export function QuickAsk() {
-  const variantId = useCatStore((s) => s.variantId);
   const [ctx, setCtx] = useState<QuickContext>(EMPTY);
   const [text, setText] = useState("");
   const [useSelection, setUseSelection] = useState(true);
@@ -58,6 +58,7 @@ export function QuickAsk() {
   const [image, setImage] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const nekoName = useSettingsStore(nekoNameOf);
   const inputRef = useRef<HTMLInputElement>(null);
   const decoded = useMemo(() => (ctx.selection ? decode(ctx.selection) : null), [ctx.selection]);
 
@@ -70,7 +71,8 @@ export function QuickAsk() {
     syncWindowTheme();
     const unlisten = listen<QuickContext>(QUICK_CONTEXT_EVENT, (e) => {
       syncWindowTheme();
-      reloadCatVariant();
+      reloadAppearance();
+      reloadNekoName();
       setCtx(e.payload);
       setText("");
       setUseSelection(true);
@@ -125,14 +127,14 @@ export function QuickAsk() {
     <div className="quick" onKeyDown={onKeyDown}>
       <div className="quick__main">
       <div className="quick__row">
-        <NekoHead className="quick__cat" variantId={variantId} />
+        <NekoPortrait className="quick__cat" size={34} />
         <input
           ref={inputRef}
           className="quick__input"
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={
-            image ? "캡처한 화면에 대해 물어봐" : ctx.selection ? "선택한 글에 대해 물어봐" : "네코에게 물어봐"
+            image ? "캡처한 화면에 대해 물어봐" : ctx.selection ? "선택한 글에 대해 물어봐" : `${nekoName}에게 물어봐`
           }
           autoFocus
           spellCheck={false}

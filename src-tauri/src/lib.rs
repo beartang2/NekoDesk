@@ -24,6 +24,10 @@ mod claude;
 mod security;
 mod procs;
 mod glow;
+#[cfg(target_os = "macos")]
+mod neko_screen;
+#[cfg(target_os = "macos")]
+mod ambient;
 mod shelf;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
@@ -478,6 +482,13 @@ mod commands {
         crate::db::conversations::delete(&conn, &session_id)
     }
 
+    /// 마지막으로 쓴 지 days 일 지난 세션의 대화를 지운다(keep 은 빼고). 지운 세션 id.
+    #[tauri::command(async)]
+    pub fn conversation_prune(db: State<'_, DbState>, days: u32, keep: Vec<String>) -> Result<Vec<String>, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::conversations::prune(&conn, days, &keep)
+    }
+
     /// 부팅 화면이 끝나면 프런트가 부른다. 작게 뜬 창이 같은 가운데에서 본 크기로
     /// 부드럽게 커지고, 다 커진 뒤에 돌아온다 — 프런트는 그때 부팅 화면을 걷는다.
     #[tauri::command]
@@ -676,6 +687,29 @@ mod commands {
             .title(&title)
             .inner_size(w, h)
             .min_inner_size(360.0, 260.0)
+            .center()
+            .build()?;
+        Ok(())
+    }
+
+    /// 설정에서 따로 띄우는 창(네코 꾸미기·선물함). 떠 있으면 앞으로 가져온다. 내용은 같은 번들이 창 이름을 보고 그린다(main.tsx).
+    #[tauri::command]
+    pub fn panel_open(app: tauri::AppHandle, kind: String) -> Result<(), AppError> {
+        let (title, w, h, min_w, min_h) = match kind.as_str() {
+            "neko-customize" => ("네코 꾸미기", 780.0, 720.0, 520.0, 520.0),
+            "neko-gifts" => ("선물함", 600.0, 640.0, 380.0, 360.0),
+            _ => return Err(format!("모르는 창: {kind}").into()),
+        };
+        if let Some(win) = app.get_webview_window(&kind) {
+            let _ = win.unminimize();
+            win.show()?;
+            win.set_focus()?;
+            return Ok(());
+        }
+        tauri::WebviewWindowBuilder::new(&app, &kind, tauri::WebviewUrl::App("index.html".into()))
+            .title(title)
+            .inner_size(w, h)
+            .min_inner_size(min_w, min_h)
             .center()
             .build()?;
         Ok(())
@@ -922,6 +956,76 @@ mod commands {
         crate::glow::take()
     }
 
+    /// 네코 '모니터 화면' 자리 켜고 끄기. 메인 창이 자리·산책·'항상 위에 두기'가 바뀔 때 부른다.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn neko_screen_show(app: tauri::AppHandle, on: bool, on_top: bool) -> Result<(), AppError> {
+        crate::neko_screen::show(&app, on, on_top)
+    }
+
+    /// 화면 창: 커서가 고양이·마당 선물 위다(위에 있는 동안 계속 알린다). `cat` 은 고양이 위일 때.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_catch(on: bool, cat: Option<bool>) -> Result<(), AppError> {
+        crate::neko_screen::set_catch(on, cat.unwrap_or(false))
+    }
+
+    /// 화면 창 고양이 메뉴 '숨기기': 마당을 숨긴다. 이 앱이 맨 앞으로 오면 다시 보인다.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn neko_screen_hide(app: tauri::AppHandle) -> Result<(), AppError> {
+        crate::neko_screen::hide(&app)
+    }
+
+    /// 메인 창: 모니터 목록·고양이가 있는 모니터·선물 창 라벨(마당 선물을 모니터마다 나눈다). 화면 창이 없으면 null.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_screens() -> Option<crate::neko_screen::Screens> {
+        crate::neko_screen::screens()
+    }
+
+    /// 화면 창: 판 크기와 바닥. 아직 모르면 null.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_layout() -> Option<crate::neko_screen::Layout> {
+        crate::neko_screen::layout()
+    }
+
+    /// 다른 앱 따라 하기: 맨 앞 앱과 마지막으로 키를 누른 뒤 지난 초.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn ambient_probe(app: tauri::AppHandle) -> Result<crate::ambient::Probe, AppError> {
+        crate::ambient::probe(&app)
+    }
+
+    /// 다른 앱 따라 하기: 켜져 있는 음악 앱이 재생 중인가(처음 한 번 '자동화' 권한 창).
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn ambient_music(app: tauri::AppHandle) -> Result<bool, AppError> {
+        crate::ambient::music(&app)
+    }
+
+    /// 지금 듣는 곡 제목·가수(재생 중인 첫 음악 앱). 재생 중이 아니거나 권한이 없으면 null.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn ambient_track(app: tauri::AppHandle) -> Result<Option<crate::ambient::Track>, AppError> {
+        crate::ambient::track(&app)
+    }
+
+    /// 화면 창: 고양이가 그쪽 끝을 넘어갔다 — 커서가 있는 모니터로 창을 옮긴다. 안 옮겼으면 false.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn neko_screen_cross(app: tauri::AppHandle, side: crate::neko_screen::Side) -> Result<bool, AppError> {
+        crate::neko_screen::cross(&app, side)
+    }
+
+    /// 화면 창: 옮긴 모니터에서 다시 그렸다 — 숨겼던 창을 보인다.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn neko_screen_reveal(app: tauri::AppHandle) -> Result<(), AppError> {
+        crate::neko_screen::reveal(&app)
+    }
+
     /// 열린 포트를 쓰는 프로세스와 CPU·메모리를 많이 쓰는 프로세스. 읽기 전용.
     #[tauri::command(async)]
     pub fn process_list(port: Option<u16>) -> crate::procs::Snapshot {
@@ -1130,6 +1234,13 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
             }
+            // 메인 창이 앞으로 왔다(Dock·⌘Tab·클릭): 고양이 메뉴로 숨긴 마당을 다시 보인다
+            // (unhide 는 main thread 일을 기다리니 여기 main thread 에서 바로 부르면 멈춘다 — 따로 돌린다)
+            #[cfg(target_os = "macos")]
+            ("main", tauri::WindowEvent::Focused(true)) if crate::neko_screen::user_hidden() => {
+                let app = window.app_handle().clone();
+                std::thread::spawn(move || crate::neko_screen::unhide(&app));
+            }
             // 빠른 질문 창은 다른 곳을 누르면 사라진다(Spotlight 처럼).
             ("quick", tauri::WindowEvent::Focused(false)) => {
                 let _ = window.hide();
@@ -1224,6 +1335,7 @@ pub fn run() {
             commands::conversation_save,
             commands::conversation_load,
             commands::conversation_delete,
+            commands::conversation_prune,
             commands::weather_get,
             commands::weather_now,
             commands::window_boot_done,
@@ -1239,6 +1351,7 @@ pub fn run() {
             commands::shelf_remove,
             commands::haptic_feedback,
             commands::viewer_open,
+            commands::panel_open,
             commands::viewer_item,
             commands::save_download,
             commands::reveal_in_finder,
@@ -1275,6 +1388,26 @@ pub fn run() {
             commands::process_list,
             commands::glow_alert,
             commands::glow_take,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_show,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_catch,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_layout,
+            #[cfg(target_os = "macos")]
+            commands::ambient_probe,
+            #[cfg(target_os = "macos")]
+            commands::ambient_music,
+            #[cfg(target_os = "macos")]
+            commands::ambient_track,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_cross,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_reveal,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_hide,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_screens,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,

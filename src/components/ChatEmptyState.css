@@ -16,7 +16,6 @@
 
 /* 색 동그라미 대신 고양이 본인. 사이드바의 그 아이가 그대로 앉아 있다. */
 .empty-state__cat {
-  image-rendering: pixelated;
   margin-bottom: 10px;
   animation: cat-settle var(--dur-sheet) var(--ease-playful) backwards;
 }

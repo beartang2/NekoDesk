@@ -60,7 +60,6 @@ textarea {
   /* tauri.conf.json 의 trafficLightPosition.y 가 이 값의 절반이어야 신호등이
      헤더 세로 가운데에 온다. 둘 중 하나를 바꾸면 다른 쪽도 같이 바꿀 것. */
   --titlebar-h:    40px;
-  --cat-panel-h:   150px;
 
   /* 읽기 폭. 한 줄이 70자를 넘으면 다음 줄 첫 글자를 찾기 어려워진다. */
   --reading-w: 720px;
@@ -170,9 +169,11 @@ html, body, #root {
 }
 
 /* ── Layout ── */
+/* 셋째 줄(auto)은 '채팅 바 아래' 네코 자리. 사이드바부터 오른쪽 패널까지 창 폭 전체를 쓰고,
+   네코가 사이드바에 있으면 비어서 높이가 0 이다(NekoSlot 이 null). */
 .app {
   display: grid;
-  grid-template-rows: var(--titlebar-h) 1fr;
+  grid-template-rows: var(--titlebar-h) 1fr auto;
   grid-template-columns: var(--sidebar-w) 1fr var(--right-panel-w);
   height: 100%;
   transition: grid-template-columns var(--dur-sheet) var(--ease-out-quint), scale var(--dur-control) var(--ease-standard);
@@ -478,13 +479,23 @@ html, body, #root {
 .cat-panel {
   flex-shrink: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 0;
+  flex-direction: column; /* 네코 방(높이 조절) 위, 상태 띠 아래 */
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0 0 4px;
   position: relative;
   border-radius: var(--r-lg);
   background-color: var(--bg-surface);
   box-shadow: var(--shadow-card);
+}
+
+/* 네코 방: 배경(RoomBackdrop)·햇빛·네코 자리를 겹쳐 담는다. 높이는 네코 자리가 정한다 */
+.cat-room {
+  position: relative;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+}
+.cat-room > .neko-slot {
+  z-index: 1;
 }
 
 /* ── 창가 햇빛 ────────────────────────────────────────────────────────────────
@@ -500,7 +511,7 @@ html, body, #root {
   border-radius: inherit;
   /* 창가 쪽 번짐. 움직이지 않는다 — 빛줄기만 흔들린다.
      blend mode 는 쓰지 않는다 — 밝은 배경에서 그냥 사라져 버린다. */
-  background: radial-gradient(150% 110% at 88% -14%, color-mix(in oklab, #befaff 30%, transparent), transparent 70%);
+  background: radial-gradient(150% 110% at 8% -14%, color-mix(in oklab, #ffd98f 30%, transparent), transparent 70%);
   opacity: 0.85;
 }
 
@@ -517,10 +528,10 @@ html, body, #root {
   height: 260%;
   background: conic-gradient(at 0 0,
     transparent 108deg,
-    color-mix(in oklab, #fff4c5 46%, transparent) 117deg,
+    color-mix(in oklab, var(--sun-ray-a, #fff4c5) 46%, transparent) 117deg,
     transparent 126deg,
     transparent 131deg,
-    color-mix(in oklab, #ffce66 34%, transparent) 140deg,
+    color-mix(in oklab, var(--sun-ray-b, #ffce66) 34%, transparent) 140deg,
     transparent 151deg);
   transform-origin: 0 0;
   /* 줄기 가장자리가 남을 만큼만 흐린다. 10px 넘게 흐리면 줄기가 한 덩어리 안개가
@@ -530,9 +541,11 @@ html, body, #root {
   animation: sunbeam-drift 3s ease-in-out infinite alternate;
 }
 
-/* 다크에서는 같은 빛도 눈을 찌른다. 번지는 느낌만 남긴다. */
+/* 다크에서는 같은 빛도 눈을 찌른다. 흐리게 두되, 흐리면 회색으로 읽히니 더 짙은 노랑·주황으로 */
 :root:not(.light) .cat-panel__sun {
-  opacity: 0.3;
+  opacity: 0.42;
+  --sun-ray-a: #ffc65c;
+  --sun-ray-b: #ff9a2e;
 }
 
 /* 해를 축으로 줄기 방향만 바뀐다. 옮기거나 늘이면 해가 따라 움직여 버린다. */
@@ -542,29 +555,6 @@ html, body, #root {
   to   { transform: rotate(-6deg); filter: blur(4px); }
 }
 
-/* 고양이와 게이지는 빛 위에 선다.
-   컨텍스트 숫자는 제 자리(absolute)를 지켜야 해서 position 은 건드리지 않는다 —
-   한 번 relative 로 덮어썼더니 패널 왼쪽 벽에 붙어 버렸다. */
-.cat-panel > *:not(.cat-panel__sun):not(.cat-panel__ctx):not(.cat-panel__weather) {
-  position: relative;
-  z-index: 1;
-}
-
-.cat-panel__ctx,
-.cat-panel__weather {
-  z-index: 1;
-}
-
-/* 컨텍스트 숫자가 왼쪽 아래, 날씨는 왼쪽 위. */
-.cat-panel__weather {
-  position: absolute;
-  top: 6px;
-  left: 8px;
-  font-size: 16px;
-  line-height: 1;
-  cursor: default;
-  user-select: none;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .cat-panel__sun::before { animation: none; }
@@ -616,16 +606,6 @@ html, body, #root {
 @keyframes bubble-pop {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
-}
-
-.cat-panel__ctx {
-  position: absolute;
-  bottom: 6px;
-  left: 8px;
-  font-size: 0.62rem;
-  color: var(--text-muted);
-  opacity: 0.5;
-  pointer-events: none;
 }
 
 /* ── Main area ── */

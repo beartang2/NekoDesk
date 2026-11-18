@@ -1,0 +1,94 @@
+.neko-gifts {
+  margin-top: 14px;
+}
+.neko-gifts__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.neko-gifts__open {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 3px 10px;
+}
+.neko-gifts__count {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.neko-gifts__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.neko-gifts__item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  text-align: center;
+  min-width: 0;
+  user-select: none;
+}
+/* 지금 장소엔 너무 큰 것: 흐리게, 끌 수 없음(버튼이 어디부터인지 알려 준다) */
+.neko-gifts__item--off {
+  cursor: default;
+}
+.neko-gifts__item--off canvas,
+.neko-gifts__item--off .neko-gifts__title {
+  opacity: 0.4;
+}
+/* 무대에 놓인 것: 오른쪽 위 작은 점만(어느 장소인지는 툴팁) */
+.neko-gifts__item--placed::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.neko-gifts__title {
+  font-size: 11px;
+  line-height: 1.3;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.neko-gifts__btn {
+  margin-top: 2px;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+/* 선물 그림 시험(개발 빌드) */
+.gift-lab {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--border);
+}
+.gift-lab__form { display: flex; gap: 6px; }
+.gift-lab__form input { flex: 1; min-width: 0; }
+.gift-lab__row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.gift-lab__fig { margin: 0; font-size: 11px; color: var(--text-muted); }
+.gift-lab__tiles { display: flex; gap: 4px; margin-bottom: 4px; }
+.gift-lab__tile { display: flex; border-radius: 8px; }
+.gift-lab__tile--light { background: #f4f1ea; }
+.gift-lab__tile--dark { background: #1f1d22; }
+.gift-lab__tiles--real { align-items: flex-end; gap: 10px; height: 112px; padding: 0 8px; border-radius: 8px; background: var(--bg-surface); }
+.gift-lab__real { display: flex; flex-direction: column; align-items: center; padding-bottom: 6px; opacity: 0.45; }
+.gift-lab__real.is-picked { opacity: 1; }
+.gift-lab__foot { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.gift-lab__foot > span { flex: 1; margin: 0; }

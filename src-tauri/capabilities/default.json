@@ -7,7 +7,11 @@
     "quick",
     "capture-*",
     "viewer",
-    "glow"
+    "glow",
+    "neko-screen",
+    "neko-decor-*",
+    "neko-customize",
+    "neko-gifts"
   ],
   "permissions": [
     "core:default",

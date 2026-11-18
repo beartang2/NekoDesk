@@ -129,3 +129,28 @@ export function roParticle(word: string): string {
   if (!last) return "로";
   return last.jong === 0 || last.jong === JONG_RIEUL ? "로" : "으로";
 }
+
+/**
+ * 이름 뒤에 맞는 조사를 붙인다: josa("모찌", "이/가") → "모찌가", josa("콩", "이/가") → "콩이".
+ * 키는 "받침 있을 때/없을 때" 순서다(그래서 와/과 는 "과/와"). 으로/로 는 ㄹ 받침도 "로".
+ * 한글로 안 끝나면(Mochi, R2) 받침을 모르니 두 꼴을 함께 쓴다: "Mochi(이)가".
+ */
+const JOSA = {
+  "이/가": "(이)가",
+  "은/는": "(은)는",
+  "을/를": "(을)를",
+  "과/와": "와(과)",
+  "으로/로": "(으)로",
+  "이에요/예요": "(이)에요",
+  "이야/야": "(이)야",
+} as const;
+
+export type Josa = keyof typeof JOSA;
+
+export function josa(word: string, pair: Josa): string {
+  const last = decompose(word[word.length - 1] ?? "");
+  if (!last) return word + JOSA[pair];
+  const [withJong, withoutJong] = pair.split("/");
+  const noJong = last.jong === 0 || (pair === "으로/로" && last.jong === JONG_RIEUL);
+  return word + (noJong ? withoutJong : withJong);
+}

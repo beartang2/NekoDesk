@@ -1,49 +1,76 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 /**
- * 트랙패드로 고양이를 쓰다듬는다. 가속도계를 대체한다(M4에서 root 데몬이 필요해 폐기).
+ * 마우스로 고양이를 쓰다듬는다 — 고양이 몸 위에서 왔다 갔다 문지를 때만.
  *
- * 두 경로:
- *  1) 고양이를 클릭 → Pointer Lock 진입. 커서가 사라지고 트랙패드 전체가
- *     쓰다듬기 패드가 된다. 손가락을 넓게 문지르면 그만큼 쓰다듬는다.
- *     다시 클릭하거나 Esc 로 빠져나온다.
- *  2) 폴백: 그냥 고양이 위에서 커서를 움직여도 쓰다듬어진다.
- *     (Pointer Lock 이 WKWebView 에서 막힐 때를 대비)
+ * 예전엔 고양이를 탭하면 포인터 잠금으로 트랙패드 전체가 쓰다듬기 패드가 됐고, 몸 위를 빠르게 지나가기만
+ * 해도 쓰다듬기로 쳤다. 그래서 마우스가 스치기만 해도 하트가 떴다. 이제는 몸 위에서 결이 짧은 시간에
+ * 두 번 뒤집혀야(가로든 세로든, 둥글게 문질러도) 쓰다듬기다 — 한 번 훑고 지나가면 0번이다.
  *
  * 문지르는 동안 트랙패드가 실제로 진동한다(NSHapticFeedbackManager).
  */
 
-const RUB_SPEED_THRESHOLD = 6;   // 평활된 이동량(px). 이 이상이면 "문지르는 중"
+const STROKE_WINDOW_MS = 700;    // 이 안에 결이 두 번 뒤집혀야 쓰다듬기
+const MIN_MOVE_PX = 2;           // 이보다 작은 움직임은 손 떨림 — 결로 안 친다
 const PET_THROTTLE_MS = 320;     // 쓰다듬기 반응(하트·RPG) 최소 간격
 const HAPTIC_THROTTLE_MS = 75;   // 햅틱 최소 간격 (너무 잦으면 뭉갬)
 
 /**
  * 촉감의 세기. macOS 는 세기를 숫자로 못 정하고 패턴 셋 중에 고르는 게 전부다.
  * 약한 순서로 0=generic, 1=alignment(또렷한 탁), 2=levelChange(제일 묵직).
- * 더 세게 하려면 여기를 올리고, 그래도 약하면 위의 간격을 줄인다 — 자주 울릴수록
- * 손끝에서는 세게 느껴진다. 다만 너무 촘촘하면 진동이 이어져 뭉개진다.
  */
 const HAPTIC_PATTERN = 2;
 
 export function useTrackpadPet(onRub: () => void) {
-  const targetRef = useRef<HTMLElement | null>(null);
-  const [isPetting, setIsPetting] = useState(false);
-
-  const speedRef = useRef(0);
-  const lastPetRef = useRef(0);
-  const lastHapticRef = useRef(0);
   const onRubRef = useRef(onRub);
   onRubRef.current = onRub;
+  const lastPetRef = useRef(0);
+  const lastHapticRef = useRef(0);
+  /** 가로·세로 마지막 결(-1·1, 0 = 아직 모름)과 결이 뒤집힌 시각들. */
+  const dirRef = useRef<[number, number]>([0, 0]);
+  const turnsRef = useRef<number[]>([]);
+  const heldRef = useRef(false);
+  const pressedRef = useRef(false);
 
-  /** movementX/Y 를 받아 문지르기 세기를 판정하고 반응·햅틱을 낸다. */
-  const feed = useCallback((dx: number, dy: number) => {
-    const inst = Math.abs(dx) + Math.abs(dy);
-    // 저역 통과: 순간 튐을 눌러 "쓰다듬는 결"만 남긴다
-    speedRef.current = speedRef.current * 0.6 + inst * 0.4;
-    if (speedRef.current < RUB_SPEED_THRESHOLD) return;
+  /** 몸을 벗어나면 결을 처음부터 센다. */
+  const onBodyLeave = useCallback(() => {
+    dirRef.current = [0, 0];
+    turnsRef.current = [];
+  }, []);
 
+  /**
+   * 잡혀 있는 동안(엔진 grab~drop)은 쓰다듬기가 아니다 — 고양이가 커서에 붙어 다녀 늘 몸 위라, 흔들면 결이 뒤집혀
+   * 쓰다듬기로 쳤다. 잡을 때와 놓을 때 결을 처음부터 센다.
+   */
+  const setHeld = useCallback((on: boolean) => {
+    heldRef.current = on;
+    onBodyLeave();
+  }, [onBodyLeave]);
+
+  /**
+   * 버튼을 누른 채 움직이는 동안(선물을 끌어 고양이 위를 지나감 등)도 쓰다듬기가 아니다. 누를 때와 놓을 때 결을
+   * 처음부터 센다 — 놓자마자 끌던 결이 이어져 쓰다듬기로 치지 않게.
+   */
+  const setPressed = useCallback((on: boolean) => {
+    pressedRef.current = on;
+    onBodyLeave();
+  }, [onBodyLeave]);
+
+  /** 고양이 몸 위에서 움직였을 때만 부른다(movementX/Y). */
+  const onBodyMove = useCallback((dx: number, dy: number) => {
+    if (heldRef.current || pressedRef.current) return;
     const now = performance.now();
+    const dir = dirRef.current;
+    [dx, dy].forEach((d, axis) => {
+      if (Math.abs(d) < MIN_MOVE_PX) return;
+      const s = Math.sign(d);
+      if (dir[axis] && s !== dir[axis]) turnsRef.current.push(now);
+      dir[axis] = s;
+    });
+    turnsRef.current = turnsRef.current.filter((t) => now - t < STROKE_WINDOW_MS);
+    if (turnsRef.current.length < 2) return;
+
     if (now - lastHapticRef.current > HAPTIC_THROTTLE_MS) {
       lastHapticRef.current = now;
       invoke("haptic_feedback", { pattern: HAPTIC_PATTERN }).catch(() => {});
@@ -54,49 +81,5 @@ export function useTrackpadPet(onRub: () => void) {
     }
   }, []);
 
-  // 경로 1: Pointer Lock 상태에서의 문지르기 (document 레벨)
-  useEffect(() => {
-    function onLockChange() {
-      setIsPetting(document.pointerLockElement === targetRef.current);
-    }
-    function onLockedMove(e: MouseEvent) {
-      if (document.pointerLockElement !== targetRef.current) return;
-      feed(e.movementX, e.movementY);
-    }
-    document.addEventListener("pointerlockchange", onLockChange);
-    document.addEventListener("mousemove", onLockedMove);
-    return () => {
-      document.removeEventListener("pointerlockchange", onLockChange);
-      document.removeEventListener("mousemove", onLockedMove);
-    };
-  }, [feed]);
-
-  /** 고양이 클릭: 쓰다듬기 모드 토글. */
-  const togglePetting = useCallback(() => {
-    const el = targetRef.current;
-    if (!el) return;
-    if (document.pointerLockElement === el) {
-      document.exitPointerLock();
-    } else {
-      // requestPointerLock 는 Promise 를 반환할 수도, 안 할 수도 있다(브라우저별)
-      try {
-        const r = el.requestPointerLock() as unknown as Promise<void> | undefined;
-        r?.catch?.(() => {}); // 막히면 경로 2(hover)로 계속 동작
-      } catch {
-        /* 무시 — hover 폴백 */
-      }
-    }
-  }, []);
-
-  /** 경로 2 폴백: Pointer Lock 이 아닐 때, 고양이 위에서 움직이면 쓰다듬기. */
-  const onHoverMove = useCallback((e: React.MouseEvent) => {
-    if (document.pointerLockElement) return; // 잠긴 상태는 경로 1이 처리
-    feed(e.movementX, e.movementY);
-  }, [feed]);
-
-  const bindRef = useCallback((el: HTMLElement | null) => {
-    targetRef.current = el;
-  }, []);
-
-  return { isPetting, togglePetting, onHoverMove, bindRef };
+  return { onBodyMove, onBodyLeave, setHeld, setPressed };
 }

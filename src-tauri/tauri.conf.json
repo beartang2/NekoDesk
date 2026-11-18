@@ -28,7 +28,8 @@
         "theme": "Dark",
         "backgroundColor": "#0f0f11",
         "label": "main",
-        "center": true
+        "center": true,
+        "backgroundThrottling": "disabled"
       },
       {
         "label": "quick",

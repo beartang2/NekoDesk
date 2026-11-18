@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Neko QA harness</title>
+<link rel="icon" href="data:,">
+<!--
+  회귀 검사용 무대: src/neko/engine 을 그대로 띄우고, 시안(docs/neko/maltang-neko-v26.html)과 같은 id 의 조절 칩을 붙인다.
+  쿼리: ?w=220&h=200  무대 크기(기본 680×468, 시안과 같은 크기)
+        ?scale=height  앱 패널처럼 높이로 크기(기본 stage = 시안 공식)
+        ?transparent=1 배경 없이(앱처럼)
+        ?dark=1
+        ?world=1&fixed=0.8  화면 모드(세계 = 창 전체, 캔버스는 고양이 둘레만) · 크기 고정 · &decor=1 선물 캔버스
+-->
+<style>
+  body { margin: 0; padding: 16px; font: 13px system-ui, sans-serif; background: #f6f4f1; color: #25222b; }
+  body.dark { background: #1b1a21; color: #ece9f3; }
+  #stage { display: block; touch-action: none; background: transparent; outline: 1px dashed #bbb3; }
+  #stage.can-grab { cursor: grab; } #stage.dragging { cursor: grabbing; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+  .chips label { border: 1px solid #ccc6; border-radius: 12px; padding: 2px 8px; }
+  fieldset { border: 0; padding: 0; margin: 0; }
+</style>
+</head>
+<body>
+<canvas id="stage" tabindex="0"></canvas>
+<p>상태 <b id="state">쉬는 중</b>
+  <button id="jump" type="button">점프</button>
+  <button id="wander" type="button">산책 끄기</button>
+  <button id="rig" type="button">뼈대 보기</button>
+  <button id="reroll" type="button">무늬 다시 뽑기</button>
+  <input type="range" id="soft" min="0" max="100" value="60">
+</p>
+<fieldset><legend>털 색</legend><div class="chips" id="coats"></div></fieldset>
+<fieldset><legend>눈 색</legend><div class="chips" id="eyes"></div></fieldset>
+<fieldset><legend>무늬</legend><div class="chips" id="patterns"></div></fieldset>
+<fieldset><legend>체형</legend><div class="chips" id="builds"></div></fieldset>
+<fieldset><legend>다리 길이</legend><div class="chips" id="legs"></div></fieldset>
+<fieldset><legend>털 길이</legend><div class="chips" id="furs"></div></fieldset>
+<fieldset><legend>귀</legend><div class="chips" id="earshapes"></div></fieldset>
+<fieldset><legend>꼬리</legend><div class="chips" id="tails"></div></fieldset>
+<fieldset><legend>자세</legend><div class="chips" id="poses"></div></fieldset>
+<fieldset><legend>기분</legend><div class="chips" id="moods"></div></fieldset>
+<fieldset><legend>꼬리 언어</legend><div class="chips" id="tailsigns"></div></fieldset>
+<fieldset><legend>활동</legend><div class="chips" id="acts"></div></fieldset>
+<fieldset><legend>곁들임</legend><div class="chips" id="sides"></div></fieldset>
+
+<script type="module">
+import { createNeko } from "/src/neko/engine/neko-engine.js";
+
+const q = new URLSearchParams(location.search);
+const stage = document.getElementById("stage");
+// ?world=1: 화면 모드(세계 = 창 전체, 캔버스는 고양이 둘레만 따라감). &fixed=0.8 로 크기 고정
+const world = q.get("world") === "1";
+// &decor=1: 화면 모드 선물 캔버스(고양이 캔버스 밑)
+const decorCv = document.createElement("canvas");
+if (world && q.get("decor") === "1") { decorCv.id = "decor"; Object.assign(decorCv.style, { position: "fixed", left: "0", top: "0", outline: "1px dashed #08f8" }); document.body.insertBefore(decorCv, stage); }
+if (world) Object.assign(stage.style, { position: "fixed", left: "0", top: "0", outline: "1px dashed #f008" });
+else {
+  stage.style.width = (q.get("w") || 680) + "px";
+  stage.style.height = (q.get("h") || 468) + "px";
+}
+const dark = q.get("dark") === "1";
+document.body.classList.toggle("dark", dark);
+
+const neko = createNeko(stage, {
+  transparent: q.get("transparent") === "1",
+  scaleMode: q.get("scale") === "height" ? "height" : "stage",
+  maxDpr: 2.5,
+  dark,
+  world,
+  ...(q.get("fixed") ? { scale: Number(q.get("fixed")) } : {}),
+  ...(world && q.get("decor") === "1" ? { decorCanvas: decorCv } : {}),
+});
+neko.on("label", (t) => { document.getElementById("state").textContent = t; });
+neko.on("activity", (k) => { const el = document.getElementById(`act-${k || "none"}`); if (el) el.checked = true; });
+
+const chips = (boxId, name, entries, checked, onPick, type = "radio") => {
+  const box = document.getElementById(boxId);
+  for (const [key, label] of entries) {
+    const l = document.createElement("label");
+    l.innerHTML = `<input type="${type}" name="${name}" id="${name}-${key}" value="${key}"${key === checked ? " checked" : ""}> ${label}`;
+    box.append(l);
+  }
+  box.addEventListener("change", (e) => onPick(e.target.value, e.target.checked));
+};
+const set = (k) => (v) => neko.setAppearance({ [k]: v });
+chips("coats", "coat", [["black", "까망"], ["cheese", "치즈"], ["gray", "회색"], ["cream", "크림"]], "black", (v) => { neko.setAppearance({ coat: v }); neko.reroll(); });
+chips("eyes", "eye", [["yellow", "노랑"], ["white", "하양"], ["green", "연두"], ["blue", "파랑"]], "yellow", set("eye"));
+chips("patterns", "pattern", [["white", "흰 반점"], ["calico", "삼색"], ["tabby", "줄무늬"], ["point", "포인트"]], null, (v, on) => {
+  const cur = new Set(neko.getAppearance().patterns); on ? cur.add(v) : cur.delete(v);
+  neko.setAppearance({ patterns: [...cur] }); neko.reroll();
+}, "checkbox");
+chips("builds", "build", [["slim", "날씬"], ["normal", "보통"], ["chubby", "통통"]], "normal", set("build"));
+chips("legs", "legs", [["short", "짧게"], ["normal", "보통"], ["long", "길게"]], "normal", set("legs"));
+chips("furs", "fur", [["short", "단모"], ["medium", "중모"], ["long", "장모"]], "short", set("fur"));
+chips("earshapes", "ear", [["pointy", "뾰족"], ["round", "동글"], ["fold", "접힌 귀"]], "pointy", set("ear"));
+chips("tails", "tail", [["long", "길쭉"], ["fluffy", "복슬"], ["bob", "짧은 꼬리"]], "long", set("tail"));
+chips("poses", "pose", [["stand", "서기"], ["sit", "앉기"], ["loaf", "식빵"], ["lie", "누워 자기"]], "stand", (v) => neko.setPose(v));
+chips("moods", "mood", [["idle", "기본"], ["happy", "행복"], ["sleepy", "졸림"], ["curious", "궁금"]], "idle", (v) => neko.setMood(v));
+chips("tailsigns", "tsign", [["auto", "자동"], ...["level", "up", "question", "quiver", "sway", "down", "puff", "angry", "thump"].map((k) => [k, k])], "auto",
+  (v) => { neko.cat.tailForce = v === "auto" ? null : v; });
+chips("acts", "act", [["none", "없음"], ...["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb", "think", "wait", "meal", "hungry", "dig", "calendar", "erase", "gaze"].map((k) => [k, k])], "none",
+  (v) => neko.act(v === "none" ? null : v));
+chips("sides", "side", [["none", "없음"], ["music", "음악"]], "none", (v) => neko.mix(v === "none" ? null : v));
+document.getElementById("jump").onclick = () => neko.jump();
+let wander = true;
+document.getElementById("wander").onclick = (e) => { wander = !wander; neko.setWander(wander); e.target.textContent = wander ? "산책 끄기" : "산책 켜기"; };
+let rig = false;
+document.getElementById("rig").onclick = () => { rig = !rig; neko.setRig(rig); };
+document.getElementById("reroll").onclick = () => neko.reroll();
+document.getElementById("soft").oninput = (e) => neko.setAppearance({ soft: e.target.value / 100 });
+
+// 시안의 시험 훅과 같은 모양(qa 스크립트가 그대로 쓴다)
+window.__neko = neko;
+window.__nekoReady = true;
+</script>
+</body>
+</html>

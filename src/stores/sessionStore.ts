@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { conversationApi } from "../api/tauri";
 
 /**
  * 세션(대화) 목록 + 활성 세션 스토어.
@@ -66,3 +67,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({ sessions: next });
   },
 }));
+
+const PRUNE_FROM_KEY = "nekodesk_session_prune_from";
+const DAY_MS = 86_400_000;
+
+/**
+ * 마지막으로 쓴 지 days 일 지난 세션을 지운다(설정 › 오래된 대화). 메인 창이 켤 때 한 번 부른다.
+ * DB 대화·탭·자동 요약을 같이 지우고, 지금 열린 세션과 메시지가 없는 세션(언제 썼는지 모름)은 남긴다.
+ * 기억(memories)은 건드리지 않는다. 처음 부른 날부터 days 일 동안은 아무것도 지우지 않는다 — 업데이트하자마자
+ * 옛 대화가 한꺼번에 사라지지 않게. 지운 세션 id 를 돌려준다.
+ */
+export async function pruneOldSessions(days: number, now = Date.now()): Promise<string[]> {
+  if (!days) return [];
+  let from = Number(localStorage.getItem(PRUNE_FROM_KEY));
+  if (!from) localStorage.setItem(PRUNE_FROM_KEY, String((from = now)));
+  if (now - from < days * DAY_MS) return [];
+  const gone = await conversationApi.prune(days, [useSessionStore.getState().activeId]);
+  if (!gone.length) return gone;
+  const set = new Set(gone);
+  gone.forEach((id) => localStorage.removeItem(`nekodesk_compact_${id}`));
+  useSessionStore.getState().setSessions((prev) => {
+    const left = prev.filter((s) => !set.has(s.id));
+    return left.length ? left : prev;
+  });
+  return gone;
+}

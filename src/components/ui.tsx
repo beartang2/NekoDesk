@@ -44,17 +44,17 @@ export function Switch({ checked, onChange, label }: {
   );
 }
 
-/** 이름 + 스위치 한 줄. 이름을 눌러도 켜진다. */
+/** 이름 + 스위치 한 줄. 스위치를 눌러야 바뀐다(이름을 잘못 눌러 바뀌지 않게). */
 export function SwitchRow({ label, checked, onChange }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="ui-switch-row">
+    <div className="ui-switch-row">
       <span>{label}</span>
-      <Switch checked={checked} onChange={onChange} />
-    </label>
+      <Switch checked={checked} onChange={onChange} label={label} />
+    </div>
   );
 }
 

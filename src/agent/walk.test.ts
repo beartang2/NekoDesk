@@ -104,6 +104,41 @@ describe("산책 머리", () => {
     expect(task).toContain("16시간");
   });
 
+  it("듣던 곡 제목은 하위 에이전트·보고에 안 들어가고, 느낌 한 줄만 간다", async () => {
+    const vibe = { text: "잔잔한 재즈, 비 오는 밤 같은 분위기", reasoning: "", toolCalls: [] };
+    completion.mockResolvedValueOnce(vibe).mockResolvedValueOnce(report({ learned: [], diary: "노래 들으며 걸었어", gift_title: "t", gift_body: "b" }));
+    subagent.mockResolvedValueOnce("");
+    const before = { music: true, activity: "typing", track: { title: "Autumn Leaves", artist: "Chet Baker" }, sleepy: true, at: new Date(2026, 10, 18, 20).getTime() };
+    await startWalkBrain({ places: [], here: null, before, rand: () => 0.9 }).result;
+    const task = subagent.mock.calls[0][0] as string;
+    expect(task).toContain("잔잔한 재즈");
+    expect(task).toContain("노트북 타이핑");
+    expect(task).toContain("참고만");
+    for (const leak of ["Autumn Leaves", "Chet Baker"]) {
+      expect(task).not.toContain(leak);
+      expect(JSON.stringify(completion.mock.calls[1][0])).not.toContain(leak); // 보고(일지)에도
+    }
+    expect(JSON.stringify(completion.mock.calls[1][0])).toContain("잔잔한 재즈"); // 일지가 상태에서 이어지게
+    expect(JSON.stringify(completion.mock.calls[0][0])).toContain("Autumn Leaves"); // 제목은 느낌 호출만 본다
+  });
+
+  it("느낌 한 줄에 제목이 섞이면 버리고, 3번에 1번은 상태를 아예 안 넘긴다", async () => {
+    completion.mockResolvedValueOnce({ text: "Autumn Leaves 같은 쓸쓸함", reasoning: "", toolCalls: [] })
+      .mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b" }));
+    subagent.mockResolvedValueOnce("");
+    const before = { music: true, track: { title: "Autumn Leaves" } };
+    await startWalkBrain({ places: [], here: null, before, rand: () => 0.9 }).result;
+    expect(subagent.mock.calls[0][0]).not.toContain("Autumn Leaves");
+    expect(subagent.mock.calls[0][0]).toContain("음악을 들으며 나왔어");
+
+    completion.mockReset(); subagent.mockReset();
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b" }));
+    subagent.mockResolvedValueOnce("");
+    await startWalkBrain({ places: [], here: null, before, rand: () => 0.1 }).result;
+    expect(JSON.stringify(completion.mock.calls)).not.toContain("Autumn Leaves"); // 느낌 호출도 없다
+    expect(subagent.mock.calls[0][0]).not.toContain("나가기 전");
+  });
+
   it("한 문장을 넘는 건 오래 기억하지 않는다", async () => {
     subagent.mockResolvedValueOnce("");
     completion.mockResolvedValueOnce(report({ learned: [{ content: "가".repeat(121), impressive: true }], diary: "d", gift_title: "t", gift_body: "b" }));
@@ -126,6 +161,51 @@ describe("산책 머리", () => {
     expect(r.content).toBeTruthy();
     expect(r.prompt).toContain("단풍은 기온이 떨어지면 든다");
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it("주운 것은 모양을 검사해 선물함에 넣는다(일지엔 안내를 안 붙인다)", async () => {
+    const { useNekoGifts } = await import("../neko/gifts");
+    useNekoGifts.setState({ gifts: [], loaded: true });
+    const rnd = vi.spyOn(Math, "random").mockReturnValue(0); // 무게 첫 칸 = 주운 것
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({
+      learned: [], diary: "d", gift_title: "병뚜껑", gift_body: "반짝여",
+    }));
+    // 그림은 이름이 정해진 뒤 따로 그린다(gift-draw.ts)
+    completion.mockResolvedValueOnce({ text: "", reasoning: "", toolCalls: [{ id: "d", name: "gift_draw", params: {
+      gift_play: "roll",
+      gift_shape: { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "silver" }, { t: "evil", code: "x" }] },
+    } }] });
+    const r = await startWalkBrain({ places: [], here: null }).result;
+    rnd.mockRestore();
+    expect(r.gift?.kind).toBe("trinket");
+    expect(r.gift?.shape?.parts).toEqual([{ t: "circle", x: 0, y: -6, r: 6, c: "silver" }]);
+    expect(r.content).not.toContain("선물함"); // 일지엔 선물함 안내를 붙이지 않는다
+    expect(JSON.stringify(completion.mock.calls[1][0])).toContain("그릴 물건: 병뚜껑");
+    await vi.waitFor(() => expect(useNekoGifts.getState().gifts.map((g) => [g.title, g.play])).toEqual([["병뚜껑", "roll"]]));
+  });
+
+  it("그린 선물을 그림으로 보여 주고, 고친 모양이 오면 그걸 쓴다", async () => {
+    // jsdom 엔 캔버스가 없어 그리기 함수만 받아 주는 가짜를 쓴다
+    const ctx = new Proxy({}, { get: (_, k) => (k === "createLinearGradient" ? () => ({ addColorStop() {} }) : () => {}) });
+    const gc = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
+    const td = vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/png;base64,AA");
+    const rnd = vi.spyOn(Math, "random").mockReturnValue(0); // 주운 것
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({
+      learned: [], diary: "d", gift_title: "단풍잎", gift_body: "b",
+    }));
+    completion.mockResolvedValueOnce({ text: "", reasoning: "", toolCalls: [{ id: "d", name: "gift_draw", params: {
+      gift_shape: { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "red" }] },
+    } }] });
+    completion.mockResolvedValueOnce({ text: "", reasoning: "", toolCalls: [{ id: "f", name: "gift_shape_fix", params: {
+      gift_shape: { parts: [{ t: "poly", round: 0, c: "red", pts: [[0, -20], [8, -6], [-8, -6]] }] },
+    } }] });
+    const r = await startWalkBrain({ places: [], here: null }).result;
+    rnd.mockRestore(); gc.mockRestore(); td.mockRestore();
+    const sent = completion.mock.calls[2][0] as LlmMessage[];
+    expect(JSON.stringify(sent[1].content)).toContain("data:image/png;base64,AA");
+    expect(r.gift?.shape?.parts[0]).toMatchObject({ t: "poly", round: 0 });
   });
 
   it("조사가 매달려 있어도 abort 하면 바로 돌아온다", async () => {

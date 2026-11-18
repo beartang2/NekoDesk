@@ -7,6 +7,7 @@ import {
 import { Accordion, Popover } from "radix-ui";
 import { AnimatePresence, Reorder, motion, useDragControls } from "motion/react";
 import type { Memory } from "../agent/types";
+import { loadTidyLog, type TidyRecord } from "../agent/memory-tidy";
 import { Collapse, EASE, IconButton, SavedLabel, Segmented, Select, SwitchRow, Switch, listItem } from "./ui";
 import {
   getMcpTools,
@@ -19,9 +20,9 @@ import {
 } from "../agent/llm-client";
 import { getStoredAccent, saveAccentHex, setAccentVars } from "../theme-colors";
 import { useThemePref } from "../lib/theme";
-import { CAT_VARIANTS } from "../cat/spriteData";
-import { useCatStore } from "../stores/catStore";
-import { useSettingsStore, type ImageProvider, type ToolMode } from "../stores/settingsStore";
+import { NekoSettingsSection } from "../neko/NekoSettingsSection";
+import { DEFAULT_NEKO_NAME, nekoNameOf, useSettingsStore, type ImageProvider, type ToolMode } from "../stores/settingsStore";
+import { josa } from "../lib/hangul";
 import { getAllTools, getTool } from "../agent/tool-registry";
 import {
   DEFAULT_LLAMA_CONFIG,
@@ -839,11 +840,12 @@ function ToolModeSection() {
 function MemorySection() {
   const autoCompact = useSettingsStore((s) => s.autoCompact);
   const setAutoCompact = useSettingsStore((s) => s.setAutoCompact);
+  const name = useSettingsStore(nekoNameOf);
   return (
     <section className="settings-section">
       <h3 className="settings-section__title">자동 요약</h3>
       <p className="settings-section__desc">
-        대화가 길어져 모델에 다 못 실을 때가 되면, 네코가 앞 대화를 요약해 두고 그 요약으로 기억한다.
+        대화가 길어져 모델에 다 못 실을 때가 되면, {josa(name, "이/가")} 앞 대화를 요약해 두고 그 요약으로 기억한다.
         끄면 넘친 오래된 말은 그냥 빠진다. 앞 대화는 어느 쪽이든 화면에 그대로 남는다.
         Claude 는 Anthropic 의 서버 요약을 쓴다(요약 한 번에 일반 요청 한 번쯤 든다).
       </p>
@@ -851,6 +853,25 @@ function MemorySection() {
         value={autoCompact ? "on" : "off"}
         onChange={(v) => setAutoCompact(v === "on")}
         options={[{ value: "on", label: "켬" }, { value: "off", label: "끔" }]}
+      />
+    </section>
+  );
+}
+
+function SessionRetentionSection() {
+  const days = useSettingsStore((s) => s.sessionRetention);
+  const setDays = useSettingsStore((s) => s.setSessionRetention);
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">오래된 대화 지우기</h3>
+      <p className="settings-section__desc">
+        마지막으로 쓴 지 이만큼 지난 대화를 앱을 켤 때 지운다. 지금 열린 대화와 기억은 남는다. 지운 대화는 되살릴 수 없다.
+        이 설정이 처음 생긴 날부터 그 기간 동안은 아무것도 지우지 않는다.
+      </p>
+      <Segmented
+        value={String(days)}
+        onChange={(v) => setDays(v === "0" ? 0 : v === "90" ? 90 : 30)}
+        options={[{ value: "0", label: "끔" }, { value: "30", label: "30일" }, { value: "90", label: "90일" }]}
       />
     </section>
   );
@@ -868,6 +889,7 @@ GitHub: https://github.com/
 기타: `;
 
 function UserProfileSection() {
+  const name = useSettingsStore(nekoNameOf);
   const [profile, setProfile] = useState(
     () => localStorage.getItem(USER_PROFILE_KEY) ?? DEFAULT_USER_PROFILE
   );
@@ -895,7 +917,7 @@ function UserProfileSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">사용자 프로필</h3>
       <p className="settings-section__desc">
-        나에 대한 정보를 적어두세요. 고양이가 대화할 때 참고해요.
+        나에 대한 정보를 적어두세요. {josa(name, "이/가")} 대화할 때 참고해요.
       </p>
       <textarea
         className="settings-textarea"
@@ -919,6 +941,7 @@ function UserProfileSection() {
 function WeatherSection() {
   const location = useSettingsStore((s) => s.weatherLocation);
   const setLocation = useSettingsStore((s) => s.setWeatherLocation);
+  const name = useSettingsStore(nekoNameOf);
   // 글자마다 저장하면 칠 때마다 날씨를 새로 찾는다. 다 치고 나서 쓴다.
   const [draft, setDraft] = useState(location);
   const [locating, setLocating] = useState(false);
@@ -941,9 +964,10 @@ function WeatherSection() {
 
   return (
     <section className="settings-section">
-      <h3 className="settings-section__title">날씨</h3>
+      <h3 className="settings-section__title">날씨와 위치</h3>
       <p className="settings-section__desc">
-        고양이 왼쪽 위에 지금 날씨를 띄워요. 지역 이름을 적거나 현재 위치를 쓰고, 비우면 숨겨요.
+        {name} 방 벽의 액자에 지금 날씨를 걸어요. 지역 이름을 적거나 현재 위치를 쓰고, 비우면 액자를 내려요.
+        산책 지도가 내 위치를 못 받으면 이 위치를 집으로 써요.
       </p>
       <div className="settings-row">
         <input
@@ -1053,6 +1077,14 @@ const MEMORY_KIND_LABELS: Record<string, string> = {
  */
 function MemoriesSection() {
   const [memories, setMemories] = useState<Memory[]>([]);
+  // 한 줄로 잘린 기억은 눌러서 펼쳐 읽는다
+  const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
+  const toggle = (id: number) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
 
   const refresh = useCallback(async () => {
     try {
@@ -1064,6 +1096,13 @@ function MemoriesSection() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // 쉴 때 정리(agent/memory-tidy): 켜고 끄기와 최근에 무엇을 합쳤는지
+  const tidy = useSettingsStore((s) => s.memoryTidy);
+  const setTidy = useSettingsStore((s) => s.setMemoryTidy);
+  const name = useSettingsStore(nekoNameOf);
+  const [tidyLog, setTidyLog] = useState<TidyRecord[]>([]);
+  useEffect(() => { void loadTidyLog().then(setTidyLog); }, []);
+
   async function remove(id: number) {
     await memoryApi.delete(id).catch(() => {});
     setMemories((prev) => prev.filter((m) => m.id !== id));
@@ -1071,7 +1110,7 @@ function MemoriesSection() {
 
   return (
     <section className="settings-section">
-      <h3 className="settings-section__title">고양이가 기억하는 것</h3>
+      <h3 className="settings-section__title">네코가 기억하는 것</h3>
       <p className="settings-section__desc">
         대화하면서 알게 된 것들이에요. 다음 대화에서도 관련된 것만 자동으로 떠올려요.
       </p>
@@ -1081,18 +1120,44 @@ function MemoriesSection() {
         <div className="rule-list">
           <AnimatePresence mode="popLayout" initial={false}>
             {memories.map((m) => (
-              <motion.div className="rule-row" key={m.id} {...listItem}>
+              // layout="position": 펼칠 때 크기까지 늘려 그리면 글자가 잠깐 찌그러진다. 아래 줄만 미끄러지게
+              <motion.div className={`rule-row${open.has(m.id) ? " memory-row--open" : ""}`} key={m.id} {...listItem} layout="position">
                 <span className="memory-row__kind">{MEMORY_KIND_LABELS[m.kind] ?? m.kind}</span>
-                <span className="rule-row__key" title={m.content}>{m.content}</span>
+                <button type="button" className="memory-row__text" aria-expanded={open.has(m.id)} onClick={() => toggle(m.id)}>
+                  <span className="rule-row__key">{m.content}</span>
+                </button>
                 <IconButton label="잊기" danger onClick={() => remove(m.id)}><Trash2 size={12} /></IconButton>
               </motion.div>
             ))}
           </AnimatePresence>
         </div>
       )}
+      <SwitchRow label="쉴 때 정리하기" checked={tidy} onChange={setTidy} />
+      <p className="settings-section__desc">
+        {josa(name, "이/가")} 졸 때 하루 한 번 밥을 먹으며 같은 내용을 여러 번 적은 기억을 한 줄로 합쳐요.
+        내용이 다른 기억은 지우지 않아요. Claude 프로필일 때만, 산책 중이 아닐 때만 해요.
+      </p>
+      {tidyLog.length > 0 && (
+        <details className="memory-tidy-log">
+          <summary>최근 정리 {tidyLog.length}번</summary>
+          {tidyLog.map((r) => (
+            <div key={r.at} className="memory-tidy-log__day">
+              <div className="memory-tidy-log__at">{TIDY_AT.format(new Date(r.at))}</div>
+              {r.merges.map((m, i) => (
+                <div key={i} className="memory-tidy-log__merge">
+                  <span className="memory-tidy-log__from">{m.from.join(" · ")}</span>
+                  <span className="memory-tidy-log__to">→ {m.to}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </details>
+      )}
     </section>
   );
 }
+
+const TIDY_AT = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 // ── Image generation section ──────────────────────────────────────────────────
 
@@ -1167,6 +1232,7 @@ const GOOGLE_IMAGE_MODELS = [
 function ImageGenSection() {
   const imageGen = useSettingsStore((s) => s.imageGen);
   const setImageGen = useSettingsStore((s) => s.setImageGen);
+  const name = useSettingsStore(nekoNameOf);
   const [accountId, setAccountId] = useState("");
   const [test, setTest] = useState<{ busy?: boolean; url?: string; error?: string }>({});
 
@@ -1213,7 +1279,7 @@ function ImageGenSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">이미지 생성</h3>
       <p className="settings-section__desc">
-        네코가 그림을 그릴 때 쓰는 서비스예요. Cloudflare Workers AI 는 하루 10,000 뉴런까지 무료
+        {josa(name, "이/가")} 그림을 그릴 때 쓰는 서비스예요. Cloudflare Workers AI 는 하루 10,000 뉴런까지 무료
         (대시보드의 계정 ID + Workers AI 권한 토큰). Google 은 AI Studio 의 Gemini API 키를 쓰고
         모델에 따라 요금이 나와요.
       </p>
@@ -1261,6 +1327,7 @@ function ImageGenSection() {
 // ── MCP servers section ───────────────────────────────────────────────────────
 
 function McpSection() {
+  const name = useSettingsStore(nekoNameOf);
   // 설정은 DB 에 있으므로 비동기로 읽어온다.
   const [servers, setServers] = useState<McpServer[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -1314,7 +1381,7 @@ function McpSection() {
         </button>
       </div>
       <p className="settings-section__desc">
-        Model Context Protocol 서버를 연결해 고양이의 도구를 확장하세요.
+        Model Context Protocol 서버를 연결해 {name}의 도구를 확장하세요.
       </p>
 
       <Collapse open={addingNew}>
@@ -1374,6 +1441,7 @@ interface ToolInfo {
 }
 
 function ToolsSection() {
+  const name = useSettingsStore(nekoNameOf);
   // 모델에게 실제로 보내는 목록과 같은 소스를 읽는다 — 꺼둔 이미지 생성은 여기서도 빠진다.
   const groups = new Map<string, ToolInfo[]>(
     ["빌트인", "파일·코드", "웹", "유틸리티"].map((c) => [c, []])
@@ -1386,7 +1454,7 @@ function ToolsSection() {
   return (
     <section className="settings-section">
       <h3 className="settings-section__title">도구</h3>
-      <p className="settings-section__desc">네코가 쓸 수 있는 도구입니다. 누르면 설명과 매개변수를 볼 수 있어요.</p>
+      <p className="settings-section__desc">{josa(name, "이/가")} 쓸 수 있는 도구입니다. 누르면 설명과 매개변수를 볼 수 있어요.</p>
       <Accordion.Root type="multiple" className="tool-acc">
         {[...groups].map(([category, tools]) => (
           <Accordion.Item key={category} value={category} className="tool-group">
@@ -1476,9 +1544,6 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: SettingsModalProps) {
-  // 고양이 외형은 catStore 소유. prop 대신 스토어를 직접 읽고 바꾼다.
-  const catVariantId = useCatStore((s) => s.variantId);
-  const onCatVariantChange = useCatStore((s) => s.setVariant);
   // Accent color (full hex — hue + saturation + lightness 모두 반영)
   const themePref = useThemePref((s) => s.pref);
   const setThemePref = useThemePref((s) => s.setPref);
@@ -1497,6 +1562,11 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
     setAccentVars(defaultHex, isDark);
     setAccentHex(defaultHex);
   }
+
+  // 이름은 칠 때마다 저장해서 화면 곳곳이 바로 따라 바뀐다.
+  const nekoNameRaw = useSettingsStore((s) => s.nekoName);
+  const setNekoName = useSettingsStore((s) => s.setNekoName);
+  const nekoName = useSettingsStore(nekoNameOf);
 
   // System prompt
   const [systemPrompt, setSystemPrompt] = useState(
@@ -1576,38 +1646,22 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                 </div>
               </section>
 
-              {/* ── 고양이 색상 ──────────────────────────────────────── */}
-              <section className="settings-section">
-                <h3 className="settings-section__title">고양이 색상</h3>
-                <div className="cat-variant-grid">
-                  {CAT_VARIANTS.map((v) => (
-                    <button
-                      key={v.id}
-                      className={`cat-skin-option ${v.id === catVariantId ? "cat-skin-option--active" : ""}`}
-                      onClick={() => onCatVariantChange(v.id)}
-                    >
-                      {/* 고른 테두리가 옆 칸으로 미끄러져 옮겨 간다. */}
-                      {v.id === catVariantId && (
-                        <motion.span layoutId="cat-skin-ring" className="cat-skin-option__ring" transition={EASE} />
-                      )}
-                      <span className="cat-skin-swatch" style={{ background: v.swatchCss }} />
-                      <span>{v.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              {/* ── 날씨 ──────────────────────────────────────────────── */}
-              <WeatherSection />
+              {/* ── 고양이(네코): 외형·자리 ─────────────────────────── */}
+              <NekoSettingsSection />
 
               {/* ── 사용자 프로필 ────────────────────────────────────── */}
               <UserProfileSection />
 
-              {/* ── 시스템 프롬프트 ──────────────────────────────────── */}
+              {/* ── 네코 프로필: 이름 + 시스템 프롬프트 ─────────────────── */}
               <section className="settings-section">
-                <h3 className="settings-section__title">시스템 프롬프트</h3>
+                <h3 className="settings-section__title">네코 프로필</h3>
+                <div className="settings-field">
+                  <span className="settings-field__label">이름</span>
+                  <input className="settings-input" value={nekoNameRaw} placeholder={DEFAULT_NEKO_NAME}
+                    onChange={(e) => setNekoName(e.target.value)} />
+                </div>
                 <p className="settings-section__desc">
-                  고양이의 성격과 말투를 직접 설정하세요.
+                  {nekoName}의 성격과 말투를 직접 설정하세요.
                 </p>
                 <textarea
                   className="settings-textarea"
@@ -1641,10 +1695,14 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
               {/* ── 툴 호출 방식 ──────────────────────────────────────── */}
               <ToolModeSection />
               <MemorySection />
+              <SessionRetentionSection />
             </>
           )}
           {tab === "connect" && (
             <>
+              {/* ── 날씨와 위치 ──────────────────────────────────────── */}
+              <WeatherSection />
+
               {/* ── 이미지 생성 ──────────────────────────────────────── */}
               <ImageGenSection />
 
@@ -1694,6 +1752,11 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                       label: "화면 녹화",
                       desc: "스크린샷·화면 캡처 접근",
                       url: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+                    },
+                    {
+                      label: "위치 서비스",
+                      desc: "현재 위치(날씨·산책 지도의 집)",
+                      url: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices",
                     },
                   ].map(({ label, desc, url }) => (
                     <button

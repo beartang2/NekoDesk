@@ -73,14 +73,39 @@
   border-radius: var(--r-sm);
   font-size: 12px;
   color: var(--text-secondary);
-  cursor: pointer;
   -webkit-app-region: no-drag;
-  transition: background var(--dur-micro);
 }
 
-.ui-switch-row:hover {
-  background: var(--layer-hover);
+/* ── Range ── 스위치와 같은 바탕·손잡이. 채운 길이는 부르는 쪽이 style 의 --fill(0%~100%)로 준다. */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
 }
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) 0 / var(--fill, 0%) 100% no-repeat,
+    color-mix(in oklab, var(--text-primary) 18%, transparent);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.3);
+  transition: scale var(--dur-control) var(--ease-standard);
+}
+input[type="range"]:active::-webkit-slider-thumb { scale: 1.15; }
+input[type="range"]:focus-visible { box-shadow: none; }
+input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 1px 2px oklch(0 0 0 / 0.3), var(--focus-halo); }
 
 /* ── Select ── */
 .ui-select {

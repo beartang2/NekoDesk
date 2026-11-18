@@ -18,12 +18,13 @@ export function GameSpeechBubble({ text }: { text: string }) {
     if (!el) return;
 
     const update = () => {
-      const cat = document.querySelector<HTMLCanvasElement>("canvas.cat-canvas");
+      // 네코가 채팅 바 아래에 있으면 사이드바엔 없다 — 꼬리는 기본 자리
+      const cat = el.closest(".sidebar")?.querySelector<HTMLCanvasElement>("canvas.neko-canvas");
       if (!cat) return;
       const bubble = el.getBoundingClientRect();
       const box = cat.getBoundingClientRect();
-      // 꼬리가 오른쪽으로 뻗어 있어 몸통은 캔버스 가운데보다 왼쪽에 있다.
-      const bodyCenter = box.left + box.width * 0.42;
+      // 네코는 무대를 걸어 다닌다. 처음 서는 자리(무대 폭의 45%)를 가리킨다.
+      const bodyCenter = box.left + box.width * 0.45;
       el.style.setProperty("--tail-x", `${Math.round(bodyCenter - bubble.left)}px`);
     };
 

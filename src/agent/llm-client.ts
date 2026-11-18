@@ -17,10 +17,12 @@ import { createJsonStringFieldStreamer } from "./json-stream";
 import {
   claudeContextFor,
   isClaudeActive,
+  nekoNameOf,
   shouldUseNativeTools,
   useSettingsStore,
   type GenParams,
 } from "../stores/settingsStore";
+import { josa } from "../lib/hangul";
 import { claudeCompact, llmFetch } from "./llm-transport";
 import { claudeModelOf } from "../lib/claude-models";
 import { prefixContent } from "./agent-context";
@@ -191,7 +193,7 @@ function buildAgentSystemPrompt(native: boolean): string {
 
   const rules = isClaudeActive() ? CLAUDE_RULES : BEHAVIOR_RULES;
 
-  return `너는 NekoDesk 고양이 어시스턴트야. 사용자를 돕기 위해 툴을 사용해.${profileSection}${customSection}${toolsSection}${skillsSection}
+  return `너는 NekoDesk 고양이 어시스턴트 ${josa(nekoNameOf(useSettingsStore.getState()), "이야/야")}. 사용자를 돕기 위해 툴을 사용해.${profileSection}${customSection}${toolsSection}${skillsSection}
 
 ${rules}${modeSection}
 
@@ -219,6 +221,7 @@ const STATIC_TOOLS_BRIEF = `todo.list, todo.add, todo.complete, schedule.list, s
 /** Returns base system prompt + dynamic tool list injected at the end. */
 function buildChatSystemPrompt(): string {
   const base = useSettingsStore.getState().systemPrompt ?? DEFAULT_CHAT_SYSTEM_PROMPT;
+  const nameSection = `\n네 이름은 ${josa(nekoNameOf(useSettingsStore.getState()), "이야/야")}.`;
   const dateSection = `\n현재 날짜/시각: ${nowHere()}`;
 
   const mcpEntries = getMcpTools();
@@ -231,7 +234,7 @@ function buildChatSystemPrompt(): string {
   const profile = useSettingsStore.getState().userProfile?.trim();
   const profileSection = profile ? `\n사용자 프로필:\n${profile}` : "";
 
-  return base + dateSection + profileSection + toolsSection;
+  return base + nameSection + dateSection + profileSection + toolsSection;
 }
 
 // ── Core fetch ────────────────────────────────────────────────────────────────

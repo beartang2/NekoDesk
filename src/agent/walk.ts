@@ -3,9 +3,13 @@ import { DEFAULT_CHAT_SYSTEM_PROMPT, fetchCompletionMessage } from "./llm-client
 import { runSubagent } from "./subagent";
 import { saveMemory } from "./memory-merge";
 import { getTool } from "./tool-registry";
-import { useSettingsStore } from "../stores/settingsStore";
+import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
+import { josa } from "../lib/hangul";
 import { timeZone } from "../lib/time";
 import type { Memory, OpenAiToolSchema, ToolName } from "./types";
+import { validateShape, type GiftShape } from "../neko/engine/gift-shape";
+import { useNekoGifts } from "../neko/gifts";
+import { drawGift, type DrawnGift } from "./gift-draw";
 
 /** 산책에서 가져올 수 있는 선물 종류. */
 export type GiftKind = "trinket" | "place" | "weather" | "link" | "memory" | "drawing" | "game";
@@ -19,6 +23,12 @@ export interface WalkGift {
   file?: string;
   /** place — 지도에 핀으로 꽂을 장소. */
   place?: MapPlace;
+  /** 주운 것·장소 기념품 — 네코 그림체로 그릴 물건 모양(검사를 거친 것). 선물함에 들어간다 */
+  shape?: GiftShape;
+  /** 그 물건으로 노는 방식. 없으면 엔진이 모양으로 짐작 */
+  play?: string;
+  /** 실제 물건 크기(small·medium·large). 없으면 medium */
+  size?: string;
 }
 
 export interface WalkReport {
@@ -32,6 +42,26 @@ export interface WalkReport {
   gift: WalkGift | null;
 }
 
+/**
+ * 출발 전 네코의 상태 — 네코 자신의 것만(사용자 대화·기억은 안 넣는다, WALK_TOOLS 주석과 같은 이유). App 의 depart 가 모은다.
+ * 산책 머리는 "참고만, 딴 데로 새도 된다"로 받고, 3번에 1번은 아예 안 받는다(주제가 한쪽으로 쏠리지 않게).
+ */
+export interface WalkBefore {
+  /** 직전에 하던 활동(엔진 키) */
+  activity?: string | null;
+  /** 음악을 듣던 중 */
+  music?: boolean;
+  /** 듣던 곡. 짧은 호출 하나로 느낌 한 줄로만 바꿔 쓴다 — 제목은 검색(하위 에이전트)·보고에 안 넣는다 */
+  track?: { title: string; artist?: string } | null;
+  /** 졸다가 나왔나 */
+  sleepy?: boolean;
+  /** 보이는 게이지(0~100) */
+  hunger?: number;
+  play?: number;
+  /** 출발 시각(ms) */
+  at?: number;
+}
+
 export interface WalkBrain {
   /** 절대 reject 하지 않는다. abort 되면 그때까지 알아낸 것만으로 보고한다. */
   result: Promise<WalkReport>;
@@ -40,8 +70,8 @@ export interface WalkBrain {
 
 // ponytail: base 가 선물 빈도의 손잡이다. 써 보며 고친다.
 const GIFTS: Record<GiftKind, { base: number; label: string; hint: string }> = {
-  trinket: { base: 5, label: "주운 것", hint: "길에서 주운 작은 물건(나뭇잎·병뚜껑 같은 것). 뭘 주웠는지는 네가 정해" },
-  place: { base: 3, label: "가 본 곳", hint: "지나온 곳 하나를 소개해" },
+  trinket: { base: 5, label: "주운 것", hint: "길에서 주운 작은 물건(나뭇잎·병뚜껑 같은 것). 뭘 주웠는지는 네가 정해. 그림은 선물 이름을 보고 따로 그리니 이름을 또렷하게" },
+  place: { base: 3, label: "가 본 곳", hint: "지나온 곳 하나를 소개하고, 거기서 주운 기념품(나뭇잎·각설탕 같은 것)을 선물 이름으로" },
   weather: { base: 2, label: "날씨 쪽지", hint: "날씨를 보고 사용자에게 남기는 쪽지" },
   link: { base: 2, label: "읽을거리", hint: "알아본 것 중 재밌어서 가져온 읽을거리 링크" },
   memory: { base: 2, label: "떠오른 기억", hint: "사용자에 대해 기억해 둔 게 떠올라 꺼내는 얘기" },
@@ -129,6 +159,9 @@ interface Gathered {
   place?: MapPlace;
   report?: Structured;
   file?: string;
+  /** 주운 것·기념품 그림. 사용자가 돌아와 보고를 서둘러도 끊지 않는다 — 다 그려지면 선물함에 넣는다 */
+  drawing?: Promise<DrawnGift | null>;
+  drawn?: DrawnGift | null;
 }
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -146,24 +179,81 @@ function section(title: string, body: string): string {
   return body ? `${title}:\n${body}` : "";
 }
 
+const ACT_NAME: Partial<Record<string, string>> = {
+  draw: "그림 그리기", music: "음악 듣기", reading: "신문 읽기", typing: "노트북 타이핑", box: "상자 속에 쏙 들어가 있기", window: "창밖 새 구경",
+  yarn: "털실 공놀이", butterfly: "나비 쫓기", knead: "꾹꾹이", groom: "세수", snack: "간식 먹기", stretch: "기지개", climb: "벽 타기",
+  dig: "상자 뒤지기", calendar: "달력 보기", think: "골똘히 생각하기", giftplay: "선물 갖고 놀기", stamp: "발도장 찍기", meal: "밥 먹기",
+};
+const dayPart = (h: number) => (h < 6 ? "새벽" : h < 11 ? "아침" : h < 14 ? "점심 무렵" : h < 18 ? "오후" : h < 21 ? "저녁" : "밤");
+
+/** 출발 전 상태를 넘길지: 3번에 1번은 안 넘긴다 */
+export const shareBefore = (r: number): boolean => r >= 1 / 3;
+
+/**
+ * 곡 → 느낌 한 줄("잔잔한 재즈, 비 오는 밤 같은 분위기"). 이 짧은 호출만 제목을 본다. 답에 제목·가수 이름이 섞이면 버린다 —
+ * 검색 쪽은 제목을 모르니 검색어로 내보낼 수도 없다.
+ */
+async function musicVibe(track: { title: string; artist?: string }, signal: AbortSignal): Promise<string> {
+  const turn = await fetchCompletionMessage(
+    [
+      { role: "system", content: "곡 제목과 가수를 받으면 그 노래의 분위기를 한국어 한 줄(30자 안쪽)로만 말해. 제목·가수 이름·가사는 쓰지 마. 모르는 곡이면 제목에서 느껴지는 분위기로." },
+      { role: "user", content: track.artist ? `${track.title} — ${track.artist}` : track.title },
+    ],
+    {},
+    undefined,
+    signal
+  ).catch(() => null);
+  const line = (turn?.text ?? "").split("\n")[0].trim().slice(0, 60);
+  const leak = [track.title, track.artist ?? ""].some((n) => n.trim().length >= 2 && line.toLowerCase().includes(n.trim().toLowerCase()));
+  return leak ? "" : line;
+}
+
+/** 넘길 상태를 몇 줄로(산책 요청 안에만 — 시스템 프롬프트는 안 늘린다) */
+export function beforeText(b: WalkBefore, vibe: string): string {
+  const act = b.activity && b.activity !== "music" ? ACT_NAME[b.activity] : undefined;
+  const lines: string[] = [];
+  if (b.music || b.activity === "music") lines.push(`음악을 들으며${act ? ` ${act} 하다` : ""} 나왔어${vibe ? ` — ${vibe}` : ""}`);
+  else if (act) lines.push(`${act} 하다 나왔어`);
+  if (b.sleepy) lines.push("졸다가 나왔어");
+  if (b.hunger != null && b.hunger < 30) lines.push("배가 좀 고파");
+  if (b.play != null && b.play < 30) lines.push("좀 심심했어");
+  if (b.at) lines.push(`지금은 ${dayPart(new Date(b.at).getHours())}`);
+  return lines.map((l) => `- ${l}`).join("\n");
+}
+
 /** 산책 중 네코의 머리 — 스스로 알아보고, 선물을 고르고, 인상 깊은 것만 오래 기억한다. */
-export function startWalkBrain(ctx: { places: MapPlace[]; here: { lat: number; lon: number } | null }): WalkBrain {
+export function startWalkBrain(ctx: WalkCtx): WalkBrain {
   const ctrl = new AbortController();
   const g: Gathered = { findings: "", kind: "trinket", material: "" };
   const done = walk(ctx, g, ctrl.signal).catch((e) => console.warn("[walk]", e));
   // 사용자가 말을 걸면 기다리지 않는다 — 진행 중인 툴(검색·그림)은 끊기지 않으니 그 자리의 것으로 보고한다.
   const aborted = new Promise<void>((r) => ctrl.signal.addEventListener("abort", () => r(), { once: true }));
   return {
-    result: Promise.race([done, aborted]).then(() => compose(g)),
+    result: Promise.race([done, aborted]).then(() => {
+      const report = compose(g);
+      // 그림으로 그릴 물건이면 선물함에 넣는다(설계 docs/neko-gifts.md §3). 그림이 아직이면 다 그려진 뒤에
+      const gift = report.gift;
+      if (gift && (g.kind === "trinket" || g.kind === "place") && g.report) {
+        void (g.drawing ?? Promise.resolve(null)).catch(() => null).then((d) => {
+          try { useNekoGifts.getState().add({ title: gift.title, body: gift.body, shape: d?.shape, play: d?.play, size: d?.size }); } catch { /* 선물함이 안 돼도 보고는 한다 */ }
+        });
+      }
+      return report;
+    }),
     abort: () => ctrl.abort(),
   };
 }
 
-async function walk(
-  ctx: { places: MapPlace[]; here: { lat: number; lon: number } | null },
-  g: Gathered,
-  signal: AbortSignal
-): Promise<void> {
+interface WalkCtx {
+  places: MapPlace[];
+  here: { lat: number; lon: number } | null;
+  /** 출발 전 상태(껐다 켜서 이어 걸을 땐 없다) */
+  before?: WalkBefore | null;
+  /** 시험용 난수 */
+  rand?: () => number;
+}
+
+async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<void> {
   const [memories, history] = await Promise.all([
     memoryApi.list().catch((): Memory[] => []),
     settingsApi.get(HISTORY_KEY).then((raw) => (raw ? (JSON.parse(raw) as GiftHistory) : null)).catch(() => null),
@@ -171,12 +261,18 @@ async function walk(
   const userMems = memories.filter((m) => m.kind !== "neko");
   const places = ctx.places.slice(0, 5).map((p) => p.name).join(", ");
   const me = persona();
+  const name = josa(nekoNameOf(useSettingsStore.getState()), "이야/야");
+  const before = ctx.before && shareBefore((ctx.rand ?? Math.random)()) ? ctx.before : null;
+  const vibe = before?.track?.title ? await musicVibe(before.track, signal) : "";
+  if (signal.aborted) return;
+  const mood = section("나가기 전 네 상태(참고만 — 딴 데로 새도 돼)", before ? beforeText(before, vibe) : "");
 
   // 1. 스스로 알아보기 — 격리된 하위 에이전트. 과정은 버리고 요약만 받는다.
   const task = [
-    "너는 사용자가 쉬는 동안 산책 나온 고양이 네코야.",
+    `너는 사용자가 쉬는 동안 산책 나온 고양이 ${name}.`,
     section("지나온 곳", places),
     section("네 성격과 말투", me),
+    mood,
     // 지난 산책에서 오래 기억해 둔 것 — 같은 주제를 또 파지 않게.
     section("전에 산책하며 알아본 것", memories.filter((m) => m.kind === "neko").slice(0, 5).map((m) => `- ${m.content}`).join("\n")),
     "지금 네가 궁금한 걸 하나 골라 검색해 알아보고, 알게 된 걸 출처와 함께 짧게 알려줘. 건넬 만한 읽을거리가 있으면 그 URL 도 남겨.",
@@ -226,13 +322,14 @@ async function walk(
     [
       {
         role: "system",
-        content: ["너는 산책에서 막 돌아온 고양이 네코야. walk_report 툴로 보고해.", section("네 성격과 말투", me)]
+        content: [`너는 산책에서 막 돌아온 고양이 ${name}. walk_report 툴로 보고해.`, section("네 성격과 말투", me)]
           .filter(Boolean).join("\n\n"),
       },
       {
         role: "user",
         content: [
           section("알아본 것", g.findings || "(이번엔 알아본 게 없어)"),
+          mood, // 일지가 나가기 전 상태에서 이어지게("노래 들으면서 걷다가…")
           section("지나온 곳", places),
           `가져온 선물: ${GIFTS[g.kind].label} — ${GIFTS[g.kind].hint}`,
           section("선물 재료", g.material),
@@ -257,6 +354,13 @@ async function walk(
     gift_url: str(p?.gift_url),
     drawing_prompt: str(p?.drawing_prompt),
   };
+
+  // 3-1. 주운 것·기념품 그림: 이름이 정해진 뒤 따로 그린다(gift-draw.ts). signal 을 안 넘긴다 — 서둘러 돌아와도 그림은 마저 그린다
+  if (g.kind === "trinket" || g.kind === "place") {
+    g.drawing = drawGift(g.report.gift_title || GIFTS[g.kind].label, g.report.gift_body);
+    g.drawn = await g.drawing.catch(() => null);
+  }
+  if (signal.aborted) return;
 
   // 4. 그림 선물은 글이 나온 뒤에 그린다 — 뭘 그릴지가 그 글에 있다.
   if (g.kind === "drawing" && g.report.drawing_prompt) {
@@ -292,6 +396,9 @@ function compose(g: Gathered): WalkReport {
           ...(r.gift_url ? { url: r.gift_url } : {}),
           ...(g.file ? { file: g.file } : {}),
           ...(g.place ? { place: g.place } : {}),
+          ...(g.kind === "trinket" || g.kind === "place"
+            ? { shape: validateShape(g.drawn?.shape), ...(g.drawn?.play ? { play: g.drawn.play } : {}), ...(g.drawn?.size ? { size: g.drawn.size } : {}) }
+            : {}),
         }
       : g.material
         ? { kind: g.kind, title: GIFTS[g.kind].label, body: g.material, ...(g.place ? { place: g.place } : {}) }

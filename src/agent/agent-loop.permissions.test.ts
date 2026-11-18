@@ -127,6 +127,20 @@ describe("파일 쓰기 승인 게이트", () => {
     expect(events.find((e) => e.type === "done")).toMatchObject({ answer: "실행을 취소했어." });
   });
 
+  it("네코의 tool_start 는 확인을 받은 뒤 실행 바로 앞에 온다. 거부하면 안 온다", async () => {
+    scriptedTurns = [writeTurn, { text: "썼어", toolCalls: [] }];
+    const ok = (await drain("파일 써줘", (ev) => ev.resolve("allow_once"))).map((e) => e.type);
+    expect(ok.indexOf("tool_start")).toBeGreaterThan(ok.indexOf("confirm_needed"));
+    expect(ok.indexOf("tool_start")).toBeLessThan(ok.indexOf("step_done"));
+
+    scriptedTurns = [writeTurn, { text: "그럼 말로 할게", toolCalls: [] }];
+    const denied = await drain("파일 써줘", (ev) => ev.resolve("deny"));
+    expect(denied.map((e) => e.type)).not.toContain("tool_start");
+    // 네코는 이 말로 '취소'를 알아본다
+    const { CANCEL_MESSAGE } = await import("../neko/director/session");
+    expect(denied.find((e) => e.type === "step_error")).toMatchObject({ step: { errorMessage: CANCEL_MESSAGE } });
+  });
+
   it("규칙 키는 파일이 아니라 부모 디렉토리다", async () => {
     scriptedTurns = [writeTurn, { text: "ok", toolCalls: [] }];
     let ruleKey = "";

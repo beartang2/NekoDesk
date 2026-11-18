@@ -7,7 +7,7 @@ const { load } = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("../../api/tauri", () => ({ skillsApi: { load } }));
 
 import { buildKnowledgeSection, buildSkillIndex, fillNekoLook, readKnowledge, reloadUserSkills } from "./index";
-import { useCatStore } from "../../stores/catStore";
+import { useNekoStore } from "../../neko/nekoStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { claudeUrl } from "../../lib/claude-models";
 
@@ -102,20 +102,20 @@ describe("모델에 맞는 본문", () => {
 
 
 describe("네코 모습", () => {
-  it("{{NEKO_LOOK}} 은 읽는 순간의 털색으로 바뀐다", () => {
-    const before = useCatStore.getState().variantId;
+  it("{{NEKO_LOOK}} 은 읽는 순간의 네코 모습으로 바뀐다", () => {
+    const before = useNekoStore.getState().appearance;
     try {
-      useCatStore.setState({ variantId: "tuxedo" });
+      useNekoStore.setState({ appearance: { ...before, coat: "black", patterns: ["white"], eye: "yellow" } });
       const out = fillNekoLook("네 모습을 따른다: {{NEKO_LOOK}}");
-      expect(out).toContain("턱시도");
-      expect(out).toContain("#d6c846");
+      expect(out).toContain("까망 · 흰 반점 · 노란 눈");
+      expect(out).toContain("#161418");
       expect(out).not.toContain("{{NEKO_LOOK}}");
 
-      // 설정에서 털색을 바꾸면 다음에 읽을 때 따라온다.
-      useCatStore.setState({ variantId: "siamese" });
+      // 꾸미기에서 털 색을 바꾸면 다음에 읽을 때 따라온다.
+      useNekoStore.setState({ appearance: { ...before, coat: "custom", color: "#4682dc" } });
       expect(fillNekoLook("{{NEKO_LOOK}}")).toContain("#4682dc");
     } finally {
-      useCatStore.setState({ variantId: before });
+      useNekoStore.setState({ appearance: before });
     }
   });
 });

@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { nextResetFor, useClaudeBudget } from "../stores/claudeBudget";
+import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
+import { josa } from "../lib/hangul";
 import "./ClaudeUsage.css";
 
 /** 이번 주기 사용액 / 예산. */
@@ -39,13 +41,14 @@ export function ClaudeUsageMeter() {
 export function ClaudeBudgetFields() {
   const settings = useClaudeBudget((s) => s.settings);
   const setSettings = useClaudeBudget((s) => s.setSettings);
+  const nekoName = useSettingsStore(nekoNameOf);
 
   return (
     <div className="gen-params-grid">
       <label className="gen-param">
         <span className="gen-param__label">월 예산 (USD)</span>
         <input className="gen-param__input" type="number" step="5" min="0"
-          title="네코가 이번 주기에 쓸 수 있는 금액. 넘으면 다음 갱신일까지 Claude 요청을 보내지 않는다. 0 이면 제한 없음."
+          title={`${josa(nekoName, "이/가")} 이번 주기에 쓸 수 있는 금액. 넘으면 다음 갱신일까지 Claude 요청을 보내지 않는다. 0 이면 제한 없음.`}
           value={settings.budgetUsd}
           onChange={(e) => setSettings({ budgetUsd: Math.max(0, parseFloat(e.target.value) || 0) })} />
       </label>
