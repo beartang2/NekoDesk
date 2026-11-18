@@ -68,7 +68,7 @@ export const MIX = {
   erase: act("body paws head tail", "sit", "floor", { fills: fill(-2), ...maxMs(4500) }),
   climb: act("body move paws head tail", "move", "wall", { ...solo(fill(-30, 10)), ...maxMs(35000) }),
   // 창 탐험(캣타워): 화면 모드에서 다른 창 위를 다닌다. 혼자 놀기 후보지만 감독이 ctrl.towerOk(갈 곳이 있거나 이미 창 위)일 때만 고른다
-  tower: act("body move paws head tail", "move", "", solo(fill(-15, 30))),
+  tower: act("body move paws head tail", "move", "", { ...solo(fill(-15, 30)), ...maxMs(90000) }), // 하네스 3~6번 옮기기 최대 74초
   // 쳐다보기: 애정이 낮을 때(사용자 확정). 앉아서 사용자 쪽을 보며 천천히 눈을 깜빡인다
   gaze: act("body head tail", "sit", "", solo(fill(0, 0, 0, 8))),
   // 기본 상태: 활동이 없을 때 고양이가 하는 일. 잡힘·점프 같은 잠깐 상태는 서기로 본다
