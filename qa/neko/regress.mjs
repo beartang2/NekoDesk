@@ -470,9 +470,18 @@ try {
       const span = x0 < 40 && x0 + w > n.W - 40;
       // 움직임이 없으면 다시 안 그린다(같은 그림): 몇 프레임 지나도 캔버스 크기·자리 그대로
       const before = cv.style.transform; n.step(120); n.draw(); const still = cv.style.transform === before;
-      return { span, inked: inked > 100, farHit, still, mainW: document.getElementById("stage").width };
+      // 선물 캔버스를 직접 눌러 끌고, 우클릭하면 엔진에 닿는다(고양이 캔버스 둘레 밖)
+      const ev = []; n.on("decorMove", (e) => ev.push(["move", e])); n.on("decorMenu", (e) => ev.push(["menu", e]));
+      const lx = 16 * 0.8 + 0.02 * (n.W - 32 * 0.8), fire = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 9, bubbles: true }));
+      fire("pointerdown", lx, 754); fire("pointermove", lx + 120, 754); fire("pointerup", lx + 120, 754);
+      n.step(30); n.draw();
+      cv.dispatchEvent(new MouseEvent("contextmenu", { clientX: lx + 120, clientY: 754, bubbles: true, cancelable: true }));
+      const moved = ev.find(([k]) => k === "move"), menu = ev.find(([k]) => k === "menu");
+      const viaCanvas = !!moved && moved[1].id === "l" && moved[1].u > 0.02 && !!menu && menu[1].id === "l";
+      return { span, inked: inked > 100, farHit, still, viaCanvas };
     });
     check("마당 선물 캔버스: 멀리 놓인 선물까지 감싸 그리고 누를 수 있다", `감쌈 ${r.span} · 그림 ${r.inked} · 누르기 ${r.farHit} · 가만있으면 그대로 ${r.still}`, r.span && r.inked && r.farHit && r.still);
+    check("마당 선물 캔버스: 그 캔버스를 눌러 끌어 옮기고 우클릭하면 엔진에 닿는다", `끌기·우클릭 ${r.viaCanvas}`, r.viaCanvas);
     await p.close();
   }
 

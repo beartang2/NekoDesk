@@ -3898,25 +3898,27 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top];
   }
   let press = null;
-  canvas.addEventListener("pointerdown", (e) => {
-    const [x, y] = toStage(e);
+  // 눌림·움직임·우클릭은 고양이 캔버스와 (화면 모드면) 선물 캔버스에 같이 붙인다 — 마당 선물은 고양이 둘레 밖에 있어
+  // 고양이 캔버스에 안 닿는다. 캡처·커서 모양은 이벤트를 받은 캔버스(el)에
+  function onPointerDown(e) {
+    const el = e.currentTarget, [x, y] = toStage(e);
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
     // 문 물건이 먼저: 입에서 끌어내기가 쓰다듬기·목덜미 잡기로 새지 않게. 끌어내기는 호스트가 한다
     if (hitCarry(x, y)) { emit("carryPress", { x, y, pointerId: e.pointerId }); e.preventDefault(); return; }
     if (hitCat(x, y)) {
       // 바로 잡지 않는다: 움직이거나 잠깐 누르고 있으면 잡기, 그냥 떼면 '냥'
-      press = { id: e.pointerId, x, y, t: performance.now(), grabbing: false };
-      canvas.setPointerCapture(e.pointerId);
+      press = { id: e.pointerId, x, y, t: performance.now(), grabbing: false, el };
+      el.setPointerCapture(e.pointerId);
       e.preventDefault();
     } else if (hitDecor(x, y)) { // 놓아 둔 물건: 잡고 끌어 옮긴다(고양이 뒤에 있으니 고양이 다음에 본다)
       const d = decor.find((o) => o.id === hitDecor(x, y)), b = d.box;
-      decorDrag = { id: d.id, pointerId: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x: b.x + b.w / 2, bottom: b.y + b.h };
-      try { canvas.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터: 캡처 없이도 끌린다 */ }
-      canvas.classList.add("dragging"); e.preventDefault();
+      decorDrag = { id: d.id, pointerId: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x: b.x + b.w / 2, bottom: b.y + b.h, el };
+      try { el.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터: 캡처 없이도 끌린다 */ }
+      el.classList.add("dragging"); e.preventDefault();
     } else if (y > floorY - 160 * S && cat.pose === "stand" && (!cat.act || cat.act.key === "butterfly")) walkTo(x);
-  });
-  canvas.addEventListener("pointermove", (e) => {
-    const [x, y] = toStage(e);
+  }
+  function onPointerMove(e) {
+    const el = e.currentTarget, [x, y] = toStage(e);
     // 한동안 없던 마우스가 다시 나타나면 꼬리를 세워 반긴다(인사)
     if (!mouseActive() && cat.mood !== "sleepy" && cat.pose === "stand" && !cat.act && cat.mode !== "grabbed" && !cat.tailEp) startTailEp("up", 2.6);
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
@@ -3929,11 +3931,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (press && e.pointerId === press.id && !press.grabbing &&
         (Math.hypot(x - press.x, y - press.y) > 5 || performance.now() - press.t > 180)) {
       press.grabbing = true;
-      canvas.classList.add("dragging");
+      press.el.classList.add("dragging");
       grab(); emit("grab");
     }
-    if (!press) canvas.classList.toggle("can-grab", hitCat(x, y) || !!hitCarry(x, y) || !!hitDecor(x, y));
-  });
+    if (!press) el.classList.toggle("can-grab", hitCat(x, y) || !!hitCarry(x, y) || !!hitDecor(x, y));
+  }
   function endPress(e) {
     if (decorDrag && e.pointerId === decorDrag.pointerId) { // 놓은 자리를 면·비율로 바꿔 알린다(저장은 호스트)
       const d = decor.find((o) => o.id === decorDrag.id);
@@ -3943,27 +3945,32 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         decorDirty = true;
         emit("decorMove", { id: d.id, ...spot });
       }
-      decorDrag = null; canvas.classList.remove("dragging");
+      decorDrag.el.classList.remove("dragging"); decorDrag = null;
       return;
     }
     if (!press || e.pointerId !== press.id) return;
-    if (press.grabbing) { canvas.classList.remove("dragging"); release(); emit("drop"); } else tap();
+    if (press.grabbing) { press.el.classList.remove("dragging"); release(); emit("drop"); } else tap();
     press = null;
   }
-  canvas.addEventListener("pointerup", endPress);
   // 우클릭: 놓아 둔 물건이면 바로 치우지 않고, 호스트가 그 오른쪽 위에 '정리' 버튼을 띄우게 자리를 알린다.
   // 그 밖에선 기본 메뉴를 막지 않는다
-  canvas.addEventListener("contextmenu", (e) => {
+  function onContextMenu(e) {
     const [x, y] = toStage(e), id = hitDecor(x, y), d = id && decor.find((o) => o.id === id);
     if (!d || !d.box) return;
     e.preventDefault();
     emit("decorMenu", { id, x: d.box.x + d.box.w, y: d.box.y });
-  });
-  canvas.addEventListener("pointercancel", endPress);
+  }
+  for (const el of DECOR_CV ? [canvas, DECOR_CV] : [canvas]) {
+    el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerup", endPress);
+    el.addEventListener("pointercancel", endPress);
+    el.addEventListener("contextmenu", onContextMenu);
+  }
   canvas.addEventListener("keydown", (e) => {
     if (e.code === "Space" || e.key === "Enter") { e.preventDefault(); nyang(); emit("nyang"); }
   });
-  canvas.addEventListener("pointerleave", () => { if (!press) canvas.classList.remove("can-grab"); });
+  for (const el of DECOR_CV ? [canvas, DECOR_CV] : [canvas]) el.addEventListener("pointerleave", () => { if (!press) el.classList.remove("can-grab"); });
   // 탭 = 쓰다듬기(웃는 눈·하트·꼬리 물음표), 0.32초 안에 두 번 = '냥' 점프
   let lastTap = 0;
   function tap() {
