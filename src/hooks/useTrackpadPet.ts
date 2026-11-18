@@ -30,6 +30,7 @@ export function useTrackpadPet(onRub: () => void) {
   /** 가로·세로 마지막 결(-1·1, 0 = 아직 모름)과 결이 뒤집힌 시각들. */
   const dirRef = useRef<[number, number]>([0, 0]);
   const turnsRef = useRef<number[]>([]);
+  const heldRef = useRef(false);
 
   /** 몸을 벗어나면 결을 처음부터 센다. */
   const onBodyLeave = useCallback(() => {
@@ -37,8 +38,18 @@ export function useTrackpadPet(onRub: () => void) {
     turnsRef.current = [];
   }, []);
 
+  /**
+   * 잡혀 있는 동안(엔진 grab~drop)은 쓰다듬기가 아니다 — 고양이가 커서에 붙어 다녀 늘 몸 위라, 흔들면 결이 뒤집혀
+   * 쓰다듬기로 쳤다. 잡을 때와 놓을 때 결을 처음부터 센다.
+   */
+  const setHeld = useCallback((on: boolean) => {
+    heldRef.current = on;
+    onBodyLeave();
+  }, [onBodyLeave]);
+
   /** 고양이 몸 위에서 움직였을 때만 부른다(movementX/Y). */
   const onBodyMove = useCallback((dx: number, dy: number) => {
+    if (heldRef.current) return;
     const now = performance.now();
     const dir = dirRef.current;
     [dx, dy].forEach((d, axis) => {
@@ -60,5 +71,5 @@ export function useTrackpadPet(onRub: () => void) {
     }
   }, []);
 
-  return { onBodyMove, onBodyLeave };
+  return { onBodyMove, onBodyLeave, setHeld };
 }

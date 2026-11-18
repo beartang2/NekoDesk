@@ -55,7 +55,13 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
     if (ctrl && !ctrl.react("pet")) return;
     onRubPet();
   }, [ctrl, onRubPet]);
-  const { onBodyMove, onBodyLeave } = useTrackpadPet(rub);
+  const { onBodyMove, onBodyLeave, setHeld } = useTrackpadPet(rub);
+  // 잡고 흔드는 건 쓰다듬기가 아니다
+  useEffect(() => {
+    if (!ctrl || !active) return;
+    const offs = [ctrl.on("grab", () => setHeld(true)), ctrl.on("drop", () => setHeld(false))];
+    return () => offs.forEach((off) => off());
+  }, [ctrl, active, setHeld]);
   const onMove = useCallback((e: React.MouseEvent) => {
     if (!ctrl || e.buttons) return; // 누른 채 움직이면 잡기(엔진)
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();

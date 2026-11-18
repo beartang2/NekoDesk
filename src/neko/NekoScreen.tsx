@@ -56,12 +56,12 @@ export function NekoScreen() {
     const t = setTimeout(() => setMenu(null), MENU_MS);
     return () => clearTimeout(t);
   }, [menu]);
-  const { onBodyMove, onBodyLeave } = useTrackpadPet(() => {
+  const { onBodyMove, onBodyLeave, setHeld } = useTrackpadPet(() => {
     // 너무 오래 만져 짜증 나면(react 가 false) 놀이 게이지는 오르지 않는다
     if (ctrlRef.current?.react("pet")) toMain({ ev: "pet" });
   });
-  const petRef = useRef({ onBodyMove, onBodyLeave });
-  petRef.current = { onBodyMove, onBodyLeave };
+  const petRef = useRef({ onBodyMove, onBodyLeave, setHeld });
+  petRef.current = { onBodyMove, onBodyLeave, setHeld };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -123,8 +123,9 @@ export function NekoScreen() {
 
     const offEngine = FORWARD.map((ev) =>
       ctrl.on(ev, (payload: unknown) => {
-        if (ev === "grab") { held = true; clearTimeout(fallTimer); fps(); }
-        if (ev === "drop") fallTimer = setTimeout(() => { held = false; fps(); }, FALL_MS);
+        // 잡고 흔드는 건 쓰다듬기가 아니다: 잡힌 동안과 떨어지는 동안(held)은 결을 세지 않는다
+        if (ev === "grab") { held = true; petRef.current.setHeld(true); clearTimeout(fallTimer); fps(); }
+        if (ev === "drop") fallTimer = setTimeout(() => { held = false; petRef.current.setHeld(false); fps(); }, FALL_MS);
         if (ev === "error") {
           // 엔진이 멈췄다: 클릭을 막은 채 굳지 않게 숨는다
           void invoke("neko_screen_catch", { on: false }).catch(() => {});

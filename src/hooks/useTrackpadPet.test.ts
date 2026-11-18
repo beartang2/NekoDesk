@@ -43,4 +43,17 @@ describe("useTrackpadPet", () => {
     moves(result.current.onBodyMove, [[10, 0]]);
     expect(rub).not.toHaveBeenCalled();
   });
+
+  it("잡고 흔드는 동안은 쓰다듬기가 아니고, 놓으면 결을 처음부터 센다", () => {
+    const rub = vi.fn();
+    const { result } = renderHook(() => useTrackpadPet(rub));
+    result.current.setHeld(true);
+    moves(result.current.onBodyMove, [[10, 0], [-10, 0], [10, 0], [-10, 0], [10, 0]]);
+    expect(rub).not.toHaveBeenCalled();
+    result.current.setHeld(false);
+    moves(result.current.onBodyMove, [[-10, 0]]);
+    expect(rub).not.toHaveBeenCalled();
+    moves(result.current.onBodyMove, [[10, 0], [-10, 0]]);
+    expect(rub).toHaveBeenCalledTimes(1);
+  });
 });
