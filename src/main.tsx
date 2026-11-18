@@ -8,6 +8,7 @@ import { CaptureOverlay } from "./components/CaptureOverlay";
 import { ViewerWindow } from "./components/Viewer";
 import { GlowAlert } from "./components/GlowAlert";
 import { NekoScreen } from "./neko/NekoScreen";
+import { NekoDecorScreen } from "./neko/NekoDecorScreen";
 import { NekoPanelWindow, type NekoPanelKind } from "./neko/NekoPanelWindow";
 import { startNekoWindowSync } from "./neko/windowSync";
 import "./App.css";
@@ -28,15 +29,17 @@ const isCapture = label.startsWith("capture-");
 const isViewer = label === "viewer";
 const isGlow = label === "glow";
 const isNekoScreen = label === "neko-screen";
+// 마당 선물 창(고양이가 없는 모니터마다, neko_screen.rs)
+const isNekoDecor = label.startsWith("neko-decor-");
 // 설정에서 따로 띄우는 창(네코 꾸미기·선물함, panel_open)
 const panel = label === "neko-customize" || label === "neko-gifts" ? (label as NekoPanelKind) : null;
 if (isQuick) document.documentElement.classList.add("quick-window");
 // 빛 창·화면 네코 창도 캡처 막처럼 바탕이 투명해야 한다.
-if (isCapture || isGlow || isNekoScreen) document.documentElement.classList.add("capture-window");
+if (isCapture || isGlow || isNekoScreen || isNekoDecor) document.documentElement.classList.add("capture-window");
 if (isViewer) document.documentElement.classList.add("viewer-window");
 
 // 오래된 대화 지우기(설정). 메인 창만, 켤 때 한 번
-if (!isQuick && !isCapture && !isViewer && !isGlow && !isNekoScreen && !panel) {
+if (!isQuick && !isCapture && !isViewer && !isGlow && !isNekoScreen && !isNekoDecor && !panel) {
   void pruneOldSessions(useSettingsStore.getState().sessionRetention).catch(() => {});
   // 꾸미기·선물함 창과 네코 외형·자리·선물을 맞춘다
   startNekoWindowSync();
@@ -76,7 +79,7 @@ void loadHome().finally(() =>
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <ErrorBoundary>
-        {isCapture ? <CaptureOverlay /> : isQuick ? <QuickAsk /> : isViewer ? <ViewerWindow /> : isGlow ? <GlowAlert /> : isNekoScreen ? <NekoScreen /> : panel ? <NekoPanelWindow kind={panel} /> : <App />}
+        {isCapture ? <CaptureOverlay /> : isQuick ? <QuickAsk /> : isViewer ? <ViewerWindow /> : isGlow ? <GlowAlert /> : isNekoScreen ? <NekoScreen /> : isNekoDecor ? <NekoDecorScreen /> : panel ? <NekoPanelWindow kind={panel} /> : <App />}
       </ErrorBoundary>
     </React.StrictMode>
   )

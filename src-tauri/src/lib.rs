@@ -977,6 +977,13 @@ mod commands {
         crate::neko_screen::hide(&app)
     }
 
+    /// 메인 창: 모니터 목록·고양이가 있는 모니터·선물 창 라벨(마당 선물을 모니터마다 나눈다). 화면 창이 없으면 null.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_screens() -> Option<crate::neko_screen::Screens> {
+        crate::neko_screen::screens()
+    }
+
     /// 화면 창: 판 크기와 바닥. 아직 모르면 null.
     #[cfg(target_os = "macos")]
     #[tauri::command]
@@ -1390,6 +1397,8 @@ pub fn run() {
             commands::neko_screen_reveal,
             #[cfg(target_os = "macos")]
             commands::neko_screen_hide,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_screens,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,

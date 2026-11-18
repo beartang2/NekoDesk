@@ -130,7 +130,10 @@ export function NekoScreen() {
     window.addEventListener("pointerdown", onRightDown, true);
     window.addEventListener("contextmenu", onContext);
     // 누른 채 움직이는 동안은 쓰다듬기가 아니다(선물을 끌어 고양이 위를 비빔). 고양이 잡기는 grab·drop 이 따로 막는다
-    const onPress = () => petRef.current.setPressed(true);
+    // 끌던 선물이 다른 모니터 위에 있나(Rust neko-screen-elsewhere). 놓을 때 엔진의 decorMove(이 화면 끝 자리) 대신
+    // 그 모니터로 옮긴다. 새로 누를 때 지운다
+    let elsewhere: { screen: string; x: number; y: number } | null = null;
+    const onPress = () => { elsewhere = null; petRef.current.setPressed(true); };
     const onRelease = () => petRef.current.setPressed(false);
     window.addEventListener("pointerdown", onPress, true);
     window.addEventListener("pointerup", onRelease, true);
@@ -150,6 +153,11 @@ export function NekoScreen() {
           // 엔진이 멈췄다: 클릭을 막은 채 굳지 않게 숨는다
           void invoke("neko_screen_catch", { on: false }).catch(() => {});
           void getCurrentWindow().hide().catch(() => {});
+        }
+        if (ev === "decorMove" && elsewhere) {
+          void emitTo("main", "neko-screen-put-on", { id: (payload as { id: string }).id, ...elsewhere }).catch(() => {});
+          elsewhere = null;
+          return;
         }
         toMain({ ev, payload: ev === "error" ? String(payload) : payload });
       }),
@@ -194,6 +202,7 @@ export function NekoScreen() {
       listen<number>("neko-screen-fps", ({ payload }) => { maxFps = payload; fps(); }),
       listen("neko-screen-ping", () => void emitTo("main", "neko-screen-ready").catch(() => {})),
       listen("neko-screen-press-out", () => setMenu(null)), // 다른 데를 눌렀다
+      listen<{ screen: string; x: number; y: number } | null>("neko-screen-elsewhere", ({ payload }) => { elsewhere = payload; }),
     ];
     void invoke<Layout | null>("neko_screen_layout").then((l) => { if (l) ctrl.setGround(l.ground); }).catch(() => {});
     // 준비됐다 — 메인 창이 대리를 세우고 감독이 계획을 처음부터 보낸다

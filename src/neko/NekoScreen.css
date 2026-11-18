@@ -37,3 +37,13 @@
 .neko-screen__decor.can-grab { cursor: grab; }
 .neko-screen__canvas.dragging,
 .neko-screen__decor.dragging { cursor: grabbing; }
+
+/* 마당 선물 창(고양이가 없는 모니터, NekoDecorScreen): 모니터 전체, 그림만 */
+.neko-decor-screen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  pointer-events: none;
+}

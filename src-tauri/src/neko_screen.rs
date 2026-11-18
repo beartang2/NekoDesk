@@ -47,9 +47,62 @@ pub struct Layout {
 /// 모니터 하나. `rect` 는 전역 좌표(x, y, w, h), `cocoa` 는 AppKit 좌표(왼쪽 아래 원점, 창 옮길 때).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Screen {
+    /// 모니터 UUID(CGDisplayCreateUUIDFromDisplayID). 재부팅·포트를 바꿔도 같다 — 마당 선물이 놓인 모니터를 이걸로 적는다.
+    pub id: [u8; 16],
     pub rect: [f64; 4],
     pub cocoa: [f64; 4],
     pub layout: Layout,
+}
+
+/// 모니터 UUID 를 글자로(8-4-4-4-12).
+fn uuid_str(b: &[u8; 16]) -> String {
+    let h: String = b.iter().map(|x| format!("{x:02X}")).collect();
+    format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+}
+
+/// 마당 선물 창 라벨 앞말. 고양이가 없는 모니터마다 하나(`neko-decor-0`…). 선물 그림만 있고 클릭은 늘 흘린다.
+const DECOR: &str = "neko-decor-";
+
+/// 메인 창에 알리는 모니터 목록(`neko-screens`). 메인 창이 모니터마다 선물을 골라 엔진과 선물 창에 넘긴다.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Screens {
+    screens: Vec<ScreenInfo>,
+    /// 주 모니터. 놓인 모니터가 빠진 선물은 여기 보인다
+    main: String,
+    /// 고양이(화면 창)가 있는 모니터
+    cat: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+struct ScreenInfo {
+    id: String,
+    layout: Layout,
+    /// 이 모니터를 맡은 선물 창 라벨. 고양이가 있는 모니터는 없다(엔진이 그린다)
+    decor: Option<String>,
+}
+
+/// 고양이가 없는 모니터들에 선물 창을 하나씩 나눈다(목록 순서대로 0, 1, …).
+fn screens_info(screens: &[Screen], cat: Option<&Screen>) -> Screens {
+    let mut k = 0;
+    let list = screens
+        .iter()
+        .map(|s| {
+            let decor = (Some(s.rect) != cat.map(|c| c.rect)).then(|| {
+                k += 1;
+                format!("{DECOR}{}", k - 1)
+            });
+            ScreenInfo { id: uuid_str(&s.id), layout: s.layout, decor }
+        })
+        .collect();
+    Screens { screens: list, main: screens.first().map(|s| uuid_str(&s.id)).unwrap_or_default(), cat: cat.map(|c| uuid_str(&c.id)) }
+}
+
+/// 끌던 마당 선물이 다른 모니터 위에 있다(`neko-screen-elsewhere`). x, y 는 그 모니터 왼쪽 위 기준.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+struct Elsewhere {
+    screen: String,
+    x: f64,
+    y: f64,
 }
 
 /// 고양이가 걸어 나가는 쪽.
@@ -103,6 +156,10 @@ struct State {
     grab_cat: bool,
     /// 클릭을 흘리는 중에 눌렀다(다른 데 누름). 화면 창이 띄운 메뉴를 닫는다(`neko-screen-press-out`).
     pressed_out: bool,
+    /// 마지막으로 알린 끌던 선물의 다른 모니터 자리.
+    elsewhere: Option<Elsewhere>,
+    /// 마지막으로 메인 창에 알린 모니터 목록.
+    screens_sent: Option<Screens>,
     poller: bool,
 }
 
@@ -126,6 +183,8 @@ static STATE: Mutex<State> = Mutex::new(State {
     catch_cat: false,
     grab_cat: false,
     pressed_out: false,
+    elsewhere: None,
+    screens_sent: None,
     poller: false,
 });
 
@@ -329,7 +388,13 @@ fn sync(app: &AppHandle) -> Result<(), AppError> {
         macos::place(ns as *mut objc2::runtime::AnyObject, show, on_top, to.map(|s| s.cocoa));
         (screens, to)
     })?;
+    let info = screens_info(&screens, to.as_ref());
+    sync_decor(app, &screens, &info, show, on_top);
     let mut st = STATE.lock()?;
+    if st.screens_sent.as_ref() != Some(&info) {
+        st.screens_sent = Some(info.clone());
+        let _ = app.emit("neko-screens", info);
+    }
     st.screens = screens;
     if let Some(s) = to {
         // 붙어 있던 모니터가 빠졌으면 주 모니터로 왔다. 세계는 옮기지 않는다 — 밖에 남은 고양이는 엔진이 걸어 들인다
@@ -350,6 +415,59 @@ fn sync(app: &AppHandle) -> Result<(), AppError> {
         let _ = app.emit_to(LABEL, "neko-screen-active", active);
     }
     Ok(())
+}
+
+/// 고양이가 없는 모니터마다 선물 창을 띄우고(없으면 만든다) 그 모니터를 덮는다. 남는 창은 숨긴다.
+/// 그림은 메인 창이 `neko-decor-items` 로 넘긴다(바뀔 때만 그린다).
+fn sync_decor(app: &AppHandle, screens: &[Screen], info: &Screens, show: bool, on_top: bool) {
+    let mut used = Vec::new();
+    for (s, i) in screens.iter().zip(&info.screens) {
+        let Some(label) = &i.decor else { continue };
+        used.push(label.clone());
+        let win = match app.get_webview_window(label) {
+            Some(w) => w,
+            None if show => match create_decor(app, label) {
+                Ok(w) => w,
+                Err(e) => {
+                    log::warn!("마당 선물 창을 못 만들었어: {e}");
+                    continue;
+                }
+            },
+            None => continue,
+        };
+        let Ok(ns) = win.ns_window() else { continue };
+        let (ns, cocoa) = (ns as usize, s.cocoa);
+        let _ = on_main(app, move || unsafe { macos::place(ns as *mut objc2::runtime::AnyObject, show, on_top, Some(cocoa)) });
+    }
+    for (label, win) in app.webview_windows() {
+        if label.starts_with(DECOR) && !used.contains(&label) {
+            if let Ok(ns) = win.ns_window() {
+                let ns = ns as usize;
+                let _ = on_main(app, move || unsafe { macos::place(ns as *mut objc2::runtime::AnyObject, false, false, None) });
+            }
+        }
+    }
+}
+
+fn create_decor(app: &AppHandle, label: &str) -> Result<tauri::WebviewWindow, AppError> {
+    let win = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App("index.html".into()))
+        .transparent(true)
+        .decorations(false)
+        .shadow(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(false)
+        .disable_drag_drop_handler()
+        .build()?;
+    let ns = win.ns_window()? as usize;
+    on_main(app, move || unsafe { macos::setup(ns as *mut objc2::runtime::AnyObject) })?;
+    Ok(win)
+}
+
+/// 메인 창이 켤 때 모니터 목록을 가져간다(이벤트를 놓쳤을 때). 화면 창이 없으면 None.
+pub fn screens() -> Option<Screens> {
+    STATE.lock().ok()?.screens_sent.clone()
 }
 
 fn start_poller(app: &AppHandle) -> Result<(), AppError> {
@@ -423,9 +541,23 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
         move_to(app, &win, to, drag_shift(cur.rect, to.rect));
         return;
     }
-    // 마당 선물을 끄는 중: 선물은 이 화면 끝에서 멈추고, 고양이도 커서를 따라 건너가지 않는다
+    // 마당 선물을 끄는 중: 선물은 이 화면 끝에서 멈추고, 고양이도 커서를 따라 건너가지 않는다. 커서가 다른
+    // 모니터면 그 자리를 화면 창에 알린다 — 놓으면 그 모니터로 옮긴다(remoteNeko). 놓는 순간엔 지우지 않는다
+    // (pointerup 이 늦게 닿아도 화면 창이 자리를 알게). 화면 창이 다음에 누를 때 지운다
     if st.grabbing {
+        if let Some(o) = other {
+            let e = Some(Elsewhere { screen: uuid_str(&o.id), x: p.mouse[0] - o.rect[0], y: p.mouse[1] - o.rect[1] });
+            if e != st.elsewhere {
+                st.elsewhere = e.clone();
+                let _ = app.emit_to(LABEL, "neko-screen-elsewhere", e);
+            }
+        } else if st.elsewhere.is_some() {
+            st.elsewhere = None;
+            let _ = app.emit_to(LABEL, "neko-screen-elsewhere", None::<Elsewhere>);
+        }
         other = None;
+    } else if !p.down {
+        st.elsewhere = None;
     }
     st.away = match (other, st.away) {
         (Some(to), Some((t, since))) if t.rect == to.rect => Some((t, since)),
@@ -459,6 +591,8 @@ fn move_to(app: &AppHandle, win: &tauri::WebviewWindow, to: Screen, shift: [f64;
         st.hidden_at = Some(Instant::now());
     }
     let _ = app.emit_to(LABEL, "neko-screen-moved", Moved { layout: to.layout, shift });
+    // 고양이가 떠난 모니터엔 선물 창을, 온 모니터의 선물 창은 숨긴다(메인 창이 neko-screens 로 선물을 다시 나눈다)
+    let _ = sync(app);
 }
 
 /// 화면 창: 고양이가 `side` 쪽 끝을 넘어갔다. 커서가 아직 그쪽 모니터에 있으면 창을 옮기고 true.
@@ -539,6 +673,33 @@ pub(crate) mod macos {
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
         fn CFRelease(cf: *const c_void);
+        fn CFUUIDGetUUIDBytes(uuid: *const c_void) -> UuidBytes;
+    }
+    /// CFUUIDBytes(바이트 16개짜리 구조체)
+    #[repr(C)]
+    struct UuidBytes([u8; 16]);
+    #[link(name = "ColorSync", kind = "framework")]
+    extern "C" {
+        fn CGDisplayCreateUUIDFromDisplayID(display: u32) -> *const c_void;
+    }
+
+    /// NSScreen 의 모니터 UUID. 모르면 0 으로 채운 값에 displayID 를 넣는다(그 세션 안에서만 같다).
+    unsafe fn display_uuid(screen: *mut AnyObject) -> [u8; 16] {
+        let desc: *mut AnyObject = msg_send![screen, deviceDescription];
+        let num: *mut AnyObject = msg_send![desc, objectForKey: ns_string(c"NSScreenNumber")];
+        if num.is_null() {
+            return [0; 16];
+        }
+        let display: u32 = msg_send![num, unsignedIntValue];
+        let uuid = CGDisplayCreateUUIDFromDisplayID(display);
+        if uuid.is_null() {
+            let mut b = [0; 16];
+            b[12..].copy_from_slice(&display.to_be_bytes());
+            return b;
+        }
+        let b = CFUUIDGetUUIDBytes(uuid).0;
+        CFRelease(uuid);
+        b
     }
 
     pub struct Probe {
@@ -576,7 +737,7 @@ pub(crate) mod macos {
             if i == 0 {
                 main_top = frame[1] + frame[3];
             }
-            out.push(Screen { rect: super::flip(frame, main_top), cocoa: frame, layout: super::layout_of(frame, visible) });
+            out.push(Screen { id: display_uuid(screen), rect: super::flip(frame, main_top), cocoa: frame, layout: super::layout_of(frame, visible) });
         }
         out
     }
@@ -764,7 +925,20 @@ mod tests {
     }
 
     fn screen(cocoa: [f64; 4], main_top: f64) -> Screen {
-        Screen { rect: flip(cocoa, main_top), cocoa, layout: layout_of(cocoa, cocoa) }
+        Screen { id: [cocoa[0] as u8; 16], rect: flip(cocoa, main_top), cocoa, layout: layout_of(cocoa, cocoa) }
+    }
+
+    #[test]
+    fn decor_windows_go_to_monitors_without_the_cat() {
+        let a = screen([0.0, 0.0, 1440.0, 900.0], 900.0);
+        let b = screen([1440.0, 0.0, 1920.0, 1080.0], 900.0);
+        let c = screen([-1280.0, 0.0, 1280.0, 800.0], 900.0);
+        let info = screens_info(&[a, b, c], Some(&b));
+        let decor: Vec<_> = info.screens.iter().map(|s| s.decor.as_deref()).collect();
+        assert_eq!(decor, [Some("neko-decor-0"), None, Some("neko-decor-1")]);
+        assert_eq!(info.cat, Some(uuid_str(&b.id)));
+        assert_eq!(info.main, uuid_str(&a.id));
+        assert_eq!(uuid_str(&[0xAB; 16]), "ABABABAB-ABAB-ABAB-ABAB-ABABABABABAB");
     }
 
     #[test]
