@@ -156,8 +156,8 @@ defineActivity("music", {
 
 | 경우 | 동작 |
 |---|---|
-| `side(key)` | 곁들임을 시작한다. 주 활동이 없거나 `mixable` 이 아니면 거절한다(`false` 를 돌려주고 `"side"` 이벤트는 `null`). |
-| `side(null)` | 곁들임을 끝낸다(소품이 쏙 들어간다). |
+| `mix(key)` | 곁들임을 시작한다. 주 활동이 없거나 `mixable` 이 아니면 거절한다(`false` 를 돌려주고 `"side"` 이벤트는 `null`). |
+| `mix(null)` | 곁들임을 끝낸다(소품이 쏙 들어간다). |
 | 주 활동이 바뀜 | 새 주 활동과도 되면 곁들임이 이어진다(헤드폰 그대로). 안 되면 곁들임을 끝낸다. |
 | 주 활동이 끝남 | 끝나는 이유는 `act(null)`, 한 번짜리가 끝남, 잡혀서 그만둠 중 하나다. 그러면 **곁들임이 주 활동으로 올라간다(이어받기).** 소품은 다시 뜨지 않는다. `"activity"` 이벤트로 `music` 을, `"side"` 이벤트로 `null` 을 보낸다. |
 | `act(k)` 이고 k 가 지금 곁들임 | 곁들임을 주 활동으로 옮긴다(이어받기와 같다). |
@@ -166,7 +166,10 @@ defineActivity("music", {
 | 상태 글자 | `with + " " + 주 활동 label`. 예: "음악 들으며 타이핑하는 중". |
 | 산책 팻말(`setAway`) | 지금처럼 `step` 이 멈춘다. 곁들임도 같이 멈춘다. |
 
-컨트롤러에 더할 것: `side(key | null): boolean`, `get side()`, 이벤트 `"side"`.
+컨트롤러에 더할 것: 메서드 `mix(key | null): boolean`, 게터 `side`, 이벤트 `"side"`.
+
+- 메서드와 게터 이름을 나눈다. 지금의 `act()` 메서드와 `activity` 게터의 짝과 같다.
+- 한 이름(`side`)에 둘을 두면 객체에 같이 둘 수 없다. 대리 프록시도 `"side"` 키 하나로 메서드를 넘기면서 게터 값으로 답해야 해서 부딪힌다.
 
 ### 1.9 22개 활동 선언
 
@@ -223,7 +226,7 @@ draw · typing · reading · stamp · window · think · wait · hungry · calen
   - 엔진의 활동 목록과 `MIX` 키가 같은지 확인한다. 선언이 빠진 활동이 있으면 실패한다.
   - 22개를 돌리는 동안 `cat.actP` 의 키를 모은다. §1.3 의 키 표에 없는 키가 있으면 실패한다. `pose()` 는 엔진 안에 있어서 순수 테스트로는 못 본다.
   - 음악을 곁들일 수 있는 10개 위에 음악을 얹고 12초씩 돌린다. 값이 유한한지, 헤드폰이 그려지는지, 상태 글자가 맞는지 본다.
-  - 안 되는 조합은 `side()` 가 거절하는지 본다.
+  - 안 되는 조합은 `mix()` 가 거절하는지 본다.
   - 이어받기를 본다. 타이핑+음악에서 `act(null)` 하면 음악이 주 활동이 되고 헤드폰이 다시 뜨지 않아야 한다.
   - 잡기와 화면 모드 크기(`?world=1&fixed=0.8`)도 본다.
 
@@ -232,7 +235,7 @@ draw · typing · reading · stamp · window · think · wait · hungry · calen
 - **잡기**: §1.8 대로다. 지금 `keepOnGrab` 이 있는 활동(음악·나비·털실·선물)은 그대로다.
 - **화면 모드**: 소품은 고양이 둘레 영역에 그려지고 머리를 따라간다. 따로 고칠 것은 없다. 헤드폰 크기는 화면 모드에서도 확인했다(62b32a9).
 - **대리 컨트롤러(`remoteNeko.ts`)**
-  - `side()` 는 프록시가 그대로 넘긴다.
+  - `mix()` 는 프록시가 그대로 넘긴다.
   - 고칠 것 둘:
     1. `side` 게터를 `activity` 처럼 대리에서 답한다. `"side"` 이벤트로 바로잡는다.
     2. 화면 창이 새로 열려 `ready` 가 오면, 지금 곁들임을 다시 보낸다(`setAway` 를 다시 보내는 것과 같은 자리).
@@ -248,11 +251,20 @@ draw · typing · reading · stamp · window · think · wait · hungry · calen
 - `types.ts`: `NekoPlan.side: NekoActivity | null`(기본 `null`).
 - `derive.ts`
   - 계획을 정한 뒤 마지막에 한 번 본다. `outside.music` 이고 `mixable(plan.activity, "music").ok` 면 `side = "music"`.
-  - 주 활동이 없고 음악만 나오면, 지금처럼 ambient 층이 `music` 을 주 활동으로 둔다(`outside.activity ?? (outside.music ? "music" : null)`).
+  - **주 활동이 없으면** 곁들임은 `null` 이다. 이때는 `mixable(null, …)` 을 부르지 않는다. 엔진도 주 활동이 없으면 거절한다.
+    - 주 활동이 없는 층: 졸기·누워 자기·기본 산책·힘없음·심심.
+    - 자는 동안에는 지금처럼 헤드폰이 없다.
+  - 다른 주 활동이 없고 음악이 나오면, 지금처럼 ambient 층이 `music` 을 주 활동으로 둔다(`outside.activity ?? (outside.music ? "music" : null)`). 기본 산책 중에 음악이 나올 때가 이 경우다.
   - 예: 다른 앱에서 타이핑 + 음악 → typing + music. 에이전트가 신문 읽기 + 음악 → reading + music. 세수 + 음악 → 세수만.
 - `scheduler.ts`
-  - 계획을 적용할 때 엔진의 `side` 와 `plan.side` 가 다르면 `ctrl.side(plan.side)` 를 부른다.
-  - 엔진이 곁들임을 끝내거나 이어받기를 하면 `"side"` / `"activity"` 이벤트가 온다. 그때 지금 계획으로 다시 맞춘다. 엔진이 끝낸 한 번짜리를 바로잡는 지금 방식과 같다.
+  - **보낼 곁들임** = `mixable(지금 엔진에서 도는 활동, plan.side).ok ? plan.side : null`. 이 값이 바뀔 때만 `ctrl.mix(…)` 를 보낸다.
+    - `plan.side` 는 `plan.activity` 로 정한 값이다. 머무름(dwell)이 걸리면 엔진에서는 이전 활동이 돈다.
+    - 그 활동과 안 맞는 곁들임을 보내면 엔진이 거절하고 `"side"` 이벤트로 `null` 을 보낸다. 스케줄러가 그걸 보고 다시 계획대로 보내면 끝없이 되풀이된다. 위 규칙이 이것을 막는다.
+  - **활동이 끝났다고 보는 조건을 바꾼다.**
+    - 지금은 `"activity"` 이벤트 값이 `null` 일 때만 끝으로 본다(`scheduler.ts` 의 `a === null && cur && cur.endedAt === null`). 이 값은 같은 한 번짜리를 다시 하기 전 간격(REPEAT_GAP)에도 쓰인다.
+    - 이어받기가 생기면, 발도장 + 음악에서 발도장이 끝날 때 `null` 이 아니라 `"music"` 이 온다. 그러면 `endedAt` 이 찍히지 않는다.
+    - 그래서 **`a !== cur.activity` 면 끝으로 본다**로 바꾼다. 우리가 시킨 `act()` 로 바뀐 건 지금처럼 무시한다.
+  - 엔진이 곁들임을 끝내면 `"side"` 이벤트가 온다. 그때 위 규칙으로 다시 맞춘다.
   - 곁들임에는 머무름(dwell)을 두지 않는다. 음악 확인은 15초마다라서 깜빡이지 않는다.
 - 혼자 놀기의 `SOLO` 에는 `music` 을 그대로 둔다. 혼자 앉아 음악만 듣는 놀이다. 곁들임과는 다른 경우라 두 갈래가 아니다.
 
@@ -422,12 +434,12 @@ draw · typing · reading · stamp · window · think · wait · hungry · calen
 
 - [ ] `activity-mix.js`(+`.d.ts`): 22개 선언, `mixable`, `mergePose`.
 - [ ] `activity-mix.test.ts`: 22×22 표 스냅샷, 여섯 규칙, 합치기.
-- [ ] 엔진: `side()` · `side` 게터 · `"side"` 이벤트, `add` 다섯 군데, 이어받기, 상태 글자, 소품 순서, 음악 `overlay`.
+- [ ] 엔진: `mix()` · `side` 게터 · `"side"` 이벤트, `add` 다섯 군데, 이어받기, 상태 글자, 소품 순서, 음악 `overlay`.
 - [ ] `regress.mjs`: 활동 목록 = `MIX` 키, pose 키 표 누락, 10개 + 음악 12초, 거절, 이어받기, 잡기, 화면 모드.
 - [ ] 하네스: 곁들임 칩(음악) 줄 하나.
 - [ ] 대리: `side` 게터, ready 때 다시 보냄, 테스트.
-- [ ] 감독: `OutsideState.music`, `NekoPlan.side`, derive 음악 규칙, 스케줄러 적용·바로잡기, 테스트.
-  - 테스트 경우: 타이핑+음악, 세수+음악은 세수만, 음악만이면 주 활동.
+- [ ] 감독: `OutsideState.music`, `NekoPlan.side`, derive 음악 규칙(주 활동 없으면 `null`), 스케줄러 적용(지금 도는 활동 기준)·끝남 조건(`a !== cur.activity`)·바로잡기, 테스트.
+  - 테스트 경우: 타이핑+음악, 세수+음악은 세수만, 음악만이면 주 활동, 졸기+음악은 곁들임 없음, 머무름 중 안 맞는 곁들임을 되풀이해 보내지 않음, 발도장+음악에서 발도장이 끝나면 `endedAt` 이 찍힘.
 - 검증: `npm run qa:neko`, `vitest`, `tsc`. 타이핑+음악, 신문+음악, 창밖+음악 스크린샷을 사용자에게 보인다. 실제 앱에서 음악을 틀고 다른 앱에서 타이핑해 본다.
 
 ### 2단계 — 고르기
@@ -457,7 +469,7 @@ draw · typing · reading · stamp · window · think · wait · hungry · calen
 | 개발 빌드 게이지 화면 | 미용사. 설정 화면을 다른 세션이 고치는 중이면 먼저 맞춤 | `NekoSettingsSection.tsx` |
 | 산책 귀가 한 줄 | 미용사 | `App.tsx` |
 
-1단계는 엔진 쪽(선언·`side()`)이 먼저 들어가야 감독 쪽을 붙일 수 있다. 엔진 쪽을 커밋하면 해시를 미용사에게 알린다.
+1단계는 엔진 쪽(선언·`mix()`)이 먼저 들어가야 감독 쪽을 붙일 수 있다. 엔진 쪽을 커밋하면 해시를 미용사에게 알린다.
 
 ## 사용자가 정할 것
 
