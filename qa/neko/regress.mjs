@@ -323,10 +323,18 @@ try {
         const box = (() => { for (let y = 0; y < n.floorY + 2; y += 2) for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, y)) return [x, y]; return null; })();
         out[`${play}/${surface}`] = { acted: acted > 30, moves, visible: !!box, carrying: n.carried().length };
       }
+      // 놀던 선물이 목록에서 빠지면(버리기·치우기·옮기기) 빈 자세로 멈추지 않고 그 판을 끝낸다
+      n.act(null); n.step(120); c.x = n.W * 0.75; c.vx = 0; n.step(60);
+      n.setDecor([{ id: "x", surface: "floor", u: 0.25, play: "sit_on", shape: shapes.flat }]); n.act("giftplay");
+      let acting = false; for (let i = 0; i < 120 * 20 && !acting; i++) { n.step(1); acting = c.mode === "act"; }
+      n.setDecor([]); n.step(30);
+      out.gone = { acting, mode: c.mode };
+      n.act(null);
       return out;
     });
     const ok = (k, needMove) => r[k].acted && r[k].visible && r[k].carrying === 0 && (!needMove || r[k].moves > 0);
     check("선물 갖고 놀기: 굴리기·물고 옮기기는 옮겨 놓고 decorMove", `굴리기 ${JSON.stringify(r["roll/floor"])} · 물기 ${JSON.stringify(r["carry/floor"])}`, ok("roll/floor", true) && ok("carry/floor", true));
+    check("선물 갖고 놀기: 놀던 선물이 빠지면(버리기 등) 빈 자세로 멈추지 않고 끝낸다", JSON.stringify(r.gone), r.gone.acting && r.gone.mode !== "act");
     check("선물 갖고 놀기: 톡·냄새·위에 앉기·벽 올려다보기", ["bat/floor", "sniff/floor", "sit_on/floor", "sniff/wall"].map((k) => `${k} ${r[k].acted}`).join(" · "), ["bat/floor", "sniff/floor", "sit_on/floor", "sniff/wall"].every((k) => ok(k, false)));
     await p.close();
   }

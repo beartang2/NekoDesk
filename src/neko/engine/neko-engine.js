@@ -3234,7 +3234,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     step(A, dt) {
       const c = cat, d = giftOf(A);
       if (A.stage === "rest") { if ((A.rest -= dt) <= 0) pickGift(A); return; }
-      if (!d) return;
+      // 놀던 선물이 목록에서 빠졌다(버리기·치우기·다른 장소로 옮김): 'act' 에선 wander 가 안 돌아 빈 자세로 멈췄다. 쉬었다 다시 고른다
+      if (!d) { A.stage = "rest"; A.rest = rand(1, 2); if (c.mode === "act") setMode("idle"); return; }
       if (A.stage === "rolling") { if (!d.vx) { A.stage = A.kicks < 2 ? "go" : "done"; if (A.stage === "done") giftDone(A); } return; }
       if (c.mode !== "act") return;
       const prev = A.dt; A.dt += dt;
