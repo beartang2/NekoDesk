@@ -2293,7 +2293,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      px 로 굳히지 않으니 자리를 옮기거나 높이를 끌어도 같은 자리·같은 배율에 있다(소품 배율 버그와 같은 문제가 안 생긴다).
      잡고 끌면 옮기고(decorMove), 우클릭하면 그 옆에 '정리' 버튼을 띄울 자리를 알린다(decorMenu) — 저장·버튼은 호스트 몫.
      설계: docs/neko-gifts.md §4 */
-  // 크기·자리 계산과 그리기는 decor-draw.js(모니터별 선물 창과 같이 쓴다 — 고양이가 건너가 이어받을 때 안 튀게)
+  // 크기·자리 계산과 그리기는 decor-draw.js(화면 모드의 선물 창과 같이 쓴다 — 엔진이 잡았다 놓을 때 안 튀게)
   // 노는 방식(§5). 모델이 고르고, 없으면 모양으로 짐작한다: 납작하면 위에 앉기, 동글면 굴리기, 그 밖엔 앞발로 톡
   const PLAYS = new Set(["roll", "bat", "sniff", "sit_on", "carry", "scratch", "lean", "hide"]);
   // 큰 물건 놀이: 큰 걸 물고 옮기거나 굴리는 건 어색해서 이걸로 바꾼다. 작거나 중간 크기는 이걸 못 한다(냄새만)
@@ -2305,7 +2305,6 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   let decor = [];          // { id, surface, u, v, shape, t0, box }
   let decorDrag = null;    // { id, pointerId, dx, dy, x, bottom } 끄는 중(무대 px)
   function setDecor(items) {
-    decorDirty = true;
     // 갖고 노는 중인 물건(굴러가는 자리·입에 문 상태)은 다시 넣어도 이어 간다
     const prev = new Map(decor.map((d) => [d.id, d]));
     decor = (items || []).filter((d) => d && d.id != null && Number.isFinite(d.u)).map((d) => {
@@ -2313,12 +2312,18 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       return {
         id: String(d.id), surface: d.surface === "wall" ? "wall" : "floor", u: clamp(d.u, 0, 1), v: clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1),
         shape, play: PLAYS.has(d.play) ? d.play : defaultPlay(shape), k: sizeK(d.size),
-        t0: o ? o.t0 : time, box: null, // 새로 놓인 것만 '뿅'
+        // 새로 놓인 것만 '뿅'. 화면 모드는 안 한다 — 선물 창이 멈춘 그림으로 그린다(모니터를 건너가도 다 뿅 하지 않게)
+        t0: o ? o.t0 : WORLD ? -1e9 : time, box: null, showTo: o ? o.showTo : 0,
         px: o ? o.px : null, rot: o ? o.rot : 0, wob: o ? o.wob : new Spring(0), hidden: o ? o.hidden : false, front: o ? o.front : false,
         // 마지막으로 놀아 준 때(호스트가 decorPlayed 를 저장해 돌려준다). 없으면 한 번도 안 논 것
         lastPlayed: Number.isFinite(d.lastPlayed) ? d.lastPlayed : o ? o.lastPlayed : null,
       };
     });
+    // 빠진 물건을 입에 물고 있었으면 입에서도 뺀다(다른 모니터로 건너가며 목록이 바뀜 등)
+    for (let i = carrying.length - 1; i >= 0; i--) {
+      const cid = String(carrying[i].id);
+      if (cid.startsWith("decor:") && !decor.some((d) => "decor:" + d.id === cid)) carrying.splice(i, 1);
+    }
   }
   const sizeK = DD.sizeK;
   const geomNow = () => ({ W, floorY, S });
@@ -2341,10 +2346,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const sc = popIn(time - d.t0).map((k) => k * (L.drag ? 1.08 : 1)); // 들어 올린 느낌
     DD.paintDecor(g, d.shape, L, geomNow(), { shadow: theme.shadow, sc, rot: d.rot, wob: d.wob.x, edge: (L.drag ? 7 : 4) * DPR });
   }
-  /** 고양이 뒤에 그릴 물건들(front: 뒤에 숨기 동안 앞에 그릴 것은 빼고). 누르기 판정용 칸도 여기서 정한다 */
+  /** 고양이 뒤에 그릴 물건들(front: 뒤에 숨기 동안 앞에 그릴 것은 빼고). 누르기 판정용 칸도 여기서 정한다.
+   *  화면 모드는 잡은 것(과 놓은 뒤 잠깐)만 — 나머지는 선물 창이 그리고 누르기도 받는다 */
   function drawDecor(g = ctx, front = false) {
     for (const d of decor) {
-      if (d.hidden) { d.box = null; continue; } // 고양이가 물고 있다(입에 물기로 그린다)
+      // 고양이가 물고 있다(입에 물기로 그린다)
+      if (d.hidden || (WORLD && !(time < d.showTo))) { d.box = null; continue; }
       if (!!d.front !== front) continue;
       const L = decorLayout(d);
       d.box = { x: L.x - L.w / 2, y: L.bottom - L.h, w: L.w, h: L.h };
@@ -2352,35 +2359,23 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
   }
 
-  /* 화면 모드(world)의 선물 캔버스: 고양이 캔버스는 고양이 둘레만 덮어 멀리 놓인 선물을 못 그린다. 호스트가 준 캔버스
-     하나를 놓인 선물을 다 감싸는 칸(바닥 선물만이면 바닥 띠)으로 맞춰 고양이 캔버스 밑에 두고, 선물이 바뀌거나
-     움직일 때(뿅·흔들림·구르기·끌기)만 다시 그린다. 자리 기준은 세계 폭과 바닥(setGround). */
-  const DECOR_CV = WORLD && options.decorCanvas ? options.decorCanvas : null;
-  const dctx = DECOR_CV ? DECOR_CV.getContext("2d") : null;
-  let decorDirty = true, DRX = 0, DRY = 0;
-  const decorMoving = (d) => time - d.t0 < 1.2 || Math.abs(d.wob.x) > 1e-3 || Math.abs(d.wob.v) > 1e-3 || !!d.vx || (!!decorDrag && decorDrag.id === d.id);
-  function drawDecorLayer() {
-    if (!decorDirty && !decor.some(decorMoving)) return;
-    decorDirty = false;
-    const items = decor.filter((d) => !d.hidden && !d.front).map((d) => [d, decorLayout(d)]);
-    for (const d of decor) if (d.hidden) d.box = null;
-    if (!items.length) { DECOR_CV.style.width = "0px"; DECOR_CV.style.height = "0px"; return; }
-    const pad = 14 * S; // 그림자·흐린 가장자리·'뿅' 커지는 만큼
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const [, L] of items) { x0 = Math.min(x0, L.x - L.w / 2); x1 = Math.max(x1, L.x + L.w / 2); y0 = Math.min(y0, L.bottom - L.h); y1 = Math.max(y1, Math.max(L.bottom, floorY + 4 * S)); }
-    DRX = Math.floor((x0 - pad) * DPR) / DPR; DRY = Math.floor((y0 - pad) * DPR) / DPR;
-    const w = Math.ceil((x1 + pad - DRX) * DPR) / DPR, h = Math.ceil((y1 + pad - DRY) * DPR) / DPR;
-    DECOR_CV.style.width = w + "px"; DECOR_CV.style.height = h + "px";
-    DECOR_CV.style.transform = `translate(${DRX}px, ${DRY}px)`;
-    const bw = Math.round(w * DPR), bh = Math.round(h * DPR);
-    if (DECOR_CV.width !== bw || DECOR_CV.height !== bh) { DECOR_CV.width = bw; DECOR_CV.height = bh; }
-    dctx.setTransform(1, 0, 0, 1, 0, 0); dctx.clearRect(0, 0, bw, bh);
-    dctx.setTransform(DPR, 0, 0, DPR, -DRX * DPR, -DRY * DPR);
-    for (const [d, L] of items) { d.box = { x: L.x - L.w / 2, y: L.bottom - L.h, w: L.w, h: L.h }; drawDecorItem(dctx, d, L); }
+  /* 화면 모드(world): 마당 선물은 모니터마다 선물 창이 그리고 만진다(docs/neko-screen-mode.md §8-1). 고양이 캔버스는
+     고양이 둘레만 덮으니 엔진은 지금 '잡은' 것 — 입에 묾·뒤에 숨기·굴림·옮김·흔들림·끌기 — 만 그리고, 잡은 목록이 바뀌면
+     decorHeld 로 알린다(선물 창은 그걸 빼고 그린다). 위에 앉기·기대기·냄새는 선물이 그대로라 안 잡는다(고양이 창이 위다).
+     풀리면 바로 목록에서 빼되 HOLD_GRACE 동안 더 그린다 — 선물 창이 받아 그리기 전 한두 프레임 비지 않게(그림자가 잠깐 겹친다) */
+  const HOLD_GRACE = 0.3;
+  const held = (d) => d.hidden || d.front || !!d.px || !!d.vx || Math.abs(d.wob.x) > 1e-3 || Math.abs(d.wob.v) > 1e-3 || (!!decorDrag && decorDrag.id === d.id);
+  let heldKey = "";
+  function syncHeld() {
+    const ids = [];
+    for (const d of decor) if (held(d)) { ids.push(d.id); d.showTo = time + HOLD_GRACE; }
+    const key = ids.join("\n");
+    if (key !== heldKey) { heldKey = key; emit("decorHeld", ids); }
   }
 
   /** 놓아 둔 물건의 움직임: 흔들림이 가라앉고, 굴러가는 건 구르다 선다 */
   function decorStep(dt) {
+    if (WORLD) syncHeld();
     for (const d of decor) {
       d.wob.step(0, 160, 7, dt);
       if (d.vx) {
@@ -2395,7 +2390,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function settleDecor(d) {
     if (!d || !d.px) return;
     const spot = spotOf(d.px[0], d.px[1], decorDims(d.shape, d.k).h);
-    Object.assign(d, spot); d.px = null; d.vx = 0; decorDirty = true;
+    Object.assign(d, spot); d.px = null; d.vx = 0;
     emit("decorMove", { id: d.id, ...spot });
   }
 
@@ -3224,7 +3219,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function giftDone(A, rest = rand(2, 4)) {
     const d = giftOf(A);
     settleDecor(d);
-    if (d) { d.front = false; decorDirty = true; d.lastPlayed = Date.now(); emit("decorPlayed", { id: d.id, at: d.lastPlayed }); }
+    if (d) { d.front = false; d.lastPlayed = Date.now(); emit("decorPlayed", { id: d.id, at: d.lastPlayed }); }
     A.stage = "rest"; A.rest = rest;
     if (cat.mode === "act") setMode("idle");
   }
@@ -3249,8 +3244,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
           if (Math.floor(A.dt / 0.32) > Math.floor(prev / 0.32)) d.wob.v += (Math.floor(A.dt / 0.32) % 2 ? 0.5 : -0.5);
           if (A.dt > 3.2) giftDone(A); break;
         case "lean": if (A.dt > 8) giftDone(A, rand(3, 5)); break; // 기대어 잔다
-        case "hide": // 뒤에 숨는 동안만 물건이 앞에(화면 모드는 선물 캔버스에서 빼고 고양이 캔버스에)
-          if (!d.front) { d.front = true; decorDirty = true; }
+        case "hide": // 뒤에 숨는 동안만 물건이 앞에(화면 모드는 엔진이 잡아 고양이 캔버스에)
+          d.front = true;
           if (A.dt > 4.6) giftDone(A); break;
         case "bat": // 0.8초마다 톡, 세 번
           if (Math.floor((A.dt - 0.27) / 0.8) > Math.floor((prev - 0.27) / 0.8) && Math.abs(p.x - ahead(44)) < 26 * S) d.wob.v += c.face * 5;
@@ -3263,12 +3258,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
           break;
         case "carry":
           if (A.stage === "go" && A.dt > 0.45) { // 물었다: 바닥에서 감추고 입에 문다, 놓을 곳으로
-            d.hidden = true; decorDirty = true; carrying.push({ id: "decor:" + d.id, kind: "shape", shape: d.shape, k: d.k });
+            d.hidden = true; carrying.push({ id: "decor:" + d.id, kind: "shape", shape: d.shape, k: d.k });
             const m = decorM() + p.h, far = c.x < W / 2 ? [W / 2, W - m] : [m, W / 2];
             A.dest = clamp(rand(far[0], far[1]), EDGE * S, W - EDGE * S); A.stage = "move"; setMode("idle");
           } else if (A.stage === "move" && A.dt > 0.45) { // 내려놓는다
             const i = carrying.findIndex((o) => o.id === "decor:" + d.id); if (i >= 0) carrying.splice(i, 1);
-            d.hidden = false; decorDirty = true; d.px = [clamp(ahead(26), decorM() + p.h / 2, W - decorM() - p.h / 2), floorY]; d.t0 = time; // 내려놓으며 '뿅'
+            d.hidden = false; d.px = [clamp(ahead(26), decorM() + p.h / 2, W - decorM() - p.h / 2), floorY]; d.t0 = time; // 내려놓으며 '뿅'
             giftDone(A);
           }
           break;
@@ -3303,9 +3298,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     },
     end(A) { // 그만하라면: 물고 있던 건 그 자리에 내려놓고, 굴러가던 건 선 자리로
       const d = giftOf(A); if (!d) return;
-      d.front = false; decorDirty = true;
+      d.front = false;
       const i = carrying.findIndex((o) => o.id === "decor:" + d.id);
-      if (i >= 0) { carrying.splice(i, 1); d.hidden = false; decorDirty = true; d.px = [clamp(ahead(26), decorM(), W - decorM()), floorY]; }
+      if (i >= 0) { carrying.splice(i, 1); d.hidden = false; d.px = [clamp(ahead(26), decorM(), W - decorM()), floorY]; }
       if (d.px) { d.vx = 0; settleDecor(d); }
     },
   });
@@ -3928,7 +3923,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     ctx.beginPath(); ctx.ellipse(c.x + c.face * 6 * S, floorY + 1.5 * S, 58 * S * (0.55 + 0.45 * k), 6.5 * S * (0.55 + 0.45 * k), 0, 0, TAU); ctx.fill();
     ctx.restore();
 
-    if (DECOR_CV) drawDecorLayer(); else drawDecor(); // 화면 모드는 선물 캔버스에(고양이 캔버스는 고양이 둘레뿐)
+    drawDecor();
     drawActBack();
     composeCat();
 
@@ -3966,20 +3961,19 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       press = null; decorDrag = null; canvas.classList.remove("dragging", "can-grab");
       emit("label", "산책 중");
     } else if (!on && AWAY) {
-      AWAY = null; decorDirty = true;
+      AWAY = null;
       if (GROUND.has(cat.mode)) startTailEp("up", 2.6); // 다녀왔다: 꼬리를 세워 반긴다
     }
   }
   /** 산책 중 그리기: 팻말이 '뿅' 나오는 동안만 다시 그리고, 다 서면 그대로 둔다(마당 선물은 따로 그대로) */
   function drawAway() {
-    if (DECOR_CV) drawDecorLayer();
     const pop = popIn(time - AWAY.t0);
     if (AWAY.drawn && time - AWAY.t0 > 1.2) return;
     AWAY.drawn = true;
     if (WORLD) { RX = Math.round((AWAY.x - RW / 2) * DPR) / DPR; RY = Math.round((floorY - RH * 0.85) * DPR) / DPR; canvas.style.transform = `translate(${RX}px, ${RY}px)`; }
     baseXf();
     ctx.clearRect(RX, RY, RW, RH);
-    if (!DECOR_CV) drawDecor();
+    drawDecor();
     const bd = shapeBounds(SIGN), u = (SIGN_H * S) / bd.h, x = AWAY.x;
     ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = theme.shadow; // 바닥 그림자
     ctx.beginPath(); ctx.ellipse(x, floorY + 1 * S, 9 * S, 2.4 * S, 0, 0, TAU); ctx.fill(); ctx.restore();
@@ -4025,7 +4019,6 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       setBacking(W, H);
     }
     if (W0 > 1 && (S !== S0 || W !== W0 || floorY !== F0)) rescaleWorld(W0, S0, F0);
-    decorDirty = true;
     if (AWAY) AWAY.drawn = false; // 캔버스 크기가 바뀌면 지워지니 팻말을 다시 그린다
     // 화면 모드는 다른 모니터로 건너가는 중일 수 있어 창 폭으로 가두지 않는다(옮기기는 shiftWorld)
     if (!WORLD || !cat.x) cat.x = clamp(cat.x || W * 0.45, 70 * S, W - 70 * S);
@@ -4097,7 +4090,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (decorDrag) { decorDrag.x += dx; decorDrag.bottom += dy; }
     for (const j of c.jig) j.init = false;
     c.tailRoot.init = false; // 순간이동한 뿌리를 빠른 움직임으로 읽지 않게
-    edgeFired = null; decorDirty = true;
+    edgeFired = null;
     if (AWAY) { AWAY.x += dx; AWAY.drawn = false; }
     if (!paused) draw(); // 다시 보이는 첫 프레임부터 새 자리에
   }
@@ -4185,8 +4178,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
     if (decorDrag && e.pointerId === decorDrag.pointerId) { // 바닥 아래로는 안 내려가고 무대 위로도 안 나간다
       const d = decor.find((o) => o.id === decorDrag.id), h = d ? decorDims(d.shape, d.k).h : 0;
-      decorDrag.x = clamp(x - decorDrag.dx, decorM(), W - decorM());
-      decorDrag.bottom = clamp(y - decorDrag.dy, h + 10 * S, floorY);
+      [decorDrag.x, decorDrag.bottom] = DD.clampDrag(h, geomNow(), x - decorDrag.dx, y - decorDrag.dy);
       return;
     }
     if (press && e.pointerId === press.id && !press.grabbing &&
@@ -4203,7 +4195,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       if (d) {
         const spot = spotOf(decorDrag.x, decorDrag.bottom, decorDims(d.shape, d.k).h);
         Object.assign(d, spot.surface === "wall" ? spot : { ...spot, v: d.v }); // 호스트가 다시 넣기 전까지도 제자리에
-        decorDirty = true;
+        d.px = null; d.vx = 0; // 굴러가던 걸 잡아 옮겼으면 굴러가던 자리로 돌아가지 않게
         emit("decorMove", { id: d.id, ...spot });
       }
       decorDrag.el.classList.remove("dragging"); decorDrag = null;
@@ -4221,17 +4213,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     e.preventDefault();
     emit("decorMenu", { id, x: d.box.x + d.box.w, y: d.box.y });
   }
-  for (const el of DECOR_CV ? [canvas, DECOR_CV] : [canvas]) {
-    el.addEventListener("pointerdown", onPointerDown);
-    el.addEventListener("pointermove", onPointerMove);
-    el.addEventListener("pointerup", endPress);
-    el.addEventListener("pointercancel", endPress);
-    el.addEventListener("contextmenu", onContextMenu);
-  }
+  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerup", endPress);
+  canvas.addEventListener("pointercancel", endPress);
+  canvas.addEventListener("contextmenu", onContextMenu);
   canvas.addEventListener("keydown", (e) => {
     if (e.code === "Space" || e.key === "Enter") { e.preventDefault(); nyang(); emit("nyang"); }
   });
-  for (const el of DECOR_CV ? [canvas, DECOR_CV] : [canvas]) el.addEventListener("pointerleave", () => { if (!press) el.classList.remove("can-grab"); });
+  canvas.addEventListener("pointerleave", () => { if (!press) canvas.classList.remove("can-grab"); });
   // 탭 = 쓰다듬기(웃는 눈·하트·꼬리 물음표), 0.32초 안에 두 번 = '냥' 점프
   let lastTap = 0;
   function tap() {

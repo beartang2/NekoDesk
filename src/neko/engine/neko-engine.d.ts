@@ -93,6 +93,11 @@ export interface NekoEvents {
   decorMove: { id: string } & NekoDecorSpot;
   /** 놓아 둔 물건을 우클릭함: (x, y) = 그 물건 오른쪽 위(무대 px). 호스트가 거기에 '정리' 버튼을 띄운다 */
   decorMenu: { id: string; x: number; y: number };
+  /**
+   * 화면 모드(world)만: 엔진이 지금 그리는 선물 id 전부(입에 묾·뒤에 숨기·굴림·옮김·흔들림·끌기). 바뀔 때만, 처음엔 없음.
+   * 나머지는 선물 창이 그린다 — 선물 창은 이 id 를 빼고 그린다. 빠진 id 는 엔진이 0.3초 더 그려 바꿔 그리는 틈을 메운다
+   */
+  decorHeld: string[];
 }
 
 export interface NekoOptions {
@@ -106,11 +111,8 @@ export interface NekoOptions {
   world?: boolean;
   /** 크기 고정(0.35~1.4). 없으면 무대 크기로 정한다 */
   scale?: number;
-  /**
-   * 화면 모드(world) 전용: 놓아 둔 선물을 그릴 캔버스. 호스트가 고양이 캔버스 밑에 position: fixed; left: 0; top: 0 으로 깐다.
-   * 엔진이 놓인 선물을 감싸는 칸으로 크기·자리(style.transform)를 맞추고, 선물이 바뀌거나 움직일 때만 다시 그린다. 없으면 선물을 안 그린다
-   */
-  decorCanvas?: HTMLCanvasElement;
+  /** 안 쓴다(마당 선물은 선물 창이 그린다). NekoScreen 이 넘기지 않게 되면 지운다 */
+  decorCanvas?: unknown;
   /** 기본 "height": 무대 높이로 크기를 정한다 */
   scaleMode?: "height" | "stage";
   maxDpr?: number;
@@ -186,7 +188,8 @@ export interface NekoController {
   carried(): NekoCarried[];
   /**
    * 무대에 놓아 둔 물건(선물). 바닥: u = 양끝 여백을 뺀 무대 폭 비율 0~1. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율 0~1.
-   * 새로 놓인 것만 '뿅' 하고 나온다. 잡고 끌면 decorMove, 우클릭하면 decorMenu(저장·버튼은 호스트)
+   * 새로 놓인 것만 '뿅' 하고 나온다. 잡고 끌면 decorMove, 우클릭하면 decorMenu(저장·버튼은 호스트).
+   * 화면 모드(world)는 자리·크기만 쓰고(놀 것 고르기·피하기) 그리기·누르기는 잡은 것만(decorHeld). 뿅은 없다
    */
   setDecor(items: ({ id: string; shape: unknown; play?: NekoGiftPlay; size?: NekoGiftSize; lastPlayed?: number } & NekoDecorSpot)[]): void;
   /** 놓아 둔 물건 수(감독이 '선물 갖고 놀기'를 고를지 볼 때) */

@@ -452,7 +452,9 @@ try {
     await p.close();
   }
 
-  // 9-k) 마당(화면 모드)의 선물 캔버스: 고양이에서 멀리 놓인 선물도 그리고 누를 수 있다. 자리 기준은 세계 폭·바닥
+  // 9-k) 마당(화면 모드) 선물은 모니터마다 선물 창이 그리고 만진다(&decor=1 이 흉내). 엔진은 갖고 노는 동안 잡은 것만
+  //      그리고 decorHeld 로 알린다: 가만있는 건 엔진이 안 그리고 누르기도 안 받는다. 굴리면 잡고(선물 창은 빼고 그림),
+  //      끝나면 목록에서 빠지고 0.3초쯤 더 그린 뒤 선물 창에 넘긴다. 문 채로 목록에서 빠지면 입에서도 빠진다
   {
     const p = await browser.newPage({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 });
     p.on("pageerror", (e) => errors.push(String(e)));
@@ -460,28 +462,44 @@ try {
     await p.waitForFunction(() => window.__nekoReady === true);
     await p.click("#wander");
     const r = await p.evaluate(() => {
-      const n = window.__neko, cv = document.getElementById("decor"), shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
-      n.setGround(760); n.step(60); n.cat.x = 700; n.step(60);
+      const n = window.__neko, gw = window.__giftWin, c = n.cat, cv = document.getElementById("decor"), shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      const inked = () => { const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data; let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) k++; return k; };
+      const engineHit = () => { for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, n.floorY - 8)) return true; return false; };
+      const heldEv = []; n.on("decorHeld", (ids) => heldEv.push(ids.join(",")));
+      n.setGround(760); n.step(60); c.x = 700; n.step(60);
+      // 가만있는 선물: 선물 창만 그린다(멀리 있어도), 엔진은 안 그리고 안 누른다, 잡은 것 없음
       n.setDecor([{ id: "l", surface: "floor", u: 0.02, shape }, { id: "r", surface: "floor", u: 0.98, shape }]);
-      n.step(200); n.draw();
-      const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(cv.style.transform), x0 = m ? +m[1] : NaN, w = parseFloat(cv.style.width);
-      const inked = (() => { const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data; let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) k++; return k; })();
-      const farHit = n.hitDecor(16 * 0.8 + 0.02 * (n.W - 32 * 0.8), 760 - 6) === "l" && n.hitDecor(16 * 0.8 + 0.98 * (n.W - 32 * 0.8), 760 - 6) === "r";
-      const span = x0 < 40 && x0 + w > n.W - 40;
-      // 움직임이 없으면 다시 안 그린다(같은 그림): 몇 프레임 지나도 캔버스 크기·자리 그대로
-      const before = cv.style.transform; n.step(120); n.draw(); const still = cv.style.transform === before;
-      // 선물 캔버스를 직접 눌러 끌고, 우클릭하면 엔진에 닿는다(고양이 캔버스 둘레 밖)
-      const ev = []; n.on("decorMove", (e) => ev.push(["move", e])); n.on("decorMenu", (e) => ev.push(["menu", e]));
-      const lx = 16 * 0.8 + 0.02 * (n.W - 32 * 0.8), fire = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 9, bubbles: true }));
-      fire("pointerdown", lx, 754); fire("pointermove", lx + 120, 754); fire("pointerup", lx + 120, 754);
-      n.step(30); n.draw();
-      cv.dispatchEvent(new MouseEvent("contextmenu", { clientX: lx + 120, clientY: 754, bubbles: true, cancelable: true }));
-      const moved = ev.find(([k]) => k === "move"), menu = ev.find(([k]) => k === "menu");
-      const viaCanvas = !!moved && moved[1].id === "l" && moved[1].u > 0.02 && !!menu && menu[1].id === "l";
-      return { span, inked: inked > 100, farHit, still, viaCanvas };
+      n.step(60); n.draw();
+      const still = { win: inked() > 100, engine: engineHit(), ev: heldEv.length };
+      // 굴리기: 잡은 동안 선물 창은 빼고 그리고 엔진이 그린다(누를 수도 있다)
+      n.setDecor([{ id: "g", surface: "floor", u: 0.45, play: "roll", shape }]); n.step(10);
+      n.act("giftplay");
+      let heldFrames = 0, swapOk = true, released = -1, graceDrawn = null;
+      for (let i = 0; i < 120 * 30 && released < 0; i++) {
+        n.step(1);
+        if (gw.held.includes("g")) {
+          heldFrames++;
+          if (heldFrames % 15 === 1) { n.draw(); if (inked() !== 0 || !engineHit()) swapOk = false; }
+        } else if (heldFrames) released = i;
+      }
+      if (released >= 0) { n.step(12); n.draw(); graceDrawn = engineHit(); } // 0.1초 뒤: 엔진이 아직 그린다
+      n.act(null); n.step(60); n.draw(); // 0.6초 뒤: 엔진은 안 그리고 선물 창이 새 자리에
+      const after = { engine: engineHit(), win: inked() > 100, last: heldEv[heldEv.length - 1] };
+      // 물고 옮기다 목록에서 빠짐(다른 모니터로 건너감 등): 잡은 목록과 입에서 빠진다
+      n.setDecor([{ id: "m", surface: "floor", u: 0.45, play: "carry", shape }]); n.step(10);
+      n.act("giftplay");
+      let carried = false;
+      for (let i = 0; i < 120 * 30 && !carried; i++) { n.step(1); carried = n.carried().length > 0 && gw.held.includes("m"); }
+      n.setDecor([]); n.step(2);
+      const gone = { carried, mouth: n.carried().length, last: heldEv[heldEv.length - 1] };
+      n.act(null);
+      return { still, heldFrames, swapOk, released: released >= 0, graceDrawn, after, gone };
     });
-    check("마당 선물 캔버스: 멀리 놓인 선물까지 감싸 그리고 누를 수 있다", `감쌈 ${r.span} · 그림 ${r.inked} · 누르기 ${r.farHit} · 가만있으면 그대로 ${r.still}`, r.span && r.inked && r.farHit && r.still);
-    check("마당 선물 캔버스: 그 캔버스를 눌러 끌어 옮기고 우클릭하면 엔진에 닿는다", `끌기·우클릭 ${r.viaCanvas}`, r.viaCanvas);
+    check("마당 선물: 가만있는 건 선물 창만 그린다(엔진은 안 그리고 안 누른다)", JSON.stringify(r.still), r.still.win && !r.still.engine && r.still.ev === 0);
+    check("마당 선물: 굴리는 동안 엔진이 잡고(decorHeld) 그리며 선물 창은 뺀다, 놓으면 0.3초쯤 더 그리고 넘긴다",
+      `잡음 ${r.heldFrames}프레임 · 바꿔 그림 ${r.swapOk} · 놓음 ${r.released} · 잠깐 더 ${r.graceDrawn} · 뒤 ${JSON.stringify(r.after)}`,
+      r.heldFrames > 30 && r.swapOk && r.released && r.graceDrawn === true && !r.after.engine && r.after.win && r.after.last === "");
+    check("마당 선물: 물고 있던 게 목록에서 빠지면 잡은 목록·입에서도 빠진다", JSON.stringify(r.gone), r.gone.carried && r.gone.mouth === 0 && r.gone.last === "");
     await p.close();
   }
 

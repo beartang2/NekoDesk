@@ -18,10 +18,21 @@ export function decorAt(d: { surface: "floor" | "wall"; u: number; v?: number },
 export function spotOf(x: number, bottom: number, h: number, g: DecorGeom): NekoDecorSpot;
 export function paintDecor(g: CanvasRenderingContext2D, shape: GiftShape, L: DecorBox & { x: number; bottom: number; onFloor: boolean }, geom: DecorGeom,
   o?: { shadow?: string; sc?: [number, number]; rot?: number; wob?: number; edge?: number }): void;
+/** 끄는 중인 물건(높이 h)을 무대 안에 묶는다(엔진 끌기와 같다). [x, bottom] */
+export function clampDrag(h: number, g: DecorGeom, x: number, bottom: number): [number, number];
+/** 사용자가 끄는 물건: 물건 가운데 x, 바닥 y(css px). 잡은 점과 칸 가운데·바닥의 차이는 창이 기억해 뺀다 */
+export interface DecorDrag { id: string; x: number; bottom: number }
+interface DecorView { W: number; floorY: number; scale: number }
 /**
  * 엔진 없이 선물만 그린다(모니터별 선물 창). 캔버스를 W×H(css px) × dpr 로 맞추고 다 지운 뒤 그린다.
- * 멈춘 모양이다 — 바뀔 때만 부르면 된다. scale 은 엔진 setScale 과 같은 값(0.35~1.4 로 묶임)
+ * 멈춘 모양이다 — 바뀔 때만 부르면 된다. scale 은 엔진 setScale 과 같은 값(0.35~1.4 로 묶임).
+ * drag: 끄는 물건을 그 자리(엔진처럼 묶음)에 들어 올린 모양으로 맨 위에
  */
-export function drawDecor(canvas: HTMLCanvasElement, items: DecorItem[], o: { W: number; H: number; floorY: number; scale: number; dpr?: number; dark?: boolean }): void;
-/** 이 점(css px)이 놓인 물건 위면 그 id. drawDecor 와 같은 자리 */
-export function hitDecorAt(items: DecorItem[], o: { W: number; floorY: number; scale: number }, x: number, y: number): string | null;
+export function drawDecor(canvas: HTMLCanvasElement, items: DecorItem[],
+  o: { W: number; H: number; floorY: number; scale: number; dpr?: number; dark?: boolean; drag?: DecorDrag | null }): void;
+/** 놓인 물건마다 그린 칸(css px, 그린 순서). 누르기 판정·'정리' 버튼 자리(엔진은 x + w, y) */
+export function decorBoxes(items: DecorItem[], o: DecorView): { id: string; x: number; y: number; w: number; h: number }[];
+/** 이 점(css px)이 놓인 물건 위면 그 id(위에 그린 것부터). drawDecor 와 같은 자리 */
+export function hitDecorAt(items: DecorItem[], o: DecorView, x: number, y: number): string | null;
+/** 끄는 중: 실제로 그릴 자리(묶음)와 놓을 자리(spot → gifts place). 없는 id 면 null */
+export function dragDecor(items: DecorItem[], o: DecorView, id: string, x: number, bottom: number): { x: number; bottom: number; spot: NekoDecorSpot } | null;
