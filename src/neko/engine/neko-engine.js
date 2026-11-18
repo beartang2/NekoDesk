@@ -2331,7 +2331,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const keep = o && o.surface === surface && o.u === u && (surface === "floor" || o.v === v);
       return {
         id: String(d.id), surface, u, v,
-        shape, play: PLAYS.has(d.play) ? d.play : defaultPlay(shape), k: sizeK(d.size),
+        shape, play: PLAYS.has(d.play) ? d.play : defaultPlay(shape), size: d.size, scale: d.scale, at: d.at, k: 1,
         // 새로 놓인 것만 '뿅'. 화면 모드는 안 한다 — 선물 창이 멈춘 그림으로 그린다(모니터를 건너가도 다 뿅 하지 않게)
         t0: o ? o.t0 : WORLD ? -1e9 : time, box: null, showTo: o ? o.showTo : 0,
         px: keep ? o.px : null, vx: keep ? o.vx : 0, rot: o ? o.rot : 0, wob: o ? o.wob : new Spring(0), hidden: o ? o.hidden : false, front: o ? o.front : false,
@@ -2339,6 +2339,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         lastPlayed: Number.isFinite(d.lastPlayed) ? d.lastPlayed : o ? o.lastPlayed : null,
       };
     });
+    refreshDecorK();
     // 빠진 물건을 입에 물고 있었으면 입에서도 뺀다(다른 모니터로 건너가며 목록이 바뀜 등)
     for (let i = carrying.length - 1; i >= 0; i--) {
       const cid = String(carrying[i].id);
@@ -2347,6 +2348,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
   const sizeK = DD.sizeK;
   const geomNow = () => ({ W, floorY: BASE_Y, S }); // 마당 선물은 화면 바닥 기준(창 윗변에 올라앉아도)
+  /** 그릴 배율 = 크기 × 사용자 배율, 그 자리 상한까지(무대 크기에 달려 크기가 바뀌면 다시 잰다) */
+  function refreshDecorK() { const g = geomNow(); for (const d of decor) d.k = DD.decorK(d.shape, d.size, d.scale, d.at, g).k; }
   const decorDims = (shape, k = 1) => DD.decorDims(shape, k, S);
   const decorM = () => DD.decorM(S);
   const wallSpan = (h) => DD.wallSpan(h, geomNow());
@@ -3214,10 +3217,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /** 물건 크기·자리·입 상태에 맞는 놀이 */
   function playFor(d) {
     if (d.surface === "wall") return "look";
+    // 실제 그리는 크기로(크기 × 사용자 배율): 크면 기대기·숨기·발톱, 작으면 굴리기·물기, 위에 앉기는 적당한 크기
     let p = d.play;
-    if (d.k > 1 && (p === "carry" || p === "roll")) p = LARGE_PLAYS[Math.floor(Math.random() * LARGE_PLAYS.length)];
-    if (d.k <= 1 && LARGE_PLAYS.includes(p)) p = "sniff";
-    if (p === "sit_on" && d.k < 1) p = "sniff"; // 작은 건 위에 앉을 수 없다
+    const big = d.k >= 1.3, small = d.k <= 1.1;
+    if (!small && (p === "carry" || p === "roll")) p = big ? LARGE_PLAYS[Math.floor(Math.random() * LARGE_PLAYS.length)] : "bat";
+    if (!big && LARGE_PLAYS.includes(p)) p = "sniff";
+    if (p === "sit_on" && (d.k < 0.9 || d.k > 2.2)) p = d.k > 2.2 ? "lean" : "sniff"; // 작은 건 못 앉고, 너무 크면 기대 잔다
     if (p === "carry" && carrying.length) p = "bat"; // 입에 다른 걸(파일) 물고 있으면
     return p;
   }
@@ -4067,6 +4072,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       setBacking(W, H);
     }
     if (W0 > 1 && (S !== S0 || W !== W0 || floorY !== F0)) rescaleWorld(W0, S0, F0);
+    refreshDecorK();
     if (AWAY) AWAY.drawn = false; // 캔버스 크기가 바뀌면 지워지니 팻말을 다시 그린다
     // 화면 모드는 다른 모니터로 건너가는 중일 수 있어 창 폭으로 가두지 않는다(옮기기는 shiftWorld)
     if (!WORLD || !cat.x) cat.x = clamp(cat.x || W * 0.45, 70 * S, W - 70 * S);

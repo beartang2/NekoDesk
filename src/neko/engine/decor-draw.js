@@ -13,6 +13,25 @@ export const WALL_GAP = 18;    // 바닥에서 이만큼(S) 넘게 띄워 놓으
 export const SIZE_K = { small: 0.6, medium: 1, large: 1.45 };
 export const sizeK = (size) => (Object.hasOwn(SIZE_K, size) ? SIZE_K[size] : 1);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+/** 사용자 배율(선물함 슬라이더): 0.25~4, 이상한 값은 1 */
+export const clampScale = (s) => (typeof s === "number" && Number.isFinite(s) ? clamp(s, 0.25, 4) : 1);
+/** 선 고양이 키(귀 끝까지, S 단위). 마당 상한의 기준 */
+export const CAT_H = 100;
+/**
+ * 자리별 물건 높이 상한(px, 사용자 확정): 방(sidebar)은 방 높이의 80%, 거실(dock)은 띠 높이, 마당(screen)은 고양이 키의 3배.
+ * g = { floorY, S }(floorY 는 무대 바닥 = 방·띠 높이쯤). 장소를 모르면 상한 없음
+ */
+export function capPx(at, g) {
+  if (at === "screen") return 3 * CAT_H * g.S;
+  if (at === "sidebar") return 0.8 * g.floorY;
+  if (at === "dock") return g.floorY;
+  return Infinity;
+}
+/** 그릴 배율 k = 크기(소·중·대) × 사용자 배율, 그 자리 상한(높이)까지. capped = 상한에 걸렸나(저장값은 그대로) */
+export function decorK(shape, size, scale, at, g) {
+  const k0 = sizeK(size) * clampScale(scale), h1 = decorDims(shape, 1, g.S).h, kMax = capPx(at, g) / Math.max(1e-6, h1);
+  return k0 > kMax ? { k: kMax, capped: true } : { k: k0, capped: false };
+}
 
 /** 물건 한 개의 크기(px)와 그리기 배율 u */
 export function decorDims(shape, k, S) {
@@ -68,7 +87,7 @@ export function paintDecor(g, shape, L, geom, o = {}) {
  *  drag = { id, x, bottom }: 끄는 물건은 그 자리(clampDrag 로 묶은 값)에 들어 올린 모양으로 */
 function layoutAll(items, geom, drag) {
   return (items || []).filter((d) => d && d.id != null && Number.isFinite(d.u)).map((d) => {
-    const shape = validateShape(d.shape), dims = decorDims(shape, sizeK(d.size), geom.S), id = String(d.id);
+    const shape = validateShape(d.shape), dims = decorDims(shape, decorK(shape, d.size, d.scale, d.at, geom).k, geom.S), id = String(d.id);
     if (drag && String(drag.id) === id) {
       const [x, bottom] = clampDrag(dims.h, geom, drag.x, drag.bottom);
       return { id, shape, L: { ...dims, x, bottom, onFloor: liftedOnFloor(bottom, geom) }, lifted: true };

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { decorAt, decorBoxes, decorDims, dragDecor, spotOf, hitDecorAt, sizeK, type DecorItem } from "./decor-draw.js";
+import { capPx, decorAt, decorBoxes, decorDims, decorK, dragDecor, spotOf, hitDecorAt, sizeK, type DecorItem } from "./decor-draw.js";
 
 const shape = { v: 1 as const, parts: [{ t: "circle" as const, x: 0, y: -8, r: 8, c: "red" as const }] };
 const geom = { W: 1200, floorY: 600, S: 0.8 };
@@ -26,6 +26,21 @@ describe("decor-draw", () => {
     expect(hitDecorAt(items, g, bx, bb - ha.h / 2)).toBe("b");
     expect(hitDecorAt(items, g, 600, 300)).toBeNull();
     expect(hitDecorAt(items, { ...g, scale: 9 }, ax, ab - 1)).toBe("a"); // 배율은 1.4 로 묶인다
+  });
+
+  it("배율: 크기 × 사용자 배율, 자리 상한(방 80%·거실 띠·마당 고양이 키 3배)까지만 그린다", () => {
+    const g = { floorY: 120, S: 0.8 }; // 폭이 좁아 S 는 크고 높이는 낮은 방
+    expect(decorK(shape, "medium", 2, "sidebar", g)).toEqual({ k: 2, capped: false });
+    const room = decorK(shape, "large", 4, "sidebar", g);
+    expect(room.capped).toBe(true);
+    expect(decorDims(shape, room.k, g.S).h).toBeCloseTo(0.8 * 120, 6);
+    expect(decorDims(shape, decorK(shape, "large", 4, "dock", g).k, g.S).h).toBeCloseTo(120, 6);
+    expect(decorK(shape, "large", 4, "screen", { floorY: 1000, S: 1 })).toEqual({ k: 5.8, capped: false }); // 마당: 가장 커도 고양이 키 3배 안
+    expect(capPx("screen", { floorY: 1000, S: 0.8 })).toBeCloseTo(240, 6);
+    expect(decorK(shape, "small", 0.01, undefined, g).k).toBeCloseTo(0.6 * 0.25, 6); // 0.25 아래로는 안 줄인다
+    // 그리기·누르기도 같은 배율(선물 창)
+    const items: DecorItem[] = [{ id: "a", shape, surface: "floor", u: 0.5, scale: 2, at: "dock" }];
+    expect(decorBoxes(items, { W: 1200, floorY: 600, scale: 0.8 })[0].h).toBeCloseTo(decorDims(shape, 2, 0.8).h, 6);
   });
 
   it("선물 창 끌기: 칸은 그린 자리, 끌면 엔진처럼 무대 안으로 묶고 놓을 자리(벽·바닥)를 준다", () => {

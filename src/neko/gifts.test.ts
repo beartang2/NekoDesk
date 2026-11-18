@@ -9,7 +9,7 @@ vi.mock("../api/tauri", () => ({
   },
 }));
 
-import { capGifts, fits, freeSpot, smallestPlace, useNekoGifts, type NekoGift } from "./gifts";
+import { capGifts, fits, freeSpot, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
 
 const gift = (id: string, placed?: number): NekoGift => ({
   id, at: "", title: id, body: "", shape: { v: 1, parts: [{ t: "circle", x: 0, y: -4, r: 4, c: "red" }] },
@@ -90,19 +90,38 @@ describe("선물함", () => {
     expect(ids()).toEqual(["b", "c"]);
   });
 
-  it("장소마다 들어가는 크기: 방은 작은 것만, 거실은 중간까지, 마당은 다", () => {
-    expect(["small", "medium", "large"].map((z) => fits(z as never, "sidebar"))).toEqual([true, false, false]);
-    expect(["small", "medium", "large"].map((z) => fits(z as never, "dock"))).toEqual([true, true, false]);
-    expect(["small", "medium", "large"].map((z) => fits(z as never, "screen"))).toEqual([true, true, true]);
-    expect(fits(undefined, "sidebar")).toBe(false); // 크기 없음 = medium
-    expect([smallestPlace("small"), smallestPlace(undefined), smallestPlace("large")]).toEqual(["sidebar", "dock", "screen"]);
-
+  it("크기로 자리를 막지 않는다: 큰 것도 방에 놓이고, 너무 크면 그 자리에선 상한으로 그린다(저장값은 그대로)", () => {
     const s = useNekoGifts.getState();
     s.add({ id: "big", title: "big", body: "", shape: dot, size: "large" });
-    useNekoGifts.getState().place("big", "auto", "dock"); // 안 들어간다
-    expect(useNekoGifts.getState().gifts[0].placed).toBeUndefined();
-    useNekoGifts.getState().place("big", "auto", "screen");
-    expect(useNekoGifts.getState().gifts[0].placed?.at).toBe("screen");
+    useNekoGifts.getState().place("big", "auto", "sidebar");
+    expect(useNekoGifts.getState().gifts[0].placed?.at).toBe("sidebar");
+    expect(fits("large", "sidebar")).toBe(true);
+    useNekoGifts.getState().resize("big", 4, true);
+    const g = useNekoGifts.getState().gifts[0];
+    expect(g.scale).toBe(4);
+    // 무대가 클수록 고양이·물건도 커서(S) 가장 큰 배율도 보통은 상한 안이다 — 상한은 안전망(decor-draw 테스트에서 건다)
+    expect(scaleCapped(g, "sidebar")).toBe(false);
+    expect(scaleCapped(g, "screen")).toBe(false);
+  });
+
+  it("배율: 0.25~4 로 묶고 1 이면 칸을 뺀다, 끄는 동안(save=false)은 저장 안 함, 놓으면 저장", async () => {
+    useNekoGifts.getState().add({ id: "a", title: "a", body: "", shape: dot });
+    await new Promise((r) => setTimeout(r, 0));
+    const saved = () => JSON.parse(store.get("neko_gifts") ?? "[]")[0];
+    useNekoGifts.getState().resize("a", 9, false);
+    expect(useNekoGifts.getState().gifts[0].scale).toBe(4);
+    expect(saved().scale).toBeUndefined();
+    useNekoGifts.getState().resize("a", 0.1, true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(saved().scale).toBe(0.25);
+    useNekoGifts.getState().resize("a", 1, true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect("scale" in useNekoGifts.getState().gifts[0]).toBe(false);
+    expect("scale" in saved()).toBe(false);
+    store.set("neko_gifts", JSON.stringify([{ ...saved(), scale: 99 }]));
+    useNekoGifts.setState({ gifts: [], loaded: false });
+    await useNekoGifts.getState().load();
+    expect(useNekoGifts.getState().gifts[0].scale).toBe(4); // 손댄 저장값도 묶는다
   });
 
   it("다른 장소로 옮기고, 무대 안에서 끌면 장소는 그대로, 빈 자리는 장소마다 따로 센다", () => {
@@ -149,7 +168,7 @@ describe("선물 놀이 기록·장소별 엔진 목록", () => {
     expect(decorItems(gifts, "screen")).toEqual([
       expect.objectContaining({ id: "b", size: "large", lastPlayed: 1234, surface: "floor", u: 0.35 }),
     ]);
-    expect(decorItems(gifts, "screen")[0]).not.toHaveProperty("at");
+    expect(decorItems(gifts, "screen")[0].at).toBe("screen"); // 장소는 자리 상한(capPx)에 쓴다
     expect(decorItems(gifts, "sidebar").map((d) => d.id)).toEqual(["a"]);
     expect(decorItems(gifts, "dock")).toEqual([]);
   });

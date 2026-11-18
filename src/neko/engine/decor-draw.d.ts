@@ -4,13 +4,21 @@ import type { NekoDecorSpot, NekoGiftSize } from "./neko-engine";
 
 export interface DecorGeom { W: number; floorY: number; S: number }
 /** setDecor 와 같은 모양(엔진 없이 그릴 때도 같은 걸 넘긴다) */
-export type DecorItem = { id: string; shape: unknown; size?: NekoGiftSize; play?: unknown; lastPlayed?: number } & NekoDecorSpot;
+export type DecorItem = { id: string; shape: unknown; size?: NekoGiftSize; play?: unknown; lastPlayed?: number; scale?: number; at?: "sidebar" | "dock" | "screen" } & NekoDecorSpot;
 export interface DecorBox { bd: { x0: number; x1: number; y0: number; y1: number; w: number; h: number }; u: number; w: number; h: number }
 
 export const DECOR_SIZE: number;
 export const WALL_GAP: number;
 export const SIZE_K: Record<NekoGiftSize, number>;
 export function sizeK(size: unknown): number;
+/** 사용자 배율 0.25~4(이상하면 1) */
+export function clampScale(s: unknown): number;
+/** 선 고양이 키(S 단위) */
+export const CAT_H: number;
+/** 자리별 물건 높이 상한(px): 방 0.8×floorY, 거실 floorY, 마당 고양이 키 3배. 장소를 모르면 Infinity */
+export function capPx(at: "sidebar" | "dock" | "screen" | undefined, g: { floorY: number; S: number }): number;
+/** 그릴 배율 = 크기 × 사용자 배율, 그 자리 상한까지. capped = 상한에 걸림 */
+export function decorK(shape: GiftShape, size: unknown, scale: unknown, at: "sidebar" | "dock" | "screen" | undefined, g: { floorY: number; S: number }): { k: number; capped: boolean };
 export function decorDims(shape: GiftShape, k: number, S: number): DecorBox;
 export function decorM(S: number): number;
 export function wallSpan(h: number, g: DecorGeom): number;

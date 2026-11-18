@@ -500,9 +500,17 @@ try {
         off(); n.act(null); n.step(30);
         plays[size + "/" + play] = { chosen, acted: acted > 20, done };
       }
-      return { rotation, played, plays };
+      // 사용자 배율(선물함 슬라이더): 실제 그리는 크기로 고른다
+      const scaled = {};
+      for (const [size, scale, play] of [["medium", 2, "carry"], ["large", 0.5, "lean"], ["medium", 3, "sit_on"], ["small", 1.5, "roll"]]) {
+        n.setDecor([{ id: "s" + size + scale, surface: "floor", u: 0.3, size, scale, play, shape }]);
+        n.act("giftplay"); n.step(1); scaled[`${size}×${scale}/${play}`] = c.act && c.act.play; n.act(null); n.step(10);
+      }
+      return { rotation, played, plays, scaled };
     });
     const big = ["scratch", "lean", "hide"], P = r.plays;
+    check("선물 배율: 놀이는 실제 크기로(중간×2 는 큰 물건 놀이, 큰×0.5 는 냄새, 중간×3 위에 앉기는 기대기, 작은×1.5 굴리기 그대로)", JSON.stringify(r.scaled),
+      big.includes(r.scaled["medium×2/carry"]) && r.scaled["large×0.5/lean"] === "sniff" && r.scaled["medium×3/sit_on"] === "lean" && r.scaled["small×1.5/roll"] === "roll");
     check("선물 놀이 순서: 놓인 셋을 하나도 빠짐없이 돌아가며 논다(decorPlayed)", `${r.played.join("→")}`, r.rotation === "abc");
     check("큰 물건: 물고 옮기기·굴리기는 큰 물건 놀이로, 큰 물건 놀이 셋은 실제로 논다, 작은 데선 냄새로",
       Object.entries(P).map(([k, v]) => `${k}→${v.chosen}${v.acted ? "" : "(안 함)"}`).join(" · "),
