@@ -898,6 +898,51 @@ try {
     await p.close();
   }
 
+  // 9-u) 캣타워 2단계(창 탐험): 창 옆면을 타고 올라 윗변에 올라서고, 다른 창 윗변으로 뛰어 건넌다. 순간이동 없이(한 프레임 이동 작게).
+  //      오르는 중에 다른 활동이 오면 뛰어내려 착지한 뒤 넘긴다. 갈 곳이 없으면(창 없음) 바로 끝난다
+  {
+    const p = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, o = {};
+      n.setGround(830); n.step(120);
+      const perches = {
+        tops: [{ id: "1:t0", win: 1, x0: 500, x1: 900, y: 560 }, { id: "2:t0", win: 2, x0: 950, x1: 1300, y: 480 }],
+        walls: [{ id: "1:l0", win: 1, x: 500, y0: 560, y1: 830, face: "left" }, { id: "1:r0", win: 1, x: 900, y0: 560, y1: 830, face: "right" },
+          { id: "2:l0", win: 2, x: 950, y0: 480, y1: 830, face: "left" }, { id: "2:r0", win: 2, x: 1300, y0: 480, y1: 830, face: "right" }],
+      };
+      n.setPerches({ tops: [], walls: [] }); n.act("tower"); n.step(5); o.none = n.activity;
+      n.setPerches(perches); c.x = 300; c.vx = 0; n.step(60);
+      o.ok = n.towerOk;
+      n.act("tower");
+      const seen = new Set(); let maxStep = 0, prev = [c.x, c.y], f = 0, climbed = false;
+      for (; f < 120 * 90 && n.activity === "tower"; f++) {
+        n.step(1);
+        if (n.perch) seen.add(n.perch);
+        if (c.act && c.act.phase === "cling") climbed = true;
+        maxStep = Math.max(maxStep, Math.hypot(c.x - prev[0], c.y - prev[1])); prev = [c.x, c.y];
+      }
+      o.run = { seen: [...seen], climbed, maxStep: +maxStep.toFixed(1), sec: +(f / 120).toFixed(1), end: n.activity, perch: n.perch };
+      // 오르는 중에 끊기
+      n.act(null); n.step(10); n.setPerches({ tops: [], walls: [] }); for (let i = 0; i < 120 * 3; i++) n.step(1);
+      n.setPerches(perches); c.x = 300; c.vx = 0; n.step(60);
+      n.act("tower"); let cling = false;
+      for (let i = 0; i < 120 * 30 && !cling; i++) { n.step(1); cling = !!(c.act && c.act.phase === "cling"); }
+      n.act("window"); const held = n.activity;
+      for (let i = 0; i < 120 * 5 && n.activity !== "window"; i++) n.step(1);
+      o.cut = { cling, held, now: n.activity, perch: n.perch };
+      n.act(null);
+      return o;
+    });
+    check("창 탐험: 창 옆면을 타고 올라 윗변에 서고 다른 창으로 건너간다(순간이동 없이), 창이 없으면 바로 끝", JSON.stringify(r),
+      r.none === null && r.ok && r.run.climbed && r.run.seen.includes("1:t0") && r.run.maxStep < 30 && r.run.end === null);
+    check("창 탐험: 오르는 중 다른 활동이 오면 뛰어내려 착지한 뒤 넘긴다", JSON.stringify(r.cut), r.cut.cling && r.cut.held === "tower" && r.cut.now === "window" && r.cut.perch === null);
+    await p.close();
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {

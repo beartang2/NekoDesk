@@ -2125,7 +2125,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function startAct(key) {
     const c = cat;
     const spec = actOf(key);
-    if (spec && spec.roam && c.perch && !(c.side && c.side.key === key)) { // 돌아다니는 놀이(공·나비·벽 타기…)는 바닥에서: 먼저 내려온다
+    if (spec && spec.roam && !spec.perchOk && c.perch && !(c.side && c.side.key === key)) { // 돌아다니는 놀이(공·나비·벽 타기…)는 바닥에서: 먼저 내려온다
       if (c.act) endAct();
       c.pendingAct = key; hopDown(c.x < (c.perch.x0 + c.perch.x1) / 2 ? -1 : 1); return;
     }
@@ -3715,7 +3715,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     A.tTop = 0.38 + A.T; A.tSlide = A.tTop + A.hold; A.tFall = A.tSlide + A.slideT;
   }
   function climbPose(A) {
-    const c = cat, u = A.t - A.t0, wallX = climbWallX(A.side);
+    const c = cat, u = A.t - A.t0, wallX = A.wallX ?? climbWallX(A.side); // 창 탐험은 창 옆면(wallX)
     const xc = wallX - A.side * (31 * c.bd.by + 7) * S;
     let x = xc, y, slide = 0, lead = -1, reachK = 0;
     if (u < 0.38) { const k = smooth(u / 0.38); x = lerp(A.x0, xc, k); y = lerp(A.y0, A.yS, k) - Math.sin(Math.PI * k) * 14 * S; }
@@ -3797,6 +3797,124 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       ctx.quadraticCurveTo(p[0] + 4 * s, p[1] + 1 * s, p[0], p[1] + 3 * s); ctx.quadraticCurveTo(p[0] - 4 * s, p[1] + 1 * s, p[0], p[1] - 6 * s); ctx.fill();
     },
   });
+
+  /* ----- 창 탐험(캣타워 2단계, 화면 모드) -----
+     다른 창들을 캣타워처럼: 창 옆면을 타고 올라 윗변에 올라서고(벽 타기 동작 그대로), 윗변에서 다른 창 윗변으로 뛰어 건너고,
+     가끔 뛰어내린다. 길 찾기는 단순하게 — 지금 선 바닥(화면 바닥이나 윗변)에서 바로 갈 수 있는 것(닿는 옆면·뛸 수 있는 윗변) 중
+     하나를 고르고, 몇 번(3~6) 옮기면 그 자리에서 끝낸다(윗변 위에 남는다). 갈 곳이 없으면 바로 끝낸다. */
+  const TOWER_JUMP_X = 240, TOWER_JUMP_UP = 120, TOWER_JUMP_DOWN = 420, TOWER_STAND = 70, TOWER_CLIMB_MAX = 620;
+  /** 옆면을 다 오르면 올라설 그 창의 윗변(가려져 없으면 null) */
+  const topOfWall = (w) => TOPS.find((t) => t.win === w.win && Math.abs(t.y - w.y0) < 4 && w.x >= t.x0 - 3 && w.x <= t.x1 + 3) || null;
+  /** 지금 바닥에서 갈 수 있는 곳들 */
+  function towerMoves() {
+    const c = cat, here = c.perch, [lo, hi] = roamSpan(), out = [], leapY = floorY - (standH() + 52) * S;
+    const span = (t) => [t.x0 + (PERCH_M + 6) * S, t.x1 - (PERCH_M + 6) * S];
+    for (const t of TOPS) { // 뛰어 건너기·뛰어오르기
+      if (here && t.id === here.id) continue;
+      const [a, b] = span(t), up = floorY - t.y;
+      if (b <= a || up > TOWER_JUMP_UP * S || -up > TOWER_JUMP_DOWN * S || Math.abs(up) < 16 * S) continue;
+      const from = clamp((a + b) / 2, lo, hi), land = clamp(from, a, b);
+      if (Math.abs(land - from) > TOWER_JUMP_X * S) continue;
+      out.push({ kind: "jump", t, from, land, w: here ? 2 : 3 });
+    }
+    for (const w of WALLS) { // 옆면 타기
+      const t = topOfWall(w), side = w.face === "right" ? -1 : 1, stand = w.x - side * TOWER_STAND * S;
+      if (!t || (here && t.id === here.id) || stand < lo - 1 || stand > hi + 1) continue;
+      const rise = floorY - t.y;
+      if (w.y1 < leapY + 10 * S || w.y0 > leapY - 40 * S || rise < 90 * S || rise > TOWER_CLIMB_MAX * S) continue;
+      if (t.x1 - t.x0 < 2 * (PERCH_M + 8) * S) continue;
+      out.push({ kind: "climb", w, t, side, stand, w8: 2 });
+    }
+    return out;
+  }
+  const pickW = (list) => { let s = 0; for (const m of list) s += m.w ?? m.w8 ?? 1; let r = Math.random() * s; for (const m of list) if ((r -= m.w ?? m.w8 ?? 1) <= 0) return m; return list[list.length - 1]; };
+  function towerPick(A) {
+    const c = cat, moves = towerMoves();
+    if (A.n >= A.max || (!moves.length && !c.perch)) { endAct(); return; }
+    if (c.perch && (!moves.length || Math.random() < 0.12 + 0.05 * A.n)) { // 가끔(또는 갈 데가 없으면) 뛰어내린다
+      if (!moves.length && A.n >= 1) { endAct(); return; } // 다 둘러봤다: 그 위에서 쉰다
+      A.move = { kind: "down" }; hopDown(c.x < (c.perch.x0 + c.perch.x1) / 2 ? -1 : 1); A.phase = "go"; return;
+    }
+    A.move = pickW(moves); A.phase = "go";
+  }
+  /** 바닥에서 윗변으로(또는 윗변끼리) 포물선으로 뛴다: 착지할 x 에 닿게, 꼭대기는 높은 쪽보다 30 위 */
+  function towerJump(A, t, land) {
+    const c = cat, g = GRAV * S, dy = t.y - floorY, h = Math.max(0, -dy) + 30 * S, vy0 = -Math.sqrt(2 * g * h);
+    const tt = (-vy0 + Math.sqrt(vy0 * vy0 + 2 * g * dy)) / g;
+    if (c.perch) skipTop = { id: c.perch.id, until: time + tt + 0.15 }; // 아래 창으로 내려갈 땐 지금 윗변을 지나쳐야 한다
+    c.vx = (land - c.x) / Math.max(0.2, tt); c.vy = vy0; c.face = Math.sign(land - c.x) || c.face;
+    c.squash.v += 4.2; c.ears.forEach((e) => (e.v -= 3.5)); c.jumpFromWalk = false; c.resume = false;
+    A.phase = "flying"; setMode("air");
+  }
+  function towerClimbPlan(A, m) { // 벽 타기와 같은 몸짓, 목표는 그 창 윗변(머리가 윗변 위로 나오게)
+    const c = cat, yS = floorY - (standH() + 52) * S, yG = m.t.y + 30 * S, dist = Math.max(0, (yS - yG) / S);
+    A.side = m.side; A.wallX = m.w.x; A.t0 = A.t; A.x0 = c.x; A.y0 = c.y; A.yS = yS; A.yG = yG; A.frac = 0.5;
+    A.T = dist / CLIMB_SPEED; A.N = Math.max(1, Math.round(dist / CLIMB_STRIDE)); A.win = true; A.hold = 0;
+    A.tTop = 0.38 + A.T; A.tSlide = A.tTop; A.slideT = 1; A.slideD = 0; A.tFall = A.tTop + 1;
+    A.top = m.t; A.phase = "leap"; setMode("act");
+  }
+  function towerHold(A, next) {
+    const c = cat;
+    if (A.phase === "leap" || A.phase === "cling" || A.phase === "mount") {
+      A.leave = true; A.next = next; c.perch = null; floorY = BASE_Y;
+      climbDrop(A, -A.side * 120 * S, -40 * S); return true;
+    }
+    if (c.mode === "air" || c.mode === "fall") { A.leave = true; A.next = next; return true; }
+    return false;
+  }
+  defineActivity("tower", {
+    name: "창 탐험", label: "창 탐험 중", roam: true, perchOk: true,
+    start(A) { A.n = 0; A.max = 3 + Math.floor(Math.random() * 4); A.phase = "pick"; A.until = 0; if (!WORLD) endAct(); },
+    step(A) {
+      const c = cat;
+      if ((A.phase === "leap" || A.phase === "cling") && c.mode === "act") {
+        const u = A.t - A.t0;
+        if (u > 0.38) A.phase = "cling";
+        if (u > A.tTop) { // 다 올랐다: 윗변으로 넘어 올라선다
+          const t = TOPS.find((o) => o.id === A.top.id);
+          if (!t) { A.phase = "falling"; climbDrop(A, -A.side * 110 * S, 40 * S); return; } // 그새 창이 사라졌다
+          const xc = A.wallX - A.side * (31 * c.bd.by + 7) * S;
+          A.mFrom = [xc, A.yG]; A.mTo = [clamp(A.wallX + A.side * (PERCH_M + 8) * S, t.x0 + PERCH_M * S, t.x1 - PERCH_M * S), t.y - standH() * S];
+          A.phase = "mount"; A.tm = A.t; c.perch = t; floorY = t.y;
+        }
+      } else if (A.phase === "mount" && c.mode === "act" && A.t - A.tm > 0.5) {
+        c.x = A.mTo[0]; c.y = A.mTo[1]; c.face = A.side; A.n++; A.phase = "rest"; A.until = A.t + rand(1.5, 4); setMode("idle");
+      }
+    },
+    wander(A) {
+      const c = cat;
+      if (A.phase === "falling" || A.phase === "flying") {
+        if (c.mode !== "idle") return;
+        if (A.leave) { climbLeave(A); return; }
+        A.n++; A.phase = "rest"; A.until = A.t + rand(1.5, 4); return;
+      }
+      if (c.mode !== "idle" && c.mode !== "walk") return;
+      if (A.phase === "rest") { if (A.t > A.until && c.mode === "idle") towerPick(A); return; }
+      if (A.phase === "pick") { towerPick(A); return; }
+      if (A.phase !== "go" || !A.move) return;
+      const m = A.move;
+      if (m.kind === "down") { if (!c.perch && c.mode === "idle") { A.n++; A.phase = "rest"; A.until = A.t + rand(1, 2.5); } else if (!c.hopDir && c.perch) hopDown(c.face); return; }
+      const goal = m.kind === "jump" ? m.from : m.stand, dir = m.kind === "jump" ? Math.sign(m.land - goal) || c.face : m.side;
+      if (Math.abs(c.x - goal) > 6 * S) { if (c.mode === "idle" && c.modeT > 0.15) walkTo(goal); return; }
+      if (c.mode !== "idle") return;
+      if (c.face !== dir) { c.face = dir; setMode("idle"); return; }
+      if (c.modeT < 0.35) return;
+      // 그새 창이 움직였을 수 있다: 갈 곳을 다시 보고 그대로면 간다
+      const still = towerMoves().find((o) => o.kind === m.kind && (m.kind === "jump" ? o.t.id === m.t.id : o.w.id === m.w.id));
+      if (!still) { A.phase = "pick"; return; }
+      if (m.kind === "jump") towerJump(A, still.t, still.land); else towerClimbPlan(A, still);
+    },
+    pose(A, ramp) {
+      if (A.phase === "leap" || A.phase === "cling") return climbPose(A);
+      if (A.phase === "mount") { // 윗변 너머로 몸을 끌어올리며 선다
+        const k = smooth(Math.min(1, (A.t - A.tm) / 0.5)), x = lerp(A.mFrom[0], A.mTo[0], k), y = lerp(A.mFrom[1], A.mTo[1], k) - Math.sin(Math.PI * k) * 10 * S;
+        return { pos: [x, y], tilt: lerp(-1.45, 0, smooth(Math.min(1, k * 1.25))), ear: -0.05, expr: "curious", look: [A.mTo[0] + A.side * 80 * S, A.mTo[1] - 20 * S] };
+      }
+      return null;
+    },
+  });
+  /** 감독용: 지금 창 탐험을 할 만한가(화면 모드에서 갈 곳이 있거나 이미 창 위) */
+  const towerOk = () => WORLD && !AWAY && (!!cat.perch || towerMoves().length > 0);
 
   /* ---------- 얼굴 (실루엣 위, 본 화면에 그린다) ---------- */
   /** 눈 테두리 색: 눈 색의 채도는 그대로 두고 명도만 낮춘다(탁해지지 않게). 노랑 → 진한 금빛, 파랑 → 짙은 파랑. */
@@ -4508,7 +4626,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const next = !key || key === "none" ? null : key, A = cat.act;
       if (cat.pendingAct && cat.pendingAct !== next) cat.pendingAct = null; // 창에서 내려가 하려던 것 대신 다른 걸
       if (A && A.key === next) return;
-      if (A && A.key === "climb" && climbHold(A, next)) return; // 벽·공중: 내려와 착지한 뒤 넘긴다
+      if (A && (A.key === "climb" ? climbHold(A, next) : A.key === "tower" ? towerHold(A, next) : false)) return; // 벽·공중: 내려와 착지한 뒤 넘긴다
       if (!next) endAct(); else startAct(next);
     },
     get activity() { return cat.act ? cat.act.key : null; },
@@ -4545,6 +4663,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     get held() { return cat.mode === "grabbed" ? [cat.scruff.x, cat.scruff.y] : null; },
     setPerches,
     get perch() { return cat.perch ? cat.perch.id : null; },
+    get towerOk() { return towerOk(); },
     /** 타이핑 쉼(다른 앱에서 타이핑을 잠깐 멈춤). 타이핑일 때만 듣고, 활동이 바뀌면 저절로 꺼진다 */
     setRest(on) { if (cat.act && cat.act.key === "typing") cat.act.rest = !!on; },
     hit: hitCat,

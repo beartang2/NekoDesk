@@ -55,6 +55,8 @@ export type NekoActivity =
   | "think" | "wait" | "meal" | "hungry" | "dig" | "calendar" | "erase"
   // 놓아 둔 선물 갖고 놀기(docs/neko-gifts.md §5)
   | "giftplay"
+  // 창 탐험(캣타워, 화면 모드)
+  | "tower"
   // 쳐다보기: 애정이 낮을 때(docs/neko-activity-mix.md §2.3)
   | "gaze";
 
@@ -193,6 +195,8 @@ export interface NekoController {
   }): void;
   /** 올라앉아 있는 윗변 id(없으면 null). 호스트가 바뀔 때 Rust 에 알려 그 창을 30Hz 로 받는다 */
   readonly perch: string | null;
+  /** 지금 창 탐험(tower)을 할 만한가: 화면 모드에서 바로 갈 수 있는 옆면·윗변이 있거나 이미 창 위. 감독이 고르기 전에 본다 */
+  readonly towerOk: boolean;
   /**
    * 타이핑 쉼: 다른 앱에서 타이핑을 잠깐 멈췄을 때. 발은 키 위에 멈추고 글자가 안 늘며 화면을 보고 가끔 천천히 깜빡인다.
    * 타이핑일 때만 듣고(다른 활동은 무시) 활동이 바뀌면 저절로 꺼진다

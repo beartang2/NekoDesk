@@ -22,6 +22,7 @@ dig + music: 가능
 calendar + music: 가능
 erase + music: 가능
 climb + music: 가능
+tower + music: 가능
 gaze + music: 가능
 base:stand + music: 가능
 base:sit + music: 가능
