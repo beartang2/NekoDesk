@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
-import type { NekoActivity, NekoController, NekoEvents } from "./engine/neko-engine";
+import type { NekoActivity, NekoController, NekoDecorSpot, NekoEvents } from "./engine/neko-engine";
 import { useNekoApp } from "./director/stores";
 import { useNekoStore } from "./nekoStore";
+import { decorItems, useNekoGifts } from "./gifts";
 
 /**
  * 메인 창 쪽 '모니터 화면' 자리 연결(docs/neko-screen-mode.md §4).
@@ -24,6 +25,12 @@ type Send = (cmd: NekoCmd) => void;
 const sendToScreen: Send = (cmd) => void emitTo(SCREEN_LABEL, "neko-cmd", cmd).catch(() => {});
 
 const listeners = new Map<string, Set<(p: unknown) => void>>();
+function addListener(ev: string, fn: (p: unknown) => void): () => void {
+  let s = listeners.get(ev);
+  if (!s) listeners.set(ev, (s = new Set()));
+  s.add(fn);
+  return () => s.delete(fn);
+}
 let remote: NekoController | null = null;
 const subs = new Set<() => void>();
 const notify = () => subs.forEach((fn) => fn());
@@ -48,12 +55,7 @@ export function createRemoteNeko(send: Send = sendToScreen): NekoController {
   // 스케줄러가 act() 직후 동기로 읽는다. 먼저 바꿔 두고 화면 창의 activity 이벤트로 바로잡는다
   let activity: NekoActivity | null = null;
   const own: Record<string, unknown> = {
-    on: (ev: string, fn: (p: unknown) => void) => {
-      let s = listeners.get(ev);
-      if (!s) listeners.set(ev, (s = new Set()));
-      s.add(fn);
-      return () => s.delete(fn);
-    },
+    on: addListener,
     act: (a: NekoActivity | null) => { activity = a ?? null; send({ m: "act", args: [a] }); },
     // 반환값을 쓰는 곳은 NekoSlot 문지르기뿐이다. 화면 자리에선 화면 창이 직접 문지른다
     react: (k: string) => { send({ m: "react", args: [k] }); return true; },
@@ -92,8 +94,15 @@ export function link(): void {
     const { screenScale, screenFps } = useNekoStore.getState().stage;
     void emitTo(SCREEN_LABEL, "neko-screen-scale", screenScale).catch(() => {});
     void emitTo(SCREEN_LABEL, "neko-screen-fps", screenFps).catch(() => {});
+    remote.setDecor(decorItems(useNekoGifts.getState().gifts, "screen")); // 마당에 놓인 선물
     notify(); // useNekoController 가 대리를 주고, 감독이 새 스케줄러로 계획을 처음부터 다시 그린다
   }).catch(() => {});
+  // 마당 선물: 바뀌면 다시 넘기고, 화면 창에서 끌어 옮기거나 갖고 놀거나 '정리'를 누르면 선물함에 적는다
+  void useNekoGifts.getState().load();
+  useNekoGifts.subscribe((s, p) => { if (s.gifts !== p.gifts) remote?.setDecor(decorItems(s.gifts, "screen")); });
+  addListener("decorMove", (p) => { const { id, ...spot } = p as { id: string } & NekoDecorSpot; useNekoGifts.getState().place(id, spot); });
+  addListener("decorPlayed", (p) => { const { id, at } = p as { id: string; at: number }; useNekoGifts.getState().played(id, at); });
+  void listen<string>("neko-screen-put", (e) => useNekoGifts.getState().place(e.payload, null)).catch(() => {});
   useNekoStore.subscribe((s, p) => {
     if (s.appearance !== p.appearance) remote?.setAppearance(s.appearance);
     if (s.stage.placement !== p.stage.placement) {

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -38,13 +38,24 @@ const LOCAL_ONLY: ReadonlySet<string> = new Set([
 const CLOSED = { left: false, right: false } as const;
 /** 다른 모니터로 걸어 나가라고 다시 이르는 간격(하던 활동이 끝나 한가해졌을 때 이어 가게) */
 const WALK_OUT_EVERY_MS = 1000;
-const FORWARD: (keyof NekoEvents)[] = ["pet", "nyang", "annoyed", "grab", "drop", "activity", "error"];
+const FORWARD: (keyof NekoEvents)[] = ["pet", "nyang", "annoyed", "grab", "drop", "activity", "error", "decorMove", "decorPlayed"];
+/** 마당 선물 '정리' 버튼이 저절로 닫히는 때 */
+const MENU_MS = 6000;
 
 const toMain = (e: NekoEvt) => void emitTo("main", "neko-evt", e).catch(() => {});
 
 export function NekoScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const decorRef = useRef<HTMLCanvasElement>(null);
   const ctrlRef = useRef<NekoController | null>(null);
+  // 마당 선물을 우클릭하면 그 오른쪽 위에 '정리'(NekoSlot 과 같다). 누르면 메인 창이 선물함으로 치운다
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const t = setTimeout(() => setMenu(null), MENU_MS);
+    return () => clearTimeout(t);
+  }, [menu]);
   const { onBodyMove, onBodyLeave } = useTrackpadPet(() => {
     // 너무 오래 만져 짜증 나면(react 가 false) 놀이 게이지는 오르지 않는다
     if (ctrlRef.current?.react("pet")) toMain({ ev: "pet" });
@@ -60,6 +71,7 @@ export function NekoScreen() {
     const ctrl = createNeko(canvas, {
       transparent: true,
       world: true,
+      decorCanvas: decorRef.current ?? undefined,
       scale: useNekoStore.getState().stage.screenScale,
       appearance: useNekoStore.getState().appearance,
     });
@@ -77,9 +89,14 @@ export function NekoScreen() {
     let over = false;
     let sentAt = 0;
     let active = true;
+    // 고양이·마당 선물·'정리' 버튼 위면 클릭을 받는다
+    const overMenu = (x: number, y: number) => {
+      const r = menuRef.current?.getBoundingClientRect();
+      return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    };
     const check = () => {
       const now = performance.now();
-      const o = active && !!cursor && ctrl.hit(cursor[0], cursor[1]);
+      const o = active && !!cursor && (ctrl.hit(cursor[0], cursor[1]) || ctrl.hitDecor(cursor[0], cursor[1]) !== null || overMenu(cursor[0], cursor[1]));
       if (o === over && !(o && now - sentAt > CATCH_EVERY_MS)) return;
       over = o;
       sentAt = now;
@@ -97,6 +114,7 @@ export function NekoScreen() {
     // ponytail: 커서가 이 화면에 있는 동안은 늘 30Hz 로 hit 를 본다. 에너지가 문제면 고양이 둘레에 있을 때만
     const timer = setInterval(() => { if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
     // 끝을 넘었다 — 커서가 아직 그쪽이면 Rust 가 창을 옮긴다(neko-screen-moved). 그새 돌아왔으면 걸어 들어온다
+    const offMenu = ctrl.on("decorMenu", setMenu);
     const offEdge = ctrl.on("edge", (side) => {
       void invoke<boolean>("neko_screen_cross", { side })
         .then((moved) => { if (!moved) { outAt = 0; ctrl.setEdges(CLOSED); } })
@@ -162,6 +180,7 @@ export function NekoScreen() {
       clearInterval(timer);
       clearTimeout(fallTimer);
       offEdge();
+      offMenu();
       offEngine.forEach((off) => off());
       offs.forEach((p) => void p.then((off) => off()).catch(() => {}));
       ctrl.destroy();
@@ -169,5 +188,22 @@ export function NekoScreen() {
     };
   }, []);
 
-  return <canvas ref={canvasRef} className="neko-screen__canvas" tabIndex={-1} aria-hidden="true" />;
+  return (
+    <>
+      {/* 마당 선물은 고양이 밑에 따로 그린다(엔진이 놓인 선물 둘레만 덮게 크기·자리를 정한다) */}
+      <canvas ref={decorRef} className="neko-screen__decor" aria-hidden="true" />
+      <canvas ref={canvasRef} className="neko-screen__canvas" tabIndex={-1} aria-hidden="true" />
+      {menu && (
+        <button
+          ref={menuRef}
+          type="button"
+          className="neko-screen__tidy"
+          style={{ left: menu.x + 2, top: Math.max(2, menu.y - 4) }}
+          onClick={() => { void emitTo("main", "neko-screen-put", menu.id).catch(() => {}); setMenu(null); }}
+        >
+          정리
+        </button>
+      )}
+    </>
+  );
 }

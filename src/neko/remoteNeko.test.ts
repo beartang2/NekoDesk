@@ -53,7 +53,7 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     expect(sentNow()).toEqual(["neko-screen-ping"]);
     ready();
     expect(getRemoteNeko()).not.toBeNull();
-    expect(sentNow()).toEqual(["setAppearance", "neko-screen-scale", "neko-screen-fps"]);
+    expect(sentNow()).toEqual(["setAppearance", "neko-screen-scale", "neko-screen-fps", "setDecor"]);
 
     useNekoStore.getState().setPlacement("sidebar");
     expect(getRemoteNeko()).toBeNull();
@@ -61,7 +61,7 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     expect(sentNow()).toEqual(["neko-screen-ping"]); // 숨겨 둔 화면 창에 다시 달라고 한다
     ready();
     expect(getRemoteNeko()).not.toBeNull();
-    expect(sentNow()).toEqual(["setAppearance", "neko-screen-scale", "neko-screen-fps"]);
+    expect(sentNow()).toEqual(["setAppearance", "neko-screen-scale", "neko-screen-fps", "setDecor"]);
 
     useNekoStore.getState().setAppearance({ soft: 0.3 });
     expect(tauri.sent[tauri.sent.length - 1]?.[2]).toMatchObject({ m: "setAppearance", args: [expect.objectContaining({ soft: 0.3 })] });

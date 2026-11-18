@@ -116,3 +116,24 @@ describe("선물함", () => {
     expect(useNekoGifts.getState().gifts[1].placed).toEqual({ surface: "wall", u: 0.5, v: 0.5, at: "dock" });
   });
 });
+
+describe("선물 놀이 기록·장소별 엔진 목록", () => {
+  it("갖고 논 때를 적고, 그 장소에 놓인 것만 엔진 모양으로(장소는 빼고 lastPlayed 는 넣고)", async () => {
+    const { decorItems, PLAYS } = await import("./gifts");
+    expect(PLAYS).toEqual(expect.arrayContaining(["scratch", "lean", "hide"]));
+    const s = useNekoGifts.getState();
+    s.add({ id: "a", title: "a", body: "", shape: dot, size: "small" });
+    s.add({ id: "b", title: "b", body: "", shape: dot, size: "large" });
+    useNekoGifts.getState().place("a", "auto", "sidebar");
+    useNekoGifts.getState().place("b", "auto", "screen");
+    useNekoGifts.getState().played("b", 1234);
+    useNekoGifts.getState().played("nope", 1);
+    const gifts = useNekoGifts.getState().gifts;
+    expect(decorItems(gifts, "screen")).toEqual([
+      expect.objectContaining({ id: "b", size: "large", lastPlayed: 1234, surface: "floor", u: 0.35 }),
+    ]);
+    expect(decorItems(gifts, "screen")[0]).not.toHaveProperty("at");
+    expect(decorItems(gifts, "sidebar").map((d) => d.id)).toEqual(["a"]);
+    expect(decorItems(gifts, "dock")).toEqual([]);
+  });
+});

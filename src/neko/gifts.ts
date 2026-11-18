@@ -16,7 +16,8 @@ const KEY = "neko_gifts";
 export const GIFT_DROP = "neko-gift-drop";
 export type GiftDrop = { id: string; x: number; y: number };
 export const MAX_GIFTS = 100;
-export const PLAYS: NekoGiftPlay[] = ["roll", "bat", "sniff", "sit_on", "carry"];
+/** 큰 물건 전용(scratch·lean·hide)도 넣는다 — 엔진이 크기에 안 맞는 놀이는 바꿔 논다 */
+export const PLAYS: NekoGiftPlay[] = ["roll", "bat", "sniff", "sit_on", "carry", "scratch", "lean", "hide"];
 export const GIFT_SIZES: NekoGiftSize[] = ["small", "medium", "large"];
 
 /** 장소 = 네코 자리. 사이드바는 방, 채팅 바 아래는 거실, 모니터 화면은 마당 */
@@ -44,6 +45,17 @@ export interface NekoGift {
   /** 실제 물건 크기(무대·입에서 그리는 크기). 없으면 medium. 선물함 칸에선 칸에 맞춘다 */
   size?: NekoGiftSize;
   placed?: GiftPlacement;
+  /** 네코가 마지막으로 갖고 논 때(epoch ms, 엔진 decorPlayed). 오래 안 논 것부터 논다 */
+  lastPlayed?: number;
+}
+
+/** 그 장소에 놓인 것을 엔진 setDecor 모양으로 */
+export function decorItems(gifts: NekoGift[], at: NekoPlacement) {
+  return gifts.flatMap((g) => {
+    if (g.placed?.at !== at) return [];
+    const { at: _at, ...spot } = g.placed;
+    return [{ id: g.id, shape: g.shape, play: g.play, size: g.size, lastPlayed: g.lastPlayed, ...spot }];
+  });
 }
 
 /** 넘치면 놓이지 않은 것 중 오래된 것부터 뺀다. 놓인 건 사용자가 고른 것이라 남긴다. */
@@ -76,6 +88,8 @@ interface GiftStore {
    */
   place: (id: string, spot: NekoDecorSpot | "auto" | null, at?: NekoPlacement) => void;
   remove: (id: string) => void;
+  /** 네코가 갖고 놀았다(엔진 decorPlayed) */
+  played: (id: string, at: number) => void;
 }
 
 function persist(gifts: NekoGift[]) {
@@ -138,6 +152,12 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
   },
   remove(id) {
     const gifts = get().gifts.filter((g) => g.id !== id);
+    set({ gifts });
+    persist(gifts);
+  },
+  played(id, at) {
+    if (!get().gifts.some((g) => g.id === id)) return;
+    const gifts = get().gifts.map((g) => (g.id === id ? { ...g, lastPlayed: at } : g));
     set({ gifts });
     persist(gifts);
   },

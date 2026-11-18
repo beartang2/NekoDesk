@@ -8,5 +8,30 @@
   touch-action: none;
   outline: none;
 }
+/* 마당 선물. 엔진이 놓인 선물 둘레만 덮게 크기·transform 을 정한다. 고양이 밑 */
+.neko-screen__decor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: block;
+  touch-action: none;
+}
+/* 마당 선물 우클릭 '정리'(NekoSlot 의 .neko-slot__tidy 와 같은 모양) */
+.neko-screen__tidy {
+  position: fixed;
+  z-index: 3;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  white-space: nowrap;
+  transform: translateY(-100%);
+}
+.neko-screen__tidy:hover { border-color: var(--accent); }
 .neko-screen__canvas.can-grab { cursor: grab; }
 .neko-screen__canvas.dragging { cursor: grabbing; }

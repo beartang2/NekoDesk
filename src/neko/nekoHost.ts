@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { createNeko, type NekoController } from "./engine/neko-engine";
 import { useNekoStore } from "./nekoStore";
 import { getRemoteNeko, onRemoteNeko } from "./remoteNeko";
-import { useNekoGifts } from "./gifts";
+import { decorItems, useNekoGifts } from "./gifts";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 
 /**
@@ -36,18 +36,12 @@ export function ensureNeko(): NekoController {
     useNekoStore.subscribe((s, prev) => {
       if (s.appearance !== prev.appearance) ctrl?.setAppearance(s.appearance);
     });
-    // 선물함에서 지금 장소(방·거실)에 놓은 물건(docs/neko-gifts.md)
-    const decor = () => {
-      const here = useNekoStore.getState().stage.placement;
-      ctrl?.setDecor(useNekoGifts.getState().gifts.flatMap((g) => {
-        if (g.placed?.at !== here) return [];
-        const { at: _at, ...spot } = g.placed;
-        return [{ id: g.id, shape: g.shape, play: g.play, size: g.size, ...spot }];
-      }));
-    };
+    // 선물함에서 지금 장소(방·거실)에 놓은 물건(docs/neko-gifts.md). 마당은 화면 창 엔진이 그린다(remoteNeko)
+    const decor = () => ctrl?.setDecor(decorItems(useNekoGifts.getState().gifts, useNekoStore.getState().stage.placement));
     useNekoStore.subscribe((s, prev) => { if (s.stage.placement !== prev.stage.placement) decor(); });
     // 무대에서 끌어 옮기면 선물함에 적는다(우클릭 '정리'는 자리 쪽 버튼이 한다 — NekoSlot)
     ctrl.on("decorMove", ({ id, ...spot }) => useNekoGifts.getState().place(id, spot));
+    ctrl.on("decorPlayed", ({ id, at }) => useNekoGifts.getState().played(id, at));
     useNekoGifts.subscribe((s, prev) => { if (s.gifts !== prev.gifts) decor(); });
     void useNekoGifts.getState().load().then(decor);
     subs.forEach((fn) => fn());
