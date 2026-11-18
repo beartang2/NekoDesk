@@ -114,7 +114,16 @@ export function NekoScreen() {
       ctrl.walkOut(away);
     };
     // ponytail: 커서가 이 화면에 있는 동안은 늘 30Hz 로 hit 를 본다. 에너지가 문제면 고양이 둘레에 있을 때만
-    const timer = setInterval(() => { if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
+    // 잡힌 목덜미 자리를 Rust 에 알린다(바뀔 때만, 놓으면 null). 끌어 건너갈 때 창은 커서가 아니라 고양이가 다른 모니터에
+    // 들어갈 때 옮긴다 — 빠르게 끌면 고양이가 커서보다 한참 뒤라, 커서 기준이면 고양이가 옛 화면에서 사라져 튀었다
+    let heldSent: string | null = null;
+    const reportHeld = () => {
+      const h = ctrl.held, key = h ? `${Math.round(h[0])},${Math.round(h[1])}` : null;
+      if (key === heldSent) return;
+      heldSent = key;
+      void invoke("neko_screen_held", { at: h }).catch(() => {});
+    };
+    const timer = setInterval(() => { reportHeld(); if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
     // 끝을 넘었다 — 커서가 아직 그쪽이면 Rust 가 창을 옮긴다(neko-screen-moved). 그새 돌아왔으면 걸어 들어온다
     const offMenu = ctrl.on("decorMenu", setMenu);
     // 고양이 우클릭: 엔진은 선물만 메뉴를 띄우고(기본 메뉴를 막음) 고양이엔 안 띄운다. 오른쪽 버튼 누름은 엔진에

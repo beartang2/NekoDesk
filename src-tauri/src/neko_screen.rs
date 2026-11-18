@@ -151,6 +151,9 @@ struct State {
     catch_cat: bool,
     /// 잡은 게 고양이다. 고양이를 잡고 끌 때만 창이 다른 모니터로 따라간다.
     grab_cat: bool,
+    /// 잡힌 고양이 목덜미(창 좌표)와 알린 때(`neko_screen_held`). 빠르게 끌면 고양이가 커서보다 한참 뒤라, 창은 커서가
+    /// 아니라 이게 다른 모니터에 들어갈 때 옮긴다.
+    held: Option<([f64; 2], Instant)>,
     /// 마지막으로 본 왼쪽 버튼. 누르는 순간 그 누름을 안 받은 창은 띄운 메뉴를 닫는다(`neko-screen-press-out`).
     was_down: bool,
     /// 선물 창마다 그린 선물 칸(창 좌표 x, y, w, h — '정리' 버튼 포함). 커서가 이 안이면 그 창이 클릭을 받는다.
@@ -185,6 +188,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     grabbing: false,
     catch_cat: false,
     grab_cat: false,
+    held: None,
     was_down: false,
     boxes: Vec::new(),
     decor_catching: None,
@@ -306,6 +310,20 @@ pub fn set_catch(on: bool, cat: bool) -> Result<(), AppError> {
     st.catch_at = on.then(Instant::now);
     st.catch_cat = on && cat;
     Ok(())
+}
+
+/// 화면 창: 잡힌 고양이 목덜미 자리(창 좌표). 놓으면 None. 창을 옮기는 중(다시 보이기 전)에 온 건 옛 창 좌표라 버린다.
+pub fn set_held(at: Option<[f64; 2]>) -> Result<(), AppError> {
+    let mut st = STATE.lock()?;
+    if st.hidden_at.is_none() {
+        st.held = at.map(|p| (p, Instant::now()));
+    }
+    Ok(())
+}
+
+/// 고양이를 끌 때 창이 따라갈 점(전역 좌표): 방금 알린 목덜미, 없으면 커서.
+fn drag_point(held: Option<([f64; 2], Instant)>, origin: [f64; 2], mouse: [f64; 2]) -> [f64; 2] {
+    held.filter(|(_, t)| t.elapsed() < CATCH_TTL).map_or(mouse, |(h, _)| [origin[0] + h[0], origin[1] + h[1]])
 }
 
 /// 버튼 상태로 잡기를 고친다: (잡는 중, 잡은 게 고양이). 누른 순간 받는 중이었으면 잡기 시작이고, 무엇을
@@ -580,10 +598,14 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
     }
     let under = st.screens.iter().find(|s| inside(s.rect, p.mouse)).copied();
     let mut other = if inside(cur.rect, p.mouse) { None } else { under };
-    if let (true, true, Some(to)) = (st.grabbing, st.grab_cat, other) {
-        drop(st);
-        move_to(app, &win, to, drag_shift(cur.rect, to.rect));
-        return;
+    // 고양이를 끄는 중: 고양이(목덜미)가 다른 모니터에 들어가면 창을 옮긴다 — 경계에서 건너가 튀지 않는다
+    if st.grabbing && st.grab_cat {
+        let at = drag_point(st.held, [ox, oy], p.mouse);
+        if let Some(to) = st.screens.iter().find(|s| s.rect != cur.rect && inside(s.rect, at)).copied() {
+            drop(st);
+            move_to(app, &win, to, drag_shift(cur.rect, to.rect));
+            return;
+        }
     }
     // 마당 선물을 끄는 중(고양이 창 = 엔진이 잡은 선물, 아니면 선물 창): 선물은 그 창의 모니터 끝에서 멈추고, 고양이도
     // 커서를 따라 건너가지 않는다. 커서가 다른 모니터면 그 자리를 끄는 창에 알린다 — 놓으면 그 모니터로 옮긴다
@@ -657,6 +679,7 @@ fn move_to(app: &AppHandle, win: &tauri::WebviewWindow, to: Screen, shift: [f64;
         st.at = Some(to.rect);
         st.layout = Some(to.layout);
         st.away = None;
+        st.held = None;
         st.hidden_at = Some(Instant::now());
     }
     let _ = app.emit_to(LABEL, "neko-screen-moved", Moved { layout: to.layout, shift });
@@ -1050,6 +1073,16 @@ mod tests {
         assert_eq!(pick(&[main, right], Some(right.rect)), Some(right));
         assert_eq!(pick(&[main], Some(right.rect)), Some(main));
         assert_eq!(pick(&[], None), None);
+    }
+
+    #[test]
+    fn a_dragged_cat_crosses_where_the_cat_is_not_the_cursor() {
+        // 목덜미를 방금 알렸으면 그 자리(창 원점 + 창 좌표), 오래됐거나 없으면 커서
+        let fresh = Some(([1500.0, 300.0], Instant::now()));
+        assert_eq!(drag_point(fresh, [0.0, -96.0], [1700.0, 50.0]), [1500.0, 204.0]);
+        let stale = Some(([1500.0, 300.0], Instant::now() - Duration::from_secs(1)));
+        assert_eq!(drag_point(stale, [0.0, 0.0], [1700.0, 50.0]), [1700.0, 50.0]);
+        assert_eq!(drag_point(None, [0.0, 0.0], [1700.0, 50.0]), [1700.0, 50.0]);
     }
 
     #[test]

@@ -977,6 +977,13 @@ mod commands {
         crate::neko_screen::set_boxes(window.label(), boxes)
     }
 
+    /// 화면 창: 잡힌 고양이 목덜미 자리(창 좌표, 놓으면 null). 끌어 건너갈 때 창은 고양이가 다른 모니터에 들어갈 때 옮긴다.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_held(at: Option<[f64; 2]>) -> Result<(), AppError> {
+        crate::neko_screen::set_held(at)
+    }
+
     /// 화면 창 고양이 메뉴 '숨기기': 마당을 숨긴다. 이 앱이 맨 앞으로 오면 다시 보인다.
     #[cfg(target_os = "macos")]
     #[tauri::command(async)]
@@ -1417,6 +1424,8 @@ pub fn run() {
             commands::neko_screen_screens,
             #[cfg(target_os = "macos")]
             commands::neko_decor_boxes,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_held,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,
