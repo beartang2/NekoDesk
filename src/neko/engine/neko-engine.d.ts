@@ -183,6 +183,17 @@ export interface NekoController {
   /** 잡혀 있을 때 목덜미 자리(세계 좌표), 아니면 null. 화면 모드에선 커서가 창 밖이면 묶지 않고 따라가니, 호스트가 이 점이 다른 모니터에 닿을 때 창을 옮긴다 */
   readonly held: [number, number] | null;
   /**
+   * 캣타워(화면 모드): 다른 창들의 윗변(발판)과 옆면(벽), 세계 좌표. 가려진 부분은 빼고 준다. 바뀔 때만.
+   * partial = 창 번호면 그 창 항목만 갈아 끼운다(올라탄 창이 움직이는 동안 30Hz). 빈 목록이면 다 내린다
+   */
+  setPerches(p: {
+    tops: { id: string; win: number; x0: number; x1: number; y: number }[];
+    walls: { id: string; win: number; x: number; y0: number; y1: number; face: "left" | "right" }[];
+    partial?: number;
+  }): void;
+  /** 올라앉아 있는 윗변 id(없으면 null). 호스트가 바뀔 때 Rust 에 알려 그 창을 30Hz 로 받는다 */
+  readonly perch: string | null;
+  /**
    * 타이핑 쉼: 다른 앱에서 타이핑을 잠깐 멈췄을 때. 발은 키 위에 멈추고 글자가 안 늘며 화면을 보고 가끔 천천히 깜빡인다.
    * 타이핑일 때만 듣고(다른 활동은 무시) 활동이 바뀌면 저절로 꺼진다
    */

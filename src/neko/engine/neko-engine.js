@@ -131,7 +131,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   const FO = 3; // 얼굴을 바라보는 쪽으로 살짝 치우침 (3/4 느낌)
 
   /* ---------- 무대 ---------- */
-  let W = 0, H = 0, DPR = 1, S = 1, floorY = 0, time = 0;
+  // floorY = 고양이가 선 바닥(창 윗변에 올라앉았으면 그 윗변), BASE_Y = 화면 바닥(마당 선물·화면 끝 벽 타기의 기준)
+  let W = 0, H = 0, DPR = 1, S = 1, floorY = 0, BASE_Y = 0, time = 0;
   const theme = {};
   const THEMES = {
     light: { "stage-hi": "#ffffff", "stage-lo": "#ece8e2", floor: "#dfd9d0", accent: "#6a4fd3", fg: "#25222b", rig: "#2f86b8", shadow: "rgba(20, 14, 24, 0.18)" },
@@ -244,6 +245,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     build: "normal", bd: { ...BUILDS.normal }, // 고른 체형과, 지금 그 체형으로 바뀌어 가는 중간값
     legLen: "normal", ll: { ...LEG_LENS.normal }, // 다리 길이도 마찬가지
     act: null, side: null, actP: null, pounce: null,
+    perch: null, hopDir: 0, pendingAct: null, // 캣타워: 올라앉은 창 윗변 · 내려가려고 가는 쪽 · 내려가서 시작할 활동
     tailEp: null, tailForce: null, annoy: 0, puffHold: 0, dropH: 0, // 꼬리 언어: 사건 신호 · 미리보기 · 짜증 · 꼬리펑 유지 · 떨어진 높이
   };
   const NECK_PROBE = jigProbe(NECK[0], NECK[1]);
@@ -374,6 +376,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const room = c.y - (84 + 18 * c.soft) * S - 4;
     if (room > 0) c.vy = -Math.min(-c.vy, Math.sqrt(2 * GRAV * S * room));
     c.vx = c.face * (prey ? clamp(Math.abs(prey.x - c.x) * 2.4, 90, 300) : c.jumpFromWalk ? 165 : 80) * S;
+    if (c.perch && !prey) c.vx = c.face * 20 * S; // 창 위에선 제자리에서 폴짝(굴러떨어지지 않게)
     c.pounce = null;
     c.squash.v += 4.2;
     c.ears.forEach((e) => (e.v -= 3.5));
@@ -393,12 +396,14 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
     setMode("land");
     for (const L of c.legs) { L.off0 = L.off; L.lift0 = 0; }
+    if (!c.perch && c.pendingAct) { const k = c.pendingAct; c.pendingAct = null; startAct(k); } // 창에서 내려와 하려던 것
   }
   function grab() {
     const c = cat;
     const sp = L2W(SCRUFF[0], SCRUFF[1]);
     c.scruff.set(sp[0], sp[1]); c.scruff.vx = c.vx; c.scruff.vy = c.vy;
     c.afterGrab = true; c.resume = false; c.nyangT = 0;
+    c.perch = null; c.hopDir = 0; floorY = BASE_Y; // 잡히면 발판에서 떨어진다(놓으면 아래 발판·바닥에 내린다)
     c.annoy += 1; c.puffHold = 1.1; c.tailEp = null; // 꼬리 언어: 잡히는 순간 꼬리펑, 자꾸 잡으면 짜증이 쌓인다
     if (c.act && !actOf(c.act.key).keepOnGrab) endAct(); // 잡히면 하던 걸 그만(음악·나비·공놀이는 이어 간다)
     if (c.side && !actOf(c.side.key).keepOnGrab) endSide();
@@ -425,7 +430,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (r < 0.2) { jump(); return; }
     if (r < 0.9 && W > 320) {
       let tx, n = 0;
-      do { tx = rand(EDGE * S, W - EDGE * S); } while (Math.abs(tx - c.x) < 110 * S && ++n < 12);
+      if (c.perch && Math.random() < 0.18) { hopDown(Math.random() < 0.5 ? -1 : 1); return; } // 창 위: 가끔 뛰어내린다
+      const [lo, hi] = roamSpan();
+      if (hi - lo < 60 * S) { c.wanderT = c.modeT + rand(1.5, 3); return; } // 좁은 윗변: 그 자리에
+      do { tx = rand(lo, hi); } while (Math.abs(tx - c.x) < 110 * S && ++n < 12);
       walkTo(tx); return;
     }
     c.wanderT = c.modeT + rand(1.5, 3);
@@ -445,7 +453,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (!chaseOn || !mouseActive() || reduced.matches || c.mood === "sleepy" || c.pose !== "stand" || c.act || c.petSulk > 0) return false; // 짜증 중엔 다가오지 않는다
     const dx = mouse.x - c.x;
     if (c.mode === "walk") {
-      const want = clamp(mouse.x - Math.sign(dx) * WALK_STOP * S, EDGE * S, W - EDGE * S);
+      const want = clamp(mouse.x - Math.sign(dx) * WALK_STOP * S, ...roamSpan());
       if (Math.abs(dx) > WALK_STOP * S && Math.abs(want - c.target) > 24 * S) walkTo(want);
       return true;
     }
@@ -475,19 +483,21 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const mainP = c.mode === "act" && c.act ? actPose() : null;
     c.actP = c.side ? sidePose(mainP) : mainP;
     const P = c.actP, AD = (P && P.add) || NO_ADD;
+    if (WORLD && (c.mode === "air" || c.mode === "fall")) settleSurface();
     const standY = floorY - standH() * S;
 
     // 1) 상태별 이동
     switch (c.mode) {
       case "idle":
         c.vx = 0;
+        if (c.hopDir && hopStep()) break;
         if (c.resume && c.act && !isRoam()) c.resume = false; // 소품을 놓는 활동 중엔 하던 걸음을 잇지 않는다(소품에서 멀어진다)
         if (c.resume && c.modeT > 0.2) { c.resume = false; setMode("walk"); break; }
         if (isRoam()) { if (!c.resume) roam(); break; }
         if (c.act && c.modeT > 0.25) {
           // 뛰는 중·떨어지는 중에 시작해 소품에서 떨어진 곳에 내렸으면 여기서 다시 편다(소품이 고양이 앞에 다시 '뿅').
           // 안 그러면 머리·발이 멀리 놓인 소품까지 끌려가 목·다리가 늘어났다
-          if (Math.abs(c.x - c.act.x0) > 12 * S) { const k = c.act.key; endAct(false); startAct(k); break; }
+          if (Math.abs(c.x - c.act.x0) > 12 * S || Math.abs(floorY - (c.act.y0 ?? floorY)) > 4 * S) { const k = c.act.key; endAct(false); startAct(k); break; }
           setMode("act"); break;
         }
         if (c.pose !== "stand" && c.modeT > 0.25) { setMode(c.pose); break; }
@@ -2114,13 +2124,17 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
   function startAct(key) {
     const c = cat;
-    if (c.act) endAct(false);
     const spec = actOf(key);
+    if (spec && spec.roam && c.perch && !(c.side && c.side.key === key)) { // 돌아다니는 놀이(공·나비·벽 타기…)는 바닥에서: 먼저 내려온다
+      if (c.act) endAct();
+      c.pendingAct = key; hopDown(c.x < (c.perch.x0 + c.perch.x1) / 2 ? -1 : 1); return;
+    }
+    if (c.act) endAct(false);
     if (!spec) { syncActUI(); return; }
     if (c.side && c.side.key === key) { // 곁들임을 주 활동으로 옮겨 탄다: 소품(헤드폰)이 다시 뜨지 않는다
       c.act = c.side; c.side = null; c.act.x0 = c.x; emit("side", null);
     } else {
-      const A = (c.act = { key, t: 0, props: [], x0: c.x });
+      const A = (c.act = { key, t: 0, props: [], x0: c.x, y0: floorY });
       if (spec.room) { const x = c.x + c.face * spec.room * S; if (x < 24 * S || x > W - 24 * S) c.face = -c.face; }
       if (spec.start) spec.start(A, kitFor(A));
     }
@@ -2332,7 +2346,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
   }
   const sizeK = DD.sizeK;
-  const geomNow = () => ({ W, floorY, S });
+  const geomNow = () => ({ W, floorY: BASE_Y, S }); // 마당 선물은 화면 바닥 기준(창 윗변에 올라앉아도)
   const decorDims = (shape, k = 1) => DD.decorDims(shape, k, S);
   const decorM = () => DD.decorM(S);
   const wallSpan = (h) => DD.wallSpan(h, geomNow());
@@ -4039,7 +4053,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (WORLD) { W = Math.max(1, window.innerWidth); H = Math.max(1, window.innerHeight); }
     else { const r = canvas.getBoundingClientRect(); W = Math.max(1, r.width); H = Math.max(1, r.height); }
     DPR = Math.min(window.devicePixelRatio || 1, MAX_DPR);
-    floorY = WORLD ? (GROUND_Y ?? H - 6) : DESKTOP ? H - 6 : Math.round(H * 0.84);
+    BASE_Y = WORLD ? (GROUND_Y ?? H - 6) : DESKTOP ? H - 6 : Math.round(H * 0.84);
+    floorY = cat.perch ? cat.perch.y : BASE_Y;
     // 앱 패널: 높이로 크기를 정하고(높이 200px → 몸 약 80px), 폭이 좁으면 몸이 무대에 들어오게만 줄인다
     // 폭 제한: 꼬리를 뒤로 뻗고 수염까지 무대 안에 들어오는 만큼(W/250). 사이드바가 좁으면 폭을 넓혀야 더 커진다
     S = FIXED_S ?? (SCALE_MODE === "height" ? clamp(Math.min(floorY / 240, W / 250), 0.35, 1.4) : clamp(Math.min(W / 600, floorY / 300), 0.55, 1.4));
@@ -4099,6 +4114,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     for (const A of [c.act, c.side]) if (A) {
       for (const v of Object.values(A)) if (v && typeof v === "object" && !Array.isArray(v)) move(v);
       if (typeof A.x0 === "number") A.x0 = mx(A.x0); // 시작한 자리도 같이(안 옮기면 화면을 옮긴 뒤 소품을 다시 편다)
+      if (typeof A.y0 === "number") A.y0 = my(A.y0);
     }
     for (const e of effects) move(e);
     // 고양이 몸에 딸린 점들: 안 옮기면 다리·꼬리·머리가 옛 자리에서 늘어났다가 따라온다(속도는 둔다 — 걸음·흔들림이 이어지게)
@@ -4117,10 +4133,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
    */
   function shiftWorld(dx, dy, ground) {
     const moved = Number.isFinite(dx) && Number.isFinite(dy) && (dx || dy);
-    const floor = WORLD && Number.isFinite(ground) && ground !== floorY;
+    const floor = WORLD && Number.isFinite(ground) && ground !== BASE_Y;
     if (!moved && !floor) return;
     const c = cat;
-    if (floor) { GROUND_Y = ground; floorY = ground; }
+    if (floor) { GROUND_Y = ground; BASE_Y = ground; }
+    TOPS = []; WALLS = []; c.perch = null; c.hopDir = 0; floorY = BASE_Y; // 다른 모니터: 창 목록은 호스트가 새로 보낸다
     if (moved) {
       transformWorld((x) => x + dx, (y) => y + dy, 1);
       c.x += dx; c.y += dy;
@@ -4136,6 +4153,93 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (!paused) draw(); // 다시 보이는 첫 프레임부터 새 자리에
   }
 
+  /* ---------- 캣타워: 창 윗변(발판)·옆면(벽) — 화면 모드(docs/neko-screen-mode.md 2단계) ----------
+     호스트가 다른 창들의 윗변·옆면을 세계 좌표로 넘긴다(setPerches, 바뀔 때만·올라탄 창은 움직이는 동안 30Hz). 윗변 위를 걷고
+     앉고 눕는다(floorY 가 그 윗변이 된다 — 소품·그림자·다리가 다 그 위). 창이 움직이면 같이 가고, 없어지거나 빠르게 흔들리면
+     떨어져 아래 윗변이나 화면 바닥에 내린다. 잡았다 놓아도, 뛰었다 내려와도 발 아래 가장 가까운 윗변에 선다. */
+  let TOPS = [], WALLS = [];
+  let skipTop = null; // { id, until }: 흔들려 떨어지거나 뛰어내린 윗변은 잠깐 다시 디디지 않는다(아직 발 밑이어도 내려간다)
+  const PERCH_M = 36;      // 윗변 끝에서 몸 가운데까지 띄우는 여백(S): 네 발이 다 올라서게
+  const PERCH_SHAKE = 2;   // 0.6초 안에 방향이 이만큼 바뀌며(빠르게) 흔들리면 떨어진다
+  const PERCH_FLING = 2600; // 이보다 빨리(px/s) 움직이면 못 버틴다
+  function perchSpan() {
+    const p = cat.perch, m = PERCH_M * S, mid = (p.x0 + p.x1) / 2;
+    return p.x1 - p.x0 > 2 * m ? [p.x0 + m, p.x1 - m] : [mid, mid];
+  }
+  /** 돌아다닐 폭: 윗변이면 그 위, 아니면 화면(가장자리 여백) */
+  const roamSpan = () => (cat.perch ? perchSpan() : [EDGE * S, W - EDGE * S]);
+  /** 발(feetY) 아래 가장 가까운 윗변. 몸 가운데가 끝에서 8 넘게 안쪽이어야 디딘다. 화면 바닥보다 낮은 건 없다 */
+  function surfaceAt(x, feetY) {
+    let best = null;
+    for (const t of TOPS) {
+      if (x < t.x0 + 8 * S || x > t.x1 - 8 * S || t.y < feetY - 2 || t.y > BASE_Y - 12 * S) continue;
+      if (skipTop && skipTop.id === t.id && time < skipTop.until) continue;
+      if (!best || t.y < best.y) best = t;
+    }
+    return best;
+  }
+  /** 공중: 발 아래 바닥을 다시 본다(지나간 윗변은 놓고, 아래 윗변이 오면 거기 내린다) */
+  function settleSurface() {
+    const c = cat, t = surfaceAt(c.x, c.y + standH() * S - Math.max(0, c.vy) / 120);
+    c.perch = t; floorY = t ? t.y : BASE_Y;
+  }
+  /** 발판에서 떨어진다(창이 사라짐·흔들림·밖으로 벗어남) */
+  function dropOff(vx = 0) {
+    const c = cat;
+    c.perch = null; c.hopDir = 0; floorY = BASE_Y;
+    if (GROUND.has(c.mode)) { c.vx = vx; c.vy = 0; c.afterGrab = true; c.dropH = 0; setMode("fall"); }
+  }
+  /** 이 쪽(dir) 끝으로 걸어가 뛰어내린다 */
+  function hopDown(dir) {
+    const c = cat;
+    if (!c.perch) return;
+    c.hopDir = dir > 0 ? 1 : -1;
+    if (c.mode === "walk" || c.mode === "idle") walkTo(c.hopDir > 0 ? walkHi() : walkLo());
+  }
+  function hopStep() { // idle 에서: 끝에 왔으면 바깥으로 폴짝
+    const c = cat, d = c.hopDir;
+    if (!c.perch) { c.hopDir = 0; return false; }
+    const edge = d > 0 ? walkHi() : walkLo();
+    if (Math.abs(c.x - edge) > 4 * S) { if (c.modeT > 0.15) walkTo(edge); return true; }
+    if (c.face !== d) { c.face = d; setMode("idle"); return true; }
+    if (c.modeT < 0.25) return true;
+    skipTop = { id: c.perch.id, until: time + 0.6 };
+    c.hopDir = 0; c.vx = d * 180 * S; c.vy = -160 * S; c.squash.v += 3; c.jumpFromWalk = false;
+    setMode("air");
+    return true;
+  }
+  /**
+   * 창 윗변·옆면. tops [{ id, win, x0, x1, y }], walls [{ id, win, x, y0, y1, face: "left"|"right" }](세계 좌표).
+   * partial = 창 번호: 그 창 항목만 갈아 끼운다(올라탄 창이 움직이는 동안 30Hz). 없으면 전부 바꾼다
+   */
+  function setPerches(p) {
+    if (!WORLD || !p) return;
+    const num = (v) => Number.isFinite(+v);
+    const tops = (Array.isArray(p.tops) ? p.tops : []).filter((t) => t && t.id != null && num(t.x0) && num(t.x1) && num(t.y) && +t.x1 > +t.x0)
+      .map((t) => ({ id: String(t.id), win: t.win, x0: +t.x0, x1: +t.x1, y: +t.y }));
+    const walls = (Array.isArray(p.walls) ? p.walls : []).filter((w) => w && w.id != null && num(w.x) && num(w.y0) && num(w.y1) && +w.y1 > +w.y0)
+      .map((w) => ({ id: String(w.id), win: w.win, x: +w.x, y0: +w.y0, y1: +w.y1, face: w.face === "right" ? "right" : "left" }));
+    const part = p.partial != null && p.partial !== false && p.partial !== true;
+    TOPS = part ? [...TOPS.filter((t) => t.win !== p.partial), ...tops] : tops;
+    WALLS = part ? [...WALLS.filter((w) => w.win !== p.partial), ...walls] : walls;
+    const c = cat, was = c.perch;
+    if (!was) return;
+    const t = TOPS.find((o) => o.id === was.id);
+    if (!t) { dropOff(); return; } // 창이 닫혔거나 가려졌다
+    const at = time, dt = Math.max(1 / 120, at - (was.at ?? at - 1 / 30));
+    const dx0 = t.x0 - was.x0, dx1 = t.x1 - was.x1, dy = t.y - was.y;
+    const dx = Math.abs(dx0 - dx1) < 1 ? dx0 : 0; // 끝 하나만 움직였으면 크기만 바뀐 것
+    const v = Math.hypot(dx, dy) / dt;
+    // 흔들기: 짧은 사이 방향이 자꾸 바뀌면(빠르게) 못 버틴다
+    const dir = Math.sign(dx) || Math.sign(dy), flips = (was.flips || []).filter((q) => at - q < 0.6);
+    if (dir && was.dir && dir !== was.dir && v > 300 * S) flips.push(at);
+    t.at = at; t.dir = dir || was.dir; t.flips = flips;
+    if (v > PERCH_FLING || flips.length >= PERCH_SHAKE) { skipTop = { id: t.id, until: time + 1 }; dropOff(clamp(dx / dt * 0.25, -400 * S, 400 * S)); return; }
+    if (dx || dy) { transformWorld((x) => x + dx, (y) => y + dy, 1); c.x += dx; c.y += dy; for (const j of c.jig) j.init = false; c.tailRoot.init = false; }
+    c.perch = t; floorY = t.y;
+    if (c.x < t.x0 || c.x > t.x1) dropOff(); // 창이 줄어 발 밑이 비었다
+  }
+
   /* ---------- 열린 가장자리(여러 모니터) ----------
      닫힌 쪽은 지금처럼 벽. 열린 쪽은 호스트가 walkTo·walkOut 으로 시킬 때만 몸 길이만큼 넘어갈 수 있고, 고양이 가운데가
      세계 밖으로 나가는 순간 "edge" 를 한 번 알린다. 산책·마우스 따라가기는 열린 쪽이어도 넘지 않는다. */
@@ -4143,8 +4247,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   let EDGES = { left: false, right: false };
   let edgeFired = null;
   /** 걸을 수 있는 폭. 열린 쪽은 밖으로 BEYOND 까지 */
-  const walkLo = () => (EDGES.left ? -BEYOND * S : EDGE * S);
-  const walkHi = () => (EDGES.right ? W + BEYOND * S : W - EDGE * S);
+  const walkLo = () => (cat.perch ? perchSpan()[0] : EDGES.left ? -BEYOND * S : EDGE * S);
+  const walkHi = () => (cat.perch ? perchSpan()[1] : EDGES.right ? W + BEYOND * S : W - EDGE * S);
   /** 가장자리 밖을 향해 걷는 중(이땐 마우스 따라가기가 목표를 빼앗지 않는다) */
   const crossingEdge = () => cat.target != null && (cat.target < 0 || cat.target > W);
   let returning = false; // 닫힌 쪽 밖에 있다가 걸어 들어오는 중(이땐 벽이 막지 않는다)
@@ -4160,6 +4264,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
   function walkOut(side) {
     if (AWAY) return;
+    if (cat.perch) { hopDown(side === "left" ? -1 : 1); return; } // 창 위면 먼저 내려온다(다음 walkOut 에 걸어 나간다)
     setEdges({ ...EDGES, [side === "left" ? "left" : "right"]: true });
     walkTo(side === "left" ? -BEYOND * S : W + BEYOND * S);
   }
@@ -4395,6 +4500,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     },
     act(key) {
       const next = !key || key === "none" ? null : key, A = cat.act;
+      if (cat.pendingAct && cat.pendingAct !== next) cat.pendingAct = null; // 창에서 내려가 하려던 것 대신 다른 걸
       if (A && A.key === next) return;
       if (A && A.key === "climb" && climbHold(A, next)) return; // 벽·공중: 내려와 착지한 뒤 넘긴다
       if (!next) endAct(); else startAct(next);
@@ -4431,6 +4537,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     setGround(y) { GROUND_Y = Number.isFinite(y) ? y : null; resize(); },
     get region() { return { x: RX, y: RY, w: RW, h: RH }; },
     get held() { return cat.mode === "grabbed" ? [cat.scruff.x, cat.scruff.y] : null; },
+    setPerches,
+    get perch() { return cat.perch ? cat.perch.id : null; },
     /** 타이핑 쉼(다른 앱에서 타이핑을 잠깐 멈춤). 타이핑일 때만 듣고, 활동이 바뀌면 저절로 꺼진다 */
     setRest(on) { if (cat.act && cat.act.key === "typing") cat.act.rest = !!on; },
     hit: hitCat,

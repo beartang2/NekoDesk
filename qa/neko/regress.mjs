@@ -834,6 +834,62 @@ try {
     await p.close();
   }
 
+  // 9-t) 캣타워 1단계(창 윗변 발판): 놓으면 발 아래 윗변에 내린다 · 윗변 안에서만 걷는다 · 창이 움직이면 같이 간다 ·
+  //      흔들거나 창이 사라지면 떨어져 아래 윗변이나 바닥에 · 돌아다니는 놀이·다른 모니터로 가기는 먼저 뛰어내린다
+  {
+    const p = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, o = {}, S = n.S;
+      n.setGround(830); n.step(120);
+      const top = (y = 500, x0 = 400, x1 = 1000, id = "7:0", win = 7) => ({ id, win, x0, x1, y });
+      const feet = () => Math.max(...c.legs.map((L) => L.foot.y));
+      const dropAt = (x, y) => { c.x = x; c.y = y; c.vx = 0; c.vy = 0; c.mode = "fall"; c.modeT = 0; for (let i = 0; i < 120 * 3; i++) n.step(1); };
+      // 놓으면 윗변에
+      n.setPerches({ tops: [top()], walls: [] });
+      dropAt(700, 200);
+      o.landed = { perch: n.perch, feet: Math.round(feet()), floor: n.floorY };
+      // 윗변 안에서만 걷는다
+      n.walkTo(5000); for (let i = 0; i < 120 * 12; i++) n.step(1);
+      o.walk = { x: Math.round(c.x), max: Math.round(1000 - 36 * S), still: n.perch };
+      // 창이 움직이면 같이(30Hz, 1초에 오른쪽 120·위 60)
+      const x0 = c.x, y0 = c.y;
+      for (let k = 1; k <= 30; k++) { n.setPerches({ tops: [top(500 - 2 * k, 400 + 4 * k, 1000 + 4 * k)], walls: [], partial: 7 }); n.step(4); }
+      o.follow = { dx: Math.round(c.x - x0), dy: Math.round(c.y - y0), perch: n.perch, feetOnTop: Math.abs(feet() - n.floorY) < 6 };
+      // 빠르게 흔들면 떨어진다
+      let k = 0; for (; k < 30 && n.perch; k++) { n.setPerches({ tops: [top(440, 520 + (k % 2 ? 60 : -60), 1120 + (k % 2 ? 60 : -60))], walls: [], partial: 7 }); n.step(4); }
+      for (let i = 0; i < 120 * 3; i++) n.step(1);
+      o.shake = { fellAfter: k, perch: n.perch, onFloor: Math.abs(n.floorY - 830) < 1 && c.mode !== "fall" };
+      // 창이 사라지면 아래 윗변으로
+      n.setPerches({ tops: [top(400, 300, 1100, "1:0", 1), top(650, 300, 1100, "2:0", 2)], walls: [] });
+      dropAt(700, 150);
+      const onHigh = n.perch;
+      n.setPerches({ tops: [top(650, 300, 1100, "2:0", 2)], walls: [] }); for (let i = 0; i < 120 * 3; i++) n.step(1);
+      o.under = { onHigh, now: n.perch };
+      // 돌아다니는 놀이는 먼저 뛰어내린다
+      n.act("yarn"); let hopped = false;
+      for (let i = 0; i < 120 * 20 && n.activity !== "yarn"; i++) { n.step(1); if (!n.perch) hopped = true; }
+      o.roam = { hopped, act: n.activity, floor: n.floorY };
+      n.act(null); n.step(120);
+      // 다른 모니터로 가기(walkOut)도 먼저 내려온다
+      n.setPerches({ tops: [top(600, 300, 1100, "3:0", 3)], walls: [] }); dropAt(700, 300);
+      const up = n.perch; n.walkOut("right"); for (let i = 0; i < 120 * 15 && n.perch; i++) n.step(1);
+      o.out = { up, down: n.perch === null };
+      n.setEdges({ left: false, right: false });
+      return o;
+    });
+    check("캣타워: 놓으면 발 아래 창 윗변에 선다, 윗변 끝 안에서만 걷는다", JSON.stringify({ landed: r.landed, walk: r.walk }),
+      r.landed.perch === "7:0" && r.landed.floor === 500 && Math.abs(r.landed.feet - 500) < 6 && r.walk.x <= r.walk.max + 1 && r.walk.still === "7:0");
+    check("캣타워: 창이 움직이면 같이 가고, 빠르게 흔들면 떨어져 바닥에", JSON.stringify({ follow: r.follow, shake: r.shake }),
+      r.follow.perch === "7:0" && Math.abs(r.follow.dx - 120) < 2 && Math.abs(r.follow.dy + 60) < 2 && r.follow.feetOnTop && r.shake.fellAfter < 12 && r.shake.perch === null && r.shake.onFloor);
+    check("캣타워: 올라탄 창이 사라지면 아래 창 윗변에, 공놀이·다른 모니터로 가기는 먼저 뛰어내린다", JSON.stringify({ under: r.under, roam: r.roam, out: r.out }),
+      r.under.onHigh === "1:0" && r.under.now === "2:0" && r.roam.hopped && r.roam.act === "yarn" && r.roam.floor === 830 && r.out.up === "3:0" && r.out.down);
+    await p.close();
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {
