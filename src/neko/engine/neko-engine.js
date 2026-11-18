@@ -2524,12 +2524,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function drawHeadphones(hp, t) {
     const c = cat, tsx = Math.max(0.15, Math.abs(c.turn.x)), sg = Math.sign(c.turn.x) || 1, r = c.headRot, s = S;
     const bop = 1 + 0.07 * Math.max(0, Math.sin(t * 1.6 * TAU)); // 고개 까딱과 같은 박자
-    const band = (dy, w, color) => {
-      const a = H2W(-33, -2 + dy), m = H2W(0, -57 + dy), b = H2W(33, -2 + dy); // 꼭대기는 정수리(-27) 살짝 위 -29.5
-      ctx.strokeStyle = color; ctx.lineWidth = w;
-      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(m[0], m[1], b[0], b[1]); ctx.stroke();
+    const band = (dy, w, color) => { // 반타원: 양 끝 (±33, -2), 꼭대기는 정수리(-27) 살짝 위 -29.5. 포물선은 꼭대기가 뾰족해 보였다
+      ctx.strokeStyle = color; ctx.lineWidth = w; ctx.beginPath();
+      for (let i = 0; i <= 24; i++) {
+        const a = Math.PI * (1 + i / 24), p = H2W(33 * Math.cos(a), -2 + dy + 27.5 * Math.sin(a));
+        i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
+      }
+      ctx.stroke();
     };
-    ctx.save(); ctx.lineCap = "round";
+    ctx.save(); ctx.lineCap = ctx.lineJoin = "round";
     const clip = new Path2D(); // 화면 전체에서 두 귀를 뺀 곳
     clip.rect(-1e5, -1e5, 2e5, 2e5);
     addEar(clip, -1, earAng(c.ears[0].x)); addEar(clip, 1, earAng(c.ears[1].x));
