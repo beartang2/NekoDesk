@@ -1532,6 +1532,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   const hex2rgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
   const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
   const css = (c) => `rgb(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])})`;
+  /** "#rrggbb" → [색상(0~360°), 채도(0~1), 명도(0~1)] */
+  function hueSat(hex) {
+    const [r, g, b] = hex2rgb(hex).map((v) => v / 255);
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+    let h = 0;
+    if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [(h * 60 + 360) % 360, sat, l];
+  }
   const gauss = (x, y, cx, cy, r) => Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * r * r));
   function mulberry32(a) {
     return () => {
@@ -2500,31 +2509,49 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const c = cat, side = Math.random() < 0.5 ? -1 : 1;
     effects.push({ kind: "note", x: c.head.x + side * 26 * S, y: c.head.y - 18 * S, vx: side * 6 * S, vy: -24 * S, t: 0, life: 2.2, ph: Math.random() * 6, two: Math.random() < 0.45 });
   }
-  // 헤드폰: 머리 위로 얇은 금속 테, 그 아래 넓은 메시 캐노피, 양옆은 짧은 금속 막대에 달린 둥근 사각 알루미늄 컵(머리 쪽은 쿠션)
-  const PHONES = [["#f2c6cf", "#e2a7b4"], ["#bcd6ea", "#9dbcd7"], ["#cfe2c6", "#adc9a2"], ["#dcdde2", "#bfc1c9"]];
-  function drawHeadphones(hp) {
+  /*
+   * 헤드폰: 통통한 띠 하나 + 뺨 옆에 붙은 동글동글한 컵. 선 없이 면으로만(고양이 그림체와 같게).
+   * 띠는 두 귀 사이 정수리에 얹혀, 귀 밑동을 지날 땐 귀 뒤로 숨는다(귀 모양으로 오려 낸다) — 귀가 띠 앞으로 쫑긋 나온다.
+   * 색은 털 색에서 고른 파스텔, 컵 바깥엔 작은 무늬 하나, 박자마다 컵이 살짝 통통.
+   */
+  /** 헤드폰 색: 털 색상을 분홍(340°) 쪽으로 40° 돌린 파스텔. 무채색 털(까망·회색·하양)이나 이미 분홍 언저리면 정해 둔 파스텔 중 하나 */
+  function phoneColors() {
+    const [h, sat] = hueSat(cat.coat.body), toward = ((340 - h + 540) % 360) - 180; // 340° 까지 가까운 쪽 각도
+    const hue = sat < 0.15 || Math.abs(toward) < 40 ? [340, 160, 45, 265][Math.floor(Math.random() * 4)] : h + Math.sign(toward) * 40;
+    const at = (sat, l) => `hsl(${Math.round(hue)}, ${sat}%, ${l}%)`;
+    return { light: at(70, 93), col: at(62, 84), deep: at(46, 72), motif: Math.random() < 0.5 ? "paw" : "star" };
+  }
+  function drawHeadphones(hp, t) {
     const c = cat, tsx = Math.max(0.15, Math.abs(c.turn.x)), sg = Math.sign(c.turn.x) || 1, r = c.headRot, s = S;
-    const [col, deep] = hp.col, steel = "#c6c9d0", mesh = css(mixc(hex2rgb(col), [255, 255, 255], 0.38));
-    const arc = (x, y0, y1, w, color, dash) => {
-      const a = H2W(-x, y0), m = H2W(0, y1), b = H2W(x, y0);
-      ctx.strokeStyle = color; ctx.lineWidth = w; ctx.setLineDash(dash || []);
+    const bop = 1 + 0.07 * Math.max(0, Math.sin(t * 1.6 * TAU)); // 고개 까딱과 같은 박자
+    const band = (dy, w, color) => {
+      const a = H2W(-33, -2 + dy), m = H2W(0, -57 + dy), b = H2W(33, -2 + dy); // 꼭대기는 정수리(-27) 살짝 위 -29.5
+      ctx.strokeStyle = color; ctx.lineWidth = w;
       ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(m[0], m[1], b[0], b[1]); ctx.stroke();
     };
     ctx.save(); ctx.lineCap = "round";
-    arc(24, -13, -41, 6.4 * s, mesh);                                          // 메시 캐노피(정수리에 얹힌다)
-    arc(24, -13, -41, 6.4 * s, "rgba(255,255,255,0.4)", [0.9 * s, 1.5 * s]);  // 촘촘한 그물 결
-    ctx.setLineDash([]);
-    arc(29, -10, -50, 2 * s, steel);                                           // 금속 테(캐노피보다 조금 위)
-    for (const side of [-1, 1]) { // 테 끝에서 컵으로 내려가는 막대
-      const p = H2W(side * 29, -10), q = H2W(side * 31, -6);
-      ctx.strokeStyle = steel; ctx.lineWidth = 1.6 * s; ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
-    }
+    const clip = new Path2D(); // 화면 전체에서 두 귀를 뺀 곳
+    clip.rect(-1e5, -1e5, 2e5, 2e5);
+    addEar(clip, -1, earAng(c.ears[0].x)); addEar(clip, 1, earAng(c.ears[1].x));
+    ctx.clip(clip, "evenodd");
+    band(1.4, 7.2 * s, "rgba(50,32,60,0.13)"); // 털 위에 얹힌 그림자
+    band(0, 6.6 * s, hp.col);
+    band(-1.3, 1.7 * s, "rgba(255,255,255,0.5)"); // 위쪽 반짝
+    ctx.restore();
     for (const side of [-1, 1]) { // 컵: 이 좌표계에서 +x 가 머리 바깥쪽
-      const q = H2W(side * 31, 2);
-      ctx.save(); ctx.translate(q[0], q[1]); ctx.rotate(r); ctx.scale(tsx * sg * side, 1);
-      ctx.fillStyle = deep; roundRect(ctx, -6.5 * s, -8 * s, 5 * s, 16 * s, 2.2 * s); ctx.fill();           // 머리 쪽 쿠션
-      ctx.fillStyle = col; roundRect(ctx, -3.5 * s, -9.5 * s, 10 * s, 19 * s, 4.6 * s); ctx.fill();        // 알루미늄 컵
-      ctx.fillStyle = "rgba(255,255,255,0.55)"; roundRect(ctx, 3 * s, -6.5 * s, 1.5 * s, 12 * s, 0.75 * s); ctx.fill(); // 반짝
+      const q = H2W(side * 31, 3);
+      ctx.save(); ctx.translate(q[0], q[1]); ctx.rotate(r); ctx.scale(tsx * sg * side * bop, bop);
+      ctx.fillStyle = hp.deep; ctx.beginPath(); ctx.ellipse(-3.2 * s, 0.4 * s, 4.4 * s, 7.6 * s, 0, 0, TAU); ctx.fill(); // 머리 쪽 쿠션
+      const g = ctx.createRadialGradient(-0.5 * s, -3.5 * s, 1 * s, 1.4 * s, 0.5 * s, 9 * s); // 위쪽이 밝은 동그란 볼륨
+      g.addColorStop(0, hp.light); g.addColorStop(0.45, hp.col); g.addColorStop(1, hp.deep);
+      ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(1.4 * s, 0.5 * s, 7.4 * s, 8.4 * s, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      if (hp.motif === "star") drawStar(1.8 * s, 1.2 * s, 3.6 * s, ctx.fillStyle);
+      else { // 발바닥: 큰 젤리 하나 + 발가락 셋
+        ctx.beginPath(); ctx.ellipse(1.8 * s, 2.6 * s, 2.3 * s, 1.8 * s, 0, 0, TAU);
+        for (const [dx, dy] of [[-1.9, -0.9], [0, -1.8], [1.9, -0.9]]) { ctx.moveTo((1.8 + dx + 0.95) * s, (dy + 0.2) * s); ctx.arc((1.8 + dx) * s, (dy + 0.2) * s, 0.95 * s, 0, TAU); }
+        ctx.fill();
+      }
       ctx.restore();
     }
     ctx.restore();
@@ -2665,8 +2692,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   defineActivity("music", { // 헤드폰을 끼고 박자(96 BPM)에 맞춰 고개를 까딱, 꼬리도 두 박자에 한 번, 음표가 떠오른다
     name: "음악 듣기", label: "음악 듣는 중", keepOnGrab: true,
     start(A, kit) {
-      A.noteT = 0.3; A.hp = { col: PHONES[Math.floor(Math.random() * PHONES.length)] };
-      kit.front(() => H2W(0, -26), () => drawHeadphones(A.hp), { delay: 0.05, follow: true });
+      A.noteT = 0.3; A.hp = phoneColors();
+      kit.front(() => H2W(0, -26), () => drawHeadphones(A.hp, A.t), { delay: 0.05, follow: true });
       burst(cat.head.x, cat.head.y - 30 * S);
     },
     step(A, dt) { A.noteT -= dt; if (A.noteT <= 0) { A.noteT = 0.62; if (!reduced.matches) spawnNote(); } },
@@ -3558,12 +3585,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function eyeEdge(hex, lf = 0.78) { // lf: 명도 배율(1 이면 눈 색 그대로)
     const key = hex + lf.toFixed(2);
     if (eyeEdgeCache[key]) return eyeEdgeCache[key];
-    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
-    const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-    let h = 0;
-    if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-    return (eyeEdgeCache[key] = `hsl(${Math.round(h * 60 + 360) % 360}, ${Math.round(sat * 100)}%, ${Math.round(l * 100 * lf)}%)`);
+    const [h, sat, l] = hueSat(hex);
+    return (eyeEdgeCache[key] = `hsl(${Math.round(h)}, ${Math.round(sat * 100)}%, ${Math.round(l * 100 * lf)}%)`);
   }
   function drawEye(ex, ey) {
     const c = cat, e = H2W(ex, ey), R = 10 * S, xp = expression(), iris = c.eye.c;
