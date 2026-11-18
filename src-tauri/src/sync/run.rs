@@ -295,16 +295,29 @@ pub async fn sync_revoke(db: State<'_, DbState>, id: String) -> Result<(), AppEr
     Ok(())
 }
 
-/// 열쇠 바꾸기(§3.2): 다른 기기를 모두 끊고, 서버 기록을 비우고, 새 열쇠로 이 맥의 것을 처음부터 다시 올린다.
-/// 다른 기기는 새 짝 문자열로 다시 맞춘다(옛 열쇠로 올린 기록이 섞이지 않게 먼저 끊는다).
-#[tauri::command]
-pub async fn sync_rekey(db: State<'_, DbState>) -> Result<(), AppError> {
-    let srv = registered(&db)?;
+/// 이 맥 말고 살아 있는 기기를 다 끊는다
+pub(crate) async fn revoke_others(srv: &Server) -> AppResult<()> {
     let list: Devices = call(reqwest::Method::GET, &srv.url, "/v1/devices", Some(&srv.token), &Value::Null).await?;
     for d in list.devices.iter().filter(|d| d.id != srv.device && d.revoked == 0) {
         let _: Value = call(reqwest::Method::DELETE, &srv.url, &format!("/v1/devices/{}", d.id), Some(&srv.token), &Value::Null).await?;
     }
+    Ok(())
+}
+
+/// 열쇠 바꾸기의 서버 쪽: 짝 코드 무효화(옛 짝 문자열로 새 기기가 못 들어오게) → 다른 기기 끊기 → 기록·짝 코드 비우기
+pub(crate) async fn rekey_server(srv: &Server) -> AppResult<()> {
+    let _: Value = call(reqwest::Method::DELETE, &srv.url, "/v1/pair", Some(&srv.token), &Value::Null).await?;
+    revoke_others(srv).await?;
     let _: Value = call(reqwest::Method::POST, &srv.url, "/v1/reset", Some(&srv.token), &serde_json::json!({})).await?;
+    Ok(())
+}
+
+/// 열쇠 바꾸기(§3.2): 짝 코드를 죽이고, 다른 기기를 모두 끊고, 서버 기록을 비우고, 새 열쇠로 이 맥 것을 처음부터
+/// 다시 올린다. 끝에 기기 목록을 다시 읽어 그사이 들어온 기기도 끊는다. 다른 기기는 새 짝 문자열로 다시 맞춘다.
+#[tauri::command]
+pub async fn sync_rekey(db: State<'_, DbState>) -> Result<(), AppError> {
+    let srv = registered(&db)?;
+    rekey_server(&srv).await?;
     let mut key = [0u8; 32];
     OsRng.fill_bytes(&mut key);
     crate::secrets::sync_set("sync_key", &hex(&key))?;
@@ -314,7 +327,7 @@ pub async fn sync_rekey(db: State<'_, DbState>) -> Result<(), AppError> {
         c.execute("UPDATE sync_meta SET dirty = 1", [])?;
     }
     kick();
-    Ok(())
+    revoke_others(&srv).await
 }
 
 // ── 세션 목록(화면의 sessionStore) ───────────────────────────────────────────

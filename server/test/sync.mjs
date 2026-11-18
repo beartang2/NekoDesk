@@ -120,7 +120,12 @@ assert.equal((await call("POST", "/v1/sync", { since: 0, push: Array.from({ leng
 
 // 열쇠 바꾸기(reset): 기록을 비우고, 그 전 순번에서 멈춘 기기는 처음부터 다시 받으라고(reset) 듣는다
 const before = (await sync(A.token, 0)).seq;
+const oldCode = (await ok("POST", "/v1/pair", {}, A.token)).code; // 옛 열쇠가 든 짝 문자열
 await ok("POST", "/v1/reset", {}, A.token);
+assert.equal((await call("POST", "/v1/devices", { name: "옛 짝", pair_code: oldCode })).status, 403, "reset 뒤 옛 짝 코드는 죽는다");
+const c2 = (await ok("POST", "/v1/pair", {}, A.token)).code;
+await ok("DELETE", "/v1/pair", undefined, A.token);
+assert.equal((await call("POST", "/v1/devices", { name: "무효", pair_code: c2 })).status, 403, "DELETE /v1/pair 는 짝 코드를 다 지운다");
 r = await sync(A.token, before);
 assert.equal(r.reset, true);
 r = await sync(A.token, 0);

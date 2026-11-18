@@ -504,6 +504,12 @@ fn live() {
         }
         assert_eq!(dirty(&a.lock().unwrap()), 0);
         assert_eq!(dirty(&b.lock().unwrap()), 0);
+        // 열쇠 바꾸기: 그 전에 만든 짝 코드(옛 열쇠가 든 짝 문자열)로는 뒤에 못 들어온다. 다른 기기는 끊긴다
+        let old: Code = call(reqwest::Method::POST, &sa.url, "/v1/pair", Some(&sa.token), &serde_json::json!({})).await.unwrap();
+        super::run::rekey_server(&sa).await.unwrap();
+        let late: AppResult<Value> = call(reqwest::Method::POST, &sa.url, "/v1/devices", None, &serde_json::json!({ "name": "옛 짝", "pair_code": old.code })).await;
+        assert!(late.is_err(), "rekey 전 짝 코드는 거절");
+        assert!(round(&b, &sb, 0).await.is_err(), "B 는 끊겼다");
         // 본문 없는 GET(기기 목록) — Workers 는 본문 있는 GET 을 거절한다
         let list: Value = call(reqwest::Method::GET, &sa.url, "/v1/devices", Some(&sa.token), &Value::Null).await.unwrap();
         assert!(list["devices"].as_array().unwrap().iter().any(|d| d["id"] == sb.device.as_str()));

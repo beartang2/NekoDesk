@@ -226,6 +226,11 @@ async function route(req: Request, env: Env): Promise<Response> {
     ]);
     return json({ code, expires });
   }
+  // 짝 코드를 모두 무효로(열쇠 바꾸기 첫 단계 — 옛 짝 문자열로 그사이 새 기기가 들어오지 못하게)
+  if (method === "DELETE" && path === "/v1/pair") {
+    await env.DB.prepare("DELETE FROM pair_codes").run();
+    return json({ ok: true });
+  }
   if (method === "GET" && path === "/v1/devices") {
     const { results } = await env.DB.prepare("SELECT id, name, created_at, last_seen, last_active, revoked FROM devices ORDER BY created_at").all();
     return json({ devices: results, me: device });
@@ -238,10 +243,12 @@ async function route(req: Request, env: Env): Promise<Response> {
     ]);
     return json({ ok: true });
   }
-  // 열쇠 바꾸기: 기록을 다 비운다. 기기·짝 코드는 남는다. 이 순번 앞에서 멈춘 기기는 처음부터 다시 받는다
+  // 열쇠 바꾸기: 기록과 짝 코드를 다 비운다(옛 짝 문자열엔 옛 열쇠가 들어 있다). 기기는 남는다.
+  // 이 순번 앞에서 멈춘 기기는 처음부터 다시 받는다
   if (method === "POST" && path === "/v1/reset") {
     await env.DB.batch([
       env.DB.prepare("DELETE FROM records"),
+      env.DB.prepare("DELETE FROM pair_codes"),
       env.DB.prepare("UPDATE meta SET value = (SELECT value FROM meta WHERE key = 'seq') WHERE key = 'purged_seq'"),
     ]);
     return json({ ok: true });
