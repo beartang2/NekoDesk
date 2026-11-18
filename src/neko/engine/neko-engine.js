@@ -4330,10 +4330,14 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const c = cat, t = surfaceAt(c.x, c.y + standH() * S - Math.max(0, c.vy) / 120);
     c.perch = t; floorY = t ? t.y : BASE_Y;
   }
-  /** 발판에서 떨어진다(창이 사라짐·흔들림·밖으로 벗어남) */
+  /**
+   * 발판에서 떨어진다(창을 옮김·사라짐·줄어 발 밑이 빔). 하던 활동은 정리한다 — 소품은 그 자리에서 쏙 들어가고, 착지한 뒤엔
+   * 감독이 새로 고른다(창 위 소품이 허공에 남거나 착지 뒤 엉뚱하게 이어지지 않게). 곁들임(헤드폰)은 낀 채 떨어진다
+   */
   function dropOff(vx = 0) {
     const c = cat;
-    c.perch = null; c.hopDir = 0; floorY = BASE_Y;
+    c.perch = null; c.hopDir = 0; c.pendingAct = null; floorY = BASE_Y;
+    if (c.act) endAct();
     if (GROUND.has(c.mode)) { c.vx = vx; c.vy = 0; c.afterGrab = true; c.dropH = 0; setMode("fall"); }
   }
   /** 이 쪽(dir) 끝으로 걸어가 뛰어내린다 */
@@ -4721,6 +4725,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     coat: (seed) => { cat.seed = seed >>> 0; appearance.seed = cat.seed; generateCoat(); return cat.coatTex.grade; },
     draw, defineActivity,
     get activities() { return [...ACTIVITIES.keys()]; },
+    get leftovers() { return leftovers.length; },
     step: (n) => { for (let i = 0; i < n; i++) step(DT); },
     debug: { bodyWorld, legSamples, tailSamples, L2W, H2W }, // 회귀 검사용(qa/neko)
   };

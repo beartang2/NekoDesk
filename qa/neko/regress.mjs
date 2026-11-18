@@ -959,6 +959,55 @@ try {
     await p.close();
   }
 
+  // 9-v) 올라탄 창을 옮겨 떨어질 때(사용자): 하던 활동은 정리(소품 쏙)하고 착지 뒤 다시 잇지 않는다, 곁들임 헤드폰은 낀 채,
+  //      떨어지는 동안·착지 뒤 목·다리가 안 늘고 발이 바닥 아래로 안 가며 값이 깨지지 않는다
+  {
+    const p = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, S = n.S, out = {};
+      n.setGround(830); n.step(120);
+      const top = (x0) => ({ id: "9:t0", win: 9, x0, x1: x0 + 600, y: 520 });
+      const feet = () => Math.max(...c.legs.map((L) => L.foot.y));
+      const reach = () => Math.hypot(c.head.x - c.headAnc[0], c.head.y - c.headAnc[1]) / S; // 머리가 목 자리에서 늘어난 만큼
+      const legMax = () => Math.max(...c.legs.map((L) => Math.hypot(L.foot.x - c.x, L.foot.y - c.y))) / S;
+      const cases = [["pose", "sit"], ["pose", "loaf"], ["pose", "lie"], ["act", "groom"], ["act", "typing"], ["act", "box"], ["act", "reading"], ["act", "snack"], ["act", "knead"], ["side", "music"], ["tower", "walk"]];
+      for (const [kind, k] of cases) {
+        n.act(null); n.mix(null); n.setPose("stand"); n.step(60);
+        n.setPerches({ tops: [top(400)], walls: [] }); c.x = 700; c.y = 300; c.vx = 0; c.vy = 0; c.mode = "fall"; c.modeT = 0; n.step(360);
+        if (kind === "pose") n.setPose(k); else if (kind === "act") n.act(k); else if (kind === "side") n.mix(k);
+        else { n.setPerches({ tops: [top(400), { id: "8:t0", win: 8, x0: 1100, x1: 1400, y: 450 }], walls: [] }); n.act("tower"); }
+        let walking = false;
+        for (let i = 0; i < 120 * 3 && !(kind === "tower" && (walking = c.mode === "walk")); i++) n.step(1);
+        const before = { act: n.activity, props: c.act ? c.act.props.length : 0, perch: n.perch };
+        n.setPerches({ tops: [top(440)], walls: [], partial: 9 }); // 사용자가 창을 옮겼다
+        const at = { act: n.activity, side: n.side };
+        let bad = false, neck = 0, leg = 0, below = 0, restarted = false;
+        for (let i = 0; i < 120 * 4; i++) {
+          n.step(1); if (i % 4 === 0) n.draw();
+          if (![c.x, c.y, c.head.x, c.head.y].every(Number.isFinite)) bad = true;
+          neck = Math.max(neck, reach()); leg = Math.max(leg, legMax()); below = Math.max(below, feet() - n.floorY);
+          if (n.activity) restarted = true;
+        }
+        out[`${kind}:${k}`] = { before, at, after: { act: n.activity, side: n.side, perch: n.perch, floor: n.floorY, mode: c.mode, left: n.leftovers },
+          walking: kind === "tower" ? walking : undefined, bad, restarted, neck: +neck.toFixed(0), leg: +leg.toFixed(0), below: +below.toFixed(1) };
+      }
+      n.mix(null); n.setPose("stand");
+      return out;
+    });
+    const fails = Object.entries(r).filter(([k, v]) => {
+      const side = k === "side:music";
+      return !(v.before.perch === "9:t0" && v.at.act === null && !v.restarted && v.after.perch === null && v.after.floor === 830 && v.after.mode !== "fall"
+        && v.after.left === 0 && !v.bad && v.neck <= 30 && v.leg <= 110 && v.below < 3 && (side ? v.after.side === "music" : true) && (k === "tower:walk" ? v.walking : true));
+    });
+    check("창을 옮겨 떨어질 때: 앉기·식빵·눕기·세수·타이핑·상자·신문·간식·꾹꾹이·음악·창 탐험 걷기 — 활동 정리·착지 뒤 안 이어짐·헤드폰 그대로·목·다리 안 늘어남",
+      fails.length ? JSON.stringify(Object.fromEntries(fails)) : Object.entries(r).map(([k, v]) => `${k}${v.before.props ? `(소품 ${v.before.props})` : ""} 목${v.neck}·다리${v.leg}`).join(" · "), fails.length === 0);
+    await p.close();
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {
