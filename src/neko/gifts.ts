@@ -69,7 +69,7 @@ export interface NekoGift {
   frame?: true;
   /** 네코가 마지막으로 갖고 논 때(epoch ms, 엔진 decorPlayed). 오래 안 논 것부터 논다 */
   lastPlayed?: number;
-  /** 사용자가 고른 배율(0.25~4, 없으면 1). 크기(소·중·대) 위에 곱한다. 자리 상한은 그릴 때 건다(옮기면 다시 커지게) */
+  /** 사용자가 고른 배율(0.5~3, 없으면 1 = 기본 크기). 크기(소·중·대) 위에 곱한다. 자리 상한은 그릴 때 건다(옮기면 다시 커지게) */
   scale?: number;
 }
 
@@ -117,7 +117,7 @@ interface GiftStore {
   /** 네코가 갖고 놀았다(엔진 decorPlayed) */
   played: (id: string, at: number) => void;
   /**
-   * 배율을 바꾼다(0.25~4 로 묶고 1 이면 칸을 뺀다). save=false 면 메모리만(선물함 슬라이더를 끄는 동안 — 창 동기화로 무대가
+   * 배율을 바꾼다(0.5~3 으로 묶고 1 이면 칸을 뺀다). save=false 면 메모리만(선물함 슬라이더를 끄는 동안 — 창 동기화로 무대가
    * 바로 바뀐다), true 면 저장(놓을 때 한 번)
    */
   resize: (id: string, scale: number, save: boolean) => void;

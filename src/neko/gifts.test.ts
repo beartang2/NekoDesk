@@ -97,22 +97,21 @@ describe("선물함", () => {
     expect(useNekoGifts.getState().gifts[0].placed?.at).toBe("sidebar");
     useNekoGifts.getState().resize("big", 4, true);
     const g = useNekoGifts.getState().gifts[0];
-    expect(g.scale).toBe(4);
-    // 무대가 클수록 고양이·물건도 커서(S) 가장 큰 배율도 보통은 상한 안이다 — 상한은 안전망(decor-draw 테스트에서 건다)
-    expect(scaleCapped(g, "sidebar")).toBe(false);
-    expect(scaleCapped(g, "screen")).toBe(false);
+    expect(g.scale).toBe(3); // 3 까지
+    expect(scaleCapped(g, "sidebar")).toBe(true);  // 큰 × 3 은 방 높이의 80% 를 넘는다
+    expect(scaleCapped(g, "screen")).toBe(false); // 마당은 고양이 키 3배까지라 안 걸린다
   });
 
-  it("배율: 0.25~4 로 묶고 1 이면 칸을 뺀다, 끄는 동안(save=false)은 저장 안 함, 놓으면 저장", async () => {
+  it("배율: 0.5~3 으로 묶고 1 이면 칸을 뺀다, 끄는 동안(save=false)은 저장 안 함, 놓으면 저장", async () => {
     useNekoGifts.getState().add({ id: "a", title: "a", body: "", shape: dot });
     await new Promise((r) => setTimeout(r, 0));
     const saved = () => JSON.parse(store.get("neko_gifts") ?? "[]")[0];
     useNekoGifts.getState().resize("a", 9, false);
-    expect(useNekoGifts.getState().gifts[0].scale).toBe(4);
+    expect(useNekoGifts.getState().gifts[0].scale).toBe(3);
     expect(saved().scale).toBeUndefined();
     useNekoGifts.getState().resize("a", 0.1, true);
     await new Promise((r) => setTimeout(r, 0));
-    expect(saved().scale).toBe(0.25);
+    expect(saved().scale).toBe(0.5);
     useNekoGifts.getState().resize("a", 1, true);
     await new Promise((r) => setTimeout(r, 0));
     expect("scale" in useNekoGifts.getState().gifts[0]).toBe(false);
@@ -120,7 +119,7 @@ describe("선물함", () => {
     store.set("neko_gifts", JSON.stringify([{ ...saved(), scale: 99 }]));
     useNekoGifts.setState({ gifts: [], loaded: false });
     await useNekoGifts.getState().load();
-    expect(useNekoGifts.getState().gifts[0].scale).toBe(4); // 손댄 저장값도 묶는다
+    expect(useNekoGifts.getState().gifts[0].scale).toBe(3); // 손댄 저장값도 묶는다
   });
 
   it("다른 장소로 옮기고, 무대 안에서 끌면 장소는 그대로, 빈 자리는 장소마다 따로 센다", () => {

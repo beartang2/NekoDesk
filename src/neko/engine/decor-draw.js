@@ -7,14 +7,15 @@
  */
 import { validateShape, shapeBounds, drawShape } from "./gift-shape.js";
 
-export const DECOR_SIZE = 32;  // 한 변(S 단위) — 잎맥·꼭지 같은 결이 보이게, 머리(폭 74)의 절반 남짓
+export const DECOR_SIZE = 64;  // 한 변(S 단위). 예전 32 는 너무 작았다(사용자) — 기본을 2배로, 예전 크기는 이제 가장 작게(배율 0.5)
 export const WALL_GAP = 18;    // 바닥에서 이만큼(S) 넘게 띄워 놓으면 벽에 건다
 /** 물건 크기(실제 크기를 모델이 고름). 큰 것도 고양이 몸(길이 약 100)보다 작게 */
 export const SIZE_K = { small: 0.6, medium: 1, large: 1.45 };
 export const sizeK = (size) => (Object.hasOwn(SIZE_K, size) ? SIZE_K[size] : 1);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-/** 사용자 배율(선물함 슬라이더): 0.25~4, 이상한 값은 1 */
-export const clampScale = (s) => (typeof s === "number" && Number.isFinite(s) ? clamp(s, 0.25, 4) : 1);
+/** 사용자 배율(선물함 슬라이더): 0.5~3(새 기본 기준 = 예전 크기의 1~6배), 이상한 값은 1 */
+export const SCALE_MIN = 0.5, SCALE_MAX = 3;
+export const clampScale = (s) => (typeof s === "number" && Number.isFinite(s) ? clamp(s, SCALE_MIN, SCALE_MAX) : 1);
 /** 선 고양이 키(귀 끝까지, S 단위). 마당 상한의 기준 */
 export const CAT_H = 100;
 /**

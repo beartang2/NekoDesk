@@ -3217,12 +3217,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /** 물건 크기·자리·입 상태에 맞는 놀이 */
   function playFor(d) {
     if (d.surface === "wall") return "look";
-    // 실제 그리는 크기로(크기 × 사용자 배율): 크면 기대기·숨기·발톱, 작으면 굴리기·물기, 위에 앉기는 적당한 크기
+    // 실제 그리는 크기(한 변, S 단위)로: 크면 기대기·숨기·발톱, 작으면 굴리기·물기, 위에 앉기는 적당한 크기
     let p = d.play;
-    const big = d.k >= 1.3, small = d.k <= 1.1;
+    const sz = d.k * DD.DECOR_SIZE, big = sz >= 42, small = sz <= 35;
     if (!small && (p === "carry" || p === "roll")) p = big ? LARGE_PLAYS[Math.floor(Math.random() * LARGE_PLAYS.length)] : "bat";
     if (!big && LARGE_PLAYS.includes(p)) p = "sniff";
-    if (p === "sit_on" && (d.k < 0.9 || d.k > 2.2)) p = d.k > 2.2 ? "lean" : "sniff"; // 작은 건 못 앉고, 너무 크면 기대 잔다
+    if (p === "sit_on" && (sz < 29 || sz > 70)) p = sz > 70 ? "lean" : "sniff"; // 작은 건 못 앉고, 너무 크면 기대 잔다
     if (p === "carry" && carrying.length) p = "bat"; // 입에 다른 걸(파일) 물고 있으면
     return p;
   }
@@ -3294,7 +3294,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
           break;
         case "carry":
           if (A.stage === "go" && A.dt > 0.45) { // 물었다: 바닥에서 감추고 입에 문다, 놓을 곳으로
-            d.hidden = true; carrying.push({ id: "decor:" + d.id, kind: "shape", shape: d.shape, k: d.k });
+            d.hidden = true; carrying.push({ id: "decor:" + d.id, kind: "shape", shape: d.shape, k: (d.k * DD.DECOR_SIZE) / CARRY_SIZE }); // 바닥과 같은 크기로 문다
             const m = decorM() + p.h, far = c.x < W / 2 ? [W / 2, W - m] : [m, W / 2];
             A.dest = clamp(rand(far[0], far[1]), EDGE * S, W - EDGE * S); A.stage = "move"; setMode("idle");
           } else if (A.stage === "move" && A.dt > 0.45) { // 내려놓는다

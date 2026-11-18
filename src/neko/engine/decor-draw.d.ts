@@ -11,7 +11,10 @@ export const DECOR_SIZE: number;
 export const WALL_GAP: number;
 export const SIZE_K: Record<NekoGiftSize, number>;
 export function sizeK(size: unknown): number;
-/** 사용자 배율 0.25~4(이상하면 1) */
+/** 사용자 배율 범위(새 기본 기준) */
+export const SCALE_MIN: number;
+export const SCALE_MAX: number;
+/** 사용자 배율 0.5~3(이상하면 1) */
 export function clampScale(s: unknown): number;
 /** 선 고양이 키(S 단위) */
 export const CAT_H: number;
