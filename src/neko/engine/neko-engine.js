@@ -2524,10 +2524,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function drawHeadphones(hp, t) {
     const c = cat, tsx = Math.max(0.15, Math.abs(c.turn.x)), sg = Math.sign(c.turn.x) || 1, r = c.headRot, s = S;
     const bop = 1 + 0.07 * Math.max(0, Math.sin(t * 1.6 * TAU)); // 고개 까딱과 같은 박자
-    const band = (dy, w, color) => { // 반타원: 양 끝 (±33, -2), 꼭대기는 정수리(-27) 살짝 위 -29.5. 포물선은 꼭대기가 뾰족해 보였다
+    // 컵은 머리에서 조금 떨어져(가운데 ±34) 조금 크게(1.12배). 띠 끝은 컵 위쪽 안(±35, -2)에 묻힌다
+    const CUP_X = 34, CUP_K = 1.12, BAND_X = 35;
+    const band = (dy, w, color) => { // 반타원: 꼭대기는 정수리(-27) 살짝 위 -29.5. 포물선은 꼭대기가 뾰족해 보였다
       ctx.strokeStyle = color; ctx.lineWidth = w; ctx.beginPath();
       for (let i = 0; i <= 24; i++) {
-        const a = Math.PI * (1 + i / 24), p = H2W(33 * Math.cos(a), -2 + dy + 27.5 * Math.sin(a));
+        const a = Math.PI * (1 + i / 24), p = H2W(BAND_X * Math.cos(a), -2 + dy + 27.5 * Math.sin(a));
         i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
       }
       ctx.stroke();
@@ -2542,8 +2544,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     band(-1.3, 1.7 * s, "rgba(255,255,255,0.5)"); // 위쪽 반짝
     ctx.restore();
     for (const side of [-1, 1]) { // 컵: 이 좌표계에서 +x 가 머리 바깥쪽
-      const q = H2W(side * 31, 3);
-      ctx.save(); ctx.translate(q[0], q[1]); ctx.rotate(r); ctx.scale(tsx * sg * side * bop, bop);
+      const q = H2W(side * CUP_X, 3);
+      ctx.save(); ctx.translate(q[0], q[1]); ctx.rotate(r); ctx.scale(tsx * sg * side * bop * CUP_K, bop * CUP_K);
       ctx.fillStyle = hp.deep; ctx.beginPath(); ctx.ellipse(-3.2 * s, 0.4 * s, 4.4 * s, 7.6 * s, 0, 0, TAU); ctx.fill(); // 머리 쪽 쿠션
       const g = ctx.createRadialGradient(-0.5 * s, -3.5 * s, 1 * s, 1.4 * s, 0.5 * s, 9 * s); // 위쪽이 밝은 동그란 볼륨
       g.addColorStop(0, hp.light); g.addColorStop(0.45, hp.col); g.addColorStop(1, hp.deep);
