@@ -1,7 +1,7 @@
 import { emotionPlan } from "../emotionMap";
 import { resultLook } from "./session";
 import { ONE_SHOT } from "./toolActivity";
-import { baseOf, mixable } from "../engine/activity-mix";
+import { baseOf, MIX, mixable } from "../engine/activity-mix";
 import type { NekoActivity } from "../engine/neko-engine";
 import type { DirectorInput, NekoLayer, NekoPlan } from "./types";
 
@@ -24,19 +24,8 @@ export const RESULT_LINGER_MS = 600;
 export const SLEEPY_MS = 5 * 60_000;
 export const DEEP_SLEEP_MS = 6 * 60_000;
 
-/** 돌아다니며 하는 혼자 놀기 */
-const ROAMING: ReadonlySet<string> = new Set(["yarn", "butterfly", "giftplay", "climb"]);
-/** 혼자 놀 거리(신남). 일하는 활동(타이핑·발도장·달력…)은 뺀다 */
-export const SOLO: readonly NekoActivity[] = [
-  "box", "yarn", "butterfly", "draw", "music", "reading", "groom", "knead", "window", "stretch", "snack", "climb",
-  "dig", // 상자 뒤지기(사용자 2026-11-18). 파일 도구 활동이지만 혼자서도 뒤진다
-];
-
-/** 혼자 놀 거리 하나. 놓아 둔 선물이 있으면 그것도 조금 자주. 방금 한 것은 뺀다 */
-export function pickSolo(last: NekoActivity | null, hasGifts: boolean, r = Math.random()): NekoActivity {
-  const pool = [...SOLO, ...(hasGifts ? (["giftplay", "giftplay"] as const) : [])].filter((k) => k !== last);
-  return pool[Math.floor(r * pool.length)];
-}
+/** 돌아다니며 하는 활동(선언의 stance 가 move: 털실·나비·선물·벽 타기) */
+const ROAMING: ReadonlySet<string> = new Set(Object.entries(MIX).filter(([, d]) => d.stance === "move").map(([k]) => k));
 
 function plan(layer: NekoLayer, p: Partial<NekoPlan> = {}): NekoPlan {
   return {

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { Segmented, SwitchRow, type Option } from "../components/ui";
 import { NekoGiftBox } from "./NekoGiftBox";
+import { NekoNeedsDev } from "./NekoNeedsDev";
 import { SCREEN_SCALE, useNekoStore, type NekoPlacement } from "./nekoStore";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { josa } from "../lib/hangul";
@@ -80,12 +81,14 @@ export function NekoSettingsSection() {
           <SwitchRow label="다른 앱 따라 하기" checked={follow} onChange={setFollow} />
           <p className="settings-section__desc">
             다른 앱에서 키를 치면 {name}도 같이 타이핑하고, 맨 앞 앱에 맞춰 그림을 그리거나 창밖을 보거나 책을 읽어.
-            음악 앱이 재생 중이면 음악을 들어(처음 한 번 macOS 가 음악 앱 제어를 허락할지 물어). 무슨 키를 쳤는지는 안 봐.
+            음악 앱이 재생 중이면 하던 걸 하면서 헤드폰을 써(처음 한 번 macOS 가 음악 앱 제어를 허락할지 물어). 무슨 키를 쳤는지는 안 봐.
           </p>
         </>
       )}
 
       <NekoGiftBox />
+
+      {import.meta.env.DEV && <NekoNeedsDev />}
 
     </section>
   );

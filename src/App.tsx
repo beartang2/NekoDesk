@@ -19,6 +19,7 @@ import { NekoSlot } from "./neko/NekoSlot";
 import { RoomBackdrop } from "./neko/NekoRoom";
 import { useNekoDirector } from "./neko/useNekoDirector";
 import { useNekoApp } from "./neko/director/stores";
+import { useNekoNeeds } from "./neko/director/needsStore";
 import { SLEEPY_MS } from "./neko/director/derive";
 import { useNekoStore } from "./neko/nekoStore";
 import { CatStatusPanel } from "./components/CatStatusPanel";
@@ -1853,6 +1854,7 @@ export default function App() {
     const id = window.setTimeout(async () => {
       arrivingRef.current = w;
       setAway(false);
+      useNekoNeeds.getState().walked(); // 숨은 게이지: 호기심 가득, 조금 꼬질·지침
       const brain = brainRef.current ?? startWalkBrain({ places: w.places, here: w.home });
       brainRef.current = null;
       const report = await brain.result;

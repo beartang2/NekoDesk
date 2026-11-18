@@ -493,16 +493,16 @@ defineActivity("music", {
 
 ### 2단계 — 고르기
 
-- [ ] `director/needs.ts` 와 테스트
+- [x] `director/needs.ts` 와 테스트
   - 감소·바닥·꺼져 있던 시간.
   - 채움(1분 나눔·한 번짜리).
   - 점수: 이 문서의 예 1·예 2 숫자와 같아야 한다.
   - 직전 제외·선물 가중.
-- [ ] 가상 하루 시뮬레이션 테스트: 8시간을 돌려 한 활동이 30%를 넘지 않는지, 게이지가 바닥에 붙어 있지 않은지 본다.
-- [ ] `MIX` 에 `fills`·`solo`. `SOLO` 상수를 지운다.
-- [ ] `useNekoNeeds` 스토어·저장·1분 틱·사건 반영.
-- [ ] `useNekoDirector` 의 `pickSolo` 자리 바꾸기. 나머지 타이머는 그대로다.
-- [ ] 개발 빌드 게이지 화면.
+- [x] 가상 하루 시뮬레이션 테스트: 8시간을 돌려 한 활동이 30%를 넘지 않는지, 게이지가 바닥에 붙어 있지 않은지 본다.
+- [x] `MIX` 에 `fills`·`solo`. `SOLO` 상수를 지운다.
+- [x] `useNekoNeeds` 스토어·저장·1분 틱·사건 반영.
+- [x] `useNekoDirector` 의 `pickSolo` 자리 바꾸기. 나머지 타이머는 그대로다.
+- [x] 개발 빌드 게이지 화면.
 - 검증: `vitest`, `tsc`, `qa:neko`. 개발 빌드에서 게이지를 −30 / +30 해 보고 확률 상위 5개가 바뀌는지 본다. 껐다 켜서 값이 이어지는지 본다.
 
 ## 담당
@@ -538,3 +538,5 @@ defineActivity("music", {
 
 - 엔진 쪽: `MIX` 에 `fills`·`solo`(상자 뒤지기·쳐다보기 포함), 쳐다보기 활동(`gaze`), 커서 따라오기 스위치 `setChase(on)`(기본 켬).
 - 감독 쪽(미용사): `director/needs.ts`·`useNekoNeeds`·`pickByNeeds`·사건 반영·`setChase` 를 애정으로 켜고 끄기·개발 빌드 게이지 화면·산책 귀가 한 줄.
+  - 들어감: `director/needs.ts`(decay·applyFill·score·soloOdds·pickByNeeds, 예 1·2 점수·가상 8시간 테스트), `director/needsStore.ts`(`useNekoNeeds`, 설정 키 `neko_needs`, 켤 때 꺼져 있던 시간 반영), 감독 1분 틱(주·곁들임 채움, 졸기·누워 자기), 한 번짜리는 끝날 때 한 번에, 사건(쓰다듬기 → `notePet`·보냄 `run_start`·밥 `fedAt`·산책 귀가 App), 애정 < 40 이면 `setChase(true)`, `SOLO`·`ROAMING` 은 `MIX` 에서(solo·stance move), 설정 › 고양이 맨 아래 개발 빌드 게이지(`window.__nekoNeeds`).
+  - 외로움: 대화(보냄)·쓰다듬기가 10분 넘게 없을 때만 깨어 있는 동안 애정이 준다. 쓰다듬기 애정은 10분에 +15 까지.
