@@ -23,6 +23,11 @@ export const RESULT_LINGER_MS = 600;
 /** 무활동: 졸림(식빵) → 누워 자기 */
 export const SLEEPY_MS = 5 * 60_000;
 export const DEEP_SLEEP_MS = 6 * 60_000;
+/**
+ * 다른 앱에서 키를 멈춘 뒤 이만큼은 다른 활동으로 넘어가지 않고 타이핑 자세 그대로 손을 쉬며 화면을 본다(사용자).
+ * 그 안에 다시 치면 그대로 이어 친다. 지나면 맨 앞 앱에 맞는 활동으로
+ */
+export const TYPE_REST_MS = 15_000;
 
 /** 돌아다니며 하는 활동(선언의 stance 가 move: 털실·나비·선물·벽 타기) */
 const ROAMING: ReadonlySet<string> = new Set(Object.entries(MIX).filter(([, d]) => d.stance === "move").map(([k]) => k));
@@ -30,7 +35,7 @@ const ROAMING: ReadonlySet<string> = new Set(Object.entries(MIX).filter(([, d]) 
 function plan(layer: NekoLayer, p: Partial<NekoPlan> = {}): NekoPlan {
   return {
     layer, mood: "idle", pose: "stand", activity: null, oneShot: false, repeat: false, dwell: false,
-    instance: layer, tailHold: null, wander: false, side: null, ...p,
+    instance: layer, tailHold: null, wander: false, side: null, rest: false, ...p,
   };
 }
 
@@ -114,6 +119,11 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
   // 5-1) 다른 앱에서 키를 치는 중: 같이 타이핑(졸고 있었어도 — 사용자가 일하는 중이다)
   const out_ = input.outside;
   if (out_.typing) return out(plan("outside", { activity: "typing", dwell: true, instance: "outside:typing" }));
+  // 5-2) 키를 멈췄다: 잠깐은 손만 쉬고 화면을 본다(at = 마지막 키 누름)
+  if (now < out_.at + TYPE_REST_MS) {
+    at(out_.at + TYPE_REST_MS);
+    return out(plan("outside", { activity: "typing", dwell: true, instance: "outside:typing", rest: true }));
+  }
 
   // 6) 졸림: 사용자가 한동안 앱도 안 쓰고 다른 앱에서 키도 안 치면(배고프거나 심심해도 결국은 잔다)
   const last = Math.max(input.lastActiveAt, out_.at);

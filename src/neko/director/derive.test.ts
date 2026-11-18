@@ -2,7 +2,7 @@
 // 도구 표가 tool-registry(→ settingsStore 가 localStorage 를 읽는다)를 불러온다
 
 import { describe, expect, it } from "vitest";
-import { DEEP_SLEEP_MS, deriveNeko, FED_MS, PLAY_MS, SLEEPY_MS, THINK_DELAY_MS, THINK_GRACE_MS } from "./derive";
+import { DEEP_SLEEP_MS, deriveNeko, FED_MS, PLAY_MS, SLEEPY_MS, THINK_DELAY_MS, THINK_GRACE_MS, TYPE_REST_MS } from "./derive";
 import type { NekoActivity } from "../engine/neko-engine";
 import { IDLE_SESSION, reduceSession } from "./session";
 import type { DirectorInput, NekoSessionState, NekoSignal } from "./types";
@@ -132,8 +132,18 @@ describe("다른 앱 따라 하기", () => {
     const typing = { typing: true, at: 0, activity: null, music: false };
     expect(deriveNeko(input({ ...away, outside: typing }), SLEEPY_MS * 3).plan).toMatchObject({ layer: "outside", activity: "typing", dwell: true });
     const stopped = { typing: false, at: SLEEPY_MS * 3, activity: null, music: false };
-    expect(layer(input({ ...away, outside: stopped }), SLEEPY_MS * 3 + 1000)).toBe("base");
+    expect(layer(input({ ...away, outside: stopped }), SLEEPY_MS * 3 + 1000)).toBe("outside"); // 15초는 손만 쉰다
+    expect(layer(input({ ...away, outside: stopped }), SLEEPY_MS * 3 + TYPE_REST_MS)).toBe("base");
     expect(layer(input({ ...away, outside: stopped }), SLEEPY_MS * 4 + 1000)).toBe("sleep");
+  });
+
+  it("키를 멈추면 15초는 타이핑 그대로 손만 쉬고, 지나면 맨 앞 앱 활동", () => {
+    const stopped = { typing: false, at: 1000, activity: "window" as const, music: false };
+    const a = deriveNeko(input({ outside: stopped }), 5000);
+    expect(a.plan).toMatchObject({ layer: "outside", activity: "typing", rest: true, instance: "outside:typing" });
+    expect(a.recheckAt).toBe(1000 + TYPE_REST_MS);
+    expect(deriveNeko(input({ outside: stopped }), 1000 + TYPE_REST_MS).plan).toMatchObject({ layer: "ambient", activity: "window", rest: false });
+    expect(deriveNeko(input({ outside: { ...stopped, typing: true } }), 5000).plan.rest).toBe(false);
   });
 
   it("맨 앞 앱 활동은 혼자 놀기보다 아래, 기본 산책보다 위, 졸 때는 안 한다", () => {

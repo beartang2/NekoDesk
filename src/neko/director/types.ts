@@ -83,6 +83,8 @@ export interface NekoPlan {
   wander: boolean;
   /** 곁들임(docs/neko-activity-mix.md §1.13): 주 활동(없으면 기본 상태) 위에 얹을 활동. 1단계는 음악이 나올 때 music 만 */
   side: NekoActivity | null;
+  /** 같은 활동을 손을 쉰 채 이어 간다(엔진 setRest). 다른 앱에서 키를 멈춘 뒤 TYPE_REST_MS 동안 타이핑 */
+  rest: boolean;
 }
 
 /** deriveNeko 의 입력(§5.1) */

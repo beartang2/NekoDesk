@@ -61,11 +61,14 @@ export class FakeCtrl implements SchedulerCtrl {
     if (this.side && !mixable(this.activity ?? baseOf(this.pose), this.side).ok) { this.side = null; this.rec("side-off"); this.emit("side", null); }
   }
   setWander(on: boolean) { this.wander = on; this.rec(`wander:${on}`); }
+  rest = false;
+  setRest(on: boolean) { this.rest = on; this.rec(`rest:${on}`); }
   tail(sign: NekoTailSign, sec?: number) { this.rec(`tail:${sign}${sec ? `:${sec}` : ""}`); }
   react(kind: NekoReaction) { this.rec(`react:${kind}`); return true; }
   act(key: NekoActivity | null) {
     if (key === this.activity) return;
     this.activity = key;
+    this.rest = false; // 엔진처럼 활동이 바뀌면 쉼이 풀린다
     this.rec(`act:${key}`);
     if (key && ONE_SHOT_LEN[key]) {
       const k = key, id = this.clock.now();

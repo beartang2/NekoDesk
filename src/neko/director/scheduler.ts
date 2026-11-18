@@ -46,6 +46,8 @@ export interface SchedulerCtrl {
   setWander(on: boolean): void;
   /** 곁들임. 지금 도는 것과 안 맞으면 엔진이 거절한다(false) */
   mix(key: NekoActivity | null): boolean;
+  /** 하던 활동의 손을 쉰다(지금은 typing 만). 활동이 바뀌면 엔진이 저절로 푼다 */
+  setRest(on: boolean): void;
   on(ev: "activity" | "side", fn: (a: NekoActivity | null) => void): () => void;
   on(ev: "grab" | "drop", fn: () => void): () => void;
 }
@@ -111,6 +113,8 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
   let applied: { mood?: NekoMood; pose?: NekoPose; wander?: boolean } = {};
   /** 마지막으로 보낸(엔진이 끝내면 엔진이 알린) 곁들임 */
   let sentSide: NekoActivity | null = null;
+  /** 마지막으로 보낸 쉼. 활동이 바뀌면(엔진이 풀었다) false 로 */
+  let sentRest = false;
   let tailHold: { sign: NekoTailSign; nextAt: number } | null = null;
   let queue: Queued[] = [];
   const lastFired = new Map<string, number>();
@@ -130,6 +134,7 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
 
   const offs = [
     ctrl.on("activity", (a) => {
+      sentRest = false; // 활동이 바뀌면 엔진이 쉼을 푼다
       // 엔진이 활동을 끝냄(한 번짜리가 끝났거나, 잡혀서 그만둠). 우리가 시킨 act() 로 바뀐 건 무시
       if (a === null && cur && cur.endedAt === null) {
         cur.endedAt = clock.now();
@@ -303,6 +308,14 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
       sentSide = side;
       ctrl.mix(side);
       log(`곁들임 ${side ?? "끝"}`);
+    }
+
+    // 13) 쉼: 계획이 쉼이고 그 활동이 지금 엔진에서 돌 때만. 바뀔 때만 보낸다
+    const rest = p.rest && p.activity !== null && ctrl.activity === p.activity;
+    if (rest !== sentRest) {
+      sentRest = rest;
+      ctrl.setRest(rest);
+      log(`쉼 ${rest ? "켬" : "끔"}`);
     }
 
     // 11) 꼬리 유지

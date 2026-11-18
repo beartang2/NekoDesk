@@ -294,6 +294,30 @@ describe("곁들임(음악, docs/neko-activity-mix.md §1.13)", () => {
 });
 
 describe("일할 때 머무름 6초와 마무리", () => {
+  it("다른 앱에서 키를 멈추면 타이핑 그대로 손만 쉬고, 15초 안에 다시 치면 이어 친다. 15초가 지나면 맨 앞 앱 활동으로", () => {
+    const w = world();
+    const o = (typing: boolean, lastKey: number) => ({ outside: { typing, at: lastKey * 1000, activity: "window" as const, music: false } });
+    w.set(1, o(true, 1));
+    w.set(2, o(true, 2));
+    w.set(4, o(false, 2)); // 키를 멈춤(마지막 키 2초)
+    w.set(10, o(true, 10)); // 8초 뒤 다시 친다
+    w.set(13, o(false, 10.5));
+    w.to(10.5 + 15 + 0.1);
+    expect(w.ctrl.seen("act:")).toEqual(["1.0 act:typing", "25.5 act:window"]);
+    // 쉼은 보낼 때만. 활동이 바뀌면 엔진이 저절로 푼다(다시 끄지 않는다)
+    expect(w.ctrl.seen("rest:")).toEqual(["4.0 rest:true", "10.0 rest:false", "13.0 rest:true"]);
+    expect(w.ctrl.rest).toBe(false);
+  });
+
+  it("앱 안 답 쓰기 타이핑은 쉼 없이 지금 규칙(끝나면 0.8초 마무리)", () => {
+    const w = world();
+    w.sig(0, { type: "run_start" });
+    w.sig(0.1, { type: "answering" });
+    w.sig(3, { type: "done", petState: null });
+    w.to(10);
+    expect(w.ctrl.seen("rest:")).toEqual([]);
+  });
+
   it("짧은 답(1.5초)은 0.8초만 마무리하고 끝 — 6초를 채우지 않는다", () => {
     const w = world();
     w.sig(0, { type: "run_start" });
