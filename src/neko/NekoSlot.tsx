@@ -3,6 +3,9 @@ import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { ensureNeko, nekoCanvas, useNekoController } from "./nekoHost";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { NekoAway } from "./NekoAway";
+import { Map as MapIcon } from "lucide-react";
+import { LastWalkModal, WalkMap } from "../components/WalkMap";
+import type { Walk } from "../lib/walk";
 import { GIFT_DROP, useNekoGifts, type GiftDrop } from "./gifts";
 import "./NekoSlot.css";
 
@@ -12,12 +15,20 @@ import "./NekoSlot.css";
  * 위쪽 가장자리를 끌어서 높이를 바꾼다(고양이 크기가 높이를 따라간다).
  * 산책 중(away)엔 자리(높이)는 그대로 두고 고양이 대신 산책 나간 장면(NekoAway)을 그린다. 엔진은 멈춘다.
  */
-export function NekoSlot({ placement, onRubPet, away = false }: { placement: NekoPlacement; onRubPet: () => void; away?: boolean }) {
+export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDark = false }: {
+  placement: NekoPlacement;
+  onRubPet: () => void;
+  away?: boolean;
+  /** 산책 기록(App). 산책 중엔 지도를, 다녀온 뒤엔 지난 산책 지도 버튼을 띄운다 */
+  walk?: Walk | null;
+  isDark?: boolean;
+}) {
   const active = useNekoStore((s) => s.stage.placement === placement);
   const height = useNekoStore((s) => (placement === "sidebar" ? s.stage.sidebarH : s.stage.dockH));
   const setStageHeight = useNekoStore((s) => s.setStageHeight);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const ctrl = useNekoController();
+  const [lastWalkOpen, setLastWalkOpen] = useState(false);
 
   // 이 자리가 고른 자리면 캔버스를 데려온다
   useLayoutEffect(() => {
@@ -114,8 +125,17 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
         aria-label="끌어서 고양이 자리 높이 조절"
         title="끌어서 높이 조절"
       />
+      {/* 산책 중: 채팅 바 아래(가로로 김)는 '산책 중' 그림과 지도를 나란히, 사이드바 방(좁음)은 지도만.
+          지도를 못 받으면(개발 빌드 등) 방에선 '산책 중' 그림으로 대신한다 */}
       {away ? (
-        <NekoAway />
+        placement === "dock" ? (
+          <div className="neko-slot__walk">
+            <div className="neko-slot__away"><NekoAway /></div>
+            <WalkMap className="neko-slot__map" walk={walk} isDark={isDark} />
+          </div>
+        ) : (
+          <WalkMap className="neko-slot__map neko-slot__map--fill" walk={walk} isDark={isDark} fallback={<NekoAway />} />
+        )
       ) : (
         <div
           ref={stageRef}
@@ -124,6 +144,12 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
           onMouseLeave={onBodyLeave}
         />
       )}
+      {!away && walk && (
+        <button type="button" className="neko-slot__map-btn" onClick={() => setLastWalkOpen(true)} title="지난 산책 지도" aria-label="지난 산책 지도">
+          <MapIcon size={13} strokeWidth={2} />
+        </button>
+      )}
+      {lastWalkOpen && walk && <LastWalkModal walk={walk} isDark={isDark} onClose={() => setLastWalkOpen(false)} />}
       {decorMenu && !away && (
         <button
           type="button"

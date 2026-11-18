@@ -40,7 +40,7 @@ import { isClaudeActive, nekoNameOf, useSettingsStore } from "./stores/settingsS
 import { budgetBlockReason } from "./stores/claudeBudget";
 import { startWalkBrain, type WalkBrain } from "./agent/walk";
 import { buildPath, EXTRA_WAIT_MS, fallbackLegs, hurryHome, nextWalkAt, pickPlaces, routineName, positionAt, toLatLon, toMeters, walkEnd, walkStart, WALK_MS, type Pt, type Walk } from "./lib/walk";
-import { hereOnce } from "./components/MapCard";
+import { hereOnce } from "./components/WalkMap";
 import { DEFAULT_SIDEBAR_W, useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
@@ -312,10 +312,14 @@ function Sidebar({
   gameSpeech,
   gameMode,
   away,
+  walk,
+  isDark,
 }: {
   onNew: () => void;
   onDelete: (id: string) => void;
   away: boolean;
+  walk: Walk | null;
+  isDark: boolean;
   rpg: {
     dayCount: number;
     hunger: number;
@@ -385,7 +389,7 @@ function Sidebar({
         <div className="cat-panel__ctx">
           <Counter value={contextTokens} /> / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}
         </div>
-        <NekoSlot placement="sidebar" onRubPet={rpg.onPet} away={away} />
+        <NekoSlot placement="sidebar" onRubPet={rpg.onPet} away={away} walk={walk} isDark={isDark} />
         <CatStatusPanel
           dayCount={rpg.dayCount}
           hunger={rpg.hunger}
@@ -2077,6 +2081,8 @@ export default function App() {
         modelContextLength={modelContextLength}
         gameMode={game.phase !== "idle" ? game : null}
         away={away}
+        walk={walk}
+        isDark={isDark}
       />
       </ErrorBoundary>
 
@@ -2180,14 +2186,12 @@ export default function App() {
         <RightPanel
           onResizeStart={rightPanelVisible ? (e) => startDrag("right", e) : undefined}
           isResizing={isDragging === "right"}
-          walk={walk}
-          isDark={isDark}
         />
       </ErrorBoundary>
 
       {/* '채팅 바 아래' 네코 자리: 창 맨 아래 한 줄, 사이드바부터 오른쪽 패널 끝까지(.app 셋째 줄).
           채팅 칸 안(.chat-dock)에 두면 대화 폭만큼만 생겼다. --dock-h 는 이제 입력창만 잰다. */}
-      <NekoSlot placement="dock" onRubPet={handlePet} away={away} />
+      <NekoSlot placement="dock" onRubPet={handlePet} away={away} walk={walk} isDark={isDark} />
     </div>
   );
 }

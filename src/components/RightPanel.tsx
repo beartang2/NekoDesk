@@ -11,8 +11,6 @@ import type { Todo, ScheduleEvent } from "../agent/types";
 import type { DrawingGameState, DrawingGameActions } from "../hooks/useDrawingGame";
 import { createSwipeStepper } from "../lib/swipe";
 import { dbDate } from "../lib/time";
-import type { Walk } from "../lib/walk";
-import { MapCard } from "./MapCard";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import "./RightPanel.css";
 
@@ -1254,17 +1252,12 @@ function Shelf() {
 export function RightPanel({
   onResizeStart,
   isResizing,
-  walk = null,
-  isDark = false,
 }: {
   onResizeStart?: (e: React.MouseEvent) => void;
   isResizing?: boolean;
-  walk?: Walk | null;
-  isDark?: boolean;
 }) {
   // 자리가 모자라면(메모가 정사각형을 못 지키면) 포모도로를 한 줄로 접는다. 되돌리는 건 그만큼
-  // 자리가 생겼을 때만 — 접고 펴는 기준이 같으면 경계에서 깜빡인다. 산책 지도는 저절로 숨기지 않는다
-  // (펼치면 정사각형, 접는 건 사용자가 — MapCard).
+  // 자리가 생겼을 때만 — 접고 펴는 기준이 같으면 경계에서 깜빡인다. 산책 지도는 네코 자리로 옮겼다(WalkMap).
   const ref = useRef<HTMLElement>(null);
   const [tight, setTight] = useState(false);
   const tightRef = useRef(tight);
@@ -1280,7 +1273,7 @@ export function RightPanel({
       if (!memo || !pomo || !pomoCard) return;
       const squeezed = memo.offsetHeight < memo.offsetWidth - 1 || panel.scrollHeight > panel.clientHeight;
       const rowGap = parseFloat(getComputedStyle(panel).rowGap) || 0;
-      // 메모 바로 위 카드(지도) 아래로 남는 빈자리(메모는 margin-top: auto 로 바닥에 붙는다)
+      // 메모 바로 위 카드 아래로 남는 빈자리(메모는 margin-top: auto 로 바닥에 붙는다)
       const above = (memo.previousElementSibling as HTMLElement | null) ?? pomoCard;
       const room = memo.offsetTop - (above.offsetTop + above.offsetHeight) - rowGap;
       let next = tightRef.current;
@@ -1315,7 +1308,6 @@ export function RightPanel({
       <TodoCard />
       <CalendarCard />
       <PomodoroCard />
-      <MapCard walk={walk} isDark={isDark} />
       <MemoCard />
     </aside>
   );
