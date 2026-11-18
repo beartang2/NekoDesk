@@ -18,14 +18,13 @@ import { useNekoController } from "./nekoHost";
  */
 
 /**
- * 신남: 놀이 ≥ 40 이고 쉬는 중이면 20~60초 뒤 혼자 논다. 60초(한 번짜리는 12초) 지나거나 3번 쓰다듬으면 그만.
- * 고를 거리: 상자·털실·나비·그리기·음악 듣기·책 읽기·세수·꾹꾹이·창밖 보기·기지개·간식·벽 타기(+ 놓아 둔 선물).
- * 방금 한 것은 다음에 안 고른다.
+ * 신남: 놀이 ≥ 40 이고 쉬는 중이면 45초~2분 뒤 혼자 논다. 한 번 고르면 2~4분(한 번짜리는 20초) 이어 하거나 3번
+ * 쓰다듬으면 그만 — 금방금방 바꾸면 산만해 보인다. 고를 거리는 derive.SOLO(+ 놓아 둔 선물), 방금 한 것은 안 고른다.
  */
 const BOX_PLAY_MIN = 40;
-const BOX_AFTER_MS = [20_000, 60_000] as const;
-const BOX_STAY_MS = 60_000;
-const BOX_STAY_ONE_SHOT_MS = 12_000;
+const BOX_AFTER_MS = [45_000, 120_000] as const;
+const BOX_STAY_MS = [120_000, 240_000] as const;
+const BOX_STAY_ONE_SHOT_MS = 20_000;
 const BOX_EXIT_PETS = 3;
 /** 키 입력·클릭·스크롤을 '앱을 쓰는 중'으로 세는 간격 */
 const ACTIVE_THROTTLE_MS = 3000;
@@ -66,7 +65,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       return {
         session: useNekoSessions.getState().get(activeRef.current),
         feeding: app.feeding, fedAt: app.fedAt, playCue: app.playCue, game: app.game,
-        needs: needsRef.current, lastActiveAt: app.lastActiveAt, box,
+        needs: needsRef.current, lastActiveAt: app.lastActiveAt, outside: app.outside, box,
       };
     };
     const sch = createScheduler(ctrl, realClock, (now) => deriveNeko(input(), now));
@@ -97,7 +96,8 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
           lastSolo = kind;
           box = { since: performance.now(), kind };
           boxPetBase = useNekoApp.getState().pets;
-          boxExitTimer = setTimeout(leaveBox, ONE_SHOT.has(kind) ? BOX_STAY_ONE_SHOT_MS : BOX_STAY_MS);
+          const stay = ONE_SHOT.has(kind) ? BOX_STAY_ONE_SHOT_MS : BOX_STAY_MS[0] + Math.random() * (BOX_STAY_MS[1] - BOX_STAY_MS[0]);
+          boxExitTimer = setTimeout(leaveBox, stay);
           sch.update();
         }, wait);
       }

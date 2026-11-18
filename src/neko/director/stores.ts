@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { CatEmotion } from "../../agent/types";
 import { IDLE_SESSION, reduceSession } from "./session";
-import type { NekoSessionState, NekoSignal, Reaction } from "./types";
+import type { NekoSessionState, NekoSignal, OutsideState, Reaction } from "./types";
 
 /**
  * 감독 입력을 담는 스토어 두 개(설계 docs/neko-p2-director.md §2).
@@ -52,6 +52,9 @@ interface NekoAppStore {
   setGameEmotion: (emotion: CatEmotion, ms?: number) => void;
   markActive: () => void;
   notePet: () => void;
+  /** 다른 앱 따라 하기(neko/ambient.ts). '앱을 쓰는 중'(lastActiveAt)은 건드리지 않는다 */
+  outside: OutsideState;
+  setOutside: (o: OutsideState) => void;
 }
 
 export const useNekoApp = create<NekoAppStore>((set, get) => ({
@@ -61,6 +64,11 @@ export const useNekoApp = create<NekoAppStore>((set, get) => ({
   game: null,
   lastActiveAt: performance.now(),
   pets: 0,
+  outside: { typing: false, at: -Infinity, activity: null },
+  setOutside: (o) => {
+    const cur = get().outside;
+    if (cur.typing !== o.typing || cur.at !== o.at || cur.activity !== o.activity) set({ outside: o });
+  },
   setFeeding: (on, wake = true) => {
     const now = performance.now();
     const cur = get().feeding;

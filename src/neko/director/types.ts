@@ -62,7 +62,7 @@ export type Reaction =
 /** 계획을 정한 층(§5.2). 디버그·테스트용이고, 스케줄러는 sleep → 다른 층(깨어남)만 본다 */
 export type NekoLayer =
   | "waiting" | "meal" | "tool" | "think" | "answer" | "result" | "fed"
-  | "play" | "game" | "weak" | "hungry" | "bored" | "box" | "sleep" | "base";
+  | "play" | "game" | "outside" | "weak" | "hungry" | "bored" | "box" | "ambient" | "sleep" | "base";
 
 export interface NekoPlan {
   layer: NekoLayer;
@@ -99,7 +99,18 @@ export interface DirectorInput {
   needs: { hunger: number; play: number };
   /** 사용자가 마지막으로 앱을 쓴 시각 */
   lastActiveAt: number;
+  /**
+   * 다른 앱 따라 하기(neko/ambient.ts). typing: 지금 다른 앱에서 키를 치는 중, at: 마지막으로 친 시각(졸림 시계는
+   * 이것도 본다 — 다른 앱에서 일하는 동안은 안 존다), activity: 맨 앞 앱·음악으로 고른 활동
+   */
+  outside: OutsideState;
   /** 신나서 혼자 노는 중(상자에 쏙·털실·나비) */
   /** 혼자 놀기(신남). kind 는 엔진 활동(없으면 상자) */
   box: { since: number; kind?: NekoActivity } | null;
+}
+
+export interface OutsideState {
+  typing: boolean;
+  at: number;
+  activity: NekoActivity | null;
 }

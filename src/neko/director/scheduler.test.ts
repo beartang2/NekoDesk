@@ -14,7 +14,7 @@ function world(init: Partial<DirectorInput> = {}) {
   const ctrl = new FakeCtrl(clock);
   const input: DirectorInput = {
     session: IDLE_SESSION, feeding: null, fedAt: null, playCue: null, game: null,
-    needs: { hunger: 100, play: 60 }, lastActiveAt: 0, box: null, ...init,
+    needs: { hunger: 100, play: 60 }, lastActiveAt: 0, outside: { typing: false, at: -Infinity, activity: null }, box: null, ...init,
   };
   const sch = createScheduler(ctrl, clock, (now) => deriveNeko(input, now));
   sch.update();

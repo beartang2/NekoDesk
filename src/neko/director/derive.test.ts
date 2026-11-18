@@ -8,7 +8,7 @@ import type { DirectorInput, NekoSessionState, NekoSignal } from "./types";
 
 const input = (p: Partial<DirectorInput> = {}): DirectorInput => ({
   session: IDLE_SESSION, feeding: null, fedAt: null, playCue: null, game: null,
-  needs: { hunger: 100, play: 60 }, lastActiveAt: 0, box: null, ...p,
+  needs: { hunger: 100, play: 60 }, lastActiveAt: 0, outside: { typing: false, at: -Infinity, activity: null }, box: null, ...p,
 });
 const sess = (...sigs: Array<[number, NekoSignal]>): NekoSessionState =>
   sigs.reduce((s, [t, sig]) => reduceSession(s, sig, t).state, IDLE_SESSION);
@@ -120,5 +120,23 @@ describe("혼자 놀기(신남)", () => {
     expect(at("reading")).toMatchObject({ activity: "reading", wander: false, oneShot: false });
     expect(at("snack")).toMatchObject({ activity: "snack", wander: false, oneShot: true });
     expect(at("climb")).toMatchObject({ activity: "climb", wander: true, oneShot: true });
+  });
+});
+
+describe("다른 앱 따라 하기", () => {
+  const away = { lastActiveAt: 0 };
+  it("다른 앱에서 키를 치면 졸다가도 같이 타이핑하고, 친 동안은 졸림 시계가 다시 간다", () => {
+    const typing = { typing: true, at: 0, activity: null };
+    expect(deriveNeko(input({ ...away, outside: typing }), SLEEPY_MS * 3).plan).toMatchObject({ layer: "outside", activity: "typing", dwell: true });
+    const stopped = { typing: false, at: SLEEPY_MS * 3, activity: null };
+    expect(layer(input({ ...away, outside: stopped }), SLEEPY_MS * 3 + 1000)).toBe("base");
+    expect(layer(input({ ...away, outside: stopped }), SLEEPY_MS * 4 + 1000)).toBe("sleep");
+  });
+
+  it("맨 앞 앱 활동은 혼자 놀기보다 아래, 기본 산책보다 위, 졸 때는 안 한다", () => {
+    const music = { typing: false, at: -Infinity, activity: "music" as const };
+    expect(deriveNeko(input({ outside: music }), 1000).plan).toMatchObject({ layer: "ambient", activity: "music", dwell: true, wander: false });
+    expect(layer(input({ outside: music, box: { since: 0, kind: "yarn" } }), 1000)).toBe("box");
+    expect(layer(input({ outside: music }), SLEEPY_MS + 1000)).toBe("sleep");
   });
 });

@@ -18,6 +18,8 @@ export const DWELL_MS = 1500;
  * 줄을 따로 서서 밀리지 않는다.
  */
 export const WORK_DWELL_MS = 4000;
+/** 다른 앱 따라 하기 활동은 앱을 금방 바꿔도 이만큼은 이어 한다(⌘Tab 마다 바꾸면 산만해 보인다) */
+export const AMBIENT_DWELL_MS = 15_000;
 export const ONE_SHOT_CAP_MS = 12_000;
 export const REPEAT_GAP_MS = 400;
 export const REACT_DEDUPE_MS = 800;
@@ -128,7 +130,8 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
   ];
 
   const running = () => !!cur && cur.endedAt === null && ctrl.activity === cur.activity;
-  const dwellMsOf = (p: NekoPlan) => (p.layer === "tool" || p.layer === "answer" ? WORK_DWELL_MS : DWELL_MS);
+  const dwellMsOf = (p: NekoPlan) =>
+    p.layer === "ambient" ? AMBIENT_DWELL_MS : p.layer === "tool" || p.layer === "answer" || p.layer === "outside" ? WORK_DWELL_MS : DWELL_MS;
 
   function start(p: NekoPlan, now: number) {
     if (p.activity === null) return;

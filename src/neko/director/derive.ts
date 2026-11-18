@@ -113,14 +113,19 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
     return out(plan("game", { mood: e.mood, pose: e.pose, activity: e.act, instance: `game:${input.game.emotion}` }));
   }
 
-  // 6) 졸림: 사용자가 한동안 앱을 안 쓰면(배고프거나 심심해도 결국은 잔다)
-  const idleFor = now - input.lastActiveAt;
+  // 5-1) 다른 앱에서 키를 치는 중: 같이 타이핑(졸고 있었어도 — 사용자가 일하는 중이다)
+  const out_ = input.outside;
+  if (out_.typing) return out(plan("outside", { activity: "typing", dwell: true, instance: "outside:typing" }));
+
+  // 6) 졸림: 사용자가 한동안 앱도 안 쓰고 다른 앱에서 키도 안 치면(배고프거나 심심해도 결국은 잔다)
+  const last = Math.max(input.lastActiveAt, out_.at);
+  const idleFor = now - last;
   if (idleFor >= DEEP_SLEEP_MS) return out(plan("sleep", { mood: "sleepy", pose: "lie" }));
   if (idleFor >= SLEEPY_MS) {
-    at(input.lastActiveAt + DEEP_SLEEP_MS);
+    at(last + DEEP_SLEEP_MS);
     return out(plan("sleep", { mood: "sleepy", pose: "loaf" }));
   }
-  at(input.lastActiveAt + SLEEPY_MS);
+  at(last + SLEEPY_MS);
 
   // 7) 배고픔·심심(표 5.4): 배고픔 낮음은 힘없음(눈은 뜸), 놀이 낮음은 심심 — 졸림과 나눈다
   const { hunger, play } = input.needs;
@@ -133,6 +138,12 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
     const k = input.box.kind ?? "box";
     // 돌아다니는 놀이(털실·나비·선물)만 산책을 켠다. 한 번짜리(간식·기지개·벽 타기)는 한 번 하고 그친다
     return out(plan("box", { activity: k, instance: `box:${input.box.since}`, wander: ROAMING.has(k), oneShot: ONE_SHOT.has(k) }));
+  }
+
+  // 8-1) 다른 앱 따라 하기: 맨 앞 앱·음악에 맞춘 활동(그림 앱이면 그리기, 음악이 나오면 음악 듣기…)
+  if (out_.activity) {
+    const k = out_.activity;
+    return out(plan("ambient", { activity: k, dwell: true, wander: ROAMING.has(k), instance: `ambient:${k}` }));
   }
 
   // 9) 기본: 서서 산책

@@ -26,6 +26,8 @@ mod procs;
 mod glow;
 #[cfg(target_os = "macos")]
 mod neko_screen;
+#[cfg(target_os = "macos")]
+mod ambient;
 mod shelf;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
@@ -975,6 +977,20 @@ mod commands {
         crate::neko_screen::layout()
     }
 
+    /// 다른 앱 따라 하기: 맨 앞 앱과 마지막으로 키를 누른 뒤 지난 초.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn ambient_probe(app: tauri::AppHandle) -> Result<crate::ambient::Probe, AppError> {
+        crate::ambient::probe(&app)
+    }
+
+    /// 다른 앱 따라 하기: 켜져 있는 음악 앱이 재생 중인가(처음 한 번 '자동화' 권한 창).
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn ambient_music(app: tauri::AppHandle) -> Result<bool, AppError> {
+        crate::ambient::music(&app)
+    }
+
     /// 화면 창: 고양이가 그쪽 끝을 넘어갔다 — 커서가 있는 모니터로 창을 옮긴다. 안 옮겼으면 false.
     #[cfg(target_os = "macos")]
     #[tauri::command(async)]
@@ -1350,6 +1366,10 @@ pub fn run() {
             commands::neko_screen_catch,
             #[cfg(target_os = "macos")]
             commands::neko_screen_layout,
+            #[cfg(target_os = "macos")]
+            commands::ambient_probe,
+            #[cfg(target_os = "macos")]
+            commands::ambient_music,
             #[cfg(target_os = "macos")]
             commands::neko_screen_cross,
             #[cfg(target_os = "macos")]
