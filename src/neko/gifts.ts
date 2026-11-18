@@ -13,8 +13,11 @@ import type { NekoPlacement } from "./nekoStore";
 
 const KEY = "neko_gifts";
 export const MAX_GIFTS = 100;
-/** 액자를 걸 높이(벽 v 비율) */
-const FRAME_V = 0.6;
+/**
+ * 액자를 걸 높이(벽 v 비율). 마당은 벽이 없고 화면 전체 높이라 0.6 이면 화면 한가운데 손톱만 하게 떠 다른 창에
+ * 가려 안 보였다 — 고양이 머리 조금 위(바닥에서 화면 높이의 13%쯤, 1080 모니터면 120px 남짓)에 건다
+ */
+const FRAME_V: Record<NekoPlacement, number> = { sidebar: 0.6, dock: 0.6, screen: 0.13 };
 /** 큰 물건 전용(scratch·lean·hide)도 넣는다 — 엔진이 크기에 안 맞는 놀이는 바꿔 논다 */
 export const PLAYS: NekoGiftPlay[] = ["roll", "bat", "sniff", "sit_on", "carry", "scratch", "lean", "hide"];
 export const GIFT_SIZES: NekoGiftSize[] = ["small", "medium", "large"];
@@ -156,7 +159,7 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
       // 빈 자리는 같은 장소(마당은 같은 모니터) 같은 면(액자는 벽, 나머지는 바닥)끼리 센다
       const face = gift.frame ? "wall" : "floor";
       const us = get().gifts.filter((g) => g.id !== id && g.placed?.at === where && g.placed.surface === face && g.placed.screen === scr).map((g) => g.placed!.u);
-      const s: NekoDecorSpot = spot !== "auto" ? spot : gift.frame ? { surface: "wall", u: freeSpot(us), v: FRAME_V } : { surface: "floor", u: freeSpot(us) };
+      const s: NekoDecorSpot = spot !== "auto" ? spot : gift.frame ? { surface: "wall", u: freeSpot(us), v: FRAME_V[where] } : { surface: "floor", u: freeSpot(us) };
       placed = s.surface === "wall" ? { surface: "wall", u: s.u, v: s.v, at: where } : { surface: "floor", u: s.u, at: where };
       if (scr) placed.screen = scr;
     }

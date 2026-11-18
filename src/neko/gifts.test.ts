@@ -202,5 +202,11 @@ describe("액자", () => {
     expect(toy.placed).toEqual({ surface: "floor", u: 0.35, at: "sidebar" }); // 바닥은 따로 센다
     expect(p2.placed).toMatchObject({ surface: "wall", u: 1 });
   });
+
+  it("마당에 걸면 화면 한가운데가 아니라 고양이 머리 조금 위에", () => {
+    useNekoGifts.getState().add({ id: "p3", title: "해", body: "", shape: dot, size: "small", frame: true });
+    useNekoGifts.getState().place("p3", "auto", "screen");
+    expect(useNekoGifts.getState().gifts.find((g) => g.id === "p3")?.placed).toMatchObject({ surface: "wall", v: 0.13, at: "screen" });
+  });
 });
 
