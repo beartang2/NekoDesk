@@ -102,7 +102,6 @@ export function NekoCustomize({ onClose }: { onClose: () => void }) {
     if (!cv) return;
     const c = createNeko(cv, { transparent: false, scaleMode: "height", dark: isDarkNow(), appearance: useNekoStore.getState().appearance });
     setPreview(c);
-    if (import.meta.env.DEV) (window as unknown as { __nekoPreview?: NekoController }).__nekoPreview = c; // 브라우저 점검용
     const unsub = useNekoStore.subscribe((s, p) => { if (s.appearance !== p.appearance) c.setAppearance(s.appearance); });
     return () => { unsub(); c.destroy(); };
   }, []);
