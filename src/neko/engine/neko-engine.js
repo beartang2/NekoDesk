@@ -3444,17 +3444,18 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /** 동공을 가운데로: 화면 밖(사용자)을 똑바로 보는 시선 */
   const lookAtUser = () => H2W(FO, 1);
 
-  defineActivity("think", { // 골똘히: 앉아서 고개를 이쪽저쪽 갸웃하며 위를 올려다보고, 가끔 앞발로 턱을 괸다. 꼬리 끝은 자주 까딱
+  defineActivity("think", { // 골똘히: 앉아서 고개를 이쪽저쪽 갸웃하며 위를 올려다보고, 가끔 앞발로 턱 밑을 받쳐 괸다. 꼬리 끝은 자주 까딱
     name: "골똘히", label: "생각하는 중",
     pose(A, ramp) {
       const c = cat, u = A.t % 9.5, side = Math.floor(A.t / 2.7) % 2 ? -1 : 1;
       const chin = u > 4.6 && u < 8.2 ? smooth((u - 4.6) / 0.5) * (1 - smooth((u - 7.6) / 0.6)) : 0; // 턱 괴기
-      const chinQ = [FO + 6, 25];
+      // 턱 끝 밑(턱 아래 선 27 보다 6 아래)을 받친다. 예전엔 턱 위(25)라 발이 입 앞을 가려 '손을 입에 댔다 내리는' 것처럼 보였다
+      const chinQ = [FO + 5, 33];
       return {
         sit: true, ear: -0.04, lid: lerp(0.3, 0.42, chin), expr: "idle",
-        tt: lerp(0.04 + 0.13 * side, 0.08, chin) * ramp,
+        tt: lerp(0.04 + 0.13 * side, 0.13, chin) * ramp, // 괴는 동안 고개를 받친 발 쪽으로 살짝 기울인다
         look: [c.head.x + c.face * (36 + 14 * side) * S, c.head.y - 64 * S], // 앞 위쪽 허공
-        feetW: chin, feet: chin > 0 ? { [NEAR_FRONT]: (L, h) => pawToFace(A, L, h, chinQ, chinQ, 1.0, [0, 0], 12) } : null,
+        feetW: chin, feet: chin > 0 ? { [NEAR_FRONT]: (L, h) => pawToFace(A, L, h, chinQ, chinQ, 1.0, [0, 2 * S * chin], 12) } : null, // 턱을 발에 얹어 살짝 누른다
         pawFront: chin > 0.05,
         head: (anc) => { A.anc = anc; const o = A.headOff || [0, 0]; return [anc[0] + o[0] * chin, anc[1] + o[1] * chin]; },
         tail: sitTail({ sway: 2, period: 6, still: 0.3, flick: [0.9, 2, 12, 0.3] }),
