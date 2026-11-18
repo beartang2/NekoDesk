@@ -39,7 +39,8 @@ import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { isClaudeActive, nekoNameOf, useSettingsStore } from "./stores/settingsStore";
 import { budgetBlockReason } from "./stores/claudeBudget";
-import { startWalkBrain, type WalkBrain } from "./agent/walk";
+import { startWalkBrain, type WalkBefore, type WalkBrain } from "./agent/walk";
+import { useNekoController } from "./neko/nekoHost";
 import { buildPath, EXTRA_WAIT_MS, fallbackLegs, hurryHome, nextWalkAt, pickPlaces, routineName, positionAt, toLatLon, toMeters, walkEnd, walkStart, WALK_MS, type Pt, type Walk } from "./lib/walk";
 import { hereOnce } from "./components/WalkMap";
 import { DEFAULT_SIDEBAR_W, useLayout } from "./hooks/useLayout";
@@ -1749,6 +1750,17 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
+  // 산책이 출발 전 네코 상태를 가지고 나간다(walk.ts WalkBefore). 졸 땐 활동이 없으니 마지막으로 한 활동을 기억해 둔다
+  const nekoCtrl = useNekoController();
+  const lastActRef = useRef<string | null>(null);
+  useEffect(() => nekoCtrl?.on("activity", (a) => { if (a) lastActRef.current = a; }), [nekoCtrl]);
+  const beforeWalk = async (): Promise<WalkBefore> => {
+    const music = useNekoApp.getState().outside.music || nekoCtrl?.side === "music" || nekoCtrl?.activity === "music";
+    // 곡 제목은 느낌 한 줄로만 바뀌어 쓰인다(검색·보고엔 안 들어간다). osascript 를 띄우니 출발할 때 한 번만
+    const track = music ? await invoke<{ title: string; artist: string } | null>("ambient_track").catch(() => null) : null;
+    return { activity: nekoCtrl?.activity ?? lastActRef.current, music, track, sleepy: idle, hunger: displayHunger, play: rpgState.play, at: Date.now() };
+  };
+
   // 나갔으면 "출발", 아니면 왜 안 나갔는지 — nekoWalk() 가 콘솔에 그대로 보여 준다.
   const departRef = useRef(async (): Promise<string> => "");
   departRef.current = async () => {
@@ -1771,6 +1783,7 @@ export default function App() {
         : `다음 산책까지 ${Math.ceil((plan.at - Date.now()) / 60_000)}분`;
     }
     const asked = useNekoApp.getState().lastActiveAt;
+    const before = await beforeWalk(); // 나가기 전 상태(위치를 묻는 사이 바뀌지 않게 먼저)
     const home = await hereOnce();
     const found = home ? await mapApi.places({ lat: home.lat, lon: home.lon, radiusM: 800 }).catch(() => []) : [];
     const stops = home ? pickPlaces(home, found) : [];
@@ -1788,7 +1801,7 @@ export default function App() {
     const w: Walk = { home, onMap: !!legs, places: legs ? stops : found, path: buildPath(route, Date.now(), WALK_MS, dwell) };
     saveWalk(w);
     setAway(true);
-    brainRef.current = startWalkBrain({ places: w.places, here: home });
+    brainRef.current = startWalkBrain({ places: w.places, here: home, before });
     return legs ? "출발" : "출발(지도 없이 대체 경로)";
   };
 

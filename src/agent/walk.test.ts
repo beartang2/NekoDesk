@@ -104,6 +104,41 @@ describe("산책 머리", () => {
     expect(task).toContain("16시간");
   });
 
+  it("듣던 곡 제목은 하위 에이전트·보고에 안 들어가고, 느낌 한 줄만 간다", async () => {
+    const vibe = { text: "잔잔한 재즈, 비 오는 밤 같은 분위기", reasoning: "", toolCalls: [] };
+    completion.mockResolvedValueOnce(vibe).mockResolvedValueOnce(report({ learned: [], diary: "노래 들으며 걸었어", gift_title: "t", gift_body: "b" }));
+    subagent.mockResolvedValueOnce("");
+    const before = { music: true, activity: "typing", track: { title: "Autumn Leaves", artist: "Chet Baker" }, sleepy: true, at: new Date(2026, 10, 18, 20).getTime() };
+    await startWalkBrain({ places: [], here: null, before, rand: () => 0.9 }).result;
+    const task = subagent.mock.calls[0][0] as string;
+    expect(task).toContain("잔잔한 재즈");
+    expect(task).toContain("노트북 타이핑");
+    expect(task).toContain("참고만");
+    for (const leak of ["Autumn Leaves", "Chet Baker"]) {
+      expect(task).not.toContain(leak);
+      expect(JSON.stringify(completion.mock.calls[1][0])).not.toContain(leak); // 보고(일지)에도
+    }
+    expect(JSON.stringify(completion.mock.calls[1][0])).toContain("잔잔한 재즈"); // 일지가 상태에서 이어지게
+    expect(JSON.stringify(completion.mock.calls[0][0])).toContain("Autumn Leaves"); // 제목은 느낌 호출만 본다
+  });
+
+  it("느낌 한 줄에 제목이 섞이면 버리고, 3번에 1번은 상태를 아예 안 넘긴다", async () => {
+    completion.mockResolvedValueOnce({ text: "Autumn Leaves 같은 쓸쓸함", reasoning: "", toolCalls: [] })
+      .mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b" }));
+    subagent.mockResolvedValueOnce("");
+    const before = { music: true, track: { title: "Autumn Leaves" } };
+    await startWalkBrain({ places: [], here: null, before, rand: () => 0.9 }).result;
+    expect(subagent.mock.calls[0][0]).not.toContain("Autumn Leaves");
+    expect(subagent.mock.calls[0][0]).toContain("음악을 들으며 나왔어");
+
+    completion.mockReset(); subagent.mockReset();
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b" }));
+    subagent.mockResolvedValueOnce("");
+    await startWalkBrain({ places: [], here: null, before, rand: () => 0.1 }).result;
+    expect(JSON.stringify(completion.mock.calls)).not.toContain("Autumn Leaves"); // 느낌 호출도 없다
+    expect(subagent.mock.calls[0][0]).not.toContain("나가기 전");
+  });
+
   it("한 문장을 넘는 건 오래 기억하지 않는다", async () => {
     subagent.mockResolvedValueOnce("");
     completion.mockResolvedValueOnce(report({ learned: [{ content: "가".repeat(121), impressive: true }], diary: "d", gift_title: "t", gift_body: "b" }));
