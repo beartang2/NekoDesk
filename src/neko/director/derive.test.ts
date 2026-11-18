@@ -2,7 +2,7 @@
 // 도구 표가 tool-registry(→ settingsStore 가 localStorage 를 읽는다)를 불러온다
 
 import { describe, expect, it } from "vitest";
-import { DEEP_SLEEP_MS, deriveNeko, FED_MS, PLAY_MS, SLEEPY_MS, THINK_DELAY_MS, THINK_GRACE_MS } from "./derive";
+import { DEEP_SLEEP_MS, deriveNeko, FED_MS, pickSolo, PLAY_MS, SLEEPY_MS, SOLO, THINK_DELAY_MS, THINK_GRACE_MS } from "./derive";
 import { IDLE_SESSION, reduceSession } from "./session";
 import type { DirectorInput, NekoSessionState, NekoSignal } from "./types";
 
@@ -102,5 +102,23 @@ describe("계획: 층과 우선순위(설계 §5.2)", () => {
     const i = input({ fedAt: 1000 });
     expect(deriveNeko(i, 1500).plan).toMatchObject({ layer: "fed", mood: "happy", activity: "groom" });
     expect(layer(i, 1000 + FED_MS)).toBe("base");
+  });
+});
+
+describe("혼자 놀기(신남)", () => {
+  it("고를 거리는 넓고, 방금 한 건 다시 안 고르고, 선물이 있으면 선물도", () => {
+    expect(SOLO).toEqual(expect.arrayContaining(["draw", "music", "reading", "groom", "knead", "window", "stretch", "snack", "climb"]));
+    for (let i = 0; i < 20; i++) expect(pickSolo("yarn", false, i / 20)).not.toBe("yarn");
+    const picks = new Set(Array.from({ length: 40 }, (_, i) => pickSolo(null, true, i / 40)));
+    expect(picks.has("giftplay")).toBe(true);
+    expect(pickSolo(null, false, 0.999)).toBe(SOLO[SOLO.length - 1]);
+  });
+
+  it("돌아다니는 놀이만 산책을 켜고, 한 번짜리는 한 번만", () => {
+    const at = (kind: (typeof SOLO)[number]) => deriveNeko(input({ box: { since: 0, kind } }), 1000).plan;
+    expect(at("yarn")).toMatchObject({ layer: "box", activity: "yarn", wander: true, oneShot: false });
+    expect(at("reading")).toMatchObject({ activity: "reading", wander: false, oneShot: false });
+    expect(at("snack")).toMatchObject({ activity: "snack", wander: false, oneShot: true });
+    expect(at("climb")).toMatchObject({ activity: "climb", wander: true, oneShot: true });
   });
 });

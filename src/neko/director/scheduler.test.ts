@@ -34,14 +34,14 @@ function world(init: Partial<DirectorInput> = {}) {
 }
 
 describe("스케줄러 시간표(설계 §8.1)", () => {
-  it("1) 검색 → 페이지 읽기가 빨리 와도 창밖 1.5초 뒤 신문으로 한 번만, 앉았다 서지 않음", () => {
+  it("1) 검색 → 페이지 읽기가 빨리 와도 창밖을 4초 보인 뒤 신문으로 한 번만, 앉았다 서지 않음", () => {
     const w = world();
     w.sig(0, { type: "run_start" });
     w.sig(0, { type: "tool_start", tool: "web.search" });
     w.sig(0.3, { type: "thinking" });
     w.sig(0.4, { type: "tool_start", tool: "web.scrape" });
-    w.to(3);
-    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "1.5 act:reading"]);
+    w.to(5);
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "4.0 act:reading"]);
     expect(w.ctrl.seen("pose:sit").filter((x) => !x.startsWith("0.0"))).toEqual([]);
   });
 
@@ -57,8 +57,9 @@ describe("스케줄러 시간표(설계 §8.1)", () => {
     w.to(9);
     expect(w.ctrl.seen("react:")).toEqual(["0.8 react:startle", "5.1 react:cheer"]);
     expect(w.ctrl.seen("tail:question")).toContain("0.8 tail:question:3");
-    // 생각이 0.5초 이어지면 골똘히 → 확인을 기다림 → 승인하면 잠깐 정리하고 타이핑 → 결과
-    expect(w.ctrl.seen("act:")).toEqual(["0.5 act:think", "0.8 act:wait", "3.0 act:null", "3.0 act:typing", "4.5 act:null"]);
+    // 생각이 0.5초 이어지면 골똘히 → 확인을 기다림(골똘히 머무름에 안 밀림) → 승인하면 잠깐 정리하고 타이핑 →
+    // 타이핑은 4초 보이고 정리(떨기·행복은 그동안 제때 나온다)
+    expect(w.ctrl.seen("act:")).toEqual(["0.5 act:think", "0.8 act:wait", "3.0 act:null", "3.0 act:typing", "7.0 act:null"]);
     expect(w.ctrl.seen("mood:")).toEqual(["0.0 mood:curious", "3.0 mood:idle", "4.5 mood:happy", "7.6 mood:idle"]);
   });
 
@@ -85,13 +86,13 @@ describe("스케줄러 시간표(설계 §8.1)", () => {
     expect(w.ctrl.seen("react:")).toEqual(["4.9 react:cheer"]);
   });
 
-  it("5) 도구 없이 답만 쓰면 타이핑 → 끝나면 바로 정리, 반응 없음", () => {
+  it("5) 도구 없이 답만 쓰면 타이핑 → 끝나도 4초는 채우고 정리, 반응 없음", () => {
     const w = world();
     w.sig(0, { type: "run_start" });
     w.sig(0.2, { type: "answering" });
     w.sig(3, { type: "done", petState: null });
     w.to(6);
-    expect(w.ctrl.seen("act:")).toEqual(["0.2 act:typing", "3.0 act:null"]);
+    expect(w.ctrl.seen("act:")).toEqual(["0.2 act:typing", "4.2 act:null"]);
     expect(w.ctrl.seen("react:")).toEqual([]);
   });
 
@@ -240,5 +241,14 @@ describe("스케줄러 규칙", () => {
     w.sig(1, { type: "loop_error" });
     w.to(5);
     expect(w.ctrl.seen("react:")).toEqual(["1.6 react:startle", "2.8 react:down"]);
+  });
+
+  it("일하는 활동의 머무름(4초)은 확인 기다림을 막지 않는다", () => {
+    const w = world();
+    w.sig(0, { type: "run_start" });
+    w.sig(0, { type: "tool_start", tool: "web.search" });
+    w.sig(0.5, { type: "wait", kind: "confirm", danger: false });
+    w.to(1);
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "0.5 act:wait"]);
   });
 });

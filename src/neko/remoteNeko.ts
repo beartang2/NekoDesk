@@ -52,8 +52,10 @@ export function dispatchEvt({ ev, payload }: NekoEvt): void {
  * 여기를 안 고쳐도 되게). 값을 돌려줘야 하는 것만 여기서 답한다.
  */
 export function createRemoteNeko(send: Send = sendToScreen): NekoController {
-  // 스케줄러가 act() 직후 동기로 읽는다. 먼저 바꿔 두고 화면 창의 activity 이벤트로 바로잡는다
+  // 스케줄러가 act() 직후 동기로 읽는다. 먼저 바꿔 두고 화면 창의 activity 이벤트로 바로잡는다 —
+  // 안 바로잡으면 엔진이 끝낸 한 번짜리(발도장·간식)를 아직 하는 줄 알아 다시 시키지 못한다
   let activity: NekoActivity | null = null;
+  addListener("activity", (a) => { activity = (a as NekoActivity | null) ?? null; });
   const own: Record<string, unknown> = {
     on: addListener,
     act: (a: NekoActivity | null) => { activity = a ?? null; send({ m: "act", args: [a] }); },

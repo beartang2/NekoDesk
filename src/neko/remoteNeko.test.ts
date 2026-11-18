@@ -26,6 +26,9 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     expect(neko.react("pet")).toBe(true);
     expect(neko.drop()).toEqual([]);
     expect(neko.hit(1, 2)).toBe(false);
+    // 화면 창 엔진이 활동을 끝내면(한 번짜리 끝·잡힘) 바로잡는다 — 그래야 스케줄러가 다시 시킬 수 있다
+    dispatchEvt({ ev: "activity", payload: null });
+    expect(neko.activity).toBeNull();
     // await 해도 thenable 로 오인되지 않는다
     expect((neko as unknown as { then?: unknown }).then).toBeUndefined();
   });

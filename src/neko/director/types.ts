@@ -100,5 +100,6 @@ export interface DirectorInput {
   /** 사용자가 마지막으로 앱을 쓴 시각 */
   lastActiveAt: number;
   /** 신나서 혼자 노는 중(상자에 쏙·털실·나비) */
-  box: { since: number; kind?: "box" | "yarn" | "butterfly" | "giftplay" } | null;
+  /** 혼자 놀기(신남). kind 는 엔진 활동(없으면 상자) */
+  box: { since: number; kind?: NekoActivity } | null;
 }

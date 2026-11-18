@@ -1,5 +1,7 @@
 import { emotionPlan } from "../emotionMap";
 import { resultLook } from "./session";
+import { ONE_SHOT } from "./toolActivity";
+import type { NekoActivity } from "../engine/neko-engine";
 import type { DirectorInput, NekoLayer, NekoPlan } from "./types";
 
 /**
@@ -20,6 +22,19 @@ export const RESULT_LINGER_MS = 600;
 /** 무활동: 졸림(식빵) → 누워 자기 */
 export const SLEEPY_MS = 5 * 60_000;
 export const DEEP_SLEEP_MS = 6 * 60_000;
+
+/** 돌아다니며 하는 혼자 놀기 */
+const ROAMING: ReadonlySet<string> = new Set(["yarn", "butterfly", "giftplay", "climb"]);
+/** 혼자 놀 거리(신남). 일하는 활동(타이핑·발도장·달력…)은 뺀다 */
+export const SOLO: readonly NekoActivity[] = [
+  "box", "yarn", "butterfly", "draw", "music", "reading", "groom", "knead", "window", "stretch", "snack", "climb",
+];
+
+/** 혼자 놀 거리 하나. 놓아 둔 선물이 있으면 그것도 조금 자주. 방금 한 것은 뺀다 */
+export function pickSolo(last: NekoActivity | null, hasGifts: boolean, r = Math.random()): NekoActivity {
+  const pool = [...SOLO, ...(hasGifts ? (["giftplay", "giftplay"] as const) : [])].filter((k) => k !== last);
+  return pool[Math.floor(r * pool.length)];
+}
 
 function plan(layer: NekoLayer, p: Partial<NekoPlan> = {}): NekoPlan {
   return {
@@ -116,7 +131,8 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
   // 8) 신남: 혼자 논다(상자에 쏙·털실·나비 중 하나)
   if (input.box) {
     const k = input.box.kind ?? "box";
-    return out(plan("box", { activity: k, instance: `box:${input.box.since}`, wander: k !== "box" }));
+    // 돌아다니는 놀이(털실·나비·선물)만 산책을 켠다. 한 번짜리(간식·기지개·벽 타기)는 한 번 하고 그친다
+    return out(plan("box", { activity: k, instance: `box:${input.box.since}`, wander: ROAMING.has(k), oneShot: ONE_SHOT.has(k) }));
   }
 
   // 9) 기본: 서서 산책

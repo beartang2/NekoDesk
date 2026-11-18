@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
+import type { NekoActivity } from "./engine/neko-engine";
+import { ONE_SHOT } from "./director/toolActivity";
 import { appEvents } from "../lib/events";
-import { deriveNeko } from "./director/derive";
+import { deriveNeko, pickSolo } from "./director/derive";
 import { createScheduler, realClock, type Scheduler } from "./director/scheduler";
 import { onNekoSignal, useNekoApp, useNekoSessions } from "./director/stores";
 import type { DirectorInput } from "./director/types";
@@ -15,10 +17,15 @@ import { useNekoController } from "./nekoHost";
  * - 계획은 deriveNeko, 적용은 스케줄러
  */
 
-/** 신남: 놀이 ≥ 80 이고 쉬는 중이면 30~120초 뒤 혼자 논다(상자에 쏙·털실·나비). 60초 지나거나 3번 쓰다듬으면 그만 */
-const BOX_PLAY_MIN = 80;
-const BOX_AFTER_MS = [30_000, 120_000] as const;
+/**
+ * 신남: 놀이 ≥ 40 이고 쉬는 중이면 20~60초 뒤 혼자 논다. 60초(한 번짜리는 12초) 지나거나 3번 쓰다듬으면 그만.
+ * 고를 거리: 상자·털실·나비·그리기·음악 듣기·책 읽기·세수·꾹꾹이·창밖 보기·기지개·간식·벽 타기(+ 놓아 둔 선물).
+ * 방금 한 것은 다음에 안 고른다.
+ */
+const BOX_PLAY_MIN = 40;
+const BOX_AFTER_MS = [20_000, 60_000] as const;
 const BOX_STAY_MS = 60_000;
+const BOX_STAY_ONE_SHOT_MS = 12_000;
 const BOX_EXIT_PETS = 3;
 /** 키 입력·클릭·스크롤을 '앱을 쓰는 중'으로 세는 간격 */
 const ACTIVE_THROTTLE_MS = 3000;
@@ -49,6 +56,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
   useEffect(() => {
     if (!ctrl) return;
     let box: DirectorInput["box"] = null;
+    let lastSolo: NekoActivity | null = null;
     let boxPetBase = 0;
     let boxTimer: ReturnType<typeof setTimeout> | null = null;
     let boxExitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -84,12 +92,12 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
         const wait = BOX_AFTER_MS[0] + Math.random() * (BOX_AFTER_MS[1] - BOX_AFTER_MS[0]);
         boxTimer = setTimeout(() => {
           boxTimer = null;
-          // 놓아 둔 선물이 있으면 그걸 갖고 노는 것도 고른다(docs/neko-gifts.md §5). 다른 것보다 조금 자주
-          const gifts = (ctrl as { decorCount?: number }).decorCount ? (["giftplay", "giftplay"] as const) : [];
-          const kinds = ["box", "yarn", "butterfly", ...gifts] as const;
-          box = { since: performance.now(), kind: kinds[Math.floor(Math.random() * kinds.length)] };
+          // 놓아 둔 선물이 있으면 그걸 갖고 노는 것도 고른다(docs/neko-gifts.md §5)
+          const kind = pickSolo(lastSolo, !!(ctrl as { decorCount?: number }).decorCount);
+          lastSolo = kind;
+          box = { since: performance.now(), kind };
           boxPetBase = useNekoApp.getState().pets;
-          boxExitTimer = setTimeout(leaveBox, BOX_STAY_MS);
+          boxExitTimer = setTimeout(leaveBox, ONE_SHOT.has(kind) ? BOX_STAY_ONE_SHOT_MS : BOX_STAY_MS);
           sch.update();
         }, wait);
       }
