@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { decorBoxes, dragDecor, drawDecor, hitDecorAt, type DecorItem } from "./engine/decor-draw";
+import { onShapeImage } from "./engine/gift-shape";
 import type { NekoDecorSpot } from "./engine/neko-engine";
 import "./NekoScreen.css";
 
@@ -140,6 +141,8 @@ export function NekoDecorScreen() {
     // 다른 배율 모니터로 옮겨지면 선명하게 다시
     const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
     mq.addEventListener("change", draw);
+    // 그림 칸(shape.img, 채팅 낙서)은 처음 볼 때 읽는다 — 다 읽으면 다시 그린다(그 전엔 매트만)
+    const offImg = onShapeImage(draw);
     void Promise.all(offs).then(() => emitTo("main", "neko-decor-ready")).catch(() => {});
     return () => {
       window.removeEventListener("pointerdown", onDown);
@@ -149,6 +152,7 @@ export function NekoDecorScreen() {
       window.removeEventListener("contextmenu", onContext);
       offs.forEach((p) => void p.then((off) => off()).catch(() => {}));
       mq.removeEventListener("change", draw);
+      offImg();
     };
   }, []);
 
