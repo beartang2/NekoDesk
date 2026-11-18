@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AlertDialog } from "radix-ui";
 import { Trash2 } from "lucide-react";
-import { drawShape, shapeBounds, type GiftShape } from "./engine/gift-shape";
+import { drawShape, onShapeImage, shapeBounds, type GiftShape } from "./engine/gift-shape";
 import { PLACE_NAME, fits, smallestPlace, useNekoGifts, type NekoGift } from "./gifts";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { GiftLab } from "./GiftLab";
@@ -15,6 +15,9 @@ import "./NekoGiftBox.css";
 export function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // 낙서 그림(shape.img)은 처음 그릴 땐 아직 못 읽어 매트만 보인다 — 다 읽으면 다시 그린다
+  const [loaded, setLoaded] = useState(0);
+  useEffect(() => (shape.img ? onShapeImage(() => setLoaded((n) => n + 1)) : undefined), [shape.img]);
   useEffect(() => {
     const ctx = ref.current?.getContext("2d");
     if (!ctx) return;
@@ -22,7 +25,7 @@ export function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: numbe
     ctx.clearRect(0, 0, size, size);
     const b = shapeBounds(shape), u = (size * 0.78) / Math.max(b.w, b.h);
     drawShape(ctx, shape, size / 2 - ((b.x0 + b.x1) / 2) * u, size / 2 + (b.h * u) / 2, u, 3 * dpr);
-  }, [shape, size, dpr]);
+  }, [shape, size, dpr, loaded]);
   return <canvas ref={ref} width={size * dpr} height={size * dpr} style={{ width: size, height: size }} aria-hidden />;
 }
 

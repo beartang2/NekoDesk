@@ -1355,6 +1355,28 @@ html, body, #root {
   object-fit: contain;
 }
 
+/* 그림 하나 + 그 아래 '선물함에 넣기' */
+.message__pic {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.message__gift {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 0;
+}
+
+.message__gift:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .composer__input {
   flex: 1;
   background: none;

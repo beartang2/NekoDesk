@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { drawShape, shapeBounds } from "./engine/gift-shape";
+import { drawShape, onShapeImage, shapeBounds } from "./engine/gift-shape";
 import { decorItems, useNekoGifts } from "./gifts";
 import { useSettingsStore } from "../stores/settingsStore";
 import { setTimeZone } from "../lib/time";
@@ -124,6 +124,9 @@ const SIZE_K: Record<string, number> = { small: 0.6, medium: 1, large: 1.45 };
 export function RoomGifts({ isDark }: { isDark: boolean }) {
   const gifts = useNekoGifts((s) => s.gifts);
   const [ref, { w, h }] = useSize<HTMLCanvasElement>();
+  // 낙서 그림(shape.img)을 다 읽으면 다시 그린다(처음엔 매트만 보인다)
+  const [loaded, setLoaded] = useState(0);
+  useEffect(() => onShapeImage(() => setLoaded((n) => n + 1)), []);
   useEffect(() => {
     const cv = ref.current;
     const g = cv?.getContext("2d");
@@ -150,6 +153,6 @@ export function RoomGifts({ isDark }: { isDark: boolean }) {
         g.fillStyle = "rgba(255,255,255,0.6)"; g.beginPath(); g.arc(x - 0.5 * S, bottom - ih + S, 0.7 * S, 0, Math.PI * 2); g.fill();
       }
     }
-  }, [gifts, w, h, isDark, ref]);
+  }, [gifts, w, h, isDark, ref, loaded]);
   return <canvas ref={ref} className="neko-room__gifts" aria-hidden="true" />;
 }
