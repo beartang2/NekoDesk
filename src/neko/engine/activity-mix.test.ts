@@ -43,6 +43,12 @@ describe("activity-mix", () => {
     expect(mergePose("typing", "music", { ear: 0.3, lid: 1 }, {}, null)).toEqual({ lid: 1, add: {} });
   });
 
+  it("2단계: 혼자 놀기 후보는 채움(fills)이 있고, 상자 뒤지기·쳐다보기도 후보다", () => {
+    const solo = Object.keys(MIX).filter((k) => MIX[k].solo).sort();
+    expect(solo).toEqual(["box", "butterfly", "climb", "dig", "draw", "gaze", "giftplay", "groom", "knead", "music", "reading", "snack", "stretch", "window", "yarn"]);
+    for (const k of solo) expect(Object.values(MIX[k].fills ?? {}).some((v) => v !== 0)).toBe(true);
+  });
+
   it("pose 키 표는 엔진 부위만 쓴다", () => {
     expect(new Set(Object.values(POSE_PART))).toEqual(new Set(["body", "paws", "head", "ears", "tail"]));
   });

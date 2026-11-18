@@ -21,10 +21,16 @@ export const ADD_KEYS = ["tt", "ear", "sq", "tilt", "dy", "tail"];
 
 const words = (s) => (s ? s.split(" ") : []);
 /** 보통 활동: 귀는 얹음(표정을 조금 보태는 정도라 헤드폰에 양보한다) */
-const act = (hold, stance, slots = "") => ({ hold: words(hold), ride: ["ears"], stance, slots: words(slots) });
+const act = (hold, stance, slots = "", more = {}) => ({ hold: words(hold), ride: ["ears"], stance, slots: words(slots), ...more });
+/**
+ * 2단계(docs/neko-activity-mix.md §2.3): fills = 한 번(약 3분) 하면 바뀌는 숨은 게이지(기운 energy·호기심 curiosity·청결 clean·애정 affection),
+ * solo = 혼자 놀기 후보. 새 활동은 이 둘만 적으면 감독이 점수로 고른다(감독 코드는 안 고친다). giftplay 는 놓인 선물이 있을 때만(감독이 본다)
+ */
+const fill = (energy = 0, curiosity = 0, clean = 0, affection = 0) => ({ energy, curiosity, clean, affection });
+const solo = (f) => ({ fills: f, solo: true });
 
 export const MIX = {
-  draw: act("body paws head tail", "sit", "floor"),
+  draw: act("body paws head tail", "sit", "floor", solo(fill(-5, 10))),
   music: {
     hold: ["ears"],                   // 헤드폰이 귀를 누른다
     ride: ["head", "tail", "body"],   // 고개 까딱·꼬리 박자·몸 통통
@@ -33,27 +39,30 @@ export const MIX = {
     slots: ["head"],
     with: "음악 들으며",
     notWith: ["base:lie"],            // 누워 깊이 잘 때는 벗는다
+    ...solo(fill(8, 5)),
   },
-  butterfly: act("body move paws head tail", "move", "air"),
-  snack: act("body head mouth", "stand", "floor"),
-  stretch: act("body paws head tail", "stand"),
-  typing: act("body paws head tail", "sit", "floor"),
-  reading: act("body paws head tail", "sit", "floor"),
-  stamp: act("body paws head tail", "sit", "floor"),
-  groom: act("body paws head mouth tail", "sit"),
-  knead: act("body paws head tail", "stand", "floor"),
-  yarn: act("body move paws head tail", "move", "floor"),
-  giftplay: act("body move paws head mouth tail", "move", "decor"),
-  box: act("body paws head tail", "loaf", "floor"),
-  window: act("body head tail", "sit", "wall"),
-  think: act("body paws head tail", "sit"),
+  butterfly: act("body move paws head tail", "move", "air", solo(fill(-25, 10))),
+  snack: act("body head mouth", "stand", "floor", solo(fill(5, 0, -10))),
+  stretch: act("body paws head tail", "stand", "", solo(fill(10))),
+  typing: act("body paws head tail", "sit", "floor", { fills: fill(-3) }),
+  reading: act("body paws head tail", "sit", "floor", solo(fill(5, 20))),
+  stamp: act("body paws head tail", "sit", "floor", { fills: fill(-2) }),
+  groom: act("body paws head mouth tail", "sit", "", solo(fill(3, 0, 35))),
+  knead: act("body paws head tail", "stand", "floor", solo(fill(10, 0, 0, 8))),
+  yarn: act("body move paws head tail", "move", "floor", solo(fill(-20, 5))),
+  giftplay: act("body move paws head mouth tail", "move", "decor", solo(fill(-8, 15))),
+  box: act("body paws head tail", "loaf", "floor", solo(fill(5, 10))),
+  window: act("body head tail", "sit", "wall", solo(fill(3, 25))),
+  think: act("body paws head tail", "sit", "", { fills: fill(0, 3) }),
   wait: act("body paws head tail", "sit"),
-  meal: act("body head mouth", "stand", "floor"),
+  meal: act("body head mouth", "stand", "floor", { fills: fill(5, 0, -10) }),
   hungry: act("body paws head tail", "sit", "floor"),
-  dig: act("body paws head tail", "stand", "floor"),
+  dig: act("body paws head tail", "stand", "floor", solo(fill(-5, 20))), // 혼자 후보(사용자 확정)
   calendar: act("body paws head tail", "sit", "floor"),
-  erase: act("body paws head tail", "sit", "floor"),
-  climb: act("body move paws head tail", "move", "wall"),
+  erase: act("body paws head tail", "sit", "floor", { fills: fill(-2) }),
+  climb: act("body move paws head tail", "move", "wall", solo(fill(-30, 10))),
+  // 쳐다보기: 애정이 낮을 때(사용자 확정). 앉아서 사용자 쪽을 보며 천천히 눈을 깜빡인다
+  gaze: act("body head tail", "sit", "", solo(fill(0, 0, 0, 8))),
   // 기본 상태: 활동이 없을 때 고양이가 하는 일. 잡힘·점프 같은 잠깐 상태는 서기로 본다
   "base:stand": { hold: ["body", "move"], ride: ["head", "ears", "tail"], stance: "move" },
   "base:sit": { hold: ["body"], ride: ["head", "ears", "tail"], stance: "sit" },

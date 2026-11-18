@@ -29,10 +29,10 @@ async function open(query = "", viewport = { width: 760, height: 1000 }, dpr = 1
   return p;
 }
 const pick = (p, id) => p.click(`label:has(#${id})`);
-const ACTS = ["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb", "think", "wait", "meal", "hungry", "dig", "calendar", "erase"];
+const ACTS = ["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb", "think", "wait", "meal", "hungry", "dig", "calendar", "erase", "gaze"];
 
 try {
-  // 1) 활동 21개를 12초씩 + 빠르게 바꾸기 + 밖에서 활동 더하기: 값이 깨지지 않는가
+  // 1) 활동 전부를 12초씩 + 빠르게 바꾸기 + 밖에서 활동 더하기: 값이 깨지지 않는가
   {
     const p = await open();
     const r = await p.evaluate((ACTS) => {
@@ -45,7 +45,7 @@ try {
       n.act("wave"); n.step(240); n.draw();
       return { bad, finite: ok(), act: n.activity };
     }, ACTS);
-    check("활동 21개·빠른 전환·외부 활동: 값 유한", r.bad.length ? r.bad.join(",") : "모두 정상", r.bad.length === 0 && r.finite && r.act === "wave");
+    check(`활동 ${ACTS.length}개·빠른 전환·외부 활동: 값 유한`, r.bad.length ? r.bad.join(",") : "모두 정상", r.bad.length === 0 && r.finite && r.act === "wave");
     await p.close();
   }
 
@@ -553,7 +553,7 @@ try {
     check("털실: 화면 모드 열린 가장자리로도 공이 나가지 않는다(화면 끝에서 튕김)", `안 ${w.inside} · 끝까지 ${w.near} · 고양이 화면 안 ${w.cat}`, w.inside && w.near && w.cat);
   }
 
-  // 9-n) 활동 겹치기(docs/neko-activity-mix.md 1부): 선언이 엔진 활동과 맞고, 음악은 21개 활동·기본 상태 위에 얹히며
+  // 9-n) 활동 겹치기(docs/neko-activity-mix.md 1부): 선언이 엔진 활동과 맞고, 음악은 모든 활동·기본 상태 위에 얹히며
   //      헤드폰을 낀 채 돌아다니고, 졸 때는 낀 채·누워 자면 벗는다. 주 활동이 끝나도 남고, 잡혀도 이어진다
   {
     const p = await open();
@@ -592,7 +592,7 @@ try {
       return o;
     });
     check("겹치기: 선언(MIX)이 엔진 활동과 같고, pose 키가 부위 표 안에 있다", `빠짐 ${r.declMissing.join(",") || "없음"} · 남음 ${r.declExtra.join(",") || "없음"} · 모르는 키 ${r.unknownKeys.join(",") || "없음"}`, !r.declMissing.length && !r.declExtra.length && !r.unknownKeys.length);
-    check("겹치기: 음악은 21개 활동 위에 12초씩 얹혀도 값 유한·헤드폰 유지·상태 글자", `깨짐 ${r.bad.join(",") || "없음"} · 빠짐 ${r.lost.join(",") || "없음"} · 글자 ${r.label}`, !r.bad.length && !r.lost.length && r.label);
+    check("겹치기: 음악은 모든 활동 위에 12초씩 얹혀도 값 유한·헤드폰 유지·상태 글자", `깨짐 ${r.bad.join(",") || "없음"} · 빠짐 ${r.lost.join(",") || "없음"} · 글자 ${r.label}`, !r.bad.length && !r.lost.length && r.label);
     check("겹치기: 헤드폰 낀 채 돌아다니고 걷는 동안은 음표가 적다", `걸음 ${r.walk.walked.toFixed(1)}초 · 곁들임 ${r.walk.side} · 음표 앉아 ${r.walk.sitNotes}·걸어 ${r.walk.walkNotes} · "음악 들으며 걷는 중" ${r.walk.label}`, r.walk.side === "music" && r.walk.walked > 5 && r.walk.walkNotes < r.walk.sitNotes && r.walk.label);
     check("겹치기: 식빵으로 졸 땐 낀 채, 누워 자면 벗고 다시 못 씀", `식빵 ${r.loaf} · 누움 ${r.lie} · 다시 ${r.lieRetry}`, r.loaf === "music" && r.lie === null && r.lieRetry === false);
     check("겹치기: 주 활동이 끝나도 남고, act(음악)이면 옮겨 타며, 곁들임 아닌 건 거절", `끝난 뒤 ${r.afterMain.join("/")} · 옮겨 탐 ${r.ride.join("/")} · 거절 ${!r.reject}`, r.afterMain[0] === null && r.afterMain[1] === "music" && r.ride[0] === "music" && r.ride[1] === null && r.ride[2] && !r.reject);
@@ -604,6 +604,21 @@ try {
     await p.mouse.up();
     const after = await p.evaluate(() => { window.__neko.step(240); return window.__neko.side; });
     const g = { grabbed: mid[0], side: mid[1], before: h[2], after };
+    // 2단계 엔진: 쳐다보기는 사용자 쪽을 보며 가끔 천천히 눈을 감았다 뜨고, setChase(false) 면 커서를 따라오지 않는다
+    const gz = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat; n.act(null); n.mix(null); n.step(240);
+      n.act("gaze"); let lidMax = 0, lidMin = 1;
+      for (let i = 0; i < 120 * 11; i++) { n.step(1); if (c.actP && c.actP.lid != null) { lidMax = Math.max(lidMax, c.actP.lid); lidMin = Math.min(lidMin, c.actP.lid); } }
+      n.act(null); n.step(120);
+      const cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), x0 = c.x;
+      n.setChase(false);
+      for (let i = 0; i < 20; i++) { cv.dispatchEvent(new PointerEvent("pointermove", { clientX: R.left + (x0 > n.W / 2 ? 30 : n.W - 30), clientY: R.top + n.floorY - 20, bubbles: true })); n.step(12); }
+      const stayed = Math.abs(c.x - x0) < 4 * n.S;
+      n.setChase(true);
+      for (let i = 0; i < 40; i++) { cv.dispatchEvent(new PointerEvent("pointermove", { clientX: R.left + (x0 > n.W / 2 ? 30 : n.W - 30), clientY: R.top + n.floorY - 20, bubbles: true })); n.step(12); }
+      return { blink: lidMax > 0.8 && lidMin < 0.05, stayed, chased: Math.abs(c.x - x0) > 40 * n.S };
+    });
+    check("쳐다보기·따라오기 스위치: 천천히 눈을 감았다 뜨고, setChase(false) 면 커서를 안 따라온다", `눈 깜빡 ${gz.blink} · 끔 제자리 ${gz.stayed} · 켬 따라옴 ${gz.chased}`, gz.blink && gz.stayed && gz.chased);
     check("겹치기: 잡혀도 음악은 이어진다", `잡힘 ${g.grabbed} · 곁들임 ${g.before}→${g.side}→${g.after}`, g.grabbed && g.before === "music" && g.side === "music" && g.after === "music");
     await p.close();
   }

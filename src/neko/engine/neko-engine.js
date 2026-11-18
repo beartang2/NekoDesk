@@ -252,6 +252,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   const mouse = { x: 0, y: 0, t: -99, seen: false };
   const mouseActive = () => mouse.seen && time - mouse.t < 6;
   let wanderOn = !reduced.matches;
+  let chaseOn = true; // 쉬는 동안 커서 따라오기. 2단계 감독은 애정이 낮을 때만 켠다(docs/neko-activity-mix.md §2.3)
   let showRig = false;
 
   /* ---------- 좌표 변환 ---------- */
@@ -441,7 +442,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /** 마우스 쪽으로: 멀면 그 앞까지 걸어가고, 가까우면 그쪽으로 몸만 돌린다. */
   function chaseMouse() {
     const c = cat;
-    if (!mouseActive() || reduced.matches || c.mood === "sleepy" || c.pose !== "stand" || c.act || c.petSulk > 0) return false; // 짜증 중엔 다가오지 않는다
+    if (!chaseOn || !mouseActive() || reduced.matches || c.mood === "sleepy" || c.pose !== "stand" || c.act || c.petSulk > 0) return false; // 짜증 중엔 다가오지 않는다
     const dx = mouse.x - c.x;
     if (c.mode === "walk") {
       const want = clamp(mouse.x - Math.sign(dx) * WALK_STOP * S, EDGE * S, W - EDGE * S);
@@ -3475,6 +3476,17 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     },
   });
 
+  defineActivity("gaze", { // 쳐다보기(애정이 낮을 때): 앉아서 화면 앞(사용자)을 가만히 보고, 가끔 눈을 천천히 감았다 뜬다(고양이 눈인사)
+    name: "쳐다보기", label: "쳐다보는 중",
+    pose(A, ramp) {
+      const u = A.t % 5.2, blink = u > 3.4 && u < 4.8 ? Math.sin((Math.PI * (u - 3.4)) / 1.4) : 0;
+      return {
+        sit: true, ear: -0.06, lid: 0.9 * blink, expr: "idle", tt: (Math.floor(A.t / 5.2) % 2 ? 0.07 : 0.02) * ramp, look: lookAtUser(),
+        tail: sitTail({ sway: 3, period: 6, still: 0.3, flick: [4, 8, 10, 0.5] }),
+      };
+    },
+  });
+
   /** 밥그릇에 고개를 묻고 오물오물(간식·밥 먹기가 같이 쓴다). done: 다 먹은 뒤 지난 시간(없으면 -1) */
   function eatPose(A, ramp, done) {
     const c = cat, down = done < 0 ? ramp : 1 - smooth(done / 0.5);
@@ -4344,6 +4356,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     get activity() { return cat.act ? cat.act.key : null; },
     /** 곁들임(활동 겹치기): 지금 도는 것(주 활동, 없으면 기본 상태)과 안 되면 거절하고 false */
     mix(key) { if (!key || key === "none") { endSide(); return true; } return startSide(key); },
+    setChase(on) { chaseOn = !!on; },
     get side() { return cat.side ? cat.side.key : null; },
     tail: (sign, sec) => startTailEp(sign, sec),
     react(kind) {

@@ -21,7 +21,12 @@ export interface NekoMixDecl {
   with?: string;
   /** 부위로는 되지만 같이 안 하는 활동·기본 상태 */
   notWith?: string[];
+  /** 2단계: 한 번(약 3분) 하면 바뀌는 숨은 게이지 */
+  fills?: NekoFills;
+  /** 2단계: 혼자 놀기 후보(giftplay 는 놓인 선물이 있을 때만 — 감독이 본다) */
+  solo?: boolean;
 }
+export interface NekoFills { energy: number; curiosity: number; clean: number; affection: number }
 
 export const PARTS: NekoPart[];
 export const POSE_PART: Record<string, NekoPart>;

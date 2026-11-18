@@ -101,7 +101,7 @@ chips("poses", "pose", [["stand", "서기"], ["sit", "앉기"], ["loaf", "식빵
 chips("moods", "mood", [["idle", "기본"], ["happy", "행복"], ["sleepy", "졸림"], ["curious", "궁금"]], "idle", (v) => neko.setMood(v));
 chips("tailsigns", "tsign", [["auto", "자동"], ...["level", "up", "question", "quiver", "sway", "down", "puff", "angry", "thump"].map((k) => [k, k])], "auto",
   (v) => { neko.cat.tailForce = v === "auto" ? null : v; });
-chips("acts", "act", [["none", "없음"], ...["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb", "think", "wait", "meal", "hungry", "dig", "calendar", "erase"].map((k) => [k, k])], "none",
+chips("acts", "act", [["none", "없음"], ...["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb", "think", "wait", "meal", "hungry", "dig", "calendar", "erase", "gaze"].map((k) => [k, k])], "none",
   (v) => neko.act(v === "none" ? null : v));
 chips("sides", "side", [["none", "없음"], ["music", "음악"]], "none", (v) => neko.mix(v === "none" ? null : v));
 document.getElementById("jump").onclick = () => neko.jump();

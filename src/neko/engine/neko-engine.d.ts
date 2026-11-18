@@ -54,7 +54,9 @@ export type NekoActivity =
   // P3: 감독이 에이전트 단계·앱 상황에 맞춰 고른다
   | "think" | "wait" | "meal" | "hungry" | "dig" | "calendar" | "erase"
   // 놓아 둔 선물 갖고 놀기(docs/neko-gifts.md §5)
-  | "giftplay";
+  | "giftplay"
+  // 쳐다보기: 애정이 낮을 때(docs/neko-activity-mix.md §2.3)
+  | "gaze";
 
 /** 선물 노는 방식. 없으면 엔진이 모양으로 짐작한다 */
 export type NekoGiftPlay = "roll" | "bat" | "sniff" | "sit_on" | "carry"
@@ -137,6 +139,8 @@ export interface NekoController {
    * 주 활동이 끝나도 곁들임은 남는다. act(지금 곁들임) 이면 곁들임이 주 활동으로 옮겨 탄다(소품이 다시 안 뜬다)
    */
   mix(key: NekoActivity | null): boolean;
+  /** 쉬는 동안 커서 따라오기(기본 켬). 2단계 감독은 애정이 낮을 때만 켠다 */
+  setChase(on: boolean): void;
   readonly side: NekoActivity | null;
   /** 꼬리 언어를 잠깐(초) */
   tail(sign: NekoTailSign, sec?: number): void;
