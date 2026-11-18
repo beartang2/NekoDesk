@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { settingsApi } from "../api/tauri";
 import { claudeContextCap, isClaudeUrl, maxOutputTokensFor } from "../lib/claude-models";
 
 /**
@@ -64,11 +65,25 @@ const K = {
   memoryTidy: "nekodesk_memory_tidy",
 } as const;
 
+/**
+ * 다른 기기와 같이 쓰는 설정(docs/neko-sync.md §2.2). localStorage 는 켤 때 바로 쓰는 캐시로 두고, 바꿀 때 settings DB
+ * 에도 적는다 — 동기화는 DB 를 본다. 켤 때·다른 기기에서 바뀌었을 때 hydrateSyncedSettings 가 DB 값으로 덮는다.
+ * DB 키 목록은 Rust db::SYNCED_SETTINGS 와 같아야 한다. 빈 글은 없음(null)이다.
+ */
+const SYNCED = {
+  nekoName: "neko_name",
+  systemPrompt: "neko_persona",
+  userProfile: "user_profile",
+  sessionRetention: "session_retention",
+} as const;
+type SyncedField = keyof typeof SYNCED;
+const mirror = (field: SyncedField, value: string | null) => void settingsApi.set(SYNCED[field], value ?? "").catch(() => {});
+
 /** 오래된 대화를 지우는 기준(일). 0 이면 끔 */
 export type SessionRetention = 0 | 30 | 90;
+const toRetention = (raw: string | null): SessionRetention => (raw === "0" ? 0 : raw === "90" ? 90 : 30);
 function loadSessionRetention(): SessionRetention {
-  const raw = localStorage.getItem(K.sessionRetention);
-  return raw === "0" ? 0 : raw === "90" ? 90 : 30;
+  return toRetention(localStorage.getItem(K.sessionRetention));
 }
 
 function loadClaudeContext(): Record<string, number> {
@@ -183,15 +198,18 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     if (v === null) localStorage.removeItem(K.systemPrompt);
     else localStorage.setItem(K.systemPrompt, v);
     set({ systemPrompt: v });
+    mirror("systemPrompt", v);
   },
   setNekoName: (v) => {
     localStorage.setItem(K.nekoName, v);
     set({ nekoName: v });
+    mirror("nekoName", v);
   },
   setUserProfile: (v) => {
     if (v === null) localStorage.removeItem(K.userProfile);
     else localStorage.setItem(K.userProfile, v);
     set({ userProfile: v });
+    mirror("userProfile", v);
   },
   setToolMode: (m) => {
     localStorage.setItem(K.toolMode, m);
@@ -218,6 +236,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setSessionRetention: (days) => {
     localStorage.setItem(K.sessionRetention, String(days));
     set({ sessionRetention: days });
+    mirror("sessionRetention", String(days));
   },
   setMemoryTidy: (on) => {
     localStorage.setItem(K.memoryTidy, on ? "on" : "off");
@@ -225,6 +244,33 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));
+
+/**
+ * 같이 쓰는 설정을 DB 값으로 덮는다(DB 에 다시 적지 않는다). DB 에 없으면(처음) 사용자가 정해 둔 localStorage 값을
+ * 옮긴다 — 정한 적 없는 기본값은 안 옮겨서, 새로 짝 맞춘 기기가 다른 기기의 값을 기본값으로 덮지 않는다.
+ */
+export async function hydrateSyncedSettings(): Promise<void> {
+  for (const field of Object.keys(SYNCED) as SyncedField[]) {
+    const v = await settingsApi.get(SYNCED[field]).catch(() => undefined);
+    if (v === undefined) continue;
+    const local = localStorage.getItem(K[field]);
+    if (v === null) {
+      if (local !== null) mirror(field, local);
+      continue;
+    }
+    if (field === "sessionRetention") {
+      localStorage.setItem(K[field], String(toRetention(v)));
+      useSettingsStore.setState({ sessionRetention: toRetention(v) });
+    } else if (field === "nekoName") {
+      localStorage.setItem(K[field], v);
+      useSettingsStore.setState({ nekoName: v });
+    } else {
+      if (v) localStorage.setItem(K[field], v);
+      else localStorage.removeItem(K[field]);
+      useSettingsStore.setState({ [field]: v || null });
+    }
+  }
+}
 
 export const DEFAULT_NEKO_NAME = "네코";
 

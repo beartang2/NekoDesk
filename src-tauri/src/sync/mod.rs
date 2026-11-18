@@ -1,0 +1,771 @@
+//! 기기 간 동기화 엔진(docs/neko-sync.md §2·§3). 서버는 server/ 의 Worker.
+//!
+//! 모든 것을 기록(record) 하나로 본다. 로컬 행 ↔ 기록 번호와 "아직 안 올림"은 sync_meta 에 있고,
+//! 쓰는 곳 대신 트리거가 찍는다(db 마이그레이션 4). 여기는
+//!  - collect: 안 올린 것을 모아 기록으로 만들고 잠근다(XChaCha20-Poly1305, 머리는 AAD).
+//!  - apply: 받은 기록을 풀어 로컬에 적는다((ts, device) 겨루기, 지움·cut·자동 삭제 되살리기, 같은 기억 합치기).
+//!  - round: 서버와 한 번 주고받는다(잠금은 네트워크 밖에서만 잡는다).
+//! Tauri 쪽(키체인·주기·이벤트·커맨드)은 run.rs.
+
+use crate::error::{AppError, AppResult};
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng, Payload};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::Mutex;
+
+pub mod run;
+
+pub type Key = [u8; 32];
+
+/// 서버와 주고받는 기록 하나. 서버는 blob 말고 다 읽는다.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Record {
+    pub coll: String,
+    pub id: String,
+    pub parent: Option<String>,
+    pub ts: i64,
+    #[serde(default)]
+    pub device: String,
+    #[serde(default)]
+    pub deleted: i64,
+    pub cut: Option<i64>,
+    pub blob: Option<String>,
+}
+
+/// 받은 것 중 화면이 다시 읽어야 할 것(`sync-changed` 이벤트 내용).
+#[derive(Serialize, Default, Clone, Debug)]
+pub struct Changes {
+    pub colls: BTreeSet<String>,
+    /// 메시지·요약·지움이 바뀐 세션
+    pub sessions: BTreeSet<String>,
+}
+
+impl Changes {
+    pub fn is_empty(&self) -> bool {
+        self.colls.is_empty()
+    }
+}
+
+const GIFTS: &str = "neko_gifts";
+pub const PUSH_MAX: usize = 20;
+/// 이보다 큰 메시지는 첨부·그림 본문(dataUrl)을 빼고 올린다(§4.2, 서버 한 건 1MB)
+const SHRINK_AT: usize = 700_000;
+/// D1 무료 쓰기 한도(하루 10만 행)를 처음 올리기가 다 먹지 않게(§4.4)
+const DAY_PUSH_MAX: i64 = 20_000;
+/// 한 번 주고받기에서 서버에 거는 요청 상한. 처음 올리기는 여러 번에 나뉜다
+const ROUND_REQUESTS: usize = 25;
+
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+// ── 암호화 ───────────────────────────────────────────────────────────────────
+
+/// 머리 정보를 덧붙임 자료로 묶는다. 서버가 암호문을 다른 기록에 바꿔 끼우면 풀리지 않는다.
+fn aad(r: &Record) -> String {
+    format!("{}|{}|{}|{}|{}", r.coll, r.id, r.parent.as_deref().unwrap_or(""), r.ts, r.device)
+}
+
+/// base64(nonce 24 + 암호문)
+pub fn seal(key: &Key, r: &Record, plain: &[u8]) -> AppResult<String> {
+    let cipher = XChaCha20Poly1305::new(key.into());
+    let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
+    let ct = cipher
+        .encrypt(&nonce, Payload { msg: plain, aad: aad(r).as_bytes() })
+        .map_err(|_| AppError::msg("기록을 잠그지 못했어"))?;
+    let mut out = nonce.to_vec();
+    out.extend(ct);
+    Ok(B64.encode(out))
+}
+
+pub fn unseal(key: &Key, r: &Record) -> AppResult<Vec<u8>> {
+    let raw = B64.decode(r.blob.as_deref().unwrap_or("")).map_err(|_| AppError::msg("기록 모양이 이상해"))?;
+    if raw.len() < 24 {
+        return Err(AppError::msg("기록 모양이 이상해"));
+    }
+    let (nonce, ct) = raw.split_at(24);
+    XChaCha20Poly1305::new(key.into())
+        .decrypt(XNonce::from_slice(nonce), Payload { msg: ct, aad: aad(r).as_bytes() })
+        .map_err(|_| AppError::msg("기록을 풀지 못했어(열쇠가 다르거나 바뀐 기록)"))
+}
+
+// ── 로컬 표 ──────────────────────────────────────────────────────────────────
+
+/// 표 하나 = 기록 종류 하나. natural: 키가 곧 기록 번호(세션 id, 설정 키). 아니면 정수 id ↔ uid.
+struct Table {
+    coll: &'static str,
+    table: &'static str,
+    key: &'static str,
+    natural: bool,
+    cols: &'static [&'static str],
+}
+
+const TABLES: &[Table] = &[
+    Table { coll: "session", table: "sessions", key: "id", natural: true, cols: &["title", "created_at", "summary"] },
+    Table { coll: "setting", table: "settings", key: "key", natural: true, cols: &["value"] },
+    Table { coll: "msg", table: "conversation_messages", key: "id", natural: false, cols: &["session_id", "role", "content", "created_at", "attachments", "meta"] },
+    Table { coll: "memory", table: "memories", key: "id", natural: false, cols: &["kind", "content", "created_at"] },
+    Table { coll: "todo", table: "todos", key: "id", natural: false, cols: &["content", "status", "priority", "due_at", "created_at", "completed_at"] },
+    Table { coll: "event", table: "events", key: "id", natural: false, cols: &["title", "start_at", "end_at", "notes", "all_day", "created_at"] },
+];
+
+fn table(coll: &str) -> Option<&'static Table> {
+    TABLES.iter().find(|t| t.coll == coll)
+}
+
+/// 행 하나를 JSON 글로(기록 내용)
+fn read_row(conn: &Connection, t: &Table, local_key: &str) -> AppResult<Option<String>> {
+    let obj = t.cols.iter().map(|c| format!("'{c}', {c}")).collect::<Vec<_>>().join(", ");
+    let sql = format!("SELECT json_object({obj}) FROM {} WHERE {} = ?1", t.table, t.key);
+    Ok(conn.query_row(&sql, [local_key], |r| r.get(0)).optional()?)
+}
+
+/// 기록 내용을 행에 적고 로컬 키를 돌려준다. 트리거가 dirty 를 찍지만 바로 뒤 adopt 가 덮는다.
+fn write_row(conn: &Connection, t: &Table, local_key: Option<&str>, uid: &str, plain: &str) -> AppResult<String> {
+    let ext = |c: &&str| format!("json_extract(?1, '$.{c}')");
+    let cols = t.cols.join(", ");
+    let vals = t.cols.iter().map(ext).collect::<Vec<_>>().join(", ");
+    if t.natural {
+        let set = t.cols.iter().map(|c| format!("{c} = excluded.{c}")).collect::<Vec<_>>().join(", ");
+        conn.execute(
+            &format!("INSERT INTO {0} ({1}, {cols}) VALUES (?2, {vals}) ON CONFLICT ({1}) DO UPDATE SET {set}", t.table, t.key),
+            params![plain, uid],
+        )?;
+        return Ok(uid.to_owned());
+    }
+    if let Some(k) = local_key {
+        let set = t.cols.iter().map(|c| format!("{c} = {}", ext(c))).collect::<Vec<_>>().join(", ");
+        if conn.execute(&format!("UPDATE {} SET {set} WHERE {} = ?2", t.table, t.key), params![plain, k])? > 0 {
+            return Ok(k.to_owned());
+        }
+    }
+    conn.execute(&format!("INSERT INTO {} ({cols}) VALUES ({vals})", t.table), params![plain])?;
+    Ok(conn.last_insert_rowid().to_string())
+}
+
+/// 이 기록의 로컬 상태를 받은 값으로 맞춘다(dirty 0). 트리거가 새 번호로 만든 행은 지운다.
+fn adopt(conn: &Connection, r: &Record, local_key: Option<&str>, sig: Option<&str>) -> AppResult<()> {
+    if let Some(k) = local_key {
+        conn.execute("DELETE FROM sync_meta WHERE coll = ?1 AND local_key = ?2 AND uid <> ?3", params![r.coll, k, r.id])?;
+    }
+    conn.execute(
+        "INSERT INTO sync_meta (coll, uid, local_key, ts, device, deleted, dirty, cut, sig) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)
+         ON CONFLICT (coll, uid) DO UPDATE SET local_key = excluded.local_key, ts = excluded.ts, device = excluded.device,
+             deleted = excluded.deleted, dirty = 0, cut = excluded.cut, sig = excluded.sig",
+        params![r.coll, r.id, local_key, r.ts, r.device, r.deleted, r.cut, sig],
+    )?;
+    Ok(())
+}
+
+/// 내가 지움 표시를 올린다(같은 기억 합치기·자동 삭제 되살리기 반대편)
+fn tombstone_mine(conn: &Connection, coll: &str, uid: &str, ts: i64) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO sync_meta (coll, uid, local_key, ts, deleted, dirty) VALUES (?1, ?2, NULL, ?3, 1, 1)
+         ON CONFLICT (coll, uid) DO UPDATE SET local_key = NULL, deleted = 1, dirty = 1, cut = NULL, ts = MAX(excluded.ts, ts + 1)",
+        params![coll, uid, ts],
+    )?;
+    Ok(())
+}
+
+pub fn state(conn: &Connection, key: &str) -> AppResult<Option<String>> {
+    Ok(conn.query_row("SELECT value FROM sync_state WHERE key = ?1", [key], |r| r.get(0)).optional()?)
+}
+
+pub fn set_state(conn: &Connection, key: &str, value: &str) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO sync_state (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+fn state_i64(conn: &Connection, key: &str) -> AppResult<i64> {
+    Ok(state(conn, key)?.and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
+// ── 선물: settings 의 JSON 배열 하나를 선물 하나씩으로 ─────────────────────────
+
+/// 기기 전용 값을 뺀다: 갖고 논 때(lastPlayed), 마당 모니터(placed.screen) — §10.2 결정
+fn strip_gift(mut g: Value) -> Value {
+    if let Some(o) = g.as_object_mut() {
+        o.remove("lastPlayed");
+        if let Some(p) = o.get_mut("placed").and_then(Value::as_object_mut) {
+            p.remove("screen");
+        }
+    }
+    g
+}
+
+fn load_gifts(conn: &Connection) -> AppResult<Vec<Value>> {
+    Ok(crate::db::settings::get(conn, GIFTS)?
+        .and_then(|s| serde_json::from_str::<Vec<Value>>(&s).ok())
+        .unwrap_or_default())
+}
+
+/// 선물함을 sync_meta 와 견줘 바뀐 선물에 dirty 를 찍는다. sig 는 기기 전용 값을 뺀 JSON(serde_json 은 키를
+/// 정렬해 적는다) — 곧 올릴 내용이다.
+fn refresh_gifts(conn: &Connection) -> AppResult<()> {
+    let now = now_ms();
+    let mut ids = BTreeSet::new();
+    for g in load_gifts(conn)? {
+        let Some(id) = g.get("id").and_then(Value::as_str).map(str::to_owned) else { continue };
+        let sig = strip_gift(g).to_string();
+        conn.execute(
+            "INSERT INTO sync_meta (coll, uid, local_key, ts, sig) VALUES ('gift', ?1, ?1, ?2, ?3)
+             ON CONFLICT (coll, uid) DO UPDATE SET local_key = excluded.local_key, sig = excluded.sig,
+                 ts = MAX(excluded.ts, ts + 1), dirty = 1, deleted = 0
+             WHERE sig IS NOT excluded.sig OR deleted = 1",
+            params![id, now, sig],
+        )?;
+        ids.insert(id);
+    }
+    let alive: Vec<String> = conn
+        .prepare("SELECT uid FROM sync_meta WHERE coll = 'gift' AND deleted = 0")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    for uid in alive.iter().filter(|u| !ids.contains(*u)) {
+        conn.execute(
+            "UPDATE sync_meta SET local_key = NULL, deleted = 1, dirty = 1, sig = NULL, ts = MAX(?2, ts + 1)
+             WHERE coll = 'gift' AND uid = ?1",
+            params![uid, now],
+        )?;
+    }
+    Ok(())
+}
+
+/// 받은 선물을 선물함에 넣거나 뺀다. 이 기기의 lastPlayed·마당 모니터는 남긴다.
+fn apply_gift(conn: &Connection, r: &Record, plain: Option<&str>) -> AppResult<Option<String>> {
+    let mut gifts = load_gifts(conn)?;
+    let at = gifts.iter().position(|g| g.get("id").and_then(Value::as_str) == Some(r.id.as_str()));
+    let mut sig = None;
+    match plain {
+        None => {
+            if let Some(i) = at {
+                gifts.remove(i);
+            }
+        }
+        Some(p) => {
+            let mut v: Value = serde_json::from_str(p).map_err(|_| AppError::msg("선물 모양이 이상해"))?;
+            if !v.is_object() || v.get("id").and_then(Value::as_str) != Some(r.id.as_str()) {
+                return Err(AppError::msg("선물 모양이 이상해"));
+            }
+            sig = Some(strip_gift(v.clone()).to_string());
+            if let Some(i) = at {
+                let old = &gifts[i];
+                if let Some(lp) = old.get("lastPlayed") {
+                    v["lastPlayed"] = lp.clone();
+                }
+                let on_screen = |g: &Value| g.pointer("/placed/at").and_then(Value::as_str) == Some("screen");
+                if on_screen(&v) && on_screen(old) {
+                    if let Some(scr) = old.pointer("/placed/screen") {
+                        v["placed"]["screen"] = scr.clone();
+                    }
+                }
+                gifts[i] = v;
+            } else {
+                gifts.push(v);
+            }
+        }
+    }
+    save_gifts(conn, gifts)?;
+    Ok(sig)
+}
+
+// ── 화면의 선물함 바꾸기 ─────────────────────────────────────────────────────
+// 화면은 배열을 통째로 저장하지 않고 선물 하나씩 보낸다. DB 안(잠금 아래)에서 지금 배열에 합치므로, 동기화가 막
+// 넣은 선물을 화면이 아직 못 본 채 저장해도 그 선물이 덮이거나 지움으로 올라가지 않는다. 지움으로 올라가는 건
+// 화면이 이름(id)으로 뺀 것뿐이다.
+
+fn save_gifts(conn: &Connection, gifts: Vec<Value>) -> AppResult<()> {
+    crate::db::settings::set(conn, GIFTS, &Value::Array(gifts).to_string())
+}
+
+fn gift_id(g: &Value) -> Option<&str> {
+    g.get("id").and_then(Value::as_str)
+}
+
+/// 새 선물(같은 id 가 있으면 바꾼다)
+pub fn gift_add(conn: &Connection, gift: &Value) -> AppResult<()> {
+    let id = gift_id(gift).filter(|_| gift.is_object()).ok_or("선물에 id 가 없어")?;
+    let mut gifts = load_gifts(conn)?;
+    match gifts.iter().position(|g| gift_id(g) == Some(id)) {
+        Some(i) => gifts[i] = gift.clone(),
+        None => gifts.push(gift.clone()),
+    }
+    save_gifts(conn, gifts)
+}
+
+/// 있는 선물의 칸만 바꾼다(null 이면 그 칸을 뺀다). 없으면(다른 기기에서 지웠다) 아무것도 안 한다 — 되살리지 않는다
+pub fn gift_patch(conn: &Connection, id: &str, patch: &Value) -> AppResult<bool> {
+    let fields = patch.as_object().ok_or("바꿀 칸이 이상해")?;
+    let mut gifts = load_gifts(conn)?;
+    let Some(g) = gifts.iter_mut().find(|g| gift_id(g) == Some(id)).and_then(Value::as_object_mut) else { return Ok(false) };
+    for (k, v) in fields {
+        if k == "id" {
+            continue;
+        }
+        if v.is_null() {
+            g.remove(k);
+        } else {
+            g.insert(k.clone(), v.clone());
+        }
+    }
+    save_gifts(conn, gifts)?;
+    Ok(true)
+}
+
+pub fn gift_remove(conn: &Connection, ids: &[String]) -> AppResult<()> {
+    let mut gifts = load_gifts(conn)?;
+    gifts.retain(|g| !gift_id(g).is_some_and(|id| ids.iter().any(|x| x == id)));
+    save_gifts(conn, gifts)
+}
+
+// ── 모으기 ───────────────────────────────────────────────────────────────────
+
+/// 큰 메시지에서 첨부·meta 의 dataUrl 본문을 비운다(이름·종류·크기는 남는다)
+fn shrink(plain: &str) -> String {
+    fn drop_data(v: &mut Value) {
+        match v {
+            Value::String(s) if s.starts_with("data:") => s.clear(),
+            Value::Array(a) => a.iter_mut().for_each(drop_data),
+            Value::Object(o) => o.values_mut().for_each(drop_data),
+            _ => {}
+        }
+    }
+    let Ok(mut v) = serde_json::from_str::<Value>(plain) else { return plain.to_owned() };
+    for f in ["attachments", "meta"] {
+        if let Some(Value::String(s)) = v.get(f) {
+            if let Ok(mut inner) = serde_json::from_str::<Value>(s) {
+                drop_data(&mut inner);
+                v[f] = Value::String(inner.to_string());
+            }
+        }
+    }
+    v.to_string()
+}
+
+/// 안 올린 것을 PUSH_MAX 개까지 기록으로. 세션을 먼저(메시지가 지워진 세션에 붙지 않게), 메시지는 나중.
+pub fn collect(conn: &Connection, me: &str, key: &Key) -> AppResult<Vec<Record>> {
+    refresh_gifts(conn)?;
+    let rows: Vec<(String, String, Option<String>, i64, i64, Option<i64>, Option<String>)> = conn
+        .prepare(
+            "SELECT coll, uid, local_key, ts, deleted, cut, sig FROM sync_meta WHERE dirty = 1
+             ORDER BY CASE coll WHEN 'session' THEN 0 WHEN 'msg' THEN 2 ELSE 1 END, ts LIMIT ?1",
+        )?
+        .query_map([PUSH_MAX as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
+        .collect::<Result<_, _>>()?;
+    let mut out = Vec::new();
+    for (coll, uid, local_key, ts, deleted, cut, sig) in rows {
+        let mut r = Record {
+            coll: coll.clone(), id: uid.clone(), parent: None, ts, device: me.to_owned(), deleted,
+            cut: if coll == "session" { cut } else { None }, blob: None,
+        };
+        if deleted == 0 {
+            let plain = match (coll.as_str(), table(&coll), &local_key) {
+                ("gift", _, _) => sig,
+                (_, Some(t), Some(k)) => read_row(conn, t, k)?,
+                _ => None,
+            };
+            // 행이 사이에 사라졌다(지움 표시는 트리거가 따로 찍는다). 이 기록은 그만 올린다
+            let Some(mut plain) = plain else {
+                conn.execute("UPDATE sync_meta SET dirty = 0 WHERE coll = ?1 AND uid = ?2", params![coll, uid])?;
+                continue;
+            };
+            if coll == "msg" {
+                r.parent = serde_json::from_str::<Value>(&plain).ok()
+                    .and_then(|v| v.get("session_id").and_then(Value::as_str).map(str::to_owned));
+                if plain.len() > SHRINK_AT {
+                    plain = shrink(&plain);
+                }
+            }
+            r.blob = Some(seal(key, &r, plain.as_bytes())?);
+        }
+        out.push(r);
+    }
+    Ok(out)
+}
+
+// ── 적용 ─────────────────────────────────────────────────────────────────────
+
+/// 사용자가 지운 세션(cut 없는 지움 표시)은 늘 이기고 되살릴 수 없다. 자동 삭제는 cut 이 있다.
+fn user_tomb(deleted: i64, cut: Option<i64>) -> bool {
+    deleted == 1 && cut.is_none()
+}
+
+/// 받은 기록 하나를 로컬에 적는다. 이미 같은 것이나 더 새 것이 있으면 아무것도 안 한다.
+pub fn apply(conn: &Connection, me: &str, key: &Key, r: &Record, ch: &mut Changes) -> AppResult<()> {
+    let local: Option<(Option<String>, i64, String, i64, Option<i64>)> = conn
+        .query_row(
+            "SELECT local_key, ts, device, deleted, cut FROM sync_meta WHERE coll = ?1 AND uid = ?2",
+            params![r.coll, r.id],
+            |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?, x.get(4)?)),
+        )
+        .optional()?;
+    let session = r.coll == "session";
+    // 맞추는 설정 키만 받는다. 연결된 다른 기기라도 권한·경로·비밀 같은 로컬 설정은 못 바꾼다(지움도 같다)
+    if r.coll == "setting" && !crate::db::SYNCED_SETTINGS.contains(&r.id.as_str()) {
+        log::warn!("동기화: 맞추지 않는 설정 키를 받아 버렸어: {}", r.id);
+        return Ok(());
+    }
+    if let Some((_, lts, ldev, ldel, lcut)) = &local {
+        // 메시지는 덧붙기만: 이미 있으면 끝
+        if r.coll == "msg" || (session && user_tomb(*ldel, *lcut)) {
+            return Ok(());
+        }
+        let ldev = if ldev.is_empty() { me } else { ldev.as_str() };
+        let forced = session && user_tomb(r.deleted, r.cut);
+        if !forced && (*lts, ldev) >= (r.ts, r.device.as_str()) {
+            return Ok(());
+        }
+    }
+    let local_key = local.and_then(|l| l.0);
+    if r.deleted == 1 {
+        return apply_delete(conn, r, local_key.as_deref(), ch);
+    }
+    let plain = String::from_utf8(unseal(key, r)?).map_err(|_| AppError::msg("기록 글자가 이상해"))?;
+
+    if r.coll == "gift" {
+        let sig = apply_gift(conn, r, Some(&plain))?;
+        adopt(conn, r, Some(&r.id), sig.as_deref())?;
+        ch.colls.insert(r.coll.clone());
+        return Ok(());
+    }
+    let t = table(&r.coll).ok_or_else(|| AppError::msg(format!("모르는 기록 종류: {}", r.coll)))?;
+
+    if r.coll == "msg" {
+        let parent = r.parent.as_deref().unwrap_or("");
+        // 넣는 세션은 머리(parent, AAD 로 묶임)와 같아야 한다 — 지운 세션 검사를 내용으로 비켜 가지 못하게
+        let inner = serde_json::from_str::<Value>(&plain).ok().and_then(|v| v.get("session_id").and_then(Value::as_str).map(str::to_owned));
+        if parent.is_empty() || inner.as_deref() != Some(parent) {
+            return Err(AppError::msg("메시지의 세션이 머리와 달라"));
+        }
+        // 지운 세션, 요약(cut)으로 지운 시각 안쪽이면 버린다
+        let gone: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sync_meta WHERE coll = 'session' AND uid = ?1 AND (deleted = 1 OR cut >= ?2))",
+            params![parent, r.ts],
+            |x| x.get(0),
+        )?;
+        if gone {
+            return Ok(());
+        }
+        ch.sessions.insert(parent.to_owned());
+    }
+    if r.coll == "memory" && merge_memory(conn, r, &plain, local_key.as_deref())? {
+        ch.colls.insert(r.coll.clone());
+        return Ok(());
+    }
+    let k = write_row(conn, t, local_key.as_deref(), &r.id, &plain)?;
+    adopt(conn, r, Some(&k), None)?;
+    if session {
+        // 수동 요약: cut 까지의 메시지를 지운다(아직 안 올린 것도 — 서버도 받지 않는다)
+        if let Some(cut) = r.cut {
+            conn.execute(
+                "DELETE FROM conversation_messages WHERE session_id = ?1 AND CAST(id AS TEXT) IN (
+                     SELECT local_key FROM sync_meta WHERE coll = 'msg' AND ts <= ?2)",
+                params![r.id, cut],
+            )?;
+        }
+        ch.sessions.insert(r.id.clone());
+    }
+    ch.colls.insert(r.coll.clone());
+    Ok(())
+}
+
+/// 같은 내용의 기억이 다른 번호로 이미 있으면 하나로 합친다: 번호가 작은 쪽을 남기고 다른 쪽은 지움 표시.
+/// 합쳤으면 true(더 할 일 없음).
+fn merge_memory(conn: &Connection, r: &Record, plain: &str, mine: Option<&str>) -> AppResult<bool> {
+    let content = serde_json::from_str::<Value>(plain).ok()
+        .and_then(|v| v.get("content").and_then(Value::as_str).map(str::to_owned))
+        .unwrap_or_default();
+    let clash: Option<(String, Option<String>)> = conn
+        .query_row(
+            "SELECT CAST(m.id AS TEXT), s.uid FROM memories m
+             LEFT JOIN sync_meta s ON s.coll = 'memory' AND s.local_key = CAST(m.id AS TEXT)
+             WHERE m.content = ?1",
+            [&content],
+            |x| Ok((x.get(0)?, x.get(1)?)),
+        )
+        .optional()?;
+    let Some((row, other)) = clash else { return Ok(false) };
+    if Some(row.as_str()) == mine {
+        return Ok(false);
+    }
+    let other = other.unwrap_or_default();
+    if r.id < other {
+        // 받은 번호가 이긴다: 그 행이 받은 번호를 갖고, 내 번호는 지움 표시로 올린다
+        write_row(conn, table("memory").unwrap(), Some(&row), &r.id, plain)?;
+        adopt(conn, r, Some(&row), None)?;
+        if !other.is_empty() {
+            tombstone_mine(conn, "memory", &other, now_ms())?;
+        }
+    } else {
+        tombstone_mine(conn, "memory", &r.id, now_ms().max(r.ts + 1))?;
+    }
+    Ok(true)
+}
+
+fn apply_delete(conn: &Connection, r: &Record, local_key: Option<&str>, ch: &mut Changes) -> AppResult<()> {
+    match r.coll.as_str() {
+        "session" => {
+            // 자동 삭제인데 아직 못 올린 새 메시지가 있으면 세션을 되살려 올린다(§2.5 규칙 3)
+            let unsent: bool = conn.query_row(
+                "SELECT EXISTS (SELECT 1 FROM conversation_messages c JOIN sync_meta s
+                     ON s.coll = 'msg' AND s.local_key = CAST(c.id AS TEXT) WHERE c.session_id = ?1 AND s.dirty = 1)",
+                [&r.id],
+                |x| x.get(0),
+            )?;
+            if r.cut.is_some() && unsent {
+                conn.execute(
+                    "UPDATE sync_meta SET ts = ?2, dirty = 1, deleted = 0, cut = NULL WHERE coll = 'session' AND uid = ?1",
+                    params![r.id, now_ms().max(r.ts + 1)],
+                )?;
+                return Ok(());
+            }
+            conn.execute("DELETE FROM conversation_messages WHERE session_id = ?1", [&r.id])?;
+            conn.execute("DELETE FROM sessions WHERE id = ?1", [&r.id])?;
+            ch.sessions.insert(r.id.clone());
+        }
+        "gift" => {
+            apply_gift(conn, r, None)?;
+        }
+        coll => {
+            if let (Some(t), Some(k)) = (table(coll), local_key) {
+                conn.execute(&format!("DELETE FROM {} WHERE {} = ?1", t.table, t.key), [k])?;
+            }
+        }
+    }
+    adopt(conn, r, None, None)?;
+    ch.colls.insert(r.coll.clone());
+    Ok(())
+}
+
+// ── 서버와 주고받기 ──────────────────────────────────────────────────────────
+
+pub struct Server {
+    pub url: String,
+    pub token: String,
+    pub device: String,
+    pub key: Key,
+}
+
+#[derive(Deserialize)]
+struct Rejected {
+    coll: String,
+    id: String,
+    reason: String,
+}
+
+#[derive(Deserialize)]
+struct SyncResp {
+    #[serde(default)]
+    records: Vec<Record>,
+    #[serde(default)]
+    seq: i64,
+    #[serde(default)]
+    more: bool,
+    #[serde(default)]
+    rejected: Vec<Rejected>,
+    #[serde(default)]
+    reset: bool,
+}
+
+pub(crate) fn client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("reqwest client")
+    })
+}
+
+/// 서버에 JSON 을 보내고 JSON 을 받는다. 401 은 끊긴 기기라 따로 알린다.
+pub(crate) async fn call<T: serde::de::DeserializeOwned>(
+    method: reqwest::Method, url: &str, path: &str, token: Option<&str>, body: &Value,
+) -> AppResult<T> {
+    let mut req = client().request(method, format!("{}{path}", url.trim_end_matches('/')));
+    // GET·DELETE 는 본문 없이(Workers 는 본문 있는 GET 을 거절한다)
+    if !body.is_null() {
+        req = req.json(body);
+    }
+    if let Some(t) = token {
+        req = req.bearer_auth(t);
+    }
+    let res = req.send().await?;
+    match res.status().as_u16() {
+        200 => Ok(res.json().await?),
+        401 => Err(AppError::msg("서버가 이 기기를 모른다고 해(끊겼거나 토큰이 바뀜). 다시 짝을 맞춰줘.")),
+        403 => Err(AppError::msg("서버가 거절했어(설정 토큰이나 짝 코드가 틀렸거나 지났어).")),
+        s => Err(AppError::msg(format!("동기화 서버 오류({s})"))),
+    }
+}
+
+fn push_budget_left(conn: &Connection) -> AppResult<bool> {
+    let day = (now_ms() / 86_400_000).to_string();
+    Ok(state(conn, "push_day")?.as_deref() != Some(day.as_str()) || state_i64(conn, "push_count")? < DAY_PUSH_MAX)
+}
+
+fn count_push(conn: &Connection, n: usize) -> AppResult<()> {
+    let day = (now_ms() / 86_400_000).to_string();
+    let before = if state(conn, "push_day")?.as_deref() == Some(day.as_str()) { state_i64(conn, "push_count")? } else { 0 };
+    set_state(conn, "push_day", &day)?;
+    set_state(conn, "push_count", &(before + n as i64).to_string())
+}
+
+/// 응답을 적는다: 올린 것은 dirty 를 내리고(그새 또 바뀌었으면 그대로), 받은 것을 적용하고, 순번을 옮긴다.
+/// 처음부터 다시 받아야 하면 true.
+fn settle(conn: &Connection, srv: &Server, push: &[Record], resp: &SyncResp, ch: &mut Changes) -> AppResult<bool> {
+    let rejected: HashMap<(&str, &str), &str> =
+        resp.rejected.iter().map(|x| ((x.coll.as_str(), x.id.as_str()), x.reason.as_str())).collect();
+    let mut repull = false;
+    for r in push {
+        match rejected.get(&(r.coll.as_str(), r.id.as_str())) {
+            // 자동 삭제가 거절됐다: 다른 기기가 그 세션에 썼다. 지움 표시를 버리고 처음부터 다시 받아 되찾는다.
+            // ponytail: 전부 다시 받는다(드물다). 잦아지면 세션 하나만 받는 요청을 더한다
+            Some(&"prune") => {
+                conn.execute("DELETE FROM sync_meta WHERE coll = 'session' AND uid = ?1", [&r.id])?;
+                repull = true;
+            }
+            // 받아들여짐, 졌음(이긴 기록이 records 로 온다), 버려짐(지운 세션의 메시지·시계) — 다시 올리지 않는다
+            other => {
+                if let Some(reason) = other {
+                    log::warn!("동기화: {} {} 거절 ({reason})", r.coll, r.id);
+                }
+                conn.execute(
+                    "UPDATE sync_meta SET dirty = 0, device = ?3 WHERE coll = ?1 AND uid = ?2 AND ts = ?4",
+                    params![r.coll, r.id, srv.device, r.ts],
+                )?;
+            }
+        }
+    }
+    if !push.is_empty() {
+        count_push(conn, push.len())?;
+    }
+    let mut got = Changes::default();
+    for r in &resp.records {
+        // 하나 못 풀었다고 나머지를 멈추지 않는다
+        if let Err(e) = apply(conn, &srv.device, &srv.key, r, &mut got) {
+            log::warn!("동기화: {} {} 적용 못 함: {e}", r.coll, r.id);
+        }
+    }
+    // 받을 때도 세션당 상한으로 자른다(§9) — 새 기기가 서버의 긴 대화를 다 받아도 다른 기기와 같은 만큼만
+    for id in &got.sessions {
+        crate::db::conversations::trim(conn, id)?;
+    }
+    ch.colls.extend(got.colls);
+    ch.sessions.extend(got.sessions);
+    let again = resp.reset || repull;
+    set_state(conn, "since", &(if again { 0 } else { resp.seq }).to_string())?;
+    set_state(conn, "last_sync", &now_ms().to_string())?;
+    Ok(again)
+}
+
+/// 서버와 한 번 맞춘다: 안 올린 것이 없고 더 받을 것이 없을 때까지(요청 ROUND_REQUESTS 번까지).
+pub async fn round(db: &Mutex<Connection>, srv: &Server, active_at: i64) -> AppResult<Changes> {
+    let mut ch = Changes::default();
+    for _ in 0..ROUND_REQUESTS {
+        let (push, since) = {
+            let conn = db.lock()?;
+            let push = if push_budget_left(&conn)? { collect(&conn, &srv.device, &srv.key)? } else { Vec::new() };
+            (push, state_i64(&conn, "since")?)
+        };
+        let body = serde_json::json!({ "since": since, "push": push, "active_at": active_at });
+        let resp: SyncResp = call(reqwest::Method::POST, &srv.url, "/v1/sync", Some(&srv.token), &body).await?;
+        let again = {
+            let conn = db.lock()?;
+            let tx = conn.unchecked_transaction()?;
+            let again = settle(&tx, srv, &push, &resp, &mut ch)?;
+            tx.commit()?;
+            again
+        };
+        if !resp.more && !again && push.len() < PUSH_MAX {
+            break;
+        }
+    }
+    Ok(ch)
+}
+
+// ── 화면이 쓰는 세션 목록(localStorage 에서 옮겨 옴) ─────────────────────────
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SessionRow {
+    pub id: String,
+    pub title: String,
+    pub created_at: i64,
+    pub summary: Option<String>,
+}
+
+pub fn session_list(conn: &Connection) -> AppResult<Vec<SessionRow>> {
+    let mut stmt = conn.prepare("SELECT id, title, created_at, summary FROM sessions ORDER BY created_at DESC, id")?;
+    let rows = stmt.query_map([], |r| Ok(SessionRow { id: r.get(0)?, title: r.get(1)?, created_at: r.get(2)?, summary: r.get(3)? }))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// 없으면 만들고, 있으면 제목만 바꾼다(요약은 session_compact 로)
+pub fn session_put(conn: &Connection, id: &str, title: &str, created_at: i64) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO sessions (id, title, created_at) VALUES (?1, ?2, ?3) ON CONFLICT (id) DO UPDATE SET title = excluded.title",
+        params![id, title, created_at],
+    )?;
+    Ok(())
+}
+
+/// 처음 한 번 localStorage 의 목록·요약을 옮긴다. 이미 있는 세션은 건드리지 않는다.
+pub fn session_import(conn: &Connection, rows: &[SessionRow]) -> AppResult<()> {
+    for s in rows {
+        conn.execute(
+            "INSERT INTO sessions (id, title, created_at, summary) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (id) DO NOTHING",
+            params![s.id, s.title, s.created_at, s.summary],
+        )?;
+    }
+    Ok(())
+}
+
+/// 사용자가 지운 세션: 메시지와 함께 지운다(트리거가 지움 표시)
+pub fn session_delete(conn: &Connection, id: &str) -> AppResult<()> {
+    conn.execute("DELETE FROM conversation_messages WHERE session_id = ?1", [id])?;
+    conn.execute("DELETE FROM sessions WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+/// 수동 요약: 요약을 적고 그 세션 메시지를 다 지운다. cut = 지금(그 세션 마지막 메시지보다 늦게)
+pub fn session_compact(conn: &Connection, id: &str, summary: &str) -> AppResult<()> {
+    let cut: i64 = conn.query_row(
+        "SELECT MAX(?2, COALESCE(MAX(s.ts), 0)) FROM conversation_messages c
+         JOIN sync_meta s ON s.coll = 'msg' AND s.local_key = CAST(c.id AS TEXT) WHERE c.session_id = ?1",
+        params![id, now_ms()],
+        |r| r.get(0),
+    )?;
+    conn.execute(
+        "INSERT INTO sessions (id, title, created_at, summary) VALUES (?1, '새 대화', ?3, ?2)
+         ON CONFLICT (id) DO UPDATE SET summary = excluded.summary",
+        params![id, summary, now_ms()],
+    )?;
+    conn.execute("UPDATE sync_meta SET cut = ?2, dirty = 1 WHERE coll = 'session' AND uid = ?1", params![id, cut])?;
+    conn.execute("DELETE FROM conversation_messages WHERE session_id = ?1", [id])?;
+    Ok(())
+}
+
+/// 자동 삭제로 지운 세션: 세션 행도 지우고 지움 표시에 기준 시각(cut)을 단다 — 서버는 그보다 새 메시지가
+/// 있으면 거절하고, 받은 기기는 못 올린 메시지가 있으면 되살린다.
+pub fn mark_pruned(conn: &Connection, ids: &[String], days: u32) -> AppResult<()> {
+    let cutoff = now_ms() - days as i64 * 86_400_000;
+    for id in ids {
+        conn.execute("DELETE FROM sessions WHERE id = ?1", [id])?;
+        conn.execute(
+            "UPDATE sync_meta SET cut = ?2 WHERE coll = 'session' AND uid = ?1 AND deleted = 1",
+            params![id, cutoff],
+        )?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

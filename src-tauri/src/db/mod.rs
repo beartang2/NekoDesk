@@ -15,6 +15,49 @@ pub mod exec_history;
 pub mod memories;
 pub mod terms;
 
+/// 동기화로 맞추는 설정 키(§2.2). 선물(neko_gifts)은 선물 하나씩 따로 맞춘다.
+/// 바꾸면 이미 배포된 마이그레이션 4번은 그대로 두고, 트리거를 새 마이그레이션에서 다시 만든다.
+/// 비밀(키체인·API 키), 경로·권한·실행 관련 키(fs_write_roots 등), 모델 프로필, 예산·장부는 절대 넣지 않는다 —
+/// 연결된 다른 기기가 이 맥의 권한을 넓힐 수 있게 된다. 받을 때도 이 목록 밖은 버린다(crate::sync::apply).
+pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention"];
+/// 트리거용 같은 목록(SQL 글). concat! 은 상수를 못 받아 따로 적고, 테스트가 둘이 같은지 본다.
+macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention')" } }
+
+/// 지금 시각(ms). SQLite 의 julianday 는 ms 까지 준다
+macro_rules! now_ms { () => { "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)" } }
+
+/// 정수 id 표: 넣으면 새 기록 번호로, 바꾸면(when) 같은 번호로 dirty 를 찍는다
+macro_rules! sync_rowid_triggers {
+    ($coll:literal, $table:literal, $update:literal, $when:literal) => { concat!(
+        "CREATE TRIGGER sync_", $coll, "_ins AFTER INSERT ON ", $table, " BEGIN
+             INSERT INTO sync_meta (coll, uid, local_key, ts) VALUES ('", $coll, "', lower(hex(randomblob(16))), CAST(NEW.id AS TEXT), ", now_ms!(), ")
+             ON CONFLICT (coll, local_key) DO UPDATE SET ts = MAX(excluded.ts, ts + 1), dirty = 1, deleted = 0; END;
+         CREATE TRIGGER sync_", $coll, "_upd ", $update, " ON ", $table, " WHEN ", $when, " BEGIN
+             UPDATE sync_meta SET ts = MAX(", now_ms!(), ", ts + 1), dirty = 1 WHERE coll = '", $coll, "' AND local_key = CAST(NEW.id AS TEXT); END;
+        ") };
+}
+
+/// 이름이 곧 기록 번호인 표(세션 id, 설정 키)
+macro_rules! sync_named_triggers {
+    ($coll:literal, $table:literal, $key:literal, $when_new:expr, $changed:literal) => { concat!(
+        "CREATE TRIGGER sync_", $coll, "_ins AFTER INSERT ON ", $table, " WHEN ", $when_new, " BEGIN
+             INSERT INTO sync_meta (coll, uid, local_key, ts) VALUES ('", $coll, "', NEW.", $key, ", NEW.", $key, ", ", now_ms!(), ")
+             ON CONFLICT (coll, uid) DO UPDATE SET local_key = excluded.local_key, ts = MAX(excluded.ts, ts + 1), dirty = 1,
+                 cut = CASE WHEN deleted = 1 THEN NULL ELSE cut END, deleted = 0; END;
+         CREATE TRIGGER sync_", $coll, "_upd AFTER UPDATE ON ", $table, " WHEN ", $when_new, " AND (", $changed, ") BEGIN
+             UPDATE sync_meta SET ts = MAX(", now_ms!(), ", ts + 1), dirty = 1 WHERE coll = '", $coll, "' AND uid = NEW.", $key, "; END;
+        ") };
+}
+
+/// 지우면 지움 표시(사용자가 지운 것: cut 없음. 자동 삭제는 지운 쪽이 cut 을 따로 적는다)
+macro_rules! sync_tombstone {
+    ($coll:literal, $table:literal, $old:literal, $when:expr) => { concat!(
+        "CREATE TRIGGER sync_", $coll, "_del AFTER DELETE ON ", $table, " WHEN ", $when, " BEGIN
+             UPDATE sync_meta SET local_key = NULL, deleted = 1, dirty = 1, cut = NULL, ts = MAX(", now_ms!(), ", ts + 1)
+             WHERE coll = '", $coll, "' AND local_key = CAST(", $old, " AS TEXT); END;
+        ") };
+}
+
 /// 순서대로 적용되는 마이그레이션.
 ///
 /// SQLite 의 `PRAGMA user_version` 에 몇 번까지 적용했는지 적어두고, 그 뒤 것만 실행한다.
@@ -26,7 +69,7 @@ pub mod terms;
 /// 개발 중에는 가장 눈에 안 띄는 종류의 고장이다.
 ///
 /// 규칙: **이미 배포된 항목은 절대 고치지 않는다.** 바꿀 게 있으면 뒤에 추가한다.
-const MIGRATIONS: &[&str] = &[
+pub(crate) const MIGRATIONS: &[&str] = &[
     // 1 — 최초 스키마.
     "
         CREATE TABLE IF NOT EXISTS todos (
@@ -88,6 +131,70 @@ const MIGRATIONS: &[&str] = &[
     // 예전엔 본문만 저장해서, 다시 열면 "도구 N개 사용" 패널이 통째로 사라졌다.
     // 프런트가 정한 JSON 한 덩이를 그대로 담는다 — 모양이 바뀌어도 스키마는 그대로다.
     "ALTER TABLE conversation_messages ADD COLUMN meta TEXT;",
+    // 4 — 기기 간 동기화(docs/neko-sync.md §2.6, crate::sync).
+    //
+    // sync_meta: 로컬 행 ↔ 기록 번호(uid). 지움 표시(local_key 없음, deleted)와 "아직 안 올림"(dirty)도 여기.
+    // 쓰는 곳마다 dirty 를 찍는 대신 트리거가 찍는다 — 새로 생긴 쓰기 경로도 빠지지 않는다. 받은 기록을
+    // 적용할 때도 트리거가 돌지만, 적용 쪽이 바로 뒤에 그 행을 받은 값(dirty 0)으로 덮는다.
+    // 메시지는 덧붙기만 해서 지울 때 지움 표시 없이 meta 만 지운다(세션의 cut·지움으로 맞춘다).
+    // 기억은 use_count·last_used_at 만 바뀌면, 설정은 값이 같으면 안 찍는다. 선물은 settings 의 JSON
+    // 배열 하나라 트리거 대신 동기화할 때 하나씩 견준다(sig).
+    // sessions: localStorage 에 있던 세션 목록·수동 요약을 옮겨 둔다(화면이 처음 한 번 넣는다).
+    concat!(
+        "
+        CREATE TABLE sync_meta (
+            coll      TEXT NOT NULL,
+            uid       TEXT NOT NULL,
+            local_key TEXT,
+            ts        INTEGER NOT NULL,
+            device    TEXT NOT NULL DEFAULT '',
+            deleted   INTEGER NOT NULL DEFAULT 0,
+            dirty     INTEGER NOT NULL DEFAULT 1,
+            cut       INTEGER,
+            sig       TEXT,
+            PRIMARY KEY (coll, uid)
+        );
+        CREATE UNIQUE INDEX sync_meta_local ON sync_meta (coll, local_key);
+        CREATE INDEX sync_meta_dirty ON sync_meta (dirty, coll);
+        CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE sessions (
+            id         TEXT PRIMARY KEY,
+            title      TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            summary    TEXT
+        );
+        ",
+        sync_rowid_triggers!("msg", "conversation_messages", "AFTER UPDATE", "(SELECT 1)"),
+        "CREATE TRIGGER sync_msg_del AFTER DELETE ON conversation_messages BEGIN
+             DELETE FROM sync_meta WHERE coll = 'msg' AND local_key = CAST(OLD.id AS TEXT); END;",
+        sync_rowid_triggers!("memory", "memories", "AFTER UPDATE OF kind, content", "(OLD.kind IS NOT NEW.kind OR OLD.content IS NOT NEW.content)"),
+        sync_rowid_triggers!("todo", "todos", "AFTER UPDATE", "(SELECT 1)"),
+        sync_rowid_triggers!("event", "events", "AFTER UPDATE", "(SELECT 1)"),
+        sync_tombstone!("memory", "memories", "OLD.id", "1"),
+        sync_tombstone!("todo", "todos", "OLD.id", "1"),
+        sync_tombstone!("event", "events", "OLD.id", "1"),
+        sync_named_triggers!("session", "sessions", "id", "1", "OLD.title IS NOT NEW.title OR OLD.summary IS NOT NEW.summary"),
+        sync_named_triggers!("setting", "settings", "key", concat!("NEW.key IN ", synced_keys!()), "OLD.value IS NOT NEW.value"),
+        sync_tombstone!("session", "sessions", "OLD.id", "1"),
+        sync_tombstone!("setting", "settings", "OLD.key", concat!("OLD.key IN ", synced_keys!())),
+        // 지금 있는 것은 전부 올릴 거리로 찍는다(§10.1, 12번). 시각은 만든 때(없으면 지금)
+        "
+        INSERT INTO sync_meta (coll, uid, local_key, ts)
+            SELECT 'msg', lower(hex(randomblob(16))), CAST(id AS TEXT),
+                   COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, ", now_ms!(), ") FROM conversation_messages;
+        INSERT INTO sync_meta (coll, uid, local_key, ts)
+            SELECT 'memory', lower(hex(randomblob(16))), CAST(id AS TEXT),
+                   COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, ", now_ms!(), ") FROM memories;
+        INSERT INTO sync_meta (coll, uid, local_key, ts)
+            SELECT 'todo', lower(hex(randomblob(16))), CAST(id AS TEXT),
+                   COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, ", now_ms!(), ") FROM todos;
+        INSERT INTO sync_meta (coll, uid, local_key, ts)
+            SELECT 'event', lower(hex(randomblob(16))), CAST(id AS TEXT),
+                   COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, ", now_ms!(), ") FROM events;
+        INSERT INTO sync_meta (coll, uid, local_key, ts)
+            SELECT 'setting', key, key, ", now_ms!(), " FROM settings WHERE ", "key IN ", synced_keys!(), ";
+        "
+    ),
 ];
 
 /// 스키마를 최신으로 올린다. 앱 시작 시 1회 호출.
@@ -96,7 +203,7 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 /// 실제 실행기. 목록을 인자로 받아 실패 경로까지 테스트할 수 있게 분리했다.
-fn run_migrations(conn: &Connection, migrations: &[&str]) -> rusqlite::Result<()> {
+pub(crate) fn run_migrations(conn: &Connection, migrations: &[&str]) -> rusqlite::Result<()> {
     let applied: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
 
     for (i, sql) in migrations.iter().enumerate() {
@@ -133,6 +240,15 @@ mod tests {
 
     fn version(c: &Connection) -> i64 {
         c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn synced_settings_list_matches_the_trigger_sql() {
+        let sql = format!("({})", SYNCED_SETTINGS.iter().map(|k| format!("'{k}'")).collect::<Vec<_>>().join(", "));
+        assert_eq!(sql, synced_keys!());
+        for bad in ["fs_write_roots", "anthropic_api_key", "db_key", "sync_key", "neko_stage", "neko_gifts"] {
+            assert!(!SYNCED_SETTINGS.contains(&bad), "{bad}");
+        }
     }
 
     #[test]

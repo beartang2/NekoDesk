@@ -39,6 +39,8 @@ tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-drag = "2.1.1"
 tauri-plugin-updater = "2"
+# 기기 간 동기화(sync/): 기록마다 XChaCha20-Poly1305 로 잠근다. 암호를 손으로 짜지 않는다(docs/neko-sync.md §3.1).
+chacha20poly1305 = "0.10"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # NSHapticFeedbackManager 호출용. tauri 가 이미 쓰는 버전이라 추가 빌드 비용 없음.

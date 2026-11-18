@@ -238,6 +238,60 @@ export const conversationApi = {
   prune: (days: number, keep: string[]) => invoke<string[]>("conversation_prune", { days, keep }),
 };
 
+/** 세션 목록(대화 탭)과 수동 요약. 예전엔 localStorage 에만 있어 다른 기기로 못 갔다(docs/neko-sync.md §2.6) */
+export interface SessionRow { id: string; title: string; created_at: number; summary: string | null }
+export const sessionApi = {
+  list: () => invoke<SessionRow[]>("session_list"),
+  /** 없으면 만들고 있으면 제목만 바꾼다 */
+  put: (id: string, title: string, createdAt: number) => invoke<void>("session_put", { id, title, createdAt }),
+  /** 처음 한 번 localStorage 목록을 옮긴다. 이미 있는 세션은 그대로 */
+  import: (sessions: SessionRow[]) => invoke<void>("session_import", { sessions }),
+  /** 사용자가 지운 세션(메시지까지) */
+  delete: (id: string) => invoke<void>("session_delete", { id }),
+  /** 수동 요약: 요약을 적고 그 세션 메시지를 지운다 */
+  compact: (id: string, summary: string) => invoke<void>("session_compact", { id, summary }),
+};
+
+/**
+ * 선물함은 선물 하나씩 바꾼다 — 백엔드가 DB 안에서 지금 배열에 합친다. 배열을 통째로 저장하면 동기화가 막 넣은
+ * 선물을 화면이 못 본 채 덮어, 그 선물이 다른 기기에서도 지워졌다.
+ */
+export const giftsApi = {
+  /** 새 선물(같은 id 면 바꾼다) */
+  add: (gift: object) => invoke<void>("gift_add", { gift }),
+  /** 있는 선물의 칸만 바꾼다. null 이면 그 칸을 뺀다. 없으면(다른 기기에서 지움) 아무것도 안 하고 false */
+  patch: (id: string, patch: object) => invoke<boolean>("gift_patch", { id, patch }),
+  remove: (ids: string[]) => invoke<void>("gift_remove", { ids }),
+};
+
+/** 기기 간 동기화(설정 › 동기화). 열쇠·토큰은 백엔드 키체인에만 있다 */
+export interface SyncStatus {
+  enabled: boolean;
+  registered: boolean;
+  url: string | null;
+  device: string | null;
+  last_sync: number | null;
+  last_error: string | null;
+}
+/** 백엔드가 다 맞춘 뒤 보내는 이벤트. 바뀐 종류와 메시지가 바뀐 세션 */
+export const SYNC_CHANGED = "sync-changed";
+export interface SyncChanged { colls: string[]; sessions: string[]; first: boolean }
+export const syncApi = {
+  status: () => invoke<SyncStatus>("sync_status"),
+  enable: (on: boolean) => invoke<void>("sync_enable", { on }),
+  now: () => invoke<void>("sync_now"),
+  /** 첫 기기: 배포 때 정한 SETUP_TOKEN 으로 등록 */
+  setup: (url: string, setupToken: string) => invoke<void>("sync_setup", { url, setupToken }),
+  /** 다른 기기에 붙여넣을 짝 문자열(10분) */
+  pairMake: () => invoke<string>("sync_pair_make"),
+  pairJoin: (pairing: string) => invoke<void>("sync_pair_join", { pairing }),
+  devices: () => invoke<{ devices: SyncDevice[]; me: string }>("sync_devices"),
+  revoke: (id: string) => invoke<void>("sync_revoke", { id }),
+  /** 다른 기기를 다 끊고 서버를 비운 뒤 새 열쇠로 이 맥 것을 다시 올린다 */
+  rekey: () => invoke<void>("sync_rekey"),
+};
+export interface SyncDevice { id: string; name: string; created_at: number; last_seen: number | null; revoked: number }
+
 export const execHistoryApi = {
   list: () => invoke<ExecHistoryItem[]>("exec_history_list"),
   save: (

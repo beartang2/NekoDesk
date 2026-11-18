@@ -31,6 +31,8 @@ mod neko_perch;
 #[cfg(target_os = "macos")]
 mod ambient;
 mod shelf;
+// 기기 간 동기화(docs/neko-sync.md). 기본은 꺼져 있다
+mod sync;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
 pub mod mcp;
 pub use error::AppError;
@@ -416,7 +418,9 @@ mod commands {
             return Err(AppError::msg("비밀은 secret_set 으로 저장해."));
         }
         let conn = db.0.lock()?;
-        crate::db::settings::set(&conn, &key, &value)
+        crate::db::settings::set(&conn, &key, &value)?;
+        crate::sync::run::kick();
+        Ok(())
     }
 
     #[tauri::command(async)]
@@ -466,7 +470,9 @@ mod commands {
             &content,
             attachments.as_deref(),
             meta.as_deref(),
-        )
+        )?;
+        crate::sync::run::kick();
+        Ok(())
     }
 
     #[tauri::command(async)]
@@ -485,10 +491,19 @@ mod commands {
     }
 
     /// 마지막으로 쓴 지 days 일 지난 세션의 대화를 지운다(keep 은 빼고). 지운 세션 id.
+    /// 동기화가 켜져 있으면 이번 실행에서 한 번 맞춘 뒤에만 지운다 — 다른 기기가 어제 쓴 세션을 모르고
+    /// 지우지 않게(docs/neko-sync.md §2.5). 그 전엔 빈 목록이고, 화면은 첫 sync-changed 에서 다시 부른다.
     #[tauri::command(async)]
     pub fn conversation_prune(db: State<'_, DbState>, days: u32, keep: Vec<String>) -> Result<Vec<String>, AppError> {
         let conn = db.0.lock()?;
-        crate::db::conversations::prune(&conn, days, &keep)
+        if crate::sync::run::prune_blocked(&conn) {
+            return Ok(Vec::new());
+        }
+        let tx = conn.unchecked_transaction()?;
+        let gone = crate::db::conversations::prune(&tx, days, &keep)?;
+        crate::sync::mark_pruned(&tx, &gone, days)?;
+        tx.commit()?;
+        Ok(gone)
     }
 
     /// 부팅 화면이 끝나면 프런트가 부른다. 작게 뜬 창이 같은 가운데에서 본 크기로
@@ -1264,7 +1279,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         // 보관함에서 파일을 끌어내 다른 앱에 놓는다(macOS 드래그 세션).
         .plugin(tauri_plugin_drag::init())
-        .on_window_event(|window, event| match (window.label(), event) {
+        .on_window_event(|window, event| {
+            // 앱이 앞으로 오면 곧 맞춘다(다른 기기에서 쓴 것을 바로 보게)
+            if let ("main", tauri::WindowEvent::Focused(true)) = (window.label(), event) {
+                crate::sync::run::kick();
+            }
+            match (window.label(), event) {
             // 메인 창을 닫아도 앱은 남는다. ⌃⇧N 으로 물어본 답이 도착할 곳이 있어야
             // 하고, 알림도 이 창의 웹뷰가 보낸다. 완전히 끝내려면 ⌘Q.
             ("main", tauri::WindowEvent::CloseRequested { api, .. }) => {
@@ -1283,7 +1303,7 @@ pub fn run() {
                 let _ = window.hide();
             }
             _ => {}
-        })
+        }})
         .setup(|app| {
             // 앱 데이터 디렉토리 기준으로 DB 경로 결정
             // dev: ~/Library/Application Support/nekodesk
@@ -1301,6 +1321,7 @@ pub fn run() {
             // 예전 버전이 표에 적어 둔 API 키를 키체인으로 옮긴다.
             secrets::migrate(&conn);
             app.manage(DbState(Mutex::new(conn)));
+            sync::run::start(app.handle().clone());
             app.manage(LlamaServerState(Mutex::new(LlamaProc::default())));
             app.manage(crate::mcp::McpRegistry::new());
             app.manage(ViewerState::default());
@@ -1373,6 +1394,23 @@ pub fn run() {
             commands::conversation_load,
             commands::conversation_delete,
             commands::conversation_prune,
+            sync::run::sync_status,
+            sync::run::sync_enable,
+            sync::run::sync_now,
+            sync::run::sync_setup,
+            sync::run::sync_pair_make,
+            sync::run::sync_pair_join,
+            sync::run::session_list,
+            sync::run::session_put,
+            sync::run::session_import,
+            sync::run::session_delete,
+            sync::run::session_compact,
+            sync::run::sync_devices,
+            sync::run::sync_revoke,
+            sync::run::sync_rekey,
+            sync::run::gift_add,
+            sync::run::gift_patch,
+            sync::run::gift_remove,
             commands::weather_get,
             commands::weather_now,
             commands::window_boot_done,

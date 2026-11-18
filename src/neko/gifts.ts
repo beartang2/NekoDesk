@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { settingsApi } from "../api/tauri";
+import { giftsApi, settingsApi } from "../api/tauri";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
 import type { NekoDecorSpot, NekoGiftPlay, NekoGiftSize } from "./engine/neko-engine";
 import { clampScale, decorK } from "./engine/decor-draw";
@@ -8,7 +8,8 @@ import { useNekoStore, type NekoPlacement } from "./nekoStore";
 /**
  * 선물함: 네코가 산책에서 주워 온 물건(설계 docs/neko-gifts.md §3·§4).
  *
- * settings DB 키 하나에 JSON 배열로 둔다 — 많아야 100개라 테이블을 따로 만들 일이 아니다. 놓인 자리는 장소
+ * settings DB 키 하나에 JSON 배열로 둔다 — 많아야 100개라 테이블을 따로 만들 일이 아니다. 저장은 선물 하나씩
+ * (giftsApi)이고 백엔드가 배열에 합친다 — 다른 기기에서 막 온 선물을 이 창이 못 본 채 덮지 않게(docs/neko-sync.md). 놓인 자리는 장소
  * (방·거실·마당 = 네코 자리) + 그 무대 안의 면과 비율(u: 무대 폭 비율)이다. 장소마다 놓을 수 있는 크기가 다르다.
  */
 
@@ -105,6 +106,8 @@ interface GiftStore {
   gifts: NekoGift[];
   loaded: boolean;
   load: () => Promise<void>;
+  /** DB 를 다시 읽어 그대로 바꾼다(다른 기기에서 선물이 오거나 빠졌을 때, sync-changed) */
+  reload: () => Promise<void>;
   /** 모양은 받은 그대로 넘겨도 된다(여기서 검사한다) */
   add: (g: Omit<NekoGift, "id" | "at" | "shape" | "play" | "size"> & Partial<Pick<NekoGift, "id" | "at">> & { shape: unknown; play?: unknown; size?: unknown }) => void;
   /**
@@ -123,34 +126,39 @@ interface GiftStore {
   resize: (id: string, scale: number, save: boolean) => void;
 }
 
-function persist(gifts: NekoGift[]) {
-  void settingsApi.set(KEY, JSON.stringify(gifts)).catch(() => {});
+/** 저장된 JSON 을 선물 목록으로. 모양도 한 번 더 검사한다 — 손으로 고친 DB, 예전 꼴, 다른 기기에서 온 것이 엔진까지 가지 않게 */
+function parseGifts(raw: string | null): NekoGift[] {
+  try {
+    const parsed = raw ? (JSON.parse(raw) as NekoGift[]) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((g) => g && g.id).map((g) => ({
+        ...g,
+        shape: validateShape(g.shape),
+        ...(g.scale != null ? { scale: clampScale(g.scale) } : {}),
+        // 장소가 생기기 전에 놓인 것(장소가 없거나 모르는 장소)은 그 크기가 들어가는 가장 작은 장소로
+        ...(g.placed && !Object.prototype.hasOwnProperty.call(PLACE_NAME, g.placed.at) ? { placed: { ...g.placed, at: legacyPlace(g.size) } } : {}),
+      }))
+      : [];
+  } catch {
+    return [];
+  }
 }
+
+const quiet = (p: Promise<unknown>) => void p.catch(() => {});
 
 export const useNekoGifts = create<GiftStore>((set, get) => ({
   gifts: [],
   loaded: false,
   async load() {
     if (get().loaded) return;
-    const raw = await settingsApi.get(KEY).catch(() => null);
-    let list: NekoGift[] = [];
-    try {
-      const parsed = raw ? (JSON.parse(raw) as NekoGift[]) : [];
-      // 저장된 모양도 한 번 더 검사한다 — 손으로 고친 DB 나 예전 꼴이 엔진까지 가지 않게
-      list = Array.isArray(parsed)
-        ? parsed.filter((g) => g && g.id).map((g) => ({
-          ...g,
-          shape: validateShape(g.shape),
-          ...(g.scale != null ? { scale: clampScale(g.scale) } : {}),
-          // 장소가 생기기 전에 놓인 것(장소가 없거나 모르는 장소)은 그 크기가 들어가는 가장 작은 장소로
-          ...(g.placed && !Object.prototype.hasOwnProperty.call(PLACE_NAME, g.placed.at) ? { placed: { ...g.placed, at: legacyPlace(g.size) } } : {}),
-        }))
-        : [];
-    } catch {
-      list = [];
-    }
+    const list = parseGifts(await settingsApi.get(KEY).catch(() => null));
     // 불러오는 사이 들어온 선물(산책에서 막 돌아옴)은 뒤에 붙인다
     set((s) => ({ gifts: capGifts([...list, ...s.gifts.filter((g) => !list.some((o) => o.id === g.id))]), loaded: true }));
+  },
+  async reload() {
+    const raw = await settingsApi.get(KEY).catch(() => undefined);
+    if (raw === undefined) return;
+    set({ gifts: capGifts(parseGifts(raw)), loaded: true });
   },
   add(g) {
     const play = PLAYS.includes(g.play as NekoGiftPlay) ? (g.play as NekoGiftPlay) : undefined;
@@ -159,9 +167,13 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
       id: g.id ?? crypto.randomUUID(), at: g.at ?? new Date().toISOString(), title: g.title, body: g.body, shape: validateShape(g.shape),
       ...(play ? { play } : {}), ...(size ? { size } : {}), ...(g.placed ? { placed: g.placed } : {}), ...(g.frame ? { frame: true as const } : {}),
     };
-    const gifts = capGifts([...get().gifts, gift]);
+    const all = [...get().gifts, gift];
+    const gifts = capGifts(all);
     set({ gifts });
-    persist(gifts);
+    quiet(giftsApi.add(gift));
+    // 넘쳐서 빠진 것(놓이지 않은 오래된 것)
+    const dropped = all.filter((g) => !gifts.includes(g)).map((g) => g.id);
+    if (dropped.length) quiet(giftsApi.remove(dropped));
   },
   place(id, spot, at, screen) {
     const gift = get().gifts.find((g) => g.id === id);
@@ -185,12 +197,12 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
       return { ...g, placed };
     });
     set({ gifts });
-    persist(gifts);
+    quiet(giftsApi.patch(id, { placed }));
   },
   remove(id) {
     const gifts = get().gifts.filter((g) => g.id !== id);
     set({ gifts });
-    persist(gifts);
+    quiet(giftsApi.remove([id]));
   },
   resize(id, scale, save) {
     const k = clampScale(scale);
@@ -201,12 +213,13 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
       return { ...g, scale: k };
     });
     set({ gifts });
-    if (save) persist(gifts);
+    // 놓을 때 한 번만 올린다(끄는 동안 기록이 쏟아지지 않게). 1 배면 칸을 뺀다
+    if (save) quiet(giftsApi.patch(id, { scale: k === 1 ? null : k }));
   },
   played(id, at) {
     if (!get().gifts.some((g) => g.id === id)) return;
     const gifts = get().gifts.map((g) => (g.id === id ? { ...g, lastPlayed: at } : g));
     set({ gifts });
-    persist(gifts);
+    quiet(giftsApi.patch(id, { lastPlayed: at }));
   },
 }));

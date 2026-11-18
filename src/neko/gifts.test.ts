@@ -2,10 +2,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const store = new Map<string, string>();
+// 백엔드(sync::gift_*)처럼 선물 하나씩 DB 배열에 합친다
+const dbGifts = (): Record<string, unknown>[] => JSON.parse(store.get("neko_gifts") ?? "[]");
+const saveDb = (l: Record<string, unknown>[]) => void store.set("neko_gifts", JSON.stringify(l));
 vi.mock("../api/tauri", () => ({
   settingsApi: {
     get: vi.fn(async (k: string) => store.get(k) ?? null),
     set: vi.fn(async (k: string, v: string) => void store.set(k, v)),
+  },
+  giftsApi: {
+    add: vi.fn(async (g: { id: string }) => saveDb([...dbGifts().filter((x) => x.id !== g.id), g])),
+    patch: vi.fn(async (id: string, p: Record<string, unknown>) => {
+      const l = dbGifts(), g = l.find((x) => x.id === id);
+      if (!g) return false;
+      for (const [k, v] of Object.entries(p)) { if (v === null) delete g[k]; else g[k] = v; }
+      saveDb(l);
+      return true;
+    }),
+    remove: vi.fn(async (ids: string[]) => saveDb(dbGifts().filter((x) => !ids.includes(x.id as string)))),
   },
 }));
 
@@ -227,3 +241,22 @@ describe("액자", () => {
   });
 });
 
+
+describe("선물함 저장은 하나씩", () => {
+  it("다른 기기에서 막 들어온 선물을 낡은 화면이 저장해도 덮지 않는다", async () => {
+    await useNekoGifts.getState().load();
+    useNekoGifts.getState().add({ title: "a", body: "", shape: dot });
+    await Promise.resolve();
+    const a = useNekoGifts.getState().gifts[0].id;
+    // 동기화가 DB 에 선물을 넣었다. 화면은 아직 모른다
+    saveDb([...dbGifts(), { id: "remote", at: "", title: "받은 것", body: "", shape: dot }]);
+    useNekoGifts.getState().played(a, 5);
+    useNekoGifts.getState().place(a, "auto", "dock");
+    useNekoGifts.getState().add({ title: "b", body: "", shape: dot });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(dbGifts().map((g) => g.id)).toContain("remote");
+    expect(dbGifts().find((g) => g.id === a)).toMatchObject({ lastPlayed: 5, placed: { at: "dock" } });
+    await useNekoGifts.getState().reload();
+    expect(useNekoGifts.getState().gifts.map((g) => g.title)).toEqual(["a", "받은 것", "b"]);
+  });
+});

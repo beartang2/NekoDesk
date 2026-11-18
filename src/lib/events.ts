@@ -24,6 +24,8 @@ interface EventMap {
   timerDone: string;
   /** 네코에게 주는 순간 신호(useNekoDirector 가 꼬리 물음표로): 새 대화, 파일 첨부 */
   nekoHint: { kind: "newChat" | "attach" };
+  /** 동기화가 다른 기기에서 받아 왔다(lib/sync.ts). 바뀐 종류: todo·event·memory·… — 그 목록을 보여 주는 화면이 다시 읽는다 */
+  syncChanged: { colls: string[] };
 }
 
 type Handler<T> = (payload: T) => void;

@@ -2,10 +2,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const store = new Map<string, string>();
+// 백엔드(sync::gift_*)처럼 선물 하나씩 DB 배열에 합친다(gifts.test.ts 와 같다)
+const dbGifts = (): Record<string, unknown>[] => JSON.parse(store.get("neko_gifts") ?? "[]");
+const saveDb = (l: Record<string, unknown>[]) => void store.set("neko_gifts", JSON.stringify(l));
 vi.mock("../api/tauri", () => ({
   settingsApi: {
     get: vi.fn(async (k: string) => store.get(k) ?? null),
     set: vi.fn(async (k: string, v: string) => void store.set(k, v)),
+  },
+  giftsApi: {
+    add: vi.fn(async (g: { id: string }) => saveDb([...dbGifts().filter((x) => x.id !== g.id), g])),
+    patch: vi.fn(async () => true),
+    remove: vi.fn(async (ids: string[]) => saveDb(dbGifts().filter((x) => !ids.includes(x.id as string)))),
   },
 }));
 

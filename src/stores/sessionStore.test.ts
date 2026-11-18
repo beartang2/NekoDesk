@@ -2,15 +2,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prune = vi.fn(async (_days: number, _keep: string[]) => ["old"]);
-vi.mock("../api/tauri", () => ({ conversationApi: { prune: (d: number, k: string[]) => prune(d, k) } }));
+const db = { failImport: false, rows: [] as { id: string; title: string; created_at: number; summary: string | null }[], deleted: [] as string[], put: [] as string[] };
+vi.mock("../api/tauri", () => ({
+  conversationApi: { prune: (d: number, k: string[]) => prune(d, k) },
+  sessionApi: {
+    list: async () => db.rows,
+    import: async (rows: typeof db.rows) => { if (db.failImport) throw new Error("앱이 꺼졌다"); db.rows = rows; },
+    put: async (id: string) => { db.put.push(id); },
+    delete: async (id: string) => { db.deleted.push(id); },
+    compact: async () => {},
+  },
+}));
 
-import { pruneOldSessions, useSessionStore } from "./sessionStore";
+import { hydrateSessions, pruneOldSessions, useSessionStore } from "./sessionStore";
 
 const DAY = 86_400_000;
 
 beforeEach(() => {
   localStorage.clear();
   prune.mockClear();
+  db.rows = []; db.deleted = []; db.put = []; db.failImport = false;
   useSessionStore.setState({
     sessions: [{ id: "open", title: "a", date: "" }, { id: "old", title: "b", date: "" }],
     activeId: "open",
@@ -34,5 +45,47 @@ describe("오래된 대화 지우기", () => {
     expect(prune).toHaveBeenCalledWith(30, ["open"]);
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["open"]);
     expect(localStorage.getItem("nekodesk_compact_old")).toBeNull();
+  });
+});
+
+describe("세션 목록 DB", () => {
+  it("처음엔 지금 목록과 수동 요약을 DB 로 옮기고, 그 뒤엔 DB 값으로 덮는다", async () => {
+    localStorage.setItem("nekodesk_compact_old", "요약");
+    await hydrateSessions(1000);
+    expect(db.rows.map((r) => [r.id, r.created_at, r.summary])).toEqual([["open", 1000, null], ["old", 999, "요약"]]);
+    expect(useSessionStore.getState().sessions[1].summary).toBe("요약");
+
+    // 다른 기기에서 열린 세션을 지웠다 → 남은 것으로 옮긴다
+    db.rows = [{ id: "old", title: "b", created_at: 999, summary: null }]; // 이미 옮겼으니 이번엔 그대로 읽는다
+    await hydrateSessions();
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["old"]);
+    expect(useSessionStore.getState().activeId).toBe("old");
+    expect(db.deleted).toEqual([]); // 받은 목록을 다시 지우러 가지 않는다
+  });
+
+  it("setSessions 는 새 세션·바뀐 제목만 적고, 목록에서 빠졌다고 DB 에서 지우지 않는다", () => {
+    // 낡은 목록으로 덮어도(다른 기기에서 온 old 를 모름) old 가 지움으로 올라가지 않는다
+    useSessionStore.getState().setSessions((prev) => [{ id: "new", title: "새", date: "" }, { ...prev[0], title: "고친 제목" }]);
+    expect(db.put.sort()).toEqual(["new", "open"]);
+    expect(db.deleted).toEqual([]);
+  });
+});
+
+describe("배포본 첫 실행: localStorage → DB", () => {
+  it("옮기다 끊기면 다음에 다시 옮기고, 옮긴 뒤에도 localStorage 는 남긴다(되돌릴 길)", async () => {
+    localStorage.setItem("nekodesk_compact_old", "요약");
+    db.failImport = true;
+    await expect(hydrateSessions(1000)).rejects.toThrow();
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["open", "old"]); // 화면은 그대로
+    db.failImport = false;
+    await hydrateSessions(1000);
+    expect(db.rows.map((r) => r.id)).toEqual(["open", "old"]);
+    expect(JSON.parse(localStorage.getItem("nekodesk_sessions")!).map((s: { id: string }) => s.id)).toEqual(["open", "old"]);
+    expect(localStorage.getItem("nekodesk_compact_old")).toBe("요약");
+  });
+
+  it("수동 요약은 예전 자리(localStorage)에도 적는다", async () => {
+    await useSessionStore.getState().compact("open", "새 요약");
+    expect(localStorage.getItem("nekodesk_compact_open")).toBe("새 요약");
   });
 });

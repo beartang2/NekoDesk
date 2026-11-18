@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { memoryApi, secretsApi, settingsApi } from "../api/tauri";
+import { memoryApi, secretsApi, settingsApi, syncApi, type SyncDevice, type SyncStatus } from "../api/tauri";
+import { appEvents } from "../lib/events";
 import {
   X, Zap, Pencil, Trash2, Settings, Plus, RefreshCw, MapPin, Loader2, ChevronRight, ArrowUpRight, Info, Copy,
 } from "lucide-react";
@@ -1096,6 +1097,8 @@ function MemoriesSection() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+  // 다른 기기에서 기억이 왔다
+  useEffect(() => appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("memory")) void refresh(); }), [refresh]);
 
   // 쉴 때 정리(agent/memory-tidy): 켜고 끄기와 최근에 무엇을 합쳤는지
   const tidy = useSettingsStore((s) => s.memoryTidy);
@@ -1213,6 +1216,123 @@ function SecretInput({ secretKey, placeholder, onSaved }: { secretKey: string; p
       {has && <DevCopy secretKey={secretKey} />}
       {has && <button className="settings-btn settings-btn--ghost" onClick={clear}>지우기</button>}
     </>
+  );
+}
+
+/**
+ * 설정 › 동기화(docs/neko-sync.md). 기본은 꺼져 있고, 켜기 전엔 아무것도 밖으로 안 나간다.
+ * 첫 맥: 서버 주소 + 배포 때 정한 SETUP_TOKEN 으로 등록. 다음 기기: 다른 기기가 만든 짝 문자열을 붙여넣는다.
+ */
+function SyncSection() {
+  const [st, setSt] = useState<SyncStatus | null>(null);
+  const [url, setUrl] = useState("");
+  const [setup, setSetup] = useState("");
+  const [pasted, setPasted] = useState("");
+  const [pairing, setPairing] = useState("");
+  const [devices, setDevices] = useState<{ devices: SyncDevice[]; me: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const refresh = useCallback(() => { syncApi.status().then(setSt).catch(() => {}); }, []);
+  useEffect(() => {
+    refresh();
+    const t = window.setInterval(refresh, 5000);
+    return () => window.clearInterval(t);
+  }, [refresh]);
+
+  const loadDevices = () => run(async () => setDevices(await syncApi.devices()));
+  async function revoke(d: SyncDevice) {
+    if (!window.confirm(`"${d.name}" 기기를 끊을까? 그 기기는 더 못 맞춘다. 잃어버린 기기면 열쇠도 바꿔줘.`)) return;
+    await run(async () => { await syncApi.revoke(d.id); setDevices(await syncApi.devices()); });
+  }
+  async function rekey() {
+    if (!window.confirm("열쇠를 바꿀까? 다른 기기는 모두 끊기고, 서버 기록을 비운 뒤 이 맥 것을 새 열쇠로 다시 올린다. 다른 기기는 새 짝 문자열로 다시 맞춰야 한다.")) return;
+    await run(async () => { await syncApi.rekey(); setPairing(""); setDevices(await syncApi.devices()); });
+  }
+
+  async function run(job: () => Promise<unknown>) {
+    setBusy(true);
+    setErr("");
+    try { await job(); } catch (e) { setErr(String(e)); } finally { setBusy(false); refresh(); }
+  }
+
+  const last = st?.last_sync ? new Date(st.last_sync).toLocaleString("ko-KR") : "아직 없음";
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">동기화</h3>
+      <p className="settings-section__desc">
+        다른 기기와 대화·기억·할 일·선물·이름을 맞춘다. 기기에서 잠가 올려서 서버는 내용을 못 읽는다.
+        서버는 직접 배포한 Cloudflare Worker(server/). 켜기 전엔 아무것도 밖으로 보내지 않는다.
+      </p>
+      {st?.registered ? (
+        <>
+          <Segmented
+            value={st.enabled ? "on" : "off"}
+            onChange={(v) => void run(() => syncApi.enable(v === "on"))}
+            options={[{ value: "on", label: "켬" }, { value: "off", label: "끔" }]}
+          />
+          <p className="settings-section__desc">
+            {st.url} · 마지막으로 맞춘 때: {last}
+            {st.last_error ? ` · 못 맞춤: ${st.last_error}` : ""}
+          </p>
+          <div className="settings-row">
+            <button className="settings-btn" disabled={busy} onClick={() => void run(async () => setPairing(await syncApi.pairMake()))}>
+              짝 문자열 만들기
+            </button>
+            <button className="settings-btn settings-btn--ghost" disabled={busy || !st.enabled} onClick={() => void run(() => syncApi.now())}>
+              지금 맞추기
+            </button>
+          </div>
+          <div className="settings-row">
+            <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void loadDevices()}>기기 목록</button>
+            <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void rekey()}>열쇠 바꾸기</button>
+          </div>
+          {devices && (
+            <ul className="settings-section__desc">
+              {devices.devices.map((d) => (
+                <li key={d.id}>
+                  {d.name}{d.id === devices.me ? " (이 맥)" : ""}
+                  {" · "}{d.revoked ? "끊김" : d.last_seen ? `마지막 접속 ${new Date(d.last_seen).toLocaleString("ko-KR")}` : "접속 전"}
+                  {d.id !== devices.me && !d.revoked && (
+                    <> <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void revoke(d)}>끊기</button></>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {pairing && (
+            <>
+              <p className="settings-section__desc">
+                다른 기기의 설정 › 동기화에 붙여넣어줘. 10분 동안 한 번만 쓸 수 있다. 동기화 열쇠가 들어 있으니 남에게 보내지 마.
+              </p>
+              <div className="settings-row">
+                <input className="settings-input" readOnly value={pairing} onFocus={(e) => e.currentTarget.select()} />
+                <button className="settings-btn" onClick={() => { void navigator.clipboard.writeText(pairing); }}>복사</button>
+                <button className="settings-btn settings-btn--ghost" onClick={() => setPairing("")}>숨기기</button>
+              </div>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="settings-section__desc">이 맥이 처음이면: 서버 주소와 배포할 때 정한 설정 토큰(SETUP_TOKEN).</p>
+          <div className="settings-row">
+            <input className="settings-input" value={url} placeholder="https://sync.example.com" onChange={(e) => setUrl(e.target.value)} />
+            <input className="settings-input" type="password" value={setup} placeholder="SETUP_TOKEN" onChange={(e) => setSetup(e.target.value)} />
+            <button className="settings-btn" disabled={busy || !url || !setup} onClick={() => void run(() => syncApi.setup(url, setup).then(() => setSetup("")))}>
+              등록하고 켜기
+            </button>
+          </div>
+          <p className="settings-section__desc">다른 기기에서 이미 쓰고 있으면: 그 기기에서 만든 짝 문자열.</p>
+          <div className="settings-row">
+            <input className="settings-input" type="password" value={pasted} placeholder="nekosync1:…" onChange={(e) => setPasted(e.target.value)} />
+            <button className="settings-btn" disabled={busy || !pasted} onClick={() => void run(() => syncApi.pairJoin(pasted).then(() => setPasted("")))}>
+              짝 맞추기
+            </button>
+          </div>
+        </>
+      )}
+      {err && <p className="settings-section__desc">{err}</p>}
+    </section>
   );
 }
 
@@ -1724,6 +1844,9 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
 
               {/* ── MCP 서버 ─────────────────────────────────────────── */}
               <McpSection />
+
+              {/* ── 기기 간 동기화 ───────────────────────────────────── */}
+              <SyncSection />
             </>
           )}
           {tab === "tools" && <ToolsSection />}
