@@ -89,7 +89,9 @@ export function link(): void {
     if (!isScreen()) return;
     remote = createRemoteNeko();
     remote.setAppearance(useNekoStore.getState().appearance);
-    void emitTo(SCREEN_LABEL, "neko-screen-scale", useNekoStore.getState().stage.screenScale).catch(() => {});
+    const { screenScale, screenFps } = useNekoStore.getState().stage;
+    void emitTo(SCREEN_LABEL, "neko-screen-scale", screenScale).catch(() => {});
+    void emitTo(SCREEN_LABEL, "neko-screen-fps", screenFps).catch(() => {});
     notify(); // useNekoController 가 대리를 주고, 감독이 새 스케줄러로 계획을 처음부터 다시 그린다
   }).catch(() => {});
   useNekoStore.subscribe((s, p) => {
@@ -113,6 +115,7 @@ export function useNekoScreen(away: boolean): void {
   const placement = useNekoStore((s) => s.stage.placement);
   const onTop = useNekoStore((s) => s.stage.screenOnTop);
   const scale = useNekoStore((s) => s.stage.screenScale);
+  const fps = useNekoStore((s) => s.stage.screenFps);
   const on = IS_MAC && placement === "screen" && !away;
   const shown = useRef(false);
 
@@ -125,4 +128,7 @@ export function useNekoScreen(away: boolean): void {
   useEffect(() => {
     if (on) void emitTo(SCREEN_LABEL, "neko-screen-scale", scale).catch(() => {});
   }, [on, scale]);
+  useEffect(() => {
+    if (on) void emitTo(SCREEN_LABEL, "neko-screen-fps", fps).catch(() => {});
+  }, [on, fps]);
 }

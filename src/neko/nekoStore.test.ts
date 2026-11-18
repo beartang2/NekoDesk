@@ -26,8 +26,10 @@ describe("nekoStore 정리 함수", () => {
   it("자리 높이는 범위 안으로", () => {
     expect(normalizeStage({ placement: "dock", sidebarH: 9999, dockH: 10 })).toMatchObject({ placement: "dock", sidebarH: SIDEBAR_H.max, dockH: DOCK_H.min });
     expect(normalizeStage(null)).toEqual({
-      placement: "sidebar", sidebarH: SIDEBAR_H.def, dockH: DOCK_H.def, screenScale: SCREEN_SCALE.def, screenOnTop: true,
+      placement: "sidebar", sidebarH: SIDEBAR_H.def, dockH: DOCK_H.def, screenScale: SCREEN_SCALE.def, screenOnTop: true, screenFps: 60,
     });
+    expect(normalizeStage({ screenFps: 30 }).screenFps).toBe(30);
+    expect(normalizeStage({ screenFps: 144 }).screenFps).toBe(60);
   });
 
   it("모니터 화면 자리: 크기는 범위 안으로, '항상 위'는 꺼야만 꺼진다", () => {

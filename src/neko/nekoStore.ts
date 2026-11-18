@@ -24,6 +24,8 @@ export interface NekoStageSettings {
   screenScale: number;
   /** 모니터 화면 자리: 모든 창 위에 둔다(끄면 모든 창 아래, 바탕화면 아이콘 위) */
   screenOnTop: boolean;
+  /** 모니터 화면 자리의 최대 프레임. 30 은 배터리를 아끼고 60 은 앱 안 네코처럼 부드럽다 */
+  screenFps: 30 | 60;
 }
 
 export const SIDEBAR_H = { min: 150, max: 320, def: 200 } as const;
@@ -102,6 +104,7 @@ export function normalizeStage(raw: unknown): NekoStageSettings {
     dockH: clampH(Number.isFinite(s.dockH) ? (s.dockH as number) : DOCK_H.def, DOCK_H),
     screenScale: clampScale(Number.isFinite(s.screenScale) ? (s.screenScale as number) : SCREEN_SCALE.def),
     screenOnTop: s.screenOnTop !== false,
+    screenFps: s.screenFps === 30 ? 30 : 60,
   };
 }
 
@@ -147,7 +150,7 @@ interface NekoStore {
   /** 높이를 바꾼다. persist=false 면 끌고 있는 중(손을 뗄 때 저장) */
   setStageHeight: (which: NekoPlacement, h: number, persist?: boolean) => void;
   /** 모니터 화면 자리 설정(크기·항상 위) */
-  setScreen: (patch: Partial<Pick<NekoStageSettings, "screenScale" | "screenOnTop">>) => void;
+  setScreen: (patch: Partial<Pick<NekoStageSettings, "screenScale" | "screenOnTop" | "screenFps">>) => void;
   /** DB 값으로 덮기(앱 시작 때 한 번) */
   load: () => Promise<void>;
 }

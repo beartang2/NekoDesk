@@ -14,6 +14,7 @@ import { coatSwatch, summarizeAppearance } from "./summarize";
 
 // 모니터 화면 자리는 macOS 의 투명·클릭 통과 창으로 만든다(neko_screen.rs)
 const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
+const FPS_OPTIONS: Option<"30" | "60">[] = [{ value: "30", label: "30" }, { value: "60", label: "60" }];
 const PLACES: Option<NekoPlacement>[] = [
   { value: "sidebar", label: "패널" },
   { value: "dock", label: "채팅 바 아래" },
@@ -32,6 +33,7 @@ export function NekoSettingsSection() {
   const setPlacement = useNekoStore((s) => s.setPlacement);
   const onTop = useNekoStore((s) => s.stage.screenOnTop);
   const scale = useNekoStore((s) => s.stage.screenScale);
+  const fps = useNekoStore((s) => s.stage.screenFps);
   const setScreen = useNekoStore((s) => s.setScreen);
   const [open, setOpen] = useState(false);
   const name = useSettingsStore(nekoNameOf);
@@ -65,6 +67,11 @@ export function NekoSettingsSection() {
               aria-label={`화면 속 ${name} 크기`}
             />
           </label>
+          <div className="ui-switch-row">
+            <span>프레임</span>
+            <Segmented value={fps === 30 ? "30" : "60"} onChange={(v) => setScreen({ screenFps: v === "30" ? 30 : 60 })} options={FPS_OPTIONS} />
+          </div>
+          <p className="settings-section__desc">60 은 앱 안처럼 부드럽고, 30 은 배터리를 아껴.</p>
         </>
       )}
 

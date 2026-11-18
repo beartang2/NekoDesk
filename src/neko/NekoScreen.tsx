@@ -23,7 +23,8 @@ interface Layout { w: number; h: number; ground: number }
 type Side = "left" | "right";
 interface Moved { layout: Layout; shift: [number, number] }
 
-const FPS = { normal: 30, sleepy: 12, held: 60 } as const;
+/** 잡고 끄는 동안은 설정과 상관없이 60. 졸 때는 설정의 절반 */
+const HELD_FPS = 60;
 /** 놓은 뒤 떨어지는 동안은 부드럽게 */
 const FALL_MS = 1500;
 /** 고양이 위에 있는 동안 이 간격으로 Rust 에 다시 알린다(Rust 는 0.25초 안에 소식이 없으면 클릭을 흘린다) */
@@ -67,7 +68,8 @@ export function NekoScreen() {
     let mood: NekoMood = "idle";
     let held = false;
     let fallTimer: ReturnType<typeof setTimeout> | undefined;
-    const fps = () => ctrl.setMaxFps(held ? FPS.held : mood === "sleepy" ? FPS.sleepy : FPS.normal);
+    let maxFps: number = useNekoStore.getState().stage.screenFps; // 곧 메인 창 설정값이 온다(neko-screen-fps)
+    const fps = () => ctrl.setMaxFps(held ? HELD_FPS : mood === "sleepy" ? maxFps / 2 : maxFps);
     fps();
 
     // 커서 → 고양이 위인지
@@ -149,6 +151,7 @@ export function NekoScreen() {
         requestAnimationFrame(() => void invoke("neko_screen_reveal").catch(() => {}));
       }),
       listen<number>("neko-screen-scale", ({ payload }) => ctrl.setScale(payload)),
+      listen<number>("neko-screen-fps", ({ payload }) => { maxFps = payload; fps(); }),
       listen("neko-screen-ping", () => void emitTo("main", "neko-screen-ready").catch(() => {})),
     ];
     void invoke<Layout | null>("neko_screen_layout").then((l) => { if (l) ctrl.setGround(l.ground); }).catch(() => {});
