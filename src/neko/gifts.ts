@@ -2,12 +2,13 @@ import { create } from "zustand";
 import { settingsApi } from "../api/tauri";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
 import type { NekoDecorSpot, NekoGiftPlay, NekoGiftSize } from "./engine/neko-engine";
+import type { NekoPlacement } from "./nekoStore";
 
 /**
  * 선물함: 네코가 산책에서 주워 온 물건(설계 docs/neko-gifts.md §3·§4).
  *
- * settings DB 키 하나에 JSON 배열로 둔다 — 많아야 100개라 테이블을 따로 만들 일이 아니다. 무대에 놓인 자리는
- * px 가 아니라 면 + 비율(u: 무대 폭 비율)이라 사이드바·아래 띠·화면 띠 어디서나 같은 자리에 보인다.
+ * settings DB 키 하나에 JSON 배열로 둔다 — 많아야 100개라 테이블을 따로 만들 일이 아니다. 놓인 자리는 장소
+ * (방·거실·마당 = 네코 자리) + 그 무대 안의 면과 비율(u: 무대 폭 비율)이다. 장소마다 놓을 수 있는 크기가 다르다.
  */
 
 const KEY = "neko_gifts";
@@ -18,8 +19,18 @@ export const MAX_GIFTS = 100;
 export const PLAYS: NekoGiftPlay[] = ["roll", "bat", "sniff", "sit_on", "carry"];
 export const GIFT_SIZES: NekoGiftSize[] = ["small", "medium", "large"];
 
-/** 바닥: u = 무대 폭(양끝 여백 제외) 비율. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율. 모두 0~1 */
-export type GiftPlacement = NekoDecorSpot;
+/** 장소 = 네코 자리. 사이드바는 방, 채팅 바 아래는 거실, 모니터 화면은 마당 */
+export const PLACE_NAME: Record<NekoPlacement, string> = { sidebar: "방", dock: "거실", screen: "마당" };
+/** 장소마다 놓을 수 있는 크기. 방엔 작은 것만, 거실엔 중간 것까지, 마당엔 다 */
+const FITS: Record<NekoPlacement, readonly NekoGiftSize[]> = { sidebar: ["small"], dock: ["small", "medium"], screen: GIFT_SIZES };
+/** 이 크기를 이 장소에 놓을 수 있나. 크기가 없으면 엔진이 medium 으로 그린다 */
+export const fits = (size: NekoGiftSize | undefined, at: NekoPlacement): boolean => FITS[at].includes(size ?? "medium");
+/** 이 크기를 놓을 수 있는 가장 작은 장소 */
+export const smallestPlace = (size?: NekoGiftSize): NekoPlacement =>
+  (["sidebar", "dock", "screen"] as const).find((p) => fits(size, p)) ?? "screen";
+
+/** 놓인 자리: 장소(at) + 그 무대 안 자리. 바닥: u = 무대 폭(양끝 여백 제외) 비율. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율. 모두 0~1 */
+export type GiftPlacement = NekoDecorSpot & { at: NekoPlacement };
 
 export interface NekoGift {
   id: string;
@@ -59,8 +70,11 @@ interface GiftStore {
   load: () => Promise<void>;
   /** 모양은 받은 그대로 넘겨도 된다(여기서 검사한다) */
   add: (g: Omit<NekoGift, "id" | "at" | "shape" | "play" | "size"> & Partial<Pick<NekoGift, "id" | "at">> & { shape: unknown; play?: unknown; size?: unknown }) => void;
-  /** 바닥에 놓는다(자리를 안 주면 빈 곳). null 이면 치운다(선물함으로) */
-  place: (id: string, spot: GiftPlacement | "auto" | null) => void;
+  /**
+   * 장소 at 의 그 자리에 놓는다("auto" 면 그 장소 바닥의 빈 곳). at 을 안 주면 놓여 있던 장소 그대로(무대 안에서
+   * 끌어 옮길 때). 다른 장소를 주면 그리로 옮긴다. 그 장소에 안 맞는 크기면 아무것도 안 한다. null 이면 치운다(선물함으로)
+   */
+  place: (id: string, spot: NekoDecorSpot | "auto" | null, at?: NekoPlacement) => void;
   remove: (id: string) => void;
 }
 
@@ -78,7 +92,14 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
     try {
       const parsed = raw ? (JSON.parse(raw) as NekoGift[]) : [];
       // 저장된 모양도 한 번 더 검사한다 — 손으로 고친 DB 나 예전 꼴이 엔진까지 가지 않게
-      list = Array.isArray(parsed) ? parsed.filter((g) => g && g.id).map((g) => ({ ...g, shape: validateShape(g.shape) })) : [];
+      list = Array.isArray(parsed)
+        ? parsed.filter((g) => g && g.id).map((g) => ({
+          ...g,
+          shape: validateShape(g.shape),
+          // 장소가 생기기 전에 놓인 것(장소가 없거나 모르는 장소)은 그 크기가 들어가는 가장 작은 장소로
+          ...(g.placed && !Object.prototype.hasOwnProperty.call(PLACE_NAME, g.placed.at) ? { placed: { ...g.placed, at: smallestPlace(g.size) } } : {}),
+        }))
+        : [];
     } catch {
       list = [];
     }
@@ -96,12 +117,21 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
     set({ gifts });
     persist(gifts);
   },
-  place(id, spot) {
-    const placedUs = get().gifts.filter((g) => g.placed?.surface === "floor" && g.id !== id).map((g) => g.placed!.u);
+  place(id, spot, at) {
+    const gift = get().gifts.find((g) => g.id === id);
+    if (!gift) return;
+    let placed: GiftPlacement | null = null;
+    if (spot !== null) {
+      const where = at ?? gift.placed?.at;
+      if (!where || !fits(gift.size, where)) return;
+      const us = get().gifts.filter((g) => g.id !== id && g.placed?.at === where && g.placed.surface === "floor").map((g) => g.placed!.u);
+      const s = spot === "auto" ? { surface: "floor" as const, u: freeSpot(us) } : spot;
+      placed = s.surface === "wall" ? { surface: "wall", u: s.u, v: s.v, at: where } : { surface: "floor", u: s.u, at: where };
+    }
     const gifts = get().gifts.map((g) => {
       if (g.id !== id) return g;
-      if (spot === null) { const { placed: _drop, ...rest } = g; return rest; }
-      return { ...g, placed: spot === "auto" ? { surface: "floor" as const, u: freeSpot(placedUs) } : spot };
+      if (!placed) { const { placed: _drop, ...rest } = g; return rest; }
+      return { ...g, placed };
     });
     set({ gifts });
     persist(gifts);

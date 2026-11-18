@@ -42,7 +42,15 @@
   user-select: none;
   touch-action: none;
 }
-/* 무대에 놓인 것: 오른쪽 위 작은 점만 */
+/* 지금 장소엔 너무 큰 것: 흐리게, 끌 수 없음(버튼이 어디부터인지 알려 준다) */
+.neko-gifts__item--off {
+  cursor: default;
+}
+.neko-gifts__item--off canvas,
+.neko-gifts__item--off .neko-gifts__title {
+  opacity: 0.4;
+}
+/* 무대에 놓인 것: 오른쪽 위 작은 점만(어느 장소인지는 툴팁) */
 .neko-gifts__item--placed::after {
   content: "";
   position: absolute;
