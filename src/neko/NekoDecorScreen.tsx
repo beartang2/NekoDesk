@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { emitTo, listen } from "@tauri-apps/api/event";
+import { emitTo } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { decorBoxes, dragDecor, drawDecor, hitDecorAt, type DecorItem } from "./engine/decor-draw";
 import type { NekoDecorSpot } from "./engine/neko-engine";
 import "./NekoScreen.css";
@@ -125,14 +126,16 @@ export function NekoDecorScreen() {
     window.addEventListener("pointercancel", onUp);
     window.addEventListener("contextmenu", onContext);
 
+    // 이 창 앞으로 온 것만 듣는다. 그냥 listen 은 대상이 Any 라 다른 창(다른 모니터 선물 창) 앞 이벤트까지 받는다
+    const me = getCurrentWindow();
     const offs = [
-      listen<DecorFrame>("neko-decor-items", ({ payload }) => {
+      me.listen<DecorFrame>("neko-decor-items", ({ payload }) => {
         f = payload;
         setMenu((m) => (m && f?.items.some((d) => d.id === m.id) ? m : null));
         draw();
       }),
-      listen("neko-screen-press-out", () => setMenu(null)), // 다른 데를 눌렀다
-      listen<Elsewhere | null>("neko-screen-elsewhere", ({ payload }) => { elsewhere = payload; }),
+      me.listen("neko-screen-press-out", () => setMenu(null)), // 다른 데를 눌렀다
+      me.listen<Elsewhere | null>("neko-screen-elsewhere", ({ payload }) => { elsewhere = payload; }),
     ];
     // 다른 배율 모니터로 옮겨지면 선명하게 다시
     const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);

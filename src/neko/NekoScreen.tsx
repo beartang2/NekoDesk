@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { emitTo, listen } from "@tauri-apps/api/event";
+import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { createNeko, type NekoController, type NekoEvents, type NekoMood } from "./engine/neko-engine";
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
@@ -162,14 +162,16 @@ export function NekoScreen() {
       }),
     );
 
+    // 이 창 앞으로 온 것만 듣는다. 그냥 listen 은 대상이 Any 라 다른 창(다른 모니터 선물 창) 앞 이벤트까지 받는다
+    const me = getCurrentWindow();
     const offs = [
-      listen<NekoCmd>("neko-cmd", ({ payload: { m, args } }) => {
+      me.listen<NekoCmd>("neko-cmd", ({ payload: { m, args } }) => {
         const fn = (ctrl as unknown as Record<string, unknown>)[m];
         if (LOCAL_ONLY.has(m) || typeof fn !== "function") return;
         (fn as (...a: unknown[]) => unknown).apply(ctrl, args);
         if (m === "setMood") { mood = args[0] as NekoMood; fps(); }
       }),
-      listen<[number, number] | null>("neko-screen-cursor", ({ payload }) => {
+      me.listen<[number, number] | null>("neko-screen-cursor", ({ payload }) => {
         const prev = cursor;
         cursor = payload;
         check();
@@ -177,18 +179,18 @@ export function NekoScreen() {
         if (over === "cat" && prev && payload) petRef.current.onBodyMove(payload[0] - prev[0], payload[1] - prev[1]);
         else petRef.current.onBodyLeave();
       }),
-      listen<boolean>("neko-screen-active", ({ payload }) => {
+      me.listen<boolean>("neko-screen-active", ({ payload }) => {
         active = payload;
         if (active) ctrl.resume();
         else { ctrl.pause(); cursor = null; check(); }
       }),
-      listen<Layout>("neko-screen-layout", ({ payload }) => ctrl.setGround(payload.ground)),
-      listen<Side | null>("neko-screen-away", ({ payload }) => {
+      me.listen<Layout>("neko-screen-layout", ({ payload }) => ctrl.setGround(payload.ground)),
+      me.listen<Side | null>("neko-screen-away", ({ payload }) => {
         away = payload;
         if (!away && outAt) { outAt = 0; ctrl.setEdges(CLOSED); }
       }),
       // 창이 다른 모니터로 옮겨졌다(숨긴 채). 세계를 옮기면 엔진이 바로 한 번 그린다 — 다음 프레임에 보인다
-      listen<Moved>("neko-screen-moved", ({ payload: { layout, shift } }) => {
+      me.listen<Moved>("neko-screen-moved", ({ payload: { layout, shift } }) => {
         ctrl.shiftWorld(shift[0], shift[1]);
         ctrl.setGround(layout.ground);
         ctrl.setEdges(CLOSED);
@@ -197,11 +199,11 @@ export function NekoScreen() {
         cursor = null;
         requestAnimationFrame(() => void invoke("neko_screen_reveal").catch(() => {}));
       }),
-      listen<number>("neko-screen-scale", ({ payload }) => ctrl.setScale(payload)),
-      listen<number>("neko-screen-fps", ({ payload }) => { maxFps = payload; fps(); }),
-      listen("neko-screen-ping", () => void emitTo("main", "neko-screen-ready").catch(() => {})),
-      listen("neko-screen-press-out", () => setMenu(null)), // 다른 데를 눌렀다
-      listen<{ screen: string; x: number; y: number } | null>("neko-screen-elsewhere", ({ payload }) => { elsewhere = payload; }),
+      me.listen<number>("neko-screen-scale", ({ payload }) => ctrl.setScale(payload)),
+      me.listen<number>("neko-screen-fps", ({ payload }) => { maxFps = payload; fps(); }),
+      me.listen("neko-screen-ping", () => void emitTo("main", "neko-screen-ready").catch(() => {})),
+      me.listen("neko-screen-press-out", () => setMenu(null)), // 다른 데를 눌렀다
+      me.listen<{ screen: string; x: number; y: number } | null>("neko-screen-elsewhere", ({ payload }) => { elsewhere = payload; }),
     ];
     void invoke<Layout | null>("neko_screen_layout").then((l) => { if (l) ctrl.setGround(l.ground); }).catch(() => {});
     // 준비됐다 — 메인 창이 대리를 세우고 감독이 계획을 처음부터 보낸다
