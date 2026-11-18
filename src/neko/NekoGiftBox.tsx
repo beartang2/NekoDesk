@@ -38,8 +38,13 @@ function action(g: NekoGift, here: NekoPlacement): { label: string; run: () => v
   return { label: g.placed ? "여기로" : g.frame ? "걸기" : "놓기", run: () => place(g.id, "auto", here) };
 }
 
-/** 배율 슬라이더 끝: 로그 눈금 2^-2 ~ 2^2 = 0.25 ~ 4배. 가운데가 1배라 작은 쪽·큰 쪽 모두 같은 만큼 세밀하다 */
-const LOG2_MAX = 2;
+/**
+ * 배율 슬라이더: 0.5 ~ 3배(기본 크기를 2배로 키운 뒤의 범위 — 0.5배가 예전 기본). 가운데가 1배이고 양쪽이 저마다 로그 눈금이다:
+ * 슬라이더 값 t ∈ [-1, 1] 에서 왼쪽은 0.5^-t, 오른쪽은 3^t. 끝이 비대칭이어도 1배가 가운데에 오고 작은 쪽·큰 쪽이 다 세밀하다
+ */
+const SCALE_MIN = 0.5, SCALE_MAX = 3;
+const toScale = (t: number) => (t < 0 ? SCALE_MIN ** -t : SCALE_MAX ** t);
+const toT = (s: number) => Math.max(-1, Math.min(1, s < 1 ? -Math.log(s) / Math.log(SCALE_MIN) : Math.log(s) / Math.log(SCALE_MAX)));
 const fmtScale = (s: number) => `×${+s.toFixed(s >= 1 ? 1 : 2)}`;
 
 /**
@@ -50,7 +55,7 @@ function GiftScale({ g, at }: { g: NekoGift; at: NekoPlacement }) {
   const [drag, setDrag] = useState<number | null>(null);
   const last = useRef(1), raf = useRef(0), dirty = useRef(false);
   useEffect(() => () => cancelAnimationFrame(raf.current), []);
-  const s = drag ?? g.scale ?? 1, t = Math.log2(s);
+  const s = drag ?? g.scale ?? 1, t = toT(s);
   const resize = (v: number, save: boolean) => useNekoGifts.getState().resize(g.id, v, save);
   const live = (v: number) => {
     last.current = v; dirty.current = true; setDrag(v);
@@ -70,14 +75,14 @@ function GiftScale({ g, at }: { g: NekoGift; at: NekoPlacement }) {
       </div>
       <input
         type="range"
-        min={-LOG2_MAX}
-        max={LOG2_MAX}
-        step={0.05}
+        min={-1}
+        max={1}
+        step={0.025}
         value={t}
         onPointerDown={() => window.addEventListener("pointerup", () => { if (dirty.current) commit(); }, { once: true })}
         onKeyUp={() => { if (dirty.current) commit(); }}
-        onChange={(e) => live(Math.round(2 ** Number(e.target.value) * 100) / 100)}
-        style={{ "--fill": `${((t + LOG2_MAX) / (2 * LOG2_MAX)) * 100}%` } as CSSProperties}
+        onChange={(e) => live(Math.round(toScale(Number(e.target.value)) * 100) / 100)}
+        style={{ "--fill": `${((t + 1) / 2) * 100}%` } as CSSProperties}
         aria-label={`${g.title} 크기`}
       />
     </div>
