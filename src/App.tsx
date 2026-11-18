@@ -1792,6 +1792,8 @@ export default function App() {
       (wordChain.phase !== "idle" && wordChain.phase !== "done");
     if (away) return "이미 산책 중";
     if (midGame) return "게임 중";
+    // 밥 먹는 중(대화 요약·쉴 때 기억 정리): 다 먹고 나서 나간다(아래 효과가 feeding 이 풀리면 다시 잰다)
+    if (useNekoApp.getState().feeding) return "밥 먹는 중";
     if (!isClaudeActive()) return "Claude 프로필이 아님";
     const blocked = budgetBlockReason();
     if (blocked) return blocked;
@@ -1831,12 +1833,13 @@ export default function App() {
   // 졸고 있으면 정기 산책 시간대(아침 7–9·점심 12–14·저녁 18–20시)엔 바로, 아니면 5–20분 더 조용하고 지난 산책 2시간 뒤 나간다(lib/walk nextWalkAt).
   // 그사이 사용자가 돌아오거나 일을 시키면 취소하고, 다시 졸 때 새로 구한다.
   const dozing = idle && !isRunning;
+  const eating = useNekoApp((s) => !!s.feeding);
   useEffect(() => {
-    if (!dozing || away || (walk && !walk.done)) return;
+    if (!dozing || away || eating || (walk && !walk.done)) return;
     const plan = nextWalkAt({ dozeAt: dozeRef.current.at, lastWalk: lastWalkOf(walk), extraWait: dozeRef.current.extraWait });
     const id = window.setTimeout(() => void departRef.current(), Math.max(0, plan.at - Date.now()));
     return () => window.clearTimeout(id);
-  }, [dozing, away, walk]);
+  }, [dozing, away, eating, walk]);
 
   // 산책 중에 사용자가 돌아오면 남은 길을 버리고 1–2분 안에 곧장 온다. 머리도 그때까지 알아낸 것으로 정리한다.
   const hurryingRef = useRef(false);
