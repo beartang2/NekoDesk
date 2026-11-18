@@ -39,7 +39,7 @@ import { useSessionStore, makeSession, type Session } from "./stores/sessionStor
 import { isClaudeActive, nekoNameOf, useSettingsStore } from "./stores/settingsStore";
 import { budgetBlockReason } from "./stores/claudeBudget";
 import { startWalkBrain, type WalkBrain } from "./agent/walk";
-import { buildPath, fallbackLegs, hurryHome, pickPlaces, positionAt, toLatLon, toMeters, walkEnd, WALK_MS, type Pt, type Walk } from "./lib/walk";
+import { buildPath, EXTRA_WAIT_MS, fallbackLegs, hurryHome, nextWalkAt, pickPlaces, positionAt, toLatLon, toMeters, walkEnd, walkStart, WALK_MS, type Pt, type Walk } from "./lib/walk";
 import { hereOnce } from "./components/MapCard";
 import { DEFAULT_SIDEBAR_W, useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
@@ -82,10 +82,10 @@ import "./App.css";
 
 // ── Session types ─────────────────────────────────────────────────────────────
 
-/** 산책 기록(lib/walk 의 Walk). 다녀온 뒤에도 남겨 다음 산책까지의 간격을 잰다. */
+/** 산책 기록(lib/walk 의 Walk). 다녀온 뒤에도 남겨 다음 산책(끼니·추가 산책 간격)을 정한다. */
 const WALK_KEY = "neko_walk";
-/** 산책은 이만큼에 한 번까지 — Claude 를 쓰는 일이라 자주 나가면 예산을 먹는다. */
-const WALK_GAP_MS = 2.5 * 60 * 60 * 1000;
+/** 다녀온 지난 산책의 시작·끝(다음 산책 정하기용). 아직 안 다녀왔거나 기록이 없으면 null */
+const lastWalkOf = (w: Walk | null) => (w?.done ? { start: walkStart(w), end: walkEnd(w) } : null);
 
 // 세션 상태는 sessionStore 가 소유한다(Session/makeSession 도 거기서 재노출).
 
@@ -1745,13 +1745,18 @@ export default function App() {
   // 쉬는지는 네코 감독의 '앱을 쓰는 중'(useNekoApp.lastActiveAt: 입력·클릭·스크롤·밥·놀이)으로 본다.
   // 감독이 재우는 때(SLEEPY_MS)부터 졸고, 다시 쓰면 서둘러 온다. 구독으로 봐서 App 은 졸기 시작·깰 때만 다시 그린다.
   const [idle, setIdle] = useState(false);
+  // 졸기 시작한 시각과 이번 졸음의 추가 산책 대기(5–20분, 졸 때마다 새로 뽑는다)
+  const dozeRef = useRef({ at: Date.now(), extraWait: EXTRA_WAIT_MS[0] });
   const hurryHomeRef = useRef(() => {});
   useEffect(() => {
     let t: ReturnType<typeof setTimeout> | undefined;
     const arm = (at: number) => {
       clearTimeout(t);
       setIdle(false);
-      t = setTimeout(() => setIdle(true), at + SLEEPY_MS - performance.now());
+      t = setTimeout(() => {
+        dozeRef.current = { at: Date.now(), extraWait: EXTRA_WAIT_MS[0] + Math.random() * (EXTRA_WAIT_MS[1] - EXTRA_WAIT_MS[0]) };
+        setIdle(true);
+      }, at + SLEEPY_MS - performance.now());
     };
     arm(useNekoApp.getState().lastActiveAt);
     const off = useNekoApp.subscribe((s, p) => {
@@ -1791,8 +1796,12 @@ export default function App() {
     const blocked = budgetBlockReason();
     if (blocked) return blocked;
     if (walk && !walk.done) return "지난 산책 보고를 기다리는 중";
-    if (walk && Date.now() - walkEnd(walk) < WALK_GAP_MS) {
-      return `다음 산책까지 ${Math.ceil((walkEnd(walk) + WALK_GAP_MS - Date.now()) / 60_000)}분`;
+    // 끼니 산책이면 간격을 안 보고, 아니면 지난 산책 끝나고 2시간(lib/walk nextWalkAt)
+    const plan = nextWalkAt({ dozeAt: Date.now(), lastWalk: lastWalkOf(walk), extraWait: 0 });
+    if (plan.at > Date.now() + 1000) {
+      return plan.meal
+        ? `다음 산책: ${new Date(plan.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} 끼니 산책`
+        : `다음 산책까지 ${Math.ceil((plan.at - Date.now()) / 60_000)}분`;
     }
     const asked = useNekoApp.getState().lastActiveAt;
     const home = await hereOnce();
@@ -1819,13 +1828,13 @@ export default function App() {
   // 개발 빌드에서만: 개발자 도구 콘솔에서 nekoWalk() 로 바로 내보낸다 — 안 그러면 확인에 15–45분 걸린다.
   if (import.meta.env.DEV) (window as unknown as { nekoWalk: () => Promise<string> }).nekoWalk = () => departRef.current();
 
-  // 졸기 시작하고 10–40분 더 조용하면 나간다. 그사이 사용자가 돌아오거나 일을 시키면 취소(box 모드와 같은 꼴).
+  // 졸고 있으면 끼니 시간대(7–9·12–14·18–20시)엔 바로, 아니면 5–20분 더 조용하고 지난 산책 2시간 뒤 나간다(lib/walk nextWalkAt).
+  // 그사이 사용자가 돌아오거나 일을 시키면 취소하고, 다시 졸 때 새로 구한다.
   const dozing = idle && !isRunning;
   useEffect(() => {
-    if (!dozing || away) return;
-    // 지난 산책 뒤 간격이 안 찼으면 그만큼 더 미룬다 — 안 그러면 다녀온 뒤 계속 조용해도 다시 안 나갔다.
-    const gapLeft = walk?.done ? Math.max(0, walkEnd(walk) + WALK_GAP_MS - Date.now()) : 0;
-    const id = window.setTimeout(() => void departRef.current(), gapLeft + (10 + Math.random() * 30) * 60_000);
+    if (!dozing || away || (walk && !walk.done)) return;
+    const plan = nextWalkAt({ dozeAt: dozeRef.current.at, lastWalk: lastWalkOf(walk), extraWait: dozeRef.current.extraWait });
+    const id = window.setTimeout(() => void departRef.current(), Math.max(0, plan.at - Date.now()));
     return () => window.clearTimeout(id);
   }, [dozing, away, walk]);
 

@@ -42,6 +42,47 @@ export function toLatLon(o: LatLon, [x, y]: Pt): [number, number] {
 const dist = (a: readonly number[], b: readonly number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
 export const walkEnd = (w: Walk) => w.path[w.path.length - 1][2];
+export const walkStart = (w: Walk) => w.path[0][2];
+
+/* ---------- 언제 나가나 ----------
+   끼니 산책: 아침 7–9시·점심 12–14시·저녁 18–20시(로컬 시각) 한 번씩. 그 시간대에 졸고 있으면(5분 조용) 기다리지 않고
+   나간다 — 간격은 안 본다. 그 시간대에 이미 다녀왔으면(추가 산책 포함) 다시 안 나가고, 끝날 때까지 한 번도 안 졸았으면
+   건너뛴다. 꺼져 있던 끼니는 따라잡지 않는다(앱이 켜져 졸 때만 따진다).
+   추가 산책: 졸기 시작하고 5–20분 더 조용하고, 지난 산책이 끝나고 2시간이 지났을 때. */
+export const MEAL_HOURS: [number, number][] = [[7, 9], [12, 14], [18, 20]];
+export const WALK_GAP_MS = 2 * 60 * 60_000;
+export const EXTRA_WAIT_MS: [number, number] = [5 * 60_000, 20 * 60_000];
+
+/** 그 날(로컬)의 끼니 시간대들 [시작, 끝) */
+export function mealWindows(day: number): [number, number][] {
+  const d = new Date(day), at = (h: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), h).getTime();
+  return MEAL_HOURS.map(([a, b]) => [at(a), at(b)]);
+}
+
+export interface WalkPlan {
+  /** 나갈 시각(ms). 지금보다 이르면 바로 */
+  at: number;
+  /** 끼니 산책인가(아니면 추가 산책) */
+  meal: boolean;
+}
+
+/**
+ * 졸기 시작한 뒤 언제 나갈지 — 끼니 산책과 추가 산책 중 이른 쪽. 계속 졸고 있다는 가정이라, 그사이 사용자가 돌아오면
+ * 부르는 쪽이 다시 졸 때 새로 구한다. lastWalk = 지난 산책(다녀온 것)의 시작·끝.
+ */
+export function nextWalkAt(o: { dozeAt: number; lastWalk: { start: number; end: number } | null; extraWait: number }): WalkPlan {
+  const { dozeAt, lastWalk, extraWait } = o;
+  const extra: WalkPlan = { at: Math.max(dozeAt + extraWait, lastWalk ? lastWalk.end + WALK_GAP_MS : 0), meal: false };
+  for (const day of [dozeAt, dozeAt + 86_400_000]) {
+    for (const [a, b] of mealWindows(day)) {
+      if (b <= dozeAt) continue; // 이미 지난 끼니
+      if (lastWalk && lastWalk.start >= a && lastWalk.start < b) continue; // 그 끼니엔 다녀왔다
+      const at = Math.max(a, dozeAt);
+      return at < extra.at ? { at, meal: true } : extra; // 첫 끼니만 보면 된다(뒤엣것은 더 늦다)
+    }
+  }
+  return extra;
+}
 
 /** 들를 곳 2–4 곳. 집에서 가까운 순으로 세워 점점 멀어졌다가 마지막에 돌아오게 한다. */
 export function pickPlaces(home: LatLon, places: MapPlace[], rnd = Math.random): MapPlace[] {
