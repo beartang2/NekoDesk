@@ -55,6 +55,8 @@ export type NekoActivity =
   | "think" | "wait" | "meal" | "hungry" | "dig" | "calendar" | "erase"
   // 놓아 둔 선물 갖고 놀기(docs/neko-gifts.md §5)
   | "giftplay"
+  // 창 탐험(캣타워, 화면 모드)
+  | "tower"
   // 쳐다보기: 애정이 낮을 때(docs/neko-activity-mix.md §2.3)
   | "gaze";
 
@@ -93,6 +95,11 @@ export interface NekoEvents {
   decorMove: { id: string } & NekoDecorSpot;
   /** 놓아 둔 물건을 우클릭함: (x, y) = 그 물건 오른쪽 위(무대 px). 호스트가 거기에 '정리' 버튼을 띄운다 */
   decorMenu: { id: string; x: number; y: number };
+  /**
+   * 화면 모드(world)만: 엔진이 지금 그리는 선물 id 전부(입에 묾·뒤에 숨기·굴림·옮김·흔들림·끌기). 바뀔 때만, 처음엔 없음.
+   * 나머지는 선물 창이 그린다 — 선물 창은 이 id 를 빼고 그린다. 빠진 id 는 엔진이 0.3초 더 그려 바꿔 그리는 틈을 메운다
+   */
+  decorHeld: string[];
 }
 
 export interface NekoOptions {
@@ -106,11 +113,6 @@ export interface NekoOptions {
   world?: boolean;
   /** 크기 고정(0.35~1.4). 없으면 무대 크기로 정한다 */
   scale?: number;
-  /**
-   * 화면 모드(world) 전용: 놓아 둔 선물을 그릴 캔버스. 호스트가 고양이 캔버스 밑에 position: fixed; left: 0; top: 0 으로 깐다.
-   * 엔진이 놓인 선물을 감싸는 칸으로 크기·자리(style.transform)를 맞추고, 선물이 바뀌거나 움직일 때만 다시 그린다. 없으면 선물을 안 그린다
-   */
-  decorCanvas?: HTMLCanvasElement;
   /** 기본 "height": 무대 높이로 크기를 정한다 */
   scaleMode?: "height" | "stage";
   maxDpr?: number;
@@ -164,9 +166,10 @@ export interface NekoController {
   setGround(y: number | null): void;
   /**
    * 화면 모드 여러 모니터(docs/neko-screen-mode.md 3단계): 세계에 놓인 모든 것(고양이·궤적·잡은 손·나비·소품·효과)을
-   * (dx, dy) 세계 px 만큼 옮긴다. 속도·방향은 그대로. 호스트 순서: shiftWorld → setGround → setEdges
+   * (dx, dy) 세계 px 만큼 옮긴다. 속도·방향은 그대로. 호스트 순서: shiftWorld(dx, dy, 새 바닥) → setEdges.
+   * ground: 새 모니터 바닥. dy 에 바닥 차이가 이미 들어 있어 바닥만 바꾼다(따로 setGround 하면 바닥 차이만큼 한 번 더 옮겨 튄다)
    */
-  shiftWorld(dx: number, dy: number): void;
+  shiftWorld(dx: number, dy: number, ground?: number): void;
   /** 열린 쪽은 벽이 아니다: walkTo·walkOut 으로만 넘어간다(산책·마우스 따라가기는 안 넘음). 기본 둘 다 닫힘. 닫힌 쪽 밖이면 걸어 들어온다 */
   setEdges(e: { left: boolean; right: boolean }): void;
   /** 그쪽을 열고 가장자리 너머(몸이 다 넘어가는 만큼)로 걸어간다. 넘어가는 순간 "edge" */
@@ -179,6 +182,29 @@ export interface NekoController {
   readonly away: boolean;
   /** 지금 그리는 영역(세계 좌표). 화면 모드에선 고양이 둘레, 아니면 무대 전체 */
   readonly region: { x: number; y: number; w: number; h: number };
+  /** 잡혀 있을 때 목덜미 자리(세계 좌표), 아니면 null. 화면 모드에선 커서가 창 밖이면 묶지 않고 따라가니, 호스트가 이 점이 다른 모니터에 닿을 때 창을 옮긴다 */
+  readonly held: [number, number] | null;
+  /**
+   * 캣타워(화면 모드): 다른 창들의 윗변(발판)과 옆면(벽), 세계 좌표. 가려진 부분은 빼고 준다. 바뀔 때만.
+   * partial = 창 번호면 그 창 항목만 갈아 끼운다(올라탄 창 30Hz). 빈 목록이면 다 내린다.
+   * 올라탄 창이 움직이면(위치) 따라가지 않고 떨어진다(사용자 결정). 끝 하나만 바뀌면(크기·가림) 그대로
+   */
+  setPerches(p: {
+    tops: { id: string; win: number; x0: number; x1: number; y: number }[];
+    walls: { id: string; win: number; x: number; y0: number; y1: number; face: "left" | "right" }[];
+    partial?: number;
+  }): void;
+  /** 올라앉아 있는 윗변 id(없으면 null). 호스트가 바뀔 때 Rust 에 알려 그 창을 30Hz 로 받는다 */
+  readonly perch: string | null;
+  /** 지금 창 탐험(tower)을 할 만한가: 화면 모드에서 바로 갈 수 있는 옆면·윗변이 있거나 이미 창 위. 감독이 고르기 전에 본다 */
+  readonly towerOk: boolean;
+  /** 개발 빌드 표시용: 창마다 창 탐험으로 갈 수 있나, 못 가면 까닭(지금 고양이 자리 기준) */
+  towerWhy(): { win: number; why: string; ok: boolean }[];
+  /**
+   * 타이핑 쉼: 다른 앱에서 타이핑을 잠깐 멈췄을 때. 발은 키 위에 멈추고 글자가 안 늘며 화면을 보고 가끔 천천히 깜빡인다.
+   * 타이핑일 때만 듣고(다른 활동은 무시) 활동이 바뀌면 저절로 꺼진다
+   */
+  setRest(on: boolean): void;
   /** 입에 문다. 같은 id 면 바꾼다. 여럿이면 최대 3장이 겹쳐 보인다 */
   carry(items: NekoCarryItem | NekoCarryItem[]): void;
   /** 입에서 뺀다(id 없으면 전부). 뺀 것을 돌려준다 */
@@ -186,7 +212,8 @@ export interface NekoController {
   carried(): NekoCarried[];
   /**
    * 무대에 놓아 둔 물건(선물). 바닥: u = 양끝 여백을 뺀 무대 폭 비율 0~1. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율 0~1.
-   * 새로 놓인 것만 '뿅' 하고 나온다. 잡고 끌면 decorMove, 우클릭하면 decorMenu(저장·버튼은 호스트)
+   * 새로 놓인 것만 '뿅' 하고 나온다. 잡고 끌면 decorMove, 우클릭하면 decorMenu(저장·버튼은 호스트).
+   * 화면 모드(world)는 자리·크기만 쓰고(놀 것 고르기·피하기) 그리기·누르기는 잡은 것만(decorHeld). 뿅은 없다
    */
   setDecor(items: ({ id: string; shape: unknown; play?: NekoGiftPlay; size?: NekoGiftSize; lastPlayed?: number } & NekoDecorSpot)[]): void;
   /** 놓아 둔 물건 수(감독이 '선물 갖고 놀기'를 고를지 볼 때) */

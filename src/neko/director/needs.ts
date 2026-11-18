@@ -78,20 +78,22 @@ export function score(s: Needs, fills: Partial<Needs> | undefined): number {
   return Math.max(0.1, 1 + 0.15 * want + 0.06 * (f.energy ?? 0) * e);
 }
 
-/** 혼자 놀기 후보(MIX 의 solo). 놓인 선물로 노는 giftplay 는 선물이 있을 때만 */
+/** 혼자 놀기 후보(MIX 의 solo). 놓인 선물로 노는 giftplay 는 선물이 있을 때만, 창 탐험 tower 는 갈 창이 있을 때만(ctrl.towerOk) */
 export const SOLO_KEYS = Object.entries(MIX as Record<string, { solo?: boolean }>).filter(([, d]) => d.solo).map(([k]) => k as NekoActivity);
 
-/** 후보마다 확률(합 1). 직전 활동은 빼고, 놓인 선물이 있으면 giftplay 는 두 배 */
-export function soloOdds(s: Needs, o: { last: NekoActivity | null; hasGifts: boolean }): { key: NekoActivity; p: number }[] {
+export interface SoloWhere { last: NekoActivity | null; hasGifts: boolean; towerOk?: boolean }
+
+/** 후보마다 확률(합 1). 직전 활동은 빼고, 놓인 선물이 있으면 giftplay 는 두 배. 갈 창이 없으면 tower 는 빼다(고르면 바로 끝나 깜빡인다) */
+export function soloOdds(s: Needs, o: SoloWhere): { key: NekoActivity; p: number }[] {
   const w = SOLO_KEYS
-    .filter((k) => k !== o.last && (k !== "giftplay" || o.hasGifts))
+    .filter((k) => k !== o.last && (k !== "giftplay" || o.hasGifts) && (k !== "tower" || !!o.towerOk))
     .map((key) => ({ key, w: score(s, fillsOf(key)) * (key === "giftplay" ? 2 : 1) }));
   const sum = w.reduce((a, b) => a + b.w, 0) || 1;
   return w.map(({ key, w: x }) => ({ key, p: x / sum }));
 }
 
 /** 점수에 비례한 확률로 혼자 놀 거리 하나 */
-export function pickByNeeds(s: Needs, o: { last: NekoActivity | null; hasGifts: boolean }, r = Math.random()): NekoActivity {
+export function pickByNeeds(s: Needs, o: SoloWhere, r = Math.random()): NekoActivity {
   const odds = soloOdds(s, o);
   let acc = 0;
   for (const { key, p } of odds) {

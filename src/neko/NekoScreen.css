@@ -8,14 +8,6 @@
   touch-action: none;
   outline: none;
 }
-/* 마당 선물. 엔진이 놓인 선물 둘레만 덮게 크기·transform 을 정한다. 고양이 밑 */
-.neko-screen__decor {
-  position: fixed;
-  left: 0;
-  top: 0;
-  display: block;
-  touch-action: none;
-}
 /* 마당 선물 우클릭 '정리'(NekoSlot 의 .neko-slot__tidy 와 같은 모양) */
 .neko-screen__tidy {
   position: fixed;
@@ -33,17 +25,24 @@
   transform: translateY(-100%);
 }
 .neko-screen__tidy:hover { border-color: var(--accent); }
-.neko-screen__canvas.can-grab,
-.neko-screen__decor.can-grab { cursor: grab; }
-.neko-screen__canvas.dragging,
-.neko-screen__decor.dragging { cursor: grabbing; }
+/* 개발 빌드 캣타워 표시(NekoScreen): 발판·벽·창마다 빠진 까닭. 클릭은 막지 않는다 */
+.neko-screen__perch-debug {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  font-family: ui-monospace, monospace;
+}
+.neko-screen__canvas.can-grab { cursor: grab; }
+.neko-screen__canvas.dragging { cursor: grabbing; }
 
-/* 마당 선물 창(고양이가 없는 모니터, NekoDecorScreen): 모니터 전체, 그림만 */
+/* 마당 선물 창(모니터마다, NekoDecorScreen): 모니터 전체. 클릭은 Rust 가 선물 위에서만 받게 한다 */
 .neko-decor-screen {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
   display: block;
-  pointer-events: none;
+  touch-action: none;
 }

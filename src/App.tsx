@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMe
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Sun, Moon, Monitor, Settings, Paperclip, ArrowUp, Zap, Copy, Check, X, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Sun, Moon, Monitor, Settings, Paperclip, ArrowUp, Zap, Copy, Check, X, Gift, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { historyStep, type HistoryPos } from "./lib/input-history";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -17,6 +17,7 @@ import { ChatEmptyState } from "./components/ChatEmptyState";
 import { NekoBootCat } from "./neko/NekoPortrait";
 import { NekoSlot } from "./neko/NekoSlot";
 import { RoomBackdrop } from "./neko/NekoRoom";
+import { addPictureGift } from "./neko/pictureGift";
 import { useNekoDirector } from "./neko/useNekoDirector";
 import { useNekoApp } from "./neko/director/stores";
 import { useNekoNeeds } from "./neko/director/needsStore";
@@ -78,6 +79,7 @@ import { fetchLoadedModel, summarizeConversation } from "./agent/llm-client";
 import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl, saveProfiles } from "./stores/modelProfiles";
 import { listen } from "@tauri-apps/api/event";
 import { useNekoScreen } from "./neko/remoteNeko";
+import { useDevTools } from "./neko/devTools";
 import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
 import { clock, parseDbTime } from "./lib/time";
 
@@ -389,11 +391,14 @@ const MessageItem = React.memo(function MessageItem({
   running,
   expanded,
   onToggle,
+  request,
 }: {
   m: ChatMessage;
   running: boolean;
   expanded: boolean;
   onToggle: (id: string) => void;
+  /** 그림이 있는 답이면 그 그림을 부탁한 사용자 말 */
+  request?: string;
 }) {
   const nekoName = useSettingsStore(nekoNameOf);
   if (m.compacted) {
@@ -474,13 +479,15 @@ const MessageItem = React.memo(function MessageItem({
           {m.images && m.images.length > 0 && (
             <div className="message__images">
               {m.images.map((url, i) => (
-                <img
-                  key={i}
-                  src={url}
-                  alt="생성된 이미지"
-                  className="message__image"
-                  onClick={() => openViewer({ name: imageName(`${nekoName} 그림 ${nowStamp()}${m.images!.length > 1 ? ` ${i + 1}` : ""}`, url), dataUrl: url })}
-                />
+                <div key={i} className="message__pic">
+                  <img
+                    src={url}
+                    alt="생성된 이미지"
+                    className="message__image"
+                    onClick={() => openViewer({ name: imageName(`${nekoName} 그림 ${nowStamp()}${m.images!.length > 1 ? ` ${i + 1}` : ""}`, url), dataUrl: url })}
+                  />
+                  {m.role === "assistant" && !m.isStreaming && <PictureGiftButton src={url} request={request ?? ""} />}
+                </div>
               ))}
             </div>
           )}
@@ -537,6 +544,16 @@ function ChatMessages({
   const shown = start > 0 ? messages.slice(start) : messages;
   // 잘라 그려도 앞 답과 비교해야 하니 전체에서 찾는다.
   const switches = useMemo(() => modelSwitches(messages), [messages]);
+  // 그림이 있는 답 → 바로 앞 사용자 말(선물함에 넣을 때 제목이 된다). 잘라 그려도 앞 말은 전체에서 찾는다
+  const requests = useMemo(() => {
+    const out = new Map<string, string>();
+    let last = "";
+    for (const x of messages) {
+      if (x.role === "user") last = x.content;
+      else if (x.images?.length) out.set(x.id, last);
+    }
+    return out;
+  }, [messages]);
   const topRef = useRef<HTMLDivElement>(null);
   /** 앞을 붙이기 직전의 높이·위치. 붙인 뒤 보던 자리를 그대로 두는 데 쓴다. */
   const prepend = useRef<{ height: number; top: number } | null>(null);
@@ -638,11 +655,38 @@ function ChatMessages({
             running={isRunning && !!m.isStreaming}
             expanded={expanded.has(m.id)}
             onToggle={toggleExpanded}
+            request={requests.get(m.id)}
           />
         </React.Fragment>
       ))}
       <div ref={bottomRef} />
     </div>
+  );
+}
+
+// ── Picture → gift box ────────────────────────────────────────────────────────
+
+/** 채팅 낙서를 액자에 넣어 선물함에(neko/pictureGift). 누르면 잠깐 결과를 보여 주고 원래 글자로 돌아간다 */
+function PictureGiftButton({ src, request }: { src: string; request: string }) {
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function put() {
+    setBusy(true);
+    let msg: string;
+    try {
+      msg = (await addPictureGift(src, request)).added ? "선물함에 넣었어" : "이미 선물함에 있어";
+    } catch (e) {
+      msg = e instanceof Error && e.message ? e.message : "못 넣었어";
+    }
+    setBusy(false);
+    setNote(msg);
+    setTimeout(() => setNote(null), 2000);
+  }
+  return (
+    <button type="button" className="message__more message__gift" disabled={busy} onClick={put}>
+      <Gift size={12} />
+      {busy ? "넣는 중…" : note ?? "선물함에 넣기"}
+    </button>
   );
 }
 
@@ -1762,7 +1806,7 @@ export default function App() {
     return { activity: nekoCtrl?.activity ?? lastActRef.current, music, track, sleepy: idle, hunger: displayHunger, play: rpgState.play, at: Date.now() };
   };
 
-  // 나갔으면 "출발", 아니면 왜 안 나갔는지 — nekoWalk() 가 콘솔에 그대로 보여 준다.
+  // 나갔으면 "출발", 아니면 왜 안 나갔는지 — 개발 빌드 '개발자' 칸의 '바로 보내기' 옆에 그대로 보여 준다.
   const departRef = useRef(async (): Promise<string> => "");
   departRef.current = async () => {
     const midGame =
@@ -1806,8 +1850,12 @@ export default function App() {
     return legs ? "출발" : "출발(지도 없이 대체 경로)";
   };
 
-  // 개발 빌드에서만: 개발자 도구 콘솔에서 nekoWalk() 로 바로 내보낸다 — 안 그러면 확인에 15–45분 걸린다.
-  if (import.meta.env.DEV) (window as unknown as { nekoWalk: () => Promise<string> }).nekoWalk = () => departRef.current();
+  // 개발 빌드에서만: 설정 › 고양이 › 개발자 '산책 바로 보내기' — 안 그러면 확인에 15–45분 걸린다
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    useDevTools.setState({ walk: () => departRef.current() });
+    return () => useDevTools.setState({ walk: null });
+  }, []);
 
   // 졸고 있으면 정기 산책 시간대(아침 7–9·점심 12–14·저녁 18–20시)엔 바로, 아니면 5–20분 더 조용하고 지난 산책 2시간 뒤 나간다(lib/walk nextWalkAt).
   // 그사이 사용자가 돌아오거나 일을 시키면 취소하고, 다시 졸 때 새로 구한다.

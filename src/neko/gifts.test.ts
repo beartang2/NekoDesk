@@ -9,7 +9,7 @@ vi.mock("../api/tauri", () => ({
   },
 }));
 
-import { capGifts, fits, freeSpot, smallestPlace, useNekoGifts, type NekoGift } from "./gifts";
+import { capGifts, freeSpot, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
 
 const gift = (id: string, placed?: number): NekoGift => ({
   id, at: "", title: id, body: "", shape: { v: 1, parts: [{ t: "circle", x: 0, y: -4, r: 4, c: "red" }] },
@@ -73,19 +73,53 @@ describe("선물함", () => {
     expect(useNekoGifts.getState().gifts[0].shape.parts[0].t).toBe("ellipse"); // 조약돌
   });
 
-  it("장소마다 들어가는 크기: 방은 작은 것만, 거실은 중간까지, 마당은 다", () => {
-    expect(["small", "medium", "large"].map((z) => fits(z as never, "sidebar"))).toEqual([true, false, false]);
-    expect(["small", "medium", "large"].map((z) => fits(z as never, "dock"))).toEqual([true, true, false]);
-    expect(["small", "medium", "large"].map((z) => fits(z as never, "screen"))).toEqual([true, true, true]);
-    expect(fits(undefined, "sidebar")).toBe(false); // 크기 없음 = medium
-    expect([smallestPlace("small"), smallestPlace(undefined), smallestPlace("large")]).toEqual(["sidebar", "dock", "screen"]);
+  it("버리면 목록과 놓인 자리에서 빠지고, 다른 선물은 그대로다(다시 불러와도)", async () => {
+    const { decorItems } = await import("./gifts");
+    const s = useNekoGifts.getState();
+    for (const id of ["a", "b", "c"]) s.add({ id, title: id, body: "", shape: dot });
+    useNekoGifts.getState().place("a", "auto", "dock");
+    useNekoGifts.getState().place("b", "auto", "dock");
+    const before = useNekoGifts.getState().gifts.filter((g) => g.id !== "a");
+    useNekoGifts.getState().remove("a");
+    const ids = () => useNekoGifts.getState().gifts.map((g) => g.id);
+    expect(ids()).toEqual(["b", "c"]);
+    expect(useNekoGifts.getState().gifts).toEqual(before); // b 의 자리·c 는 그대로
+    expect(decorItems(useNekoGifts.getState().gifts, "dock").map((d) => d.id)).toEqual(["b"]);
+    useNekoGifts.setState({ gifts: [], loaded: false });
+    await useNekoGifts.getState().load();
+    expect(ids()).toEqual(["b", "c"]);
+  });
 
+  it("크기로 자리를 막지 않는다: 큰 것도 방에 놓이고, 너무 크면 그 자리에선 상한으로 그린다(저장값은 그대로)", () => {
     const s = useNekoGifts.getState();
     s.add({ id: "big", title: "big", body: "", shape: dot, size: "large" });
-    useNekoGifts.getState().place("big", "auto", "dock"); // 안 들어간다
-    expect(useNekoGifts.getState().gifts[0].placed).toBeUndefined();
-    useNekoGifts.getState().place("big", "auto", "screen");
-    expect(useNekoGifts.getState().gifts[0].placed?.at).toBe("screen");
+    useNekoGifts.getState().place("big", "auto", "sidebar");
+    expect(useNekoGifts.getState().gifts[0].placed?.at).toBe("sidebar");
+    useNekoGifts.getState().resize("big", 4, true);
+    const g = useNekoGifts.getState().gifts[0];
+    expect(g.scale).toBe(3); // 3 까지
+    expect(scaleCapped(g, "sidebar")).toBe(true);  // 큰 × 3 은 방 높이의 80% 를 넘는다
+    expect(scaleCapped(g, "screen")).toBe(false); // 마당은 고양이 키 3배까지라 안 걸린다
+  });
+
+  it("배율: 0.5~3 으로 묶고 1 이면 칸을 뺀다, 끄는 동안(save=false)은 저장 안 함, 놓으면 저장", async () => {
+    useNekoGifts.getState().add({ id: "a", title: "a", body: "", shape: dot });
+    await new Promise((r) => setTimeout(r, 0));
+    const saved = () => JSON.parse(store.get("neko_gifts") ?? "[]")[0];
+    useNekoGifts.getState().resize("a", 9, false);
+    expect(useNekoGifts.getState().gifts[0].scale).toBe(3);
+    expect(saved().scale).toBeUndefined();
+    useNekoGifts.getState().resize("a", 0.1, true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(saved().scale).toBe(0.5);
+    useNekoGifts.getState().resize("a", 1, true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect("scale" in useNekoGifts.getState().gifts[0]).toBe(false);
+    expect("scale" in saved()).toBe(false);
+    store.set("neko_gifts", JSON.stringify([{ ...saved(), scale: 99 }]));
+    useNekoGifts.setState({ gifts: [], loaded: false });
+    await useNekoGifts.getState().load();
+    expect(useNekoGifts.getState().gifts[0].scale).toBe(3); // 손댄 저장값도 묶는다
   });
 
   it("다른 장소로 옮기고, 무대 안에서 끌면 장소는 그대로, 빈 자리는 장소마다 따로 센다", () => {
@@ -132,7 +166,7 @@ describe("선물 놀이 기록·장소별 엔진 목록", () => {
     expect(decorItems(gifts, "screen")).toEqual([
       expect.objectContaining({ id: "b", size: "large", lastPlayed: 1234, surface: "floor", u: 0.35 }),
     ]);
-    expect(decorItems(gifts, "screen")[0]).not.toHaveProperty("at");
+    expect(decorItems(gifts, "screen")[0].at).toBe("screen"); // 장소는 자리 상한(capPx)에 쓴다
     expect(decorItems(gifts, "sidebar").map((d) => d.id)).toEqual(["a"]);
     expect(decorItems(gifts, "dock")).toEqual([]);
   });
@@ -184,6 +218,12 @@ describe("액자", () => {
     expect(p1.placed).toEqual({ surface: "wall", u: 0.35, v: 0.6, at: "sidebar" });
     expect(toy.placed).toEqual({ surface: "floor", u: 0.35, at: "sidebar" }); // 바닥은 따로 센다
     expect(p2.placed).toMatchObject({ surface: "wall", u: 1 });
+  });
+
+  it("마당에 걸면 화면 한가운데가 아니라 고양이 머리 조금 위에", () => {
+    useNekoGifts.getState().add({ id: "p3", title: "해", body: "", shape: dot, size: "small", frame: true });
+    useNekoGifts.getState().place("p3", "auto", "screen");
+    expect(useNekoGifts.getState().gifts.find((g) => g.id === "p3")?.placed).toMatchObject({ surface: "wall", v: 0.13, at: "screen" });
   });
 });
 

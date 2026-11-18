@@ -466,7 +466,7 @@ defineActivity("music", {
   - 설정 › 고양이 맨 아래(`import.meta.env.DEV`)에 둔다.
   - 넷의 막대와 숫자를 보여 준다. 칸마다 −30 / +30 버튼을 둔다.
   - "다음 혼자 놀기 확률" 상위 5개를 보여 준다.
-  - `window.__nekoNeeds` 로도 읽고 쓸 수 있다.
+  - 개발 빌드 설정 › 고양이 › 개발자 칸에서 본다(콘솔 훅 `window.__nekoNeeds` 는 없앴다).
 
 ### 2.8 처음엔 안 하는 것
 
@@ -538,5 +538,5 @@ defineActivity("music", {
 
 - 엔진 쪽: `MIX` 에 `fills`·`solo`(상자 뒤지기·쳐다보기 포함), 쳐다보기 활동(`gaze`), 커서 따라오기 스위치 `setChase(on)`(기본 켬).
 - 감독 쪽(미용사): `director/needs.ts`·`useNekoNeeds`·`pickByNeeds`·사건 반영·`setChase` 를 애정으로 켜고 끄기·개발 빌드 게이지 화면·산책 귀가 한 줄.
-  - 들어감: `director/needs.ts`(decay·applyFill·score·soloOdds·pickByNeeds, 예 1·2 점수·가상 8시간 테스트), `director/needsStore.ts`(`useNekoNeeds`, 설정 키 `neko_needs`, 켤 때 꺼져 있던 시간 반영), 감독 1분 틱(주·곁들임 채움, 졸기·누워 자기), 한 번짜리는 끝날 때 한 번에, 사건(쓰다듬기 → `notePet`·보냄 `run_start`·밥 `fedAt`·산책 귀가 App), 애정 < 40 이면 `setChase(true)`, `SOLO`·`ROAMING` 은 `MIX` 에서(solo·stance move), 설정 › 고양이 맨 아래 개발 빌드 게이지(`window.__nekoNeeds`).
+  - 들어감: `director/needs.ts`(decay·applyFill·score·soloOdds·pickByNeeds, 예 1·2 점수·가상 8시간 테스트), `director/needsStore.ts`(`useNekoNeeds`, 설정 키 `neko_needs`, 켤 때 꺼져 있던 시간 반영), 감독 1분 틱(주·곁들임 채움, 졸기·누워 자기), 한 번짜리는 끝날 때 한 번에, 사건(쓰다듬기 → `notePet`·보냄 `run_start`·밥 `fedAt`·산책 귀가 App), 애정 < 40 이면 `setChase(true)`, `SOLO`·`ROAMING` 은 `MIX` 에서(solo·stance move), 설정 › 고양이 › 개발자 칸의 개발 빌드 게이지.
   - 외로움: 대화(보냄)·쓰다듬기가 10분 넘게 없을 때만 깨어 있는 동안 애정이 준다. 쓰다듬기 애정은 10분에 +15 까지.

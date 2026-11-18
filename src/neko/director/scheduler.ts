@@ -1,5 +1,5 @@
 import type { NekoActivity, NekoMood, NekoPose, NekoReaction, NekoTailSign } from "../engine/neko-engine";
-import { baseOf, mixable } from "../engine/activity-mix";
+import { baseOf, MIX, mixable } from "../engine/activity-mix";
 import { RESULT_LINGER_MS, type DeriveOut } from "./derive";
 import type { NekoLayer, NekoPlan, Reaction } from "./types";
 
@@ -28,7 +28,17 @@ export const FINISH_MS = 800;
 const WORK_LAYERS: ReadonlySet<NekoLayer> = new Set(["tool", "think", "answer", "waiting"]);
 /** 다른 앱 따라 하기 활동은 앱을 금방 바꿔도 이만큼은 이어 한다(⌘Tab 마다 바꾸면 산만해 보인다) */
 export const AMBIENT_DWELL_MS = 15_000;
+/**
+ * 한 번짜리 활동을 끝까지 기다리는 상한(엔진이 끝을 못 알릴 때 대비). 활동마다 엔진이 MIX 에 적은 최대 시간(maxMs:
+ * 가장 길게 걸리는 경우 + 착지·마무리)에 여유를 더한다 — 높은 벽 타기는 12초를 넘어서 중간에 끊겨 내려왔다(0.1.14 QA).
+ * 상한에 걸려 끊어도 엔진이 벽 위면 뛰어내려 착지한 뒤 넘긴다(ecb8d28) — 스케줄러는 따로 기다리지 않는다
+ */
 export const ONE_SHOT_CAP_MS = 12_000;
+export const ONE_SHOT_SLACK_MS = 3_000;
+export const oneShotCap = (a: NekoActivity): number => {
+  const max = MIX[a]?.maxMs;
+  return max !== undefined && Number.isFinite(max) ? max + ONE_SHOT_SLACK_MS : ONE_SHOT_CAP_MS;
+};
 export const REPEAT_GAP_MS = 400;
 export const REACT_DEDUPE_MS = 800;
 export const REACT_GAP_MS = 400;
@@ -46,6 +56,8 @@ export interface SchedulerCtrl {
   setWander(on: boolean): void;
   /** 곁들임. 지금 도는 것과 안 맞으면 엔진이 거절한다(false) */
   mix(key: NekoActivity | null): boolean;
+  /** 하던 활동의 손을 쉰다(지금은 typing 만). 활동이 바뀌면 엔진이 저절로 푼다 */
+  setRest(on: boolean): void;
   on(ev: "activity" | "side", fn: (a: NekoActivity | null) => void): () => void;
   on(ev: "grab" | "drop", fn: () => void): () => void;
 }
@@ -111,6 +123,8 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
   let applied: { mood?: NekoMood; pose?: NekoPose; wander?: boolean } = {};
   /** 마지막으로 보낸(엔진이 끝내면 엔진이 알린) 곁들임 */
   let sentSide: NekoActivity | null = null;
+  /** 마지막으로 보낸 쉼. 활동이 바뀌면(엔진이 풀었다) false 로 */
+  let sentRest = false;
   let tailHold: { sign: NekoTailSign; nextAt: number } | null = null;
   let queue: Queued[] = [];
   const lastFired = new Map<string, number>();
@@ -130,6 +144,7 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
 
   const offs = [
     ctrl.on("activity", (a) => {
+      sentRest = false; // 활동이 바뀌면 엔진이 쉼을 푼다
       // 엔진이 활동을 끝냄(한 번짜리가 끝났거나, 잡혀서 그만둠). 우리가 시킨 act() 로 바뀐 건 무시
       if (a === null && cur && cur.endedAt === null) {
         cur.endedAt = clock.now();
@@ -243,9 +258,9 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
 
     let hold = false;
     // 4) 한 번짜리는 끝까지(기다림만 끊는다). 최대 시간이 지나면 넘어간다
-    if (busyOneShot && p.activity !== cur!.activity && p.layer !== "waiting" && now < cur!.startedAt + ONE_SHOT_CAP_MS) {
+    if (busyOneShot && p.activity !== cur!.activity && p.layer !== "waiting" && now < cur!.startedAt + oneShotCap(cur!.activity)) {
       hold = true;
-      want(cur!.startedAt + ONE_SHOT_CAP_MS);
+      want(cur!.startedAt + oneShotCap(cur!.activity));
     }
     // 1) 최소 머무름(기다림은 막지 않는다). 한 번짜리 도구(발도장)는 짧은 머무름 뒤에 끼어든다 — 결과 떨기보다 먼저 찍게
     else if (running() && cur!.dwell && p.activity !== cur!.activity && p.layer !== "waiting") {
@@ -270,7 +285,7 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
       const o = owed;
       owed = null;
       if (p.layer !== "waiting" && !(p.oneShot && p.activity !== o.activity)) {
-        if (p.activity !== o.activity) { start(o, now); hold = true; want(now + ONE_SHOT_CAP_MS); }
+        if (p.activity !== o.activity) { start(o, now); hold = true; want(now + oneShotCap(o.activity!)); }
       }
     }
 
@@ -303,6 +318,14 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
       sentSide = side;
       ctrl.mix(side);
       log(`곁들임 ${side ?? "끝"}`);
+    }
+
+    // 13) 쉼: 계획이 쉼이고 그 활동이 지금 엔진에서 돌 때만. 바뀔 때만 보낸다
+    const rest = p.rest && p.activity !== null && ctrl.activity === p.activity;
+    if (rest !== sentRest) {
+      sentRest = rest;
+      ctrl.setRest(rest);
+      log(`쉼 ${rest ? "켬" : "끔"}`);
     }
 
     // 11) 꼬리 유지

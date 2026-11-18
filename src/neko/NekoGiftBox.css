@@ -40,14 +40,6 @@
   min-width: 0;
   user-select: none;
 }
-/* 지금 장소엔 너무 큰 것: 흐리게, 끌 수 없음(버튼이 어디부터인지 알려 준다) */
-.neko-gifts__item--off {
-  cursor: default;
-}
-.neko-gifts__item--off canvas,
-.neko-gifts__item--off .neko-gifts__title {
-  opacity: 0.4;
-}
 /* 무대에 놓인 것: 오른쪽 위 작은 점만(어느 장소인지는 툴팁) */
 .neko-gifts__item--placed::after {
   content: "";
@@ -66,11 +58,84 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 칸 높이가 달라도(크기 슬라이더가 있는 칸) 아래 버튼 줄을 칸 바닥에 맞춘다 */
+  margin-bottom: auto;
+}
+/* 놓인 선물 크기: 상한 안내 · 배율과 원래 크기 · 슬라이더. 치우기/여기로 바로 위 */
+.neko-gifts__scale {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+  padding: 0 2px;
+}
+.neko-gifts__scale input[type="range"] {
+  width: 100%;
+}
+.neko-gifts__scale-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 14px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.neko-gifts__reset {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+.neko-gifts__cap {
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--text-muted);
 }
 .neko-gifts__btn {
   margin-top: 2px;
   font-size: 11px;
   padding: 2px 6px;
+}
+/* 버리기: 왼쪽 위 작은 휴지통. 칸에 마우스를 올려야 보인다(실수로 누르지 않게) */
+.neko-gifts__drop {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-micro), color var(--dur-micro), background var(--dur-micro);
+}
+.neko-gifts__item:hover .neko-gifts__drop,
+.neko-gifts__drop:focus-visible {
+  opacity: 1;
+}
+.neko-gifts__drop:hover {
+  color: var(--error);
+  background: color-mix(in oklab, var(--error) 14%, transparent);
+}
+/* 확인 창의 '버리기'(update-dialog__btn--primary 와 같은 꼴, 빨강) */
+.neko-gifts__drop-ok {
+  background: var(--error);
+  color: var(--bg-base);
+  font-weight: 600;
+}
+.neko-gifts__drop-ok:hover {
+  background: color-mix(in oklab, var(--error) 88%, var(--text-primary));
+  color: var(--bg-base);
 }
 
 /* 선물 그림 시험(개발 빌드) */

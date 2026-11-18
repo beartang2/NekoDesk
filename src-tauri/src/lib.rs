@@ -27,6 +27,8 @@ mod glow;
 #[cfg(target_os = "macos")]
 mod neko_screen;
 #[cfg(target_os = "macos")]
+mod neko_perch;
+#[cfg(target_os = "macos")]
 mod ambient;
 mod shelf;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
@@ -970,6 +972,41 @@ mod commands {
         crate::neko_screen::set_catch(on, cat.unwrap_or(false))
     }
 
+    /// 마당 선물 창: 그린 선물 칸(창 좌표 x, y, w, h). 커서가 이 안일 때만 그 창이 클릭을 받는다.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_decor_boxes(window: tauri::Window, boxes: Vec<[f64; 4]>) -> Result<(), AppError> {
+        crate::neko_screen::set_boxes(window.label(), boxes)
+    }
+
+    /// 화면 창: 고양이 자리(창 좌표, 크게 움직였을 때만)와 올라탄 창 번호(캣타워 — 그 창만 30Hz 로 따라 읽는다).
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_cat(at: Option<[f64; 2]>, perch: Option<u32>) -> Result<(), AppError> {
+        crate::neko_screen::set_cat(at, perch)
+    }
+
+    /// 개발 빌드 '개발자' 칸: 캣타워 표시 켜기·끄기(배포 빌드에선 늘 꺼짐).
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_perch_debug(app: tauri::AppHandle, on: bool) -> Result<(), AppError> {
+        crate::neko_screen::set_perch_debug(&app, on)
+    }
+
+    /// 화면 창이 처음 뜰 때: 지금 발판·벽(캣타워). 아직 없으면 null.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_perches() -> Option<crate::neko_perch::Perches> {
+        crate::neko_screen::perches_now()
+    }
+
+    /// 화면 창: 잡힌 고양이 목덜미 자리(창 좌표, 놓으면 null). 끌어 건너갈 때 창은 고양이가 다른 모니터에 들어갈 때 옮긴다.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_held(at: Option<[f64; 2]>) -> Result<(), AppError> {
+        crate::neko_screen::set_held(at)
+    }
+
     /// 화면 창 고양이 메뉴 '숨기기': 마당을 숨긴다. 이 앱이 맨 앞으로 오면 다시 보인다.
     #[cfg(target_os = "macos")]
     #[tauri::command(async)]
@@ -1408,6 +1445,16 @@ pub fn run() {
             commands::neko_screen_hide,
             #[cfg(target_os = "macos")]
             commands::neko_screen_screens,
+            #[cfg(target_os = "macos")]
+            commands::neko_decor_boxes,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_held,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_cat,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_perches,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_perch_debug,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,

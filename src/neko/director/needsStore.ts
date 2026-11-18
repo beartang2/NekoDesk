@@ -92,6 +92,3 @@ export const useNekoNeeds = create<NeedsStore>((set, get) => ({
     if (get().loaded) persist(n);
   },
 }));
-
-// 개발 빌드: 콘솔에서 __nekoNeeds.getState() / .getState().set({ affection: 10 })
-if (import.meta.env.DEV && typeof window !== "undefined") (window as unknown as { __nekoNeeds?: unknown }).__nekoNeeds = useNekoNeeds;

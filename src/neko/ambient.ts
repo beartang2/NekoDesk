@@ -1,12 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { NekoActivity } from "./engine/neko-engine";
 import { useNekoApp } from "./director/stores";
-import { useSettingsStore } from "../stores/settingsStore";
 
 /**
- * 다른 앱 따라 하기(설정 › 고양이). 사용자가 다른 앱에서 하는 일을 고양이가 흉내 낸다(src-tauri/src/ambient.rs).
+ * 다른 앱 따라 하기(늘 켜짐, macOS). 사용자가 다른 앱에서 하는 일을 고양이가 흉내 낸다(src-tauri/src/ambient.rs).
  *
  * - 다른 앱에서 키를 치는 중이면 같이 타이핑한다. 그동안은 졸지 않는다(감독 derive 의 outside 층).
+ *   키를 멈추면 15초(TYPE_REST_MS)는 타이핑 자세 그대로 손만 쉬며 화면을 본다(엔진 setRest) — 그 안에 다시 치면 이어 친다.
  * - 맨 앞 앱에 맞춰 한다: 그림 앱이면 그리기, 브라우저면 창밖 보기, 문서면 책 읽기…
  * - 음악이 나오면 하던 것 위에 헤드폰을 얹는다(곁들임, docs/neko-activity-mix.md §1.13).
  * - '앱을 쓰는 중'(lastActiveAt)은 건드리지 않는다 — 산책·기억 정리처럼 '자리 비움'을 보는 일은 그대로다.
@@ -60,8 +60,8 @@ export function startAmbient(): void {
   const off = () => useNekoApp.getState().setOutside({ ...useNekoApp.getState().outside, typing: false, activity: null, music: false });
 
   const tick = async () => {
-    // 마당 고양이를 숨긴 동안도 쉰다(보일 것도 없는데 osascript 를 띄울 일이 없다)
-    if (!useSettingsStore.getState().nekoFollowApps || useNekoApp.getState().screenHidden) { off(); return; }
+    // 늘 켜져 있다(설정에서 끄는 스위치는 없앴다). 마당 고양이를 숨긴 동안만 쉰다(보일 것도 없는데 osascript 를 띄울 일이 없다)
+    if (useNekoApp.getState().screenHidden) { off(); return; }
     const p = await invoke<Probe>("ambient_probe").catch(() => null);
     if (!p) return;
     const now = performance.now();
@@ -74,7 +74,8 @@ export function startAmbient(): void {
     const cur = useNekoApp.getState().outside;
     useNekoApp.getState().setOutside({
       typing,
-      at: typing ? now : cur.at,
+      // 마지막 키 누름 시각. 키를 멈춘 뒤 15초 손 쉬기(감독 TYPE_REST_MS)·졸림 시계가 여기서 센다
+      at: typing ? now - p.typed_ago * 1000 : cur.at,
       activity: p.own ? null : appActivity(p.app),
       // 음악은 이 앱을 쓰는 동안에도 같이 듣는다. 주 활동이 아니라 곁들임이다(감독 derive)
       music,

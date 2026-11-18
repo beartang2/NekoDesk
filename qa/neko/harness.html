@@ -48,14 +48,16 @@
 
 <script type="module">
 import { createNeko } from "/src/neko/engine/neko-engine.js";
+import { drawDecor } from "/src/neko/engine/decor-draw.js";
 
 const q = new URLSearchParams(location.search);
 const stage = document.getElementById("stage");
 // ?world=1: 화면 모드(세계 = 창 전체, 캔버스는 고양이 둘레만 따라감). &fixed=0.8 로 크기 고정
 const world = q.get("world") === "1";
-// &decor=1: 화면 모드 선물 캔버스(고양이 캔버스 밑)
+// &decor=1: 화면 모드 선물 창 흉내(고양이 캔버스 밑, 창 전체). 엔진이 잡지 않은(decorHeld 아닌) 선물을 decor-draw 로 그린다
+const giftWin = world && q.get("decor") === "1";
 const decorCv = document.createElement("canvas");
-if (world && q.get("decor") === "1") { decorCv.id = "decor"; Object.assign(decorCv.style, { position: "fixed", left: "0", top: "0", outline: "1px dashed #08f8" }); document.body.insertBefore(decorCv, stage); }
+if (giftWin) { decorCv.id = "decor"; Object.assign(decorCv.style, { position: "fixed", left: "0", top: "0", width: "100vw", height: "100vh", pointerEvents: "none" }); document.body.insertBefore(decorCv, stage); }
 if (world) Object.assign(stage.style, { position: "fixed", left: "0", top: "0", outline: "1px dashed #f008" });
 else {
   stage.style.width = (q.get("w") || 680) + "px";
@@ -71,7 +73,6 @@ const neko = createNeko(stage, {
   dark,
   world,
   ...(q.get("fixed") ? { scale: Number(q.get("fixed")) } : {}),
-  ...(world && q.get("decor") === "1" ? { decorCanvas: decorCv } : {}),
 });
 neko.on("label", (t) => { document.getElementById("state").textContent = t; });
 neko.on("activity", (k) => { const el = document.getElementById(`act-${k || "none"}`); if (el) el.checked = true; });
@@ -113,6 +114,15 @@ document.getElementById("reroll").onclick = () => neko.reroll();
 document.getElementById("soft").oninput = (e) => neko.setAppearance({ soft: e.target.value / 100 });
 
 // 시안의 시험 훅과 같은 모양(qa 스크립트가 그대로 쓴다)
+if (giftWin) { // 호스트 흉내: 놓인 것(setDecor)과 옮김(decorMove)을 기억하고, 잡은 것을 빼고 다시 그린다
+  let items = [], held = new Set();
+  const paint = () => drawDecor(decorCv, items.filter((d) => !held.has(d.id)), { W: innerWidth, H: innerHeight, floorY: neko.floorY, scale: neko.S, dpr: devicePixelRatio, dark });
+  const setDecor = neko.setDecor;
+  neko.setDecor = (list) => { items = list || []; setDecor(list); paint(); };
+  neko.on("decorMove", (m) => { items = items.map((d) => (d.id === m.id ? { ...d, ...m } : d)); paint(); });
+  neko.on("decorHeld", (ids) => { held = new Set(ids); paint(); });
+  window.__giftWin = { paint, get held() { return [...held]; } };
+}
 window.__neko = neko;
 window.__nekoReady = true;
 </script>

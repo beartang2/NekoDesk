@@ -2,8 +2,8 @@ import { NEED_KEYS, soloOdds, type NeedKey } from "./director/needs";
 import { useNekoNeeds } from "./director/needsStore";
 
 /**
- * 개발 빌드에서만: 숨은 게이지 넷과 다음 혼자 놀기 확률 상위 5개(docs/neko-activity-mix.md §2.7).
- * 숫자를 보며 고치려고 둔다. window.__nekoNeeds 로도 읽고 쓴다.
+ * 개발 빌드 '개발자' 칸(NekoDevSection): 숨은 게이지 넷과 다음 혼자 놀기 확률 상위 5개(docs/neko-activity-mix.md §2.7).
+ * 숫자를 보며 고치려고 둔다.
  */
 const NAME: Record<NeedKey, string> = { energy: "기운", curiosity: "호기심", clean: "청결", affection: "애정" };
 

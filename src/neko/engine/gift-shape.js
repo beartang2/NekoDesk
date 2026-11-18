@@ -10,6 +10,9 @@
  * 같은 색의 .dark·.light 로 그늘과 무늬.
  *
  * 좌표: 32×32 칸, 가운데 x = 0, 바닥 y = 0(위가 음수). 그릴 때 unit(px/칸)을 곱한다.
+ *
+ * img(모양에 하나): 그림(작은 PNG data URL)을 칸 (x, y 가운데, w×h) 안에 비율 그대로, 도형 위에 — 채팅에서 그린 낙서를 액자에 넣은 선물.
+ * 모델에게는 안 알린다(툴 스키마에 없다). 그림은 처음 그릴 때 읽기 시작해 다 읽으면 onShapeImage 구독자에게 알린다.
  */
 
 /** 팔레트 이름 → 실제 색. 소품과 같은 채도·밝기로 맞춰 둔다. 이름 뒤에 .dark·.light 를 붙이면 같은 색의 그늘·밝은 쪽 */
@@ -21,6 +24,9 @@ export const GIFT_PALETTE = {
 /** 모델에게 보여 줄 색 이름 전부(툴 스키마의 enum) */
 export const GIFT_COLORS = Object.keys(GIFT_PALETTE).flatMap((c) => [c, `${c}.dark`, `${c}.light`]);
 const KINDS = new Set(["circle", "ellipse", "rrect", "poly", "line", "dot"]);
+/** 그림 data URL: png·webp·jpeg base64 만, 길이 상한(긴 변 256px 낙서가 수십 KB) */
+const IMG_SRC = /^data:image\/(png|webp|jpeg);base64,[A-Za-z0-9+/]+=*$/;
+export const IMG_MAX = 120_000;
 const MAX_PARTS = 24;
 const HALF = 16;
 
@@ -58,6 +64,7 @@ export function validateShape(raw) {
     else if (p.t === "ellipse") parts.push({ t: "ellipse", x, y, rx: num(p.rx, 0.8, HALF, 4), ry: num(p.ry, 0.8, HALF, 4), rot: num(p.rot, -Math.PI, Math.PI, 0), c });
     else if (p.t === "rrect") parts.push({ t: "rrect", x, y, w: num(p.w, 1, 2 * HALF, 8), h: num(p.h, 1, 2 * HALF, 8), rad: num(p.rad, 0, HALF, 2), rot: num(p.rot, -Math.PI, Math.PI, 0), c });
     else if (p.t === "dot") parts.push({ t: "dot", x, y, r: num(p.r, 0.3, 2, 1.2), c }); // 반짝임은 크게, 결·알갱이는 작게
+
     else if (p.t === "poly") {
       const pts = points(p.pts, 24);
       if (pts.length >= 3) parts.push({ t: "poly", pts, round: num(p.round, 0, 6, 1.2), c });
@@ -68,7 +75,12 @@ export function validateShape(raw) {
   }
   // 너무 작아 안 보이면(다 점·선뿐) 조약돌로
   const big = parts.some((p) => p.t !== "dot" && p.t !== "line");
-  return big ? { v: 1, parts } : DEFAULT_SHAPE;
+  if (!big) return DEFAULT_SHAPE;
+  const im = raw && raw.img;
+  if (im && typeof im.src === "string" && im.src.length <= IMG_MAX && IMG_SRC.test(im.src)) {
+    return { v: 1, parts, img: { x: num(im.x, -HALF, HALF, 0), y: num(im.y, -2 * HALF, 0, -HALF), w: num(im.w, 1, 2 * HALF, 8), h: num(im.h, 1, 2 * HALF, 8), src: im.src } };
+  }
+  return { v: 1, parts };
 }
 
 /** 한 도형의 칸 [x0, y0, x1, y1](바닥 기준 좌표) */
@@ -85,6 +97,8 @@ function partBox(p) {
 export function shapeBounds(shape) {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity;
   for (const p of shape.parts) { const b = partBox(p); x0 = Math.min(x0, b[0]); x1 = Math.max(x1, b[2]); y0 = Math.min(y0, b[1]); }
+  const im = shape.img;
+  if (im) { x0 = Math.min(x0, im.x - im.w / 2); x1 = Math.max(x1, im.x + im.w / 2); y0 = Math.min(y0, im.y - im.h / 2); }
   return { x0, x1, top: Math.min(0, y0), w: Math.max(1, x1 - x0), h: Math.max(1, -Math.min(0, y0)) };
 }
 
@@ -132,6 +146,26 @@ function paintPart(ctx, p, fill) {
   else { ctx.fillStyle = fill; ctx.fill(); }
 }
 
+// 그림(img) 캐시: data URL → 읽은 그림. 다 읽으면 구독자(한 번만 그리는 곳: 선물함 칸·선물 창·방)가 다시 그린다
+const IMGS = new Map();
+const imgSubs = new Set();
+function imageOf(src) {
+  let e = IMGS.get(src);
+  if (!e) {
+    if (typeof Image === "undefined") return null;
+    const el = new Image();
+    e = { el, ok: false };
+    IMGS.set(src, e);
+    el.onload = () => { e.ok = true; imgSubs.forEach((f) => f()); };
+    el.src = src;
+  }
+  return e.ok ? e.el : null;
+}
+/** 그림을 다 읽으면 부른다(그 전에 그린 곳은 매트만 보인다). 끄는 함수를 돌려준다 */
+export function onShapeImage(fn) { imgSubs.add(fn); return () => imgSubs.delete(fn); }
+/** 이미 그려 둔 그림(캔버스 등)을 그 data URL 자리에 넣어 둔다 — 방금 만든 그림은 읽기를 안 기다린다 */
+export function primeShapeImage(src, source) { IMGS.set(src, { el: source, ok: true }); }
+
 /**
  * (x, bottom) 에 모양을 그린다. unit = 한 칸의 px, edge = 가장자리 그림자 흐림(0 이면 없음).
  * 면은 위가 밝고 아래가 살짝 어두운 입체로 — 고양이 털처럼 선 없이 덩어리로 읽히게. 선·점은 고른 색 그대로.
@@ -154,6 +188,12 @@ export function drawShape(ctx, shape, x, bottom, unit, edge = 0) {
     g.addColorStop(0.45, css(rgb));
     g.addColorStop(1, css(mixRgb(rgb, INK, 0.16)));
     paintPart(ctx, p, g);
+  }
+  const p = shape.img, im = p && imageOf(p.src), iw = im && (im.naturalWidth || im.width), ih = im && (im.naturalHeight || im.height);
+  if (iw && ih) { // 칸 안에 비율 그대로, 가운데
+    const k = Math.min(p.w / iw, p.h / ih);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(im, p.x - (iw * k) / 2, p.y - (ih * k) / 2, iw * k, ih * k);
   }
   ctx.restore();
 }

@@ -2,7 +2,8 @@ import { create } from "zustand";
 import { settingsApi } from "../api/tauri";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
 import type { NekoDecorSpot, NekoGiftPlay, NekoGiftSize } from "./engine/neko-engine";
-import type { NekoPlacement } from "./nekoStore";
+import { clampScale, decorK } from "./engine/decor-draw";
+import { useNekoStore, type NekoPlacement } from "./nekoStore";
 
 /**
  * 선물함: 네코가 산책에서 주워 온 물건(설계 docs/neko-gifts.md §3·§4).
@@ -13,21 +14,31 @@ import type { NekoPlacement } from "./nekoStore";
 
 const KEY = "neko_gifts";
 export const MAX_GIFTS = 100;
-/** 액자를 걸 높이(벽 v 비율) */
-const FRAME_V = 0.6;
+/**
+ * 액자를 걸 높이(벽 v 비율). 마당은 벽이 없고 화면 전체 높이라 0.6 이면 화면 한가운데 손톱만 하게 떠 다른 창에
+ * 가려 안 보였다 — 고양이 머리 조금 위(바닥에서 화면 높이의 13%쯤, 1080 모니터면 120px 남짓)에 건다
+ */
+const FRAME_V: Record<NekoPlacement, number> = { sidebar: 0.6, dock: 0.6, screen: 0.13 };
 /** 큰 물건 전용(scratch·lean·hide)도 넣는다 — 엔진이 크기에 안 맞는 놀이는 바꿔 논다 */
 export const PLAYS: NekoGiftPlay[] = ["roll", "bat", "sniff", "sit_on", "carry", "scratch", "lean", "hide"];
 export const GIFT_SIZES: NekoGiftSize[] = ["small", "medium", "large"];
 
 /** 장소 = 네코 자리. 사이드바는 방, 채팅 바 아래는 거실, 모니터 화면은 마당 */
 export const PLACE_NAME: Record<NekoPlacement, string> = { sidebar: "방", dock: "거실", screen: "마당" };
-/** 장소마다 놓을 수 있는 크기. 방엔 작은 것만, 거실엔 중간 것까지, 마당엔 다 */
-const FITS: Record<NekoPlacement, readonly NekoGiftSize[]> = { sidebar: ["small"], dock: ["small", "medium"], screen: GIFT_SIZES };
-/** 이 크기를 이 장소에 놓을 수 있나. 크기가 없으면 엔진이 medium 으로 그린다 */
-export const fits = (size: NekoGiftSize | undefined, at: NekoPlacement): boolean => FITS[at].includes(size ?? "medium");
-/** 이 크기를 놓을 수 있는 가장 작은 장소 */
-export const smallestPlace = (size?: NekoGiftSize): NekoPlacement =>
-  (["sidebar", "dock", "screen"] as const).find((p) => fits(size, p)) ?? "screen";
+/** 크기로 자리를 막지 않는다(사용자 확정, 0.1.16) — 어디든 놓고, 너무 크면 그 자리 상한(decor-draw capPx)으로 그린다 */
+/** 장소가 생기기 전에 놓인 것(예전 데이터): 그때 규칙대로 그 크기가 들어가던 가장 작은 장소로 */
+const legacyPlace = (size?: NekoGiftSize): NekoPlacement => (size === "small" ? "sidebar" : size === "large" ? "screen" : "dock");
+
+/**
+ * 사용자 배율이 이 장소에서 상한에 걸리나(선물함 안내 '이 자리에선 최대 크기로 보여요'). 상한은 실제 무대 크기에 달려 있어
+ * 무대 설정(높이·마당 고양이 크기)으로 어림한다 — 엔진과 몇 % 다를 수 있다
+ */
+export function scaleCapped(g: NekoGift, at: NekoPlacement): boolean {
+  const st = useNekoStore.getState().stage;
+  const floorY = (at === "sidebar" ? st.sidebarH : at === "dock" ? st.dockH : 1000) - 6;
+  const S = at === "screen" ? st.screenScale : Math.min(1.4, Math.max(0.35, floorY / 240));
+  return decorK(validateShape(g.shape), g.size, g.scale, at, { floorY, S }).capped;
+}
 
 /**
  * 놓인 자리: 장소(at) + 그 무대 안 자리. 바닥: u = 무대 폭(양끝 여백 제외) 비율. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율. 모두 0~1.
@@ -58,6 +69,8 @@ export interface NekoGift {
   frame?: true;
   /** 네코가 마지막으로 갖고 논 때(epoch ms, 엔진 decorPlayed). 오래 안 논 것부터 논다 */
   lastPlayed?: number;
+  /** 사용자가 고른 배율(0.5~3, 없으면 1 = 기본 크기). 크기(소·중·대) 위에 곱한다. 자리 상한은 그릴 때 건다(옮기면 다시 커지게) */
+  scale?: number;
 }
 
 /** 그 장소에 놓인 것을 엔진 setDecor 모양으로. 마당은 screen 을 주면 그 모니터에 보이는 것만(없으면 모니터를 안 가린다) */
@@ -66,7 +79,7 @@ export function decorItems(gifts: NekoGift[], at: NekoPlacement, screen?: Screen
     if (g.placed?.at !== at) return [];
     if (at === "screen" && screen && shownScreen(g.placed, screen) !== screen.id) return [];
     const { at: _at, screen: _scr, ...spot } = g.placed;
-    return [{ id: g.id, shape: g.shape, play: g.play, size: g.size, lastPlayed: g.lastPlayed, ...spot }];
+    return [{ id: g.id, shape: g.shape, play: g.play, size: g.size, lastPlayed: g.lastPlayed, scale: g.scale, at, ...spot }];
   });
 }
 
@@ -103,6 +116,11 @@ interface GiftStore {
   remove: (id: string) => void;
   /** 네코가 갖고 놀았다(엔진 decorPlayed) */
   played: (id: string, at: number) => void;
+  /**
+   * 배율을 바꾼다(0.5~3 으로 묶고 1 이면 칸을 뺀다). save=false 면 메모리만(선물함 슬라이더를 끄는 동안 — 창 동기화로 무대가
+   * 바로 바뀐다), true 면 저장(놓을 때 한 번)
+   */
+  resize: (id: string, scale: number, save: boolean) => void;
 }
 
 function persist(gifts: NekoGift[]) {
@@ -123,8 +141,9 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
         ? parsed.filter((g) => g && g.id).map((g) => ({
           ...g,
           shape: validateShape(g.shape),
+          ...(g.scale != null ? { scale: clampScale(g.scale) } : {}),
           // 장소가 생기기 전에 놓인 것(장소가 없거나 모르는 장소)은 그 크기가 들어가는 가장 작은 장소로
-          ...(g.placed && !Object.prototype.hasOwnProperty.call(PLACE_NAME, g.placed.at) ? { placed: { ...g.placed, at: smallestPlace(g.size) } } : {}),
+          ...(g.placed && !Object.prototype.hasOwnProperty.call(PLACE_NAME, g.placed.at) ? { placed: { ...g.placed, at: legacyPlace(g.size) } } : {}),
         }))
         : [];
     } catch {
@@ -150,13 +169,13 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
     let placed: GiftPlacement | null = null;
     if (spot !== null) {
       const where = at ?? gift.placed?.at;
-      if (!where || !fits(gift.size, where)) return;
+      if (!where) return;
       // 마당의 모니터: 준 것, 아니면 같은 마당에 있던 모니터(없으면 주 모니터)
       const scr = where !== "screen" ? undefined : screen ?? (gift.placed?.at === "screen" ? gift.placed.screen : undefined);
       // 빈 자리는 같은 장소(마당은 같은 모니터) 같은 면(액자는 벽, 나머지는 바닥)끼리 센다
       const face = gift.frame ? "wall" : "floor";
       const us = get().gifts.filter((g) => g.id !== id && g.placed?.at === where && g.placed.surface === face && g.placed.screen === scr).map((g) => g.placed!.u);
-      const s: NekoDecorSpot = spot !== "auto" ? spot : gift.frame ? { surface: "wall", u: freeSpot(us), v: FRAME_V } : { surface: "floor", u: freeSpot(us) };
+      const s: NekoDecorSpot = spot !== "auto" ? spot : gift.frame ? { surface: "wall", u: freeSpot(us), v: FRAME_V[where] } : { surface: "floor", u: freeSpot(us) };
       placed = s.surface === "wall" ? { surface: "wall", u: s.u, v: s.v, at: where } : { surface: "floor", u: s.u, at: where };
       if (scr) placed.screen = scr;
     }
@@ -172,6 +191,17 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
     const gifts = get().gifts.filter((g) => g.id !== id);
     set({ gifts });
     persist(gifts);
+  },
+  resize(id, scale, save) {
+    const k = clampScale(scale);
+    if (!get().gifts.some((g) => g.id === id)) return;
+    const gifts = get().gifts.map((g) => {
+      if (g.id !== id) return g;
+      if (k === 1) { const { scale: _drop, ...rest } = g; return rest; }
+      return { ...g, scale: k };
+    });
+    set({ gifts });
+    if (save) persist(gifts);
   },
   played(id, at) {
     if (!get().gifts.some((g) => g.id === id)) return;

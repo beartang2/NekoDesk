@@ -3,9 +3,11 @@
 
 import { describe, expect, it } from "vitest";
 import { DEEP_SLEEP_MS, deriveNeko } from "./derive";
-import { createScheduler } from "./scheduler";
+import { createScheduler, ONE_SHOT_SLACK_MS, oneShotCap } from "./scheduler";
+import { ONE_SHOT } from "./toolActivity";
+import { MIX } from "../engine/activity-mix";
 import { IDLE_SESSION, reduceSession } from "./session";
-import { FakeClock, FakeCtrl } from "./testing/fakes";
+import { FakeClock, FakeCtrl, ONE_SHOT_LEN } from "./testing/fakes";
 import type { DirectorInput, NekoSignal, Reaction } from "./types";
 
 /** 가짜 시계·엔진 위에 감독을 올린다. 시각은 초 */
@@ -209,6 +211,41 @@ describe("스케줄러 규칙", () => {
     expect(w.ctrl.seen("act:")).toEqual(["0.0 act:stamp", "1.0 act:wait"]);
   });
 
+  it("벽 타기(한 번짜리)는 12초를 넘어도 엔진이 끝낼 때까지 — 혼자 놀기가 끝나고 다른 앱 활동이 와도 끊지 않는다", () => {
+    const len = ONE_SHOT_LEN.climb;
+    ONE_SHOT_LEN.climb = 30_000;
+    try {
+      const w = world({ box: { since: 0, kind: "climb" } });
+      w.set(1, { box: null, outside: { typing: false, at: -Infinity, activity: "window", music: false } });
+      w.to(40);
+      expect(w.ctrl.seen("act:")).toEqual(["30.0 act:window"]);
+    } finally { ONE_SHOT_LEN.climb = len; }
+  });
+
+  it("창 탐험은 엔진이 끝내면(창 위에서 끝·떨어짐) 같은 혼자 놀기 안에서 다시 시키지 않는다 — 갈 곳이 없어 바로 끝나도 되풀이하지 않는다", () => {
+    const w = world();
+    w.set(0, { box: { since: 0, kind: "tower" } });
+    w.to(3);
+    w.ctrl.finish(); // 엔진이 끝냄
+    w.to(5);
+    w.ctrl.finish(); // (이미 끝남) 다시 시켰다면 또 끝난다
+    w.to(10);
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:tower"]);
+  });
+
+  it("한 번짜리 상한은 활동마다(엔진 maxMs + 3초) — 엔진이 끝을 못 알려도 그때 넘긴다", () => {
+    const len = ONE_SHOT_LEN.climb;
+    ONE_SHOT_LEN.climb = 600_000;
+    try {
+      const w = world({ box: { since: 0, kind: "climb" } });
+      w.set(1, { box: null, outside: { typing: false, at: -Infinity, activity: "window", music: false } });
+      w.to(60);
+      expect(w.ctrl.seen("act:")).toEqual([`${((MIX.climb.maxMs! + ONE_SHOT_SLACK_MS) / 1000).toFixed(1)} act:window`]);
+    } finally { ONE_SHOT_LEN.climb = len; }
+    // 한 번짜리는 모두 엔진이 최대 시간을 적었다(없으면 12초에 끊긴다)
+    for (const a of ONE_SHOT) expect(oneShotCap(a)).toBe(MIX[a].maxMs! + ONE_SHOT_SLACK_MS);
+  });
+
   it("기다리는 동안 꼬리 물음표를 2.5초마다 다시 건다", () => {
     const w = world();
     w.sig(0, { type: "run_start" });
@@ -294,6 +331,30 @@ describe("곁들임(음악, docs/neko-activity-mix.md §1.13)", () => {
 });
 
 describe("일할 때 머무름 6초와 마무리", () => {
+  it("다른 앱에서 키를 멈추면 타이핑 그대로 손만 쉬고, 15초 안에 다시 치면 이어 친다. 15초가 지나면 맨 앞 앱 활동으로", () => {
+    const w = world();
+    const o = (typing: boolean, lastKey: number) => ({ outside: { typing, at: lastKey * 1000, activity: "window" as const, music: false } });
+    w.set(1, o(true, 1));
+    w.set(2, o(true, 2));
+    w.set(4, o(false, 2)); // 키를 멈춤(마지막 키 2초)
+    w.set(10, o(true, 10)); // 8초 뒤 다시 친다
+    w.set(13, o(false, 10.5));
+    w.to(10.5 + 15 + 0.1);
+    expect(w.ctrl.seen("act:")).toEqual(["1.0 act:typing", "25.5 act:window"]);
+    // 쉼은 보낼 때만. 활동이 바뀌면 엔진이 저절로 푼다(다시 끄지 않는다)
+    expect(w.ctrl.seen("rest:")).toEqual(["4.0 rest:true", "10.0 rest:false", "13.0 rest:true"]);
+    expect(w.ctrl.rest).toBe(false);
+  });
+
+  it("앱 안 답 쓰기 타이핑은 쉼 없이 지금 규칙(끝나면 0.8초 마무리)", () => {
+    const w = world();
+    w.sig(0, { type: "run_start" });
+    w.sig(0.1, { type: "answering" });
+    w.sig(3, { type: "done", petState: null });
+    w.to(10);
+    expect(w.ctrl.seen("rest:")).toEqual([]);
+  });
+
   it("짧은 답(1.5초)은 0.8초만 마무리하고 끝 — 6초를 채우지 않는다", () => {
     const w = world();
     w.sig(0, { type: "run_start" });

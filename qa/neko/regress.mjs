@@ -281,14 +281,14 @@ try {
       const n = window.__neko, cv = document.getElementById("stage"), rect = () => cv.getBoundingClientRect(), ev = [];
       n.on("decorMove", (e) => ev.push(["move", e])); n.on("decorMenu", (e) => ev.push(["menu", e]));
       n.setWander(false); n.cat.x = n.W * 0.8; n.step(60);
-      n.setDecor([{ id: "g", surface: "floor", u: 0.1, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]);
+      n.setDecor([{ id: "g", surface: "floor", u: 0.1, scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]); // 0.5 = 예전 기본 크기
       n.step(90); n.draw();
       const boxOf = () => { for (let y = 0; y < n.floorY; y += 2) for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, y)) return [x, y]; return null; };
       const at = boxOf(), R = rect(), fire = (type, x, y, extra = {}) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 7, bubbles: true, button: extra.button ?? 0 }));
       const [x0, y0] = [at[0] + 4, at[1] + 4];
       fire("pointerdown", x0, y0); fire("pointermove", x0 + 40, y0 - 90); fire("pointerup", x0 + 40, y0 - 90);
       const moved = ev[0] && ev[0][1];
-      n.setDecor([{ id: "g", shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] }, ...moved }]); n.step(60); n.draw();
+      n.setDecor([{ id: "g", scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] }, ...moved }]); n.step(60); n.draw();
       const hitBefore = !!boxOf();
       cv.style.width = "900px"; cv.style.height = "150px"; n.resize(); n.step(60); n.draw();
       const b2 = boxOf(), span = n.floorY - (32 * n.S) - 10 * n.S, wallOk = !!b2 && moved && moved.surface === "wall";
@@ -314,7 +314,7 @@ try {
       for (const [play, surface] of [["roll", "floor"], ["bat", "floor"], ["sniff", "floor"], ["sit_on", "floor"], ["carry", "floor"], ["sniff", "wall"]]) {
         n.act(null); n.step(120); c.x = n.W * 0.75; c.vx = 0; n.step(60);
         let moves = 0; const off = n.on("decorMove", () => moves++);
-        n.setDecor([{ id: "g", surface, u: 0.25, v: 0.5, play, shape: play === "sit_on" ? shapes.flat : shapes.round }]);
+        n.setDecor([{ id: "g", surface, u: 0.25, v: 0.5, play, scale: 0.5, shape: play === "sit_on" ? shapes.flat : shapes.round }]); // 예전 기본 크기(굴리고 물 만한)
         n.act("giftplay");
         let acted = 0, minDx = 1e9;
         for (let i = 0; i < 120 * 25; i++) { n.step(1); if (c.mode === "act") acted++; if (i % 10 === 0) n.draw(); }
@@ -323,10 +323,18 @@ try {
         const box = (() => { for (let y = 0; y < n.floorY + 2; y += 2) for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, y)) return [x, y]; return null; })();
         out[`${play}/${surface}`] = { acted: acted > 30, moves, visible: !!box, carrying: n.carried().length };
       }
+      // 놀던 선물이 목록에서 빠지면(버리기·치우기·옮기기) 빈 자세로 멈추지 않고 그 판을 끝낸다
+      n.act(null); n.step(120); c.x = n.W * 0.75; c.vx = 0; n.step(60);
+      n.setDecor([{ id: "x", surface: "floor", u: 0.25, play: "sit_on", shape: shapes.flat }]); n.act("giftplay");
+      let acting = false; for (let i = 0; i < 120 * 20 && !acting; i++) { n.step(1); acting = c.mode === "act"; }
+      n.setDecor([]); n.step(30);
+      out.gone = { acting, mode: c.mode };
+      n.act(null);
       return out;
     });
     const ok = (k, needMove) => r[k].acted && r[k].visible && r[k].carrying === 0 && (!needMove || r[k].moves > 0);
     check("선물 갖고 놀기: 굴리기·물고 옮기기는 옮겨 놓고 decorMove", `굴리기 ${JSON.stringify(r["roll/floor"])} · 물기 ${JSON.stringify(r["carry/floor"])}`, ok("roll/floor", true) && ok("carry/floor", true));
+    check("선물 갖고 놀기: 놀던 선물이 빠지면(버리기 등) 빈 자세로 멈추지 않고 끝낸다", JSON.stringify(r.gone), r.gone.acting && r.gone.mode !== "act");
     check("선물 갖고 놀기: 톡·냄새·위에 앉기·벽 올려다보기", ["bat/floor", "sniff/floor", "sit_on/floor", "sniff/wall"].map((k) => `${k} ${r[k].acted}`).join(" · "), ["bat/floor", "sniff/floor", "sit_on/floor", "sniff/wall"].every((k) => ok(k, false)));
     await p.close();
   }
@@ -407,6 +415,56 @@ try {
     await p.close();
   }
 
+  // 9-h2) 바닥 높이가 다른 모니터로 건너가기(shiftWorld 의 ground): 걸어서 700 → 760 이면 발이 새 바닥에서 안 튀고 머리 높이도
+  //       그대로, 잡고 끌어서 760 → 700 이면 목덜미가 커서 밑에 그대로(바닥 차이를 두 번 옮겨 튀었다가 돌아오던 것)
+  {
+    const p = await browser.newPage({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const walk = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, edges = [];
+      n.on("edge", (s) => edges.push(s));
+      n.setGround(700); n.step(200);
+      n.walkOut("right"); let t = 0; while (!edges.length && t < 120 * 15) { n.step(1); t++; }
+      const head0 = c.head.y - c.y, W = n.W;
+      n.shiftWorld(-W, 60, 760); n.setEdges({ left: false, right: false });
+      const feet = () => Math.max(...c.legs.map((L) => L.foot.y));
+      let worstFoot = feet() - n.floorY, worstHead = 0;
+      for (let i = 0; i < 60; i++) { n.step(1); worstFoot = Math.max(worstFoot, feet() - n.floorY); worstHead = Math.max(worstHead, Math.abs(c.head.y - c.y - head0)); }
+      return { edge: edges.length === 1, floor: n.floorY, worstFoot: +worstFoot.toFixed(1), worstHead: +worstHead.toFixed(1) };
+    });
+    // 잡고 끌기: 진짜 마우스로 잡고, 창이 위로 60 올라간 모니터로 옮겨 붙으면 같은 커서가 창 좌표로 +60
+    const at = await p.evaluate(() => { const n = window.__neko; n.setGround(760); n.step(240); return [n.cat.head.x, n.cat.head.y]; });
+    const cy = at[1] - 120; // 끄는 커서(창 좌표)
+    await p.mouse.move(at[0], at[1]); await p.mouse.down(); await p.mouse.move(at[0] + 10, cy, { steps: 6 });
+    const before = await p.evaluate((cy) => { const n = window.__neko; n.step(120); return { grabbed: n.cat.mode === "grabbed", d: +(n.cat.scruff.y - cy).toFixed(1) }; }, cy);
+    const drag = await p.evaluate((cy) => { const n = window.__neko; n.shiftWorld(0, 60, 700); return { d0: +(n.cat.scruff.y - cy - 60).toFixed(1) }; }, cy);
+    await p.mouse.move(at[0] + 10, cy + 60);
+    const after = await p.evaluate((cy) => {
+      const n = window.__neko; let worst = 0;
+      for (let i = 0; i < 60; i++) { n.step(1); worst = Math.max(worst, Math.abs(n.cat.scruff.y - cy - 60)); }
+      return { worst: +worst.toFixed(1), floor: n.floorY };
+    }, cy);
+    // 커서가 창 밖(다른 모니터)으로 나가면 묶지 않고 따라간다 — held 가 경계를 넘어 호스트가 창을 옮길 수 있다
+    const out = await p.evaluate(() => {
+      const n = window.__neko, cv = document.getElementById("stage");
+      cv.dispatchEvent(new PointerEvent("pointermove", { clientX: n.W + 214, clientY: 650, pointerId: 1, bubbles: true }));
+      n.step(90); const held = n.held;
+      cv.dispatchEvent(new PointerEvent("pointermove", { clientX: n.W - 20, clientY: 650, pointerId: 1, bubbles: true }));
+      n.step(90); const back = n.held;
+      return { past: !!held && held[0] > n.W + 100, clampedBack: !!back && back[0] <= n.W - 60 * n.S + 1 };
+    });
+    await p.mouse.up();
+    const released = await p.evaluate(() => { window.__neko.step(30); return window.__neko.held; });
+    const dragOk = before.grabbed && Math.abs(drag.d0 - before.d) < 2 && after.worst < Math.abs(before.d) + 4 && after.floor === 700;
+    check("여러 모니터: 바닥이 다른 모니터로 걸어 건너가면 발이 새 바닥에서 안 튀고 머리 높이 그대로", JSON.stringify(walk), walk.edge && walk.floor === 760 && walk.worstFoot < 3 && walk.worstHead < 2);
+    check("여러 모니터: 바닥이 다른 모니터로 끌어 건너가면 목덜미가 커서 밑에 그대로", JSON.stringify({ before, drag, after }), dragOk);
+    check("여러 모니터: 끄는 커서가 창 밖이면 묶지 않고 따라가 경계를 넘는다(held), 돌아오면 다시 묶음, 놓으면 null", JSON.stringify({ ...out, released }), out.past && out.clampedBack && released === null);
+    await p.close();
+  }
+
   // 9-i) 선물 크기(small·medium·large): 같은 모양도 실제 크기대로 다르게 그리고, 큰 것도 고양이 몸보다 작다
   {
     const p = await open(`?w=680&h=240&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
@@ -418,7 +476,7 @@ try {
       const width = (id) => { let a = null, b = null; for (let x = 0; x < n.W; x += 0.5) for (let y = n.floorY - 40 * n.S; y < n.floorY; y += 1) if (n.hitDecor(x, y) === id) { a ??= x; b = x; break; } return b - a; };
       return { s: width("s"), m: width("m"), l: width("l"), body: 100 * n.S };
     });
-    check("선물 크기: small < medium < large, large 도 고양이 몸보다 작다", `폭 ${r.s.toFixed(0)} · ${r.m.toFixed(0)} · ${r.l.toFixed(0)} (몸 ${r.body.toFixed(0)})`, r.s < r.m && r.m < r.l && r.l < r.body);
+    check("선물 크기: small < medium < large, 기본은 예전(32)의 2배 — medium 한 변이 몸길이의 64%쯤", `폭 ${r.s.toFixed(0)} · ${r.m.toFixed(0)} · ${r.l.toFixed(0)} (몸 ${r.body.toFixed(0)})`, r.s < r.m && r.m < r.l && r.m > 0.5 * r.body && r.m < 0.75 * r.body);
     await p.close();
   }
 
@@ -442,9 +500,17 @@ try {
         off(); n.act(null); n.step(30);
         plays[size + "/" + play] = { chosen, acted: acted > 20, done };
       }
-      return { rotation, played, plays };
+      // 사용자 배율(선물함 슬라이더): 실제 그리는 크기로 고른다
+      const scaled = {};
+      for (const [size, scale, play] of [["medium", 2, "carry"], ["small", 0.5, "lean"], ["medium", 3, "sit_on"], ["small", 0.5, "roll"]]) {
+        n.setDecor([{ id: "s" + size + scale, surface: "floor", u: 0.3, size, scale, play, shape }]);
+        n.act("giftplay"); n.step(1); scaled[`${size}×${scale}/${play}`] = c.act && c.act.play; n.act(null); n.step(10);
+      }
+      return { rotation, played, plays, scaled };
     });
     const big = ["scratch", "lean", "hide"], P = r.plays;
+    check("선물 배율: 놀이는 실제 크기로(중간×2 는 큰 물건 놀이, 작은×0.5 기대기는 냄새, 중간×3 위에 앉기는 기대기, 작은×0.5 굴리기 그대로)", JSON.stringify(r.scaled),
+      big.includes(r.scaled["medium×2/carry"]) && r.scaled["small×0.5/lean"] === "sniff" && r.scaled["medium×3/sit_on"] === "lean" && r.scaled["small×0.5/roll"] === "roll");
     check("선물 놀이 순서: 놓인 셋을 하나도 빠짐없이 돌아가며 논다(decorPlayed)", `${r.played.join("→")}`, r.rotation === "abc");
     check("큰 물건: 물고 옮기기·굴리기는 큰 물건 놀이로, 큰 물건 놀이 셋은 실제로 논다, 작은 데선 냄새로",
       Object.entries(P).map(([k, v]) => `${k}→${v.chosen}${v.acted ? "" : "(안 함)"}`).join(" · "),
@@ -452,7 +518,9 @@ try {
     await p.close();
   }
 
-  // 9-k) 마당(화면 모드)의 선물 캔버스: 고양이에서 멀리 놓인 선물도 그리고 누를 수 있다. 자리 기준은 세계 폭·바닥
+  // 9-k) 마당(화면 모드) 선물은 모니터마다 선물 창이 그리고 만진다(&decor=1 이 흉내). 엔진은 갖고 노는 동안 잡은 것만
+  //      그리고 decorHeld 로 알린다: 가만있는 건 엔진이 안 그리고 누르기도 안 받는다. 굴리면 잡고(선물 창은 빼고 그림),
+  //      끝나면 목록에서 빠지고 0.3초쯤 더 그린 뒤 선물 창에 넘긴다. 문 채로 목록에서 빠지면 입에서도 빠진다
   {
     const p = await browser.newPage({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 });
     p.on("pageerror", (e) => errors.push(String(e)));
@@ -460,28 +528,55 @@ try {
     await p.waitForFunction(() => window.__nekoReady === true);
     await p.click("#wander");
     const r = await p.evaluate(() => {
-      const n = window.__neko, cv = document.getElementById("decor"), shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
-      n.setGround(760); n.step(60); n.cat.x = 700; n.step(60);
+      const n = window.__neko, gw = window.__giftWin, c = n.cat, cv = document.getElementById("decor"), shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      const inked = () => { const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data; let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) k++; return k; };
+      const engineHit = () => { for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, n.floorY - 8)) return true; return false; };
+      const heldEv = []; n.on("decorHeld", (ids) => heldEv.push(ids.join(",")));
+      n.setGround(760); n.step(60); c.x = 700; n.step(60);
+      // 가만있는 선물: 선물 창만 그린다(멀리 있어도), 엔진은 안 그리고 안 누른다, 잡은 것 없음
       n.setDecor([{ id: "l", surface: "floor", u: 0.02, shape }, { id: "r", surface: "floor", u: 0.98, shape }]);
-      n.step(200); n.draw();
-      const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(cv.style.transform), x0 = m ? +m[1] : NaN, w = parseFloat(cv.style.width);
-      const inked = (() => { const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data; let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) k++; return k; })();
-      const farHit = n.hitDecor(16 * 0.8 + 0.02 * (n.W - 32 * 0.8), 760 - 6) === "l" && n.hitDecor(16 * 0.8 + 0.98 * (n.W - 32 * 0.8), 760 - 6) === "r";
-      const span = x0 < 40 && x0 + w > n.W - 40;
-      // 움직임이 없으면 다시 안 그린다(같은 그림): 몇 프레임 지나도 캔버스 크기·자리 그대로
-      const before = cv.style.transform; n.step(120); n.draw(); const still = cv.style.transform === before;
-      // 선물 캔버스를 직접 눌러 끌고, 우클릭하면 엔진에 닿는다(고양이 캔버스 둘레 밖)
-      const ev = []; n.on("decorMove", (e) => ev.push(["move", e])); n.on("decorMenu", (e) => ev.push(["menu", e]));
-      const lx = 16 * 0.8 + 0.02 * (n.W - 32 * 0.8), fire = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 9, bubbles: true }));
-      fire("pointerdown", lx, 754); fire("pointermove", lx + 120, 754); fire("pointerup", lx + 120, 754);
-      n.step(30); n.draw();
-      cv.dispatchEvent(new MouseEvent("contextmenu", { clientX: lx + 120, clientY: 754, bubbles: true, cancelable: true }));
-      const moved = ev.find(([k]) => k === "move"), menu = ev.find(([k]) => k === "menu");
-      const viaCanvas = !!moved && moved[1].id === "l" && moved[1].u > 0.02 && !!menu && menu[1].id === "l";
-      return { span, inked: inked > 100, farHit, still, viaCanvas };
+      n.step(60); n.draw();
+      const still = { win: inked() > 100, engine: engineHit(), ev: heldEv.length };
+      // 굴리기: 잡은 동안 선물 창은 빼고 그리고 엔진이 그린다(누를 수도 있다)
+      n.setDecor([{ id: "g", surface: "floor", u: 0.45, play: "roll", scale: 0.5, shape }]); n.step(10);
+      n.act("giftplay");
+      let heldFrames = 0, swapOk = true, released = -1, graceDrawn = null;
+      for (let i = 0; i < 120 * 30 && released < 0; i++) {
+        n.step(1);
+        if (gw.held.includes("g")) {
+          heldFrames++;
+          if (heldFrames % 15 === 1) { n.draw(); if (inked() !== 0 || !engineHit()) swapOk = false; }
+        } else if (heldFrames) released = i;
+      }
+      if (released >= 0) { n.step(12); n.draw(); graceDrawn = engineHit(); } // 0.1초 뒤: 엔진이 아직 그린다
+      n.act(null); n.step(60); n.draw(); // 0.6초 뒤: 엔진은 안 그리고 선물 창이 새 자리에
+      const after = { engine: engineHit(), win: inked() > 100, last: heldEv[heldEv.length - 1] };
+      // 굴러가는 중에 사용자가 선물 창에서 끌어 놓음(호스트가 자리를 바꿔 다시 넣음): 굴러가던 자리를 버리고 사용자 자리에 둔다
+      const moves = []; n.on("decorMove", (e) => moves.push(e.u));
+      n.setDecor([{ id: "u", surface: "floor", u: 0.45, play: "roll", scale: 0.5, shape }]); n.step(10);
+      n.act("giftplay");
+      let rolling = false;
+      for (let i = 0; i < 120 * 30 && !rolling; i++) { n.step(1); rolling = c.act && c.act.stage === "rolling"; }
+      moves.length = 0;
+      n.setDecor([{ id: "u", surface: "floor", u: 0.9, play: "roll", scale: 0.5, shape }]);
+      n.act(null); n.step(30);
+      const userWins = { rolling, overwritten: moves.some((u) => u !== 0.9) };
+      // 물고 옮기다 목록에서 빠짐(다른 모니터로 건너감 등): 잡은 목록과 입에서 빠진다
+      n.setDecor([{ id: "m", surface: "floor", u: 0.45, play: "carry", scale: 0.5, shape }]); n.step(10);
+      n.act("giftplay");
+      let carried = false;
+      for (let i = 0; i < 120 * 30 && !carried; i++) { n.step(1); carried = n.carried().length > 0 && gw.held.includes("m"); }
+      n.setDecor([]); n.step(2);
+      const gone = { carried, mouth: n.carried().length, last: heldEv[heldEv.length - 1] };
+      n.act(null);
+      return { still, heldFrames, swapOk, released: released >= 0, graceDrawn, after, gone, userWins };
     });
-    check("마당 선물 캔버스: 멀리 놓인 선물까지 감싸 그리고 누를 수 있다", `감쌈 ${r.span} · 그림 ${r.inked} · 누르기 ${r.farHit} · 가만있으면 그대로 ${r.still}`, r.span && r.inked && r.farHit && r.still);
-    check("마당 선물 캔버스: 그 캔버스를 눌러 끌어 옮기고 우클릭하면 엔진에 닿는다", `끌기·우클릭 ${r.viaCanvas}`, r.viaCanvas);
+    check("마당 선물: 가만있는 건 선물 창만 그린다(엔진은 안 그리고 안 누른다)", JSON.stringify(r.still), r.still.win && !r.still.engine && r.still.ev === 0);
+    check("마당 선물: 굴리는 동안 엔진이 잡고(decorHeld) 그리며 선물 창은 뺀다, 놓으면 0.3초쯤 더 그리고 넘긴다",
+      `잡음 ${r.heldFrames}프레임 · 바꿔 그림 ${r.swapOk} · 놓음 ${r.released} · 잠깐 더 ${r.graceDrawn} · 뒤 ${JSON.stringify(r.after)}`,
+      r.heldFrames > 30 && r.swapOk && r.released && r.graceDrawn === true && !r.after.engine && r.after.win && r.after.last === "");
+    check("마당 선물: 물고 있던 게 목록에서 빠지면 잡은 목록·입에서도 빠진다", JSON.stringify(r.gone), r.gone.carried && r.gone.mouth === 0 && r.gone.last === "");
+    check("마당 선물: 굴러가는 중에 사용자가 옮겨 놓으면 사용자 자리가 이긴다", JSON.stringify(r.userWins), r.userWins.rolling && !r.userWins.overwritten);
     await p.close();
   }
 
@@ -642,6 +737,274 @@ try {
     });
     const ok = Object.values(r).every((v) => v.reach <= 50 && v.near !== null && v.near < 110);
     check("뛰다 시작한 활동: 내린 자리에 소품을 다시 펴고 머리는 목에서 50 안", Object.entries(r).map(([k, v]) => `${k} 머리 ${v.reach}·소품 ${v.near}`).join(" · "), ok);
+    await p.close();
+  }
+
+  // 9-q) 타이핑 쉼(setRest): 키를 안 누르고 글자가 안 늘며 가끔 깜빡인다. 끄면 다시 친다. 타이핑이 아니면 무시, 활동이 바뀌면 꺼진다
+  {
+    const p = await open(`?w=680&h=300&scale=height&transparent=1`, { width: 1000, height: 600 });
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat;
+      n.setWander(false); n.act("typing"); n.step(240);
+      const typed = () => c.act.lap.lines.reduce((a, l) => a + l.w, 0) + c.act.lap.lines.length * 100;
+      n.setRest(true); n.step(30); const w0 = typed();
+      let presses = 0, lidMax = 0;
+      for (let i = 0; i < 120 * 8; i++) { n.step(1); if (c.act.lap.press.some((v) => v > 0.5)) presses++; lidMax = Math.max(lidMax, c.actP.lid ?? 0); }
+      const rest = { still: typed() === w0, presses, blinked: lidMax > 0.8 };
+      n.setRest(false); n.step(240); const resumed = typed() > w0;
+      n.setRest(true); n.act("reading"); n.step(30); n.setRest(true); const ignored = c.act.rest === undefined;
+      n.act("typing"); n.step(5); const fresh = !c.act.rest;
+      return { ...rest, resumed, ignored, fresh };
+    });
+    check("타이핑 쉼: 키를 안 누르고 글자가 안 늘며 가끔 깜빡, 끄면 다시 친다, 다른 활동은 무시·새 활동은 꺼짐", JSON.stringify(r),
+      r.still && r.presses === 0 && r.blinked && r.resumed && r.ignored && r.fresh);
+    await p.close();
+  }
+
+  // 9-r) 채팅 낙서 선물(pictureGift): 큰 그림은 긴 변 256 으로 줄이고(투명 그대로), 아주 복잡하면 더 줄여 상한 안에.
+  //      액자 안 그림은 엔진(방)과 선물 창(decor-draw) 모두 그린다 — 그림을 다 읽으면 onShapeImage 로 다시 그린다
+  {
+    const p = await open(`?w=680&h=300&scale=height`, { width: 1000, height: 600 }, 2);
+    const r = await p.evaluate(async () => {
+      const { shrinkPicture, pictureShape, PICTURE_BUDGET } = await import("/src/neko/pictureGift.ts");
+      const { onShapeImage } = await import("/src/neko/engine/gift-shape.js");
+      const dd = await import("/src/neko/engine/decor-draw.js");
+      const big = document.createElement("canvas"); big.width = 1200; big.height = 800;
+      const g = big.getContext("2d"); g.fillStyle = "#e0303a"; g.beginPath(); g.arc(600, 400, 300, 0, Math.PI * 2); g.fill();
+      const a = await shrinkPicture(big.toDataURL("image/png"));
+      const back = new Image(); back.src = a.url; await back.decode();
+      const t = document.createElement("canvas"); t.width = a.w; t.height = a.h; const tg = t.getContext("2d"); tg.drawImage(back, 0, 0);
+      const clear = tg.getImageData(0, 0, 1, 1).data[3] === 0, red = tg.getImageData(a.w >> 1, a.h >> 1, 1, 1).data;
+      const noisy = document.createElement("canvas"); noisy.width = 1200; noisy.height = 800;
+      const ng = noisy.getContext("2d"), px = ng.createImageData(1200, 800);
+      for (let i = 0; i < px.data.length; i++) px.data[i] = (Math.random() * 256) | 0;
+      ng.putImageData(px, 0, 0);
+      const b = await shrinkPicture(noisy.toDataURL("image/png"));
+      // 그림을 처음 보는 창: 읽기 전엔 매트만, 다 읽으면 알림 → 다시 그리면 그림이 보인다
+      const shape = pictureShape(a.url + "", a.w, a.h);
+      const items = [{ id: "pic", shape, size: "large", surface: "floor", u: 0.5 }];
+      const cv = document.createElement("canvas"), view = { W: 400, H: 200, floorY: 180, scale: 1 };
+      const redIn = () => { const [box] = dd.decorBoxes(items, view), d = cv.getContext("2d").getImageData(Math.round(box.x + box.w / 2), Math.round(box.y + box.h / 2), 1, 1).data; return d[0] > 180 && d[1] < 110; };
+      const loaded = new Promise((ok) => { const off = onShapeImage(() => { off(); ok(true); }); setTimeout(() => ok(false), 3000); });
+      dd.drawDecor(cv, items, view);
+      const before = redIn();
+      const notified = await loaded;
+      dd.drawDecor(cv, items, view);
+      const after = redIn();
+      // 엔진(방)도 같은 모양으로
+      const n = window.__neko; n.setWander(false); n.setDecor([{ id: "pic", shape, size: "large", surface: "wall", u: 0.3, v: 0.5 }]); n.step(30); n.draw();
+      let engineRed = false;
+      for (let y = 0; y < n.floorY && !engineRed; y += 2) for (let x = 0; x < n.W && !engineRed; x += 2) if (n.hitDecor(x, y) === "pic") {
+        const cvs = document.getElementById("stage"), d = cvs.getContext("2d").getImageData(Math.round((x + 3) * 2), Math.round((y + 3) * 2), 1, 1).data; if (d[0] > 180 && d[1] < 110) engineRed = true;
+      }
+      return { first: { w: a.w, h: a.h, len: a.url.length, clear, red: red[0] > 200 && red[3] > 200 }, noisy: { w: b.w, len: b.len ?? b.url.length }, budget: PICTURE_BUDGET, before, notified, after, engineRed };
+    });
+    check("채팅 낙서 선물: 큰 그림은 긴 변 256 으로(투명 그대로), 복잡하면 더 줄여 상한 안", JSON.stringify({ ...r.first, noisy: r.noisy }),
+      r.first.w === 256 && r.first.h <= 171 && r.first.len <= r.budget && r.first.clear && r.first.red && r.noisy.w < 256 && r.noisy.len <= r.budget);
+    check("채팅 낙서 선물: 액자 안 그림 — 선물 창은 다 읽으면 알림 받고 다시 그려 보이고, 엔진(방)도 그린다", `알림 ${r.notified} · 다시 그림 ${r.after} · 엔진 ${r.engineRed}`, r.notified && r.after && r.engineRed);
+    await p.close();
+  }
+
+  // 9-s) 벽 타는 중에 다른 활동이 오면(스케줄러 상한·승인 대기 등) 벽에서 사라지듯 내려오지 않고 뛰어내려 착지한 뒤 넘긴다.
+  //      그동안 activity 는 climb, 같은 다음 활동이 또 와도 그대로. 걸어가는 중이면 바로 넘긴다. 한 번짜리는 maxMs 를 적었다
+  {
+    const p = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(async () => {
+      const { MIX } = await import("/src/neko/engine/activity-mix.js");
+      const n = window.__neko, c = n.cat, o = {};
+      n.setGround(830); n.step(120);
+      const run = (next) => {
+        n.act(null); n.step(240); c.x = n.W * 0.85; c.vx = 0; n.step(30);
+        n.act("climb");
+        for (let i = 0; i < 120 * 40 && !(c.act && c.act.phase === "cling" && c.y < n.floorY - 260 * n.S); i++) n.step(1);
+        const high = c.act && c.act.phase === "cling", y0 = c.y;
+        n.act(next); const still = n.activity === "climb"; n.act(next);
+        let jump = 0, prev = c.y, f = 0, during = true;
+        while (n.activity === "climb" && f < 120 * 10) { n.step(1); f++; jump = Math.max(jump, Math.abs(c.y - prev)); prev = c.y; if (n.activity === "climb" && c.mode === "idle" && f > 30) during = false; }
+        return { high, still, after: n.activity, landed: Math.abs(c.y - (n.floorY - 0)) > 0 && c.mode !== "fall", sec: +(f / 120).toFixed(2), maxStep: +jump.toFixed(1), from: Math.round(n.floorY - y0) };
+      };
+      o.toWindow = run("window");
+      o.toNull = run(null);
+      // 걸어가는 중이면 바로
+      n.act(null); n.step(240); c.x = n.W * 0.5; n.step(30); n.act("climb"); n.step(60); const walking = c.act.phase === "approach"; n.act("window");
+      o.approach = { walking, now: n.activity };
+      n.act(null);
+      o.maxMs = ["stamp", "snack", "stretch", "erase", "climb"].map((k) => MIX[k].maxMs);
+      return o;
+    });
+    const ok = (x, next) => x.high && x.still && x.after === next && x.maxStep < 40 && x.sec > 0.3;
+    check("벽 타는 중 끊기면: 뛰어내려 착지한 뒤 넘긴다(그동안 climb, 한 프레임에 크게 안 튐), 걸어가는 중이면 바로", JSON.stringify(r),
+      ok(r.toWindow, "window") && ok(r.toNull, null) && r.approach.walking && r.approach.now === "window" && r.maxMs.every((v) => v > 0));
+    await p.close();
+  }
+
+  // 9-t) 캣타워 1단계(창 윗변 발판): 놓으면 발 아래 윗변에 내린다 · 윗변 안에서만 걷는다 · 창이 움직이면 같이 간다 ·
+  //      흔들거나 창이 사라지면 떨어져 아래 윗변이나 바닥에 · 돌아다니는 놀이·다른 모니터로 가기는 먼저 뛰어내린다
+  {
+    const p = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, o = {}, S = n.S;
+      n.setGround(830); n.step(120);
+      const top = (y = 500, x0 = 400, x1 = 1000, id = "7:0", win = 7) => ({ id, win, x0, x1, y });
+      const feet = () => Math.max(...c.legs.map((L) => L.foot.y));
+      const dropAt = (x, y) => { c.x = x; c.y = y; c.vx = 0; c.vy = 0; c.mode = "fall"; c.modeT = 0; for (let i = 0; i < 120 * 3; i++) n.step(1); };
+      // 놓으면 윗변에
+      n.setPerches({ tops: [top()], walls: [] });
+      dropAt(700, 200);
+      o.landed = { perch: n.perch, feet: Math.round(feet()), floor: n.floorY };
+      // 윗변 안에서만 걷는다
+      n.walkTo(5000); for (let i = 0; i < 120 * 12; i++) n.step(1);
+      o.walk = { x: Math.round(c.x), max: Math.round(1000 - 36 * S), still: n.perch };
+      // 창 크기만 바뀌면(끝 하나) 그대로 선다
+      n.setPerches({ tops: [top(500, 400, 1060)], walls: [], partial: 7 }); n.step(30);
+      const resized = n.perch;
+      // 창을 옮기면(사용자 결정) 따라가지 않고 떨어져 바닥에
+      n.setPerches({ tops: [top(500, 404, 1064)], walls: [], partial: 7 }); n.step(2);
+      const fell = n.perch === null;
+      for (let i = 0; i < 120 * 3; i++) n.step(1);
+      o.move = { resized, fell, onFloor: Math.abs(n.floorY - 830) < 1 && c.mode !== "fall" && Math.abs(feet() - 830) < 8 };
+      // 창이 사라지면 아래 윗변으로
+      n.setPerches({ tops: [top(400, 300, 1100, "1:0", 1), top(650, 300, 1100, "2:0", 2)], walls: [] });
+      dropAt(700, 150);
+      const onHigh = n.perch;
+      n.setPerches({ tops: [top(650, 300, 1100, "2:0", 2)], walls: [] }); for (let i = 0; i < 120 * 3; i++) n.step(1);
+      o.under = { onHigh, now: n.perch };
+      // 돌아다니는 놀이는 먼저 뛰어내린다
+      n.act("yarn"); let hopped = false;
+      for (let i = 0; i < 120 * 20 && n.activity !== "yarn"; i++) { n.step(1); if (!n.perch) hopped = true; }
+      o.roam = { hopped, act: n.activity, floor: n.floorY };
+      n.act(null); n.step(120);
+      // 다른 모니터로 가기(walkOut)도 먼저 내려온다
+      n.setPerches({ tops: [top(600, 300, 1100, "3:0", 3)], walls: [] }); dropAt(700, 300);
+      const up = n.perch; n.walkOut("right"); for (let i = 0; i < 120 * 15 && n.perch; i++) n.step(1);
+      o.out = { up, down: n.perch === null };
+      n.setEdges({ left: false, right: false });
+      return o;
+    });
+    check("캣타워: 놓으면 발 아래 창 윗변에 선다, 윗변 끝 안에서만 걷는다", JSON.stringify({ landed: r.landed, walk: r.walk }),
+      r.landed.perch === "7:0" && r.landed.floor === 500 && Math.abs(r.landed.feet - 500) < 6 && r.walk.x <= r.walk.max + 1 && r.walk.still === "7:0");
+    check("캣타워: 창 크기만 바뀌면 그대로, 창을 옮기면 따라가지 않고 떨어져 바닥에 착지", JSON.stringify(r.move),
+      r.move.resized === "7:0" && r.move.fell && r.move.onFloor);
+    check("캣타워: 올라탄 창이 사라지면 아래 창 윗변에, 공놀이·다른 모니터로 가기는 먼저 뛰어내린다", JSON.stringify({ under: r.under, roam: r.roam, out: r.out }),
+      r.under.onHigh === "1:0" && r.under.now === "2:0" && r.roam.hopped && r.roam.act === "yarn" && r.roam.floor === 830 && r.out.up === "3:0" && r.out.down);
+    await p.close();
+  }
+
+  // 9-u) 캣타워 2단계(창 탐험): 창 옆면을 타고 올라 윗변에 올라서고, 다른 창 윗변으로 뛰어 건넌다. 순간이동 없이(한 프레임 이동 작게).
+  //      오르는 중에 다른 활동이 오면 뛰어내려 착지한 뒤 넘긴다. 갈 곳이 없으면(창 없음) 바로 끝난다
+  {
+    const p = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, o = {};
+      n.setGround(830); n.step(120);
+      const perches = {
+        tops: [{ id: "1:t0", win: 1, x0: 500, x1: 900, y: 560 }, { id: "2:t0", win: 2, x0: 950, x1: 1300, y: 480 }],
+        walls: [{ id: "1:l0", win: 1, x: 500, y0: 560, y1: 830, face: "left" }, { id: "1:r0", win: 1, x: 900, y0: 560, y1: 830, face: "right" },
+          { id: "2:l0", win: 2, x: 950, y0: 480, y1: 830, face: "left" }, { id: "2:r0", win: 2, x: 1300, y0: 480, y1: 830, face: "right" }],
+      };
+      n.setPerches({ tops: [], walls: [] }); n.act("tower"); n.step(5); o.none = n.activity;
+      n.setPerches(perches); c.x = 300; c.vx = 0; n.step(60);
+      o.ok = n.towerOk;
+      n.act("tower");
+      const seen = new Set(); let maxStep = 0, prev = [c.x, c.y], f = 0, climbed = false;
+      for (; f < 120 * 90 && n.activity === "tower"; f++) {
+        n.step(1);
+        if (n.perch) seen.add(n.perch);
+        if (c.act && c.act.phase === "cling") climbed = true;
+        maxStep = Math.max(maxStep, Math.hypot(c.x - prev[0], c.y - prev[1])); prev = [c.x, c.y];
+      }
+      o.run = { seen: [...seen], climbed, maxStep: +maxStep.toFixed(1), sec: +(f / 120).toFixed(1), end: n.activity, perch: n.perch };
+      // 오르는 중에 끊기
+      n.act(null); n.step(10); n.setPerches({ tops: [], walls: [] }); for (let i = 0; i < 120 * 3; i++) n.step(1);
+      n.setPerches(perches); c.x = 300; c.vx = 0; n.step(60);
+      n.act("tower"); let cling = false;
+      for (let i = 0; i < 120 * 30 && !cling; i++) { n.step(1); cling = !!(c.act && c.act.phase === "cling"); }
+      n.act("window"); const held = n.activity;
+      for (let i = 0; i < 120 * 5 && n.activity !== "window"; i++) n.step(1);
+      o.cut = { cling, held, now: n.activity, perch: n.perch };
+      n.act(null); n.step(240);
+      // 떠 있는 창(옆면 아래 끝이 바닥에서 110px — 뛰어 잡는다)·화면만큼 높은 창도 간다. 너무 높이 뜬 창은 까닭을 알려 준다
+      const visit = (pp) => {
+        n.setPerches({ tops: [], walls: [] }); for (let i = 0; i < 120 * 3; i++) n.step(1);
+        n.setPerches(pp); c.x = 300; c.vx = 0; n.step(60);
+        const ok = n.towerOk; n.act("tower"); const seen = new Set();
+        for (let i = 0; i < 120 * 60 && n.activity === "tower"; i++) { n.step(1); if (n.perch) seen.add(n.perch); }
+        n.act(null); n.step(60); return { ok, seen: [...seen] };
+      };
+      const win = (w, x0, x1, y0, y1) => ({ tops: [{ id: w + ":t0", win: w, x0, x1, y: y0 }], walls: [{ id: w + ":l0", win: w, x: x0, y0, y1, face: "left" }, { id: w + ":r0", win: w, x: x1, y0, y1, face: "right" }] });
+      o.floating = visit(win(3, 500, 760, 380, 720));
+      o.tall = visit(win(4, 600, 1100, 80, 830));
+      o.sticky = visit(win(6, 520, 573, 700, 748)); // 스티키 메모(53×48): 몸보다 짧아도 가운데에 올라앉는다
+      n.setPerches(win(5, 500, 760, 200, 560)); c.x = 300; n.step(30);
+      o.why = n.towerWhy();
+      return o;
+    });
+    check("창 탐험: 창 옆면을 타고 올라 윗변에 서고 다른 창으로 건너간다(순간이동 없이), 창이 없으면 바로 끝", JSON.stringify(r),
+      r.none === null && r.ok && r.run.climbed && r.run.seen.includes("1:t0") && r.run.maxStep < 30 && r.run.end === null);
+    check("창 탐험: 오르는 중 다른 활동이 오면 뛰어내려 착지한 뒤 넘긴다", JSON.stringify(r.cut), r.cut.cling && r.cut.held === "tower" && r.cut.now === "window" && r.cut.perch === null);
+    check("창 탐험: 떠 있는 창(옆면 끝을 뛰어 잡음)·화면만큼 높은 창도 오르고, 못 가는 창은 까닭(towerWhy)", JSON.stringify({ floating: r.floating, tall: r.tall, sticky: r.sticky, why: r.why }),
+      r.floating.ok && r.floating.seen.includes("3:t0") && r.tall.ok && r.tall.seen.includes("4:t0") && r.sticky.seen.includes("6:t0") && r.why.length === 1 && !r.why[0].ok && /떠 있다/.test(r.why[0].why));
+    await p.close();
+  }
+
+  // 9-v) 올라탄 창을 옮겨 떨어질 때(사용자): 하던 활동은 정리(소품 쏙)하고 착지 뒤 다시 잇지 않는다, 곁들임 헤드폰은 낀 채,
+  //      떨어지는 동안·착지 뒤 목·다리가 안 늘고 발이 바닥 아래로 안 가며 값이 깨지지 않는다
+  {
+    const p = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, S = n.S, out = {};
+      n.setGround(830); n.step(120);
+      const top = (x0) => ({ id: "9:t0", win: 9, x0, x1: x0 + 600, y: 520 });
+      const feet = () => Math.max(...c.legs.map((L) => L.foot.y));
+      const reach = () => Math.hypot(c.head.x - c.headAnc[0], c.head.y - c.headAnc[1]) / S; // 머리가 목 자리에서 늘어난 만큼
+      const legMax = () => Math.max(...c.legs.map((L) => Math.hypot(L.foot.x - c.x, L.foot.y - c.y))) / S;
+      const cases = [["pose", "sit"], ["pose", "loaf"], ["pose", "lie"], ["act", "groom"], ["act", "typing"], ["act", "box"], ["act", "reading"], ["act", "snack"], ["act", "knead"], ["side", "music"], ["tower", "walk"]];
+      for (const [kind, k] of cases) {
+        n.act(null); n.mix(null); n.setPose("stand"); n.step(60);
+        n.setPerches({ tops: [top(400)], walls: [] }); c.x = 700; c.y = 300; c.vx = 0; c.vy = 0; c.mode = "fall"; c.modeT = 0; n.step(360);
+        if (kind === "pose") n.setPose(k); else if (kind === "act") n.act(k); else if (kind === "side") n.mix(k);
+        else { n.setPerches({ tops: [top(400), { id: "8:t0", win: 8, x0: 1100, x1: 1400, y: 450 }], walls: [] }); n.act("tower"); }
+        let walking = false;
+        for (let i = 0; i < 120 * 3 && !(kind === "tower" && (walking = c.mode === "walk")); i++) n.step(1);
+        const before = { act: n.activity, props: c.act ? c.act.props.length : 0, perch: n.perch };
+        n.setPerches({ tops: [top(440)], walls: [], partial: 9 }); // 사용자가 창을 옮겼다
+        const at = { act: n.activity, side: n.side };
+        let bad = false, neck = 0, leg = 0, below = 0, restarted = false;
+        for (let i = 0; i < 120 * 4; i++) {
+          n.step(1); if (i % 4 === 0) n.draw();
+          if (![c.x, c.y, c.head.x, c.head.y].every(Number.isFinite)) bad = true;
+          neck = Math.max(neck, reach()); leg = Math.max(leg, legMax()); below = Math.max(below, feet() - n.floorY);
+          if (n.activity) restarted = true;
+        }
+        out[`${kind}:${k}`] = { before, at, after: { act: n.activity, side: n.side, perch: n.perch, floor: n.floorY, mode: c.mode, left: n.leftovers },
+          walking: kind === "tower" ? walking : undefined, bad, restarted, neck: +neck.toFixed(0), leg: +leg.toFixed(0), below: +below.toFixed(1) };
+      }
+      n.mix(null); n.setPose("stand");
+      return out;
+    });
+    const fails = Object.entries(r).filter(([k, v]) => {
+      const side = k === "side:music";
+      return !(v.before.perch === "9:t0" && v.at.act === null && !v.restarted && v.after.perch === null && v.after.floor === 830 && v.after.mode !== "fall"
+        && v.after.left === 0 && !v.bad && v.neck <= 30 && v.leg <= 110 && v.below < 3 && (side ? v.after.side === "music" : true) && (k === "tower:walk" ? v.walking : true));
+    });
+    check("창을 옮겨 떨어질 때: 앉기·식빵·눕기·세수·타이핑·상자·신문·간식·꾹꾹이·음악·창 탐험 걷기 — 활동 정리·착지 뒤 안 이어짐·헤드폰 그대로·목·다리 안 늘어남",
+      fails.length ? JSON.stringify(Object.fromEntries(fails)) : Object.entries(r).map(([k, v]) => `${k}${v.before.props ? `(소품 ${v.before.props})` : ""} 목${v.neck}·다리${v.leg}`).join(" · "), fails.length === 0);
     await p.close();
   }
 
