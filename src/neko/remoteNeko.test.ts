@@ -2,6 +2,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { useNekoApp } from "./director/stores";
 import { useNekoStore } from "./nekoStore";
+import { useNekoGifts, type GiftPlacement } from "./gifts";
+import { validateShape } from "./engine/gift-shape";
 import { createRemoteNeko, dispatchEvt, getRemoteNeko, link, type NekoCmd } from "./remoteNeko";
 
 const tauri = vi.hoisted(() => ({
@@ -79,5 +81,25 @@ describe("remoteNeko(대리 컨트롤러)", () => {
 
     useNekoStore.getState().setAppearance({ soft: 0.3 });
     expect(tauri.sent[tauri.sent.length - 1]?.[2]).toMatchObject({ m: "setAppearance", args: [expect.objectContaining({ soft: 0.3 })] });
+  });
+
+  it("선물 창: 모니터마다 제 선물, 고양이 모니터는 엔진이 갖고 노느라 잡은 것만 뺀다. 고양이가 건너가면 잡은 목록을 비운다", () => {
+    const at = (u: number, screen: string): GiftPlacement => ({ surface: "floor", u, at: "screen", screen });
+    const gift = (id: string, placed: GiftPlacement) => ({ id, at: "", title: id, body: "", shape: validateShape(null), placed });
+    useNekoGifts.setState({ gifts: [gift("a", at(0.1, "A")), gift("b", at(0.2, "A")), gift("c", at(0.3, "B"))] });
+    const scr = (cat: string) => ({ main: "A", cat, screens: ["A", "B"].map((id) => ({ id, layout: { w: 800, h: 600, ground: 560 }, decor: `neko-decor-${id}` })) });
+    const items = () => Object.fromEntries(tauri.sent.splice(0).filter(([, ev]) => ev === "neko-decor-items")
+      .map(([to, , p]) => [to, (p as { items: { id: string }[] }).items.map((d) => d.id)]));
+    tauri.sent.splice(0);
+    tauri.handlers.get("neko-screens")?.({ payload: scr("A") });
+    expect(items()).toEqual({ "neko-decor-A": ["a", "b"], "neko-decor-B": ["c"] });
+    dispatchEvt({ ev: "decorHeld", payload: ["b"] });
+    expect(items()).toEqual({ "neko-decor-A": ["a"] }); // 잡은 것만 바뀌면 고양이 모니터 창에만
+    tauri.handlers.get("neko-screens")?.({ payload: scr("B") });
+    expect(items()).toEqual({ "neko-decor-A": ["a", "b"], "neko-decor-B": ["c"] });
+    // 선물 창에서 끌어 옮김은 그 모니터 자리로 적는다
+    tauri.handlers.get("neko-decor-move")?.({ payload: { id: "a", screen: "B", surface: "floor", u: 0.5 } });
+    expect(useNekoGifts.getState().gifts.find((g) => g.id === "a")?.placed).toMatchObject({ at: "screen", screen: "B", u: 0.5 });
+    expect(items()).toEqual({ "neko-decor-A": ["b"], "neko-decor-B": ["a", "c"] });
   });
 });

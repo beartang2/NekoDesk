@@ -111,8 +111,6 @@ export interface NekoOptions {
   world?: boolean;
   /** 크기 고정(0.35~1.4). 없으면 무대 크기로 정한다 */
   scale?: number;
-  /** 안 쓴다(마당 선물은 선물 창이 그린다). NekoScreen 이 넘기지 않게 되면 지운다 */
-  decorCanvas?: unknown;
   /** 기본 "height": 무대 높이로 크기를 정한다 */
   scaleMode?: "height" | "stage";
   maxDpr?: number;

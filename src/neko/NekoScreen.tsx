@@ -17,6 +17,7 @@ import "./NekoScreen.css";
  * - 쓰다듬기(문지르기)도 그 커서로 센다 — 키 창이 아닌 창이라 웹뷰가 mousemove 를 못 받을 수 있다.
  * - 여러 모니터: 커서가 다른 모니터에 한동안 있으면(`neko-screen-away`) 그쪽으로 걸어 나간다. 끝을 넘으면
  *   Rust 가 창을 그 모니터로 옮기고(`neko-screen-moved`, 잡고 끌 때도) 여기서 세계를 옮긴다.
+ * - 마당 선물은 모니터마다 선물 창(NekoDecorScreen)이 그린다. 여기 엔진은 갖고 노느라 잡은 것만 그리고 `decorHeld` 로 알린다.
  */
 
 interface Layout { w: number; h: number; ground: number }
@@ -38,7 +39,7 @@ const LOCAL_ONLY: ReadonlySet<string> = new Set([
 const CLOSED = { left: false, right: false } as const;
 /** 다른 모니터로 걸어 나가라고 다시 이르는 간격(하던 활동이 끝나 한가해졌을 때 이어 가게) */
 const WALK_OUT_EVERY_MS = 1000;
-const FORWARD: (keyof NekoEvents)[] = ["pet", "nyang", "annoyed", "grab", "drop", "activity", "error", "decorMove", "decorPlayed"];
+const FORWARD: (keyof NekoEvents)[] = ["pet", "nyang", "annoyed", "grab", "drop", "activity", "error", "decorMove", "decorPlayed", "decorHeld"];
 /** 마당 선물 '정리' 버튼이 저절로 닫히는 때 */
 const MENU_MS = 6000;
 
@@ -46,7 +47,6 @@ const toMain = (e: NekoEvt) => void emitTo("main", "neko-evt", e).catch(() => {}
 
 export function NekoScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const decorRef = useRef<HTMLCanvasElement>(null);
   const ctrlRef = useRef<NekoController | null>(null);
   // 우클릭 메뉴 버튼 하나. 마당 선물이면 그 오른쪽 위에 '정리'(NekoSlot 과 같다, 누르면 메인 창이 선물함으로 치운다),
   // 고양이면 누른 자리에 '숨기기'(마당을 숨긴다 — 이 앱이 맨 앞으로 오면 다시 보인다). 다른 데 누르거나 몇 초 뒤 닫힌다
@@ -72,7 +72,6 @@ export function NekoScreen() {
     const ctrl = createNeko(canvas, {
       transparent: true,
       world: true,
-      decorCanvas: decorRef.current ?? undefined,
       scale: useNekoStore.getState().stage.screenScale,
       appearance: useNekoStore.getState().appearance,
     });
@@ -90,7 +89,7 @@ export function NekoScreen() {
     let over: "cat" | "other" | null = null;
     let sentAt = 0;
     let active = true;
-    // 고양이·마당 선물·'정리' 버튼 위면 클릭을 받는다
+    // 고양이·갖고 노느라 잡은 마당 선물(엔진이 그린다 — 나머지는 선물 창 몫)·메뉴 버튼 위면 클릭을 받는다
     const overMenu = (x: number, y: number) => {
       const r = menuRef.current?.getBoundingClientRect();
       return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
@@ -227,8 +226,6 @@ export function NekoScreen() {
 
   return (
     <>
-      {/* 마당 선물은 고양이 밑에 따로 그린다(엔진이 놓인 선물 둘레만 덮게 크기·자리를 정한다) */}
-      <canvas ref={decorRef} className="neko-screen__decor" aria-hidden="true" />
       <canvas ref={canvasRef} className="neko-screen__canvas" tabIndex={-1} aria-hidden="true" />
       {menu && (
         <button

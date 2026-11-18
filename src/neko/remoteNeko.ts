@@ -90,30 +90,38 @@ export function createRemoteNeko(send: Send = sendToScreen): NekoController {
 }
 
 // ── 모니터별 마당 선물(docs/neko-screen-mode.md §8-1) ──────────────────────────────
-// 고양이가 있는 모니터의 선물은 엔진이(놀이·끌기), 다른 모니터의 선물은 그 모니터의 선물 창이 그림만 그린다.
+// 모니터마다(고양이가 있는 모니터도) 선물 창이 그 모니터의 선물을 그리고 직접 받는다(끌기·'정리'). 엔진은 고양이
+// 모니터 선물을 다 알지만(놀 거리 고르기) 갖고 노는 동안 잡은 것(decorHeld)만 그린다 — 그건 선물 창에서 뺀다.
 
-interface ScreenInfo { id: string; layout: { w: number; h: number; ground: number }; decor: string | null }
+interface ScreenInfo { id: string; layout: { w: number; h: number; ground: number }; decor: string }
 interface Screens { screens: ScreenInfo[]; main: string; cat: string | null }
 /** Rust 가 알린 모니터 목록(neko-screens). 모르면 null — 그땐 모니터를 가리지 않는다(예전처럼) */
 let screens: Screens | null = null;
 let dark = false;
+/** 엔진이 갖고 노느라 잡은 선물(고양이 모니터). 엔진이 새로 뜨거나 고양이가 건너가면 비운다 */
+let held = new Set<string>();
 const pickFor = (id: string): ScreenPick | undefined =>
   screens ? { id, main: screens.main, known: screens.screens.map((s) => s.id) } : undefined;
 
-/** 엔진엔 고양이 모니터 선물을, 선물 창엔 저마다 자기 모니터 선물을 넘긴다. 선물 창은 받을 때만 다시 그린다 */
-function pushDecor(): void {
+/**
+ * 엔진엔 고양이 모니터 선물을, 선물 창엔 저마다 자기 모니터 선물을 넘긴다(고양이 모니터는 잡은 것 빼고). 선물 창은
+ * 받을 때만 다시 그린다. heldOnly: 잡은 것만 바뀌었다 — 고양이 모니터 선물 창에만
+ */
+function pushDecor(heldOnly = false): void {
   const gifts = useNekoGifts.getState().gifts;
-  remote?.setDecor(decorItems(gifts, "screen", screens ? pickFor(screens.cat ?? screens.main) : undefined));
+  if (!heldOnly) remote?.setDecor(decorItems(gifts, "screen", screens ? pickFor(screens.cat ?? screens.main) : undefined));
   if (!screens) return;
   const scale = useNekoStore.getState().stage.screenScale;
   for (const s of screens.screens) {
-    if (!s.decor) continue;
-    const items = decorItems(gifts, "screen", pickFor(s.id));
-    void emitTo(s.decor, "neko-decor-items", { items, W: s.layout.w, H: s.layout.h, floorY: s.layout.ground, scale, dark }).catch(() => {});
+    if (heldOnly && s.id !== screens.cat) continue;
+    const all = decorItems(gifts, "screen", pickFor(s.id));
+    const items = s.id === screens.cat ? all.filter((d) => !held.has(d.id)) : all;
+    const frame = { items, W: s.layout.w, H: s.layout.h, floorY: s.layout.ground, scale, dark, screen: s.id };
+    void emitTo(s.decor, "neko-decor-items", frame).catch(() => {});
   }
 }
 
-/** 화면 창에서 끌던 선물을 다른 모니터 위에서 놓았다: 그 모니터 자리(x, y 는 그 모니터 왼쪽 위 기준)로 옮긴다 */
+/** 화면 창·선물 창에서 끌던 선물을 다른 모니터 위에서 놓았다: 그 모니터 자리(x, y 는 그 모니터 왼쪽 위 기준)로 옮긴다 */
 function putOn({ id, screen, x, y }: { id: string; screen: string; x: number; y: number }): void {
   const s = screens?.screens.find((o) => o.id === screen);
   const g = useNekoGifts.getState().gifts.find((o) => o.id === id);
@@ -138,6 +146,7 @@ export function link(): void {
   void listen("neko-screen-ready", () => {
     if (!isScreen()) return;
     remote = createRemoteNeko();
+    held = new Set(); // 새 엔진은 아무것도 안 잡았다(바뀔 때만 알린다)
     remote.setAppearance(useNekoStore.getState().appearance);
     const { screenScale, screenFps } = useNekoStore.getState().stage;
     void emitTo(SCREEN_LABEL, "neko-screen-scale", screenScale).catch(() => {});
@@ -150,11 +159,21 @@ export function link(): void {
   void useNekoGifts.getState().load();
   useNekoGifts.subscribe((s, p) => { if (s.gifts !== p.gifts) pushDecor(); });
   // 모니터 목록·고양이가 건너감·선물 창이 새로 뜸: 다시 나눈다
-  void listen<Screens>("neko-screens", (e) => { screens = e.payload; pushDecor(); }).catch(() => {});
+  void listen<Screens>("neko-screens", (e) => {
+    if (e.payload.cat !== screens?.cat) held = new Set();
+    screens = e.payload;
+    pushDecor();
+  }).catch(() => {});
   void invoke<Screens | null>("neko_screen_screens").then((s) => { if (s && !screens) { screens = s; pushDecor(); } }).catch(() => {});
   void listen("neko-decor-ready", () => pushDecor()).catch(() => {});
   void listen<{ id: string; screen: string; x: number; y: number }>("neko-screen-put-on", (e) => putOn(e.payload)).catch(() => {});
-  // 엔진 안에서 끌어 옮김 = 고양이가 있는 모니터 안. 그 모니터로 적는다(빠진 모니터 것을 주 모니터에서 옮기면 주 모니터 것이 된다)
+  // 선물 창에서 끌어 옮김(그 모니터 안)
+  void listen<{ id: string; screen: string } & NekoDecorSpot>("neko-decor-move", (e) => {
+    const { id, screen, ...spot } = e.payload;
+    useNekoGifts.getState().place(id, spot, "screen", screen);
+  }).catch(() => {});
+  addListener("decorHeld", (p) => { held = new Set(p as string[]); pushDecor(true); });
+  // 엔진 안에서 끌어 옮김(갖고 노느라 잡은 것) = 고양이가 있는 모니터 안. 그 모니터로 적는다(빠진 모니터 것을 주 모니터에서 옮기면 주 모니터 것이 된다)
   addListener("decorMove", (p) => { const { id, ...spot } = p as { id: string } & NekoDecorSpot; useNekoGifts.getState().place(id, spot, undefined, screens?.cat ?? undefined); });
   addListener("decorPlayed", (p) => { const { id, at } = p as { id: string; at: number }; useNekoGifts.getState().played(id, at); });
   void listen<string>("neko-screen-put", (e) => useNekoGifts.getState().place(e.payload, null)).catch(() => {});

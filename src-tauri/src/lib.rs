@@ -970,6 +970,13 @@ mod commands {
         crate::neko_screen::set_catch(on, cat.unwrap_or(false))
     }
 
+    /// 마당 선물 창: 그린 선물 칸(창 좌표 x, y, w, h). 커서가 이 안일 때만 그 창이 클릭을 받는다.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_decor_boxes(window: tauri::Window, boxes: Vec<[f64; 4]>) -> Result<(), AppError> {
+        crate::neko_screen::set_boxes(window.label(), boxes)
+    }
+
     /// 화면 창 고양이 메뉴 '숨기기': 마당을 숨긴다. 이 앱이 맨 앞으로 오면 다시 보인다.
     #[cfg(target_os = "macos")]
     #[tauri::command(async)]
@@ -1408,6 +1415,8 @@ pub fn run() {
             commands::neko_screen_hide,
             #[cfg(target_os = "macos")]
             commands::neko_screen_screens,
+            #[cfg(target_os = "macos")]
+            commands::neko_decor_boxes,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,
