@@ -59,6 +59,8 @@ export function NekoScreen() {
   const menuRef = useRef<HTMLButtonElement>(null);
   // 개발 빌드: 발판(초록)·벽(파랑)·창마다 빠진 까닭을 화면에 그린다
   const [debug, setDebug] = useState<{ wins: PerchDebug[]; p: Perches } | null>(null);
+  // 엔진이 본 창마다 창 탐험 가능 여부(지금 고양이 자리 기준, 0.5초마다)
+  const [towerWhy, setTowerWhy] = useState<Map<number, { why: string; ok: boolean }>>(new Map());
   useEffect(() => {
     if (!menu) return;
     const t = setTimeout(() => setMenu(null), MENU_MS);
@@ -151,6 +153,7 @@ export function NekoScreen() {
       void emitTo("main", "neko-screen-tower", ok).catch(() => {});
     };
     const timer = setInterval(() => { reportHeld(); reportCat(); reportTower(); if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
+    const whyTimer = import.meta.env.DEV ? setInterval(() => setTowerWhy(new Map(ctrl.towerWhy().map((w) => [w.win, w] as const))), 500) : undefined;
     // 끝을 넘었다 — 커서가 아직 그쪽이면 Rust 가 창을 옮긴다(neko-screen-moved). 그새 돌아왔으면 걸어 들어온다
     const offMenu = ctrl.on("decorMenu", setMenu);
     // 고양이 우클릭: 엔진은 선물만 메뉴를 띄우고(기본 메뉴를 막음) 고양이엔 안 띄운다. 오른쪽 버튼 누름은 엔진에
@@ -257,6 +260,7 @@ export function NekoScreen() {
 
     return () => {
       clearInterval(timer);
+      clearInterval(whyTimer);
       clearTimeout(fallTimer);
       offEdge();
       offMenu();
@@ -280,6 +284,9 @@ export function NekoScreen() {
             <g key={w.win}>
               <rect x={w.rect[0]} y={w.rect[1]} width={w.rect[2]} height={w.rect[3]} fill="none" stroke={w.why ? "#e5484d" : "#8b8d98"} strokeDasharray="6 4" />
               <text x={w.rect[0] + 4} y={w.rect[1] + 14} fill={w.why ? "#e5484d" : "#8b8d98"} fontSize="11">{`${w.owner} #${w.win} L${w.layer}${w.why ? ` — ${w.why}` : ""}`}</text>
+              {towerWhy.get(w.win) && (
+                <text x={w.rect[0] + 4} y={w.rect[1] + 28} fill={towerWhy.get(w.win)!.ok ? "#30a46c" : "#f76b15"} fontSize="11">{`탐험: ${towerWhy.get(w.win)!.why}`}</text>
+              )}
             </g>
           ))}
           {debug.p.tops.map((t) => <line key={t.id} x1={t.x0} x2={t.x1} y1={t.y} y2={t.y} stroke="#30a46c" strokeWidth="3" />)}
