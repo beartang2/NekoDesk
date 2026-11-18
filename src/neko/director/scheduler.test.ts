@@ -34,18 +34,18 @@ function world(init: Partial<DirectorInput> = {}) {
 }
 
 describe("스케줄러 시간표(설계 §8.1)", () => {
-  it("1) 검색 → 페이지 읽기가 빨리 와도 창밖을 4초 보인 뒤 신문으로 한 번만, 앉았다 서지 않음", () => {
+  it("1) 검색 → 페이지 읽기가 빨리 와도 창밖을 6초 보인 뒤 신문으로 한 번만, 앉았다 서지 않음", () => {
     const w = world();
     w.sig(0, { type: "run_start" });
     w.sig(0, { type: "tool_start", tool: "web.search" });
     w.sig(0.3, { type: "thinking" });
     w.sig(0.4, { type: "tool_start", tool: "web.scrape" });
-    w.to(5);
-    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "4.0 act:reading"]);
+    w.to(7);
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "6.0 act:reading"]);
     expect(w.ctrl.seen("pose:sit").filter((x) => !x.startsWith("0.0"))).toEqual([]);
   });
 
-  it("2) 위험한 확인 → 꼬리펑·물음표 기다림 → 승인 → 타이핑 → 끝 0.6초 뒤 떨기, 결과 2.5초 뒤 기본", () => {
+  it("2) 위험한 확인 → 꼬리펑·물음표 기다림 → 승인 → 타이핑 → 끝나면 0.8초 마무리하고 떨기, 결과 2.5초 뒤 기본", () => {
     const w = world();
     w.sig(0, { type: "run_start" });
     w.sig(0.8, { type: "wait", kind: "confirm", danger: true });
@@ -55,11 +55,12 @@ describe("스케줄러 시간표(설계 §8.1)", () => {
     w.sig(4.1, { type: "thinking" });
     w.sig(4.5, { type: "done", petState: null });
     w.to(9);
-    expect(w.ctrl.seen("react:")).toEqual(["0.8 react:startle", "5.1 react:cheer"]);
+    // 떨기는 타이핑 마무리(4.5 + 0.8)가 끝난 뒤 — 타이핑하며 떨지 않는다
+    expect(w.ctrl.seen("react:")).toEqual(["0.8 react:startle", "5.3 react:cheer"]);
     expect(w.ctrl.seen("tail:question")).toContain("0.8 tail:question:3");
     // 생각이 0.5초 이어지면 골똘히 → 확인을 기다림(골똘히 머무름에 안 밀림) → 승인하면 잠깐 정리하고 타이핑 →
-    // 타이핑은 4초 보이고 정리(떨기·행복은 그동안 제때 나온다)
-    expect(w.ctrl.seen("act:")).toEqual(["0.5 act:think", "0.8 act:wait", "3.0 act:null", "3.0 act:typing", "7.0 act:null"]);
+    // 일이 끝나면(4.5) 머무름 6초를 다 채우지 않고 0.8초 마무리한 뒤 정리
+    expect(w.ctrl.seen("act:")).toEqual(["0.5 act:think", "0.8 act:wait", "3.0 act:null", "3.0 act:typing", "5.3 act:null"]);
     expect(w.ctrl.seen("mood:")).toEqual(["0.0 mood:curious", "3.0 mood:idle", "4.5 mood:happy", "7.6 mood:idle"]);
   });
 
@@ -86,13 +87,13 @@ describe("스케줄러 시간표(설계 §8.1)", () => {
     expect(w.ctrl.seen("react:")).toEqual(["4.9 react:cheer"]);
   });
 
-  it("5) 도구 없이 답만 쓰면 타이핑 → 끝나도 4초는 채우고 정리, 반응 없음", () => {
+  it("5) 도구 없이 답만 쓰면 타이핑 → 끝나면 0.8초 마무리하고 정리, 반응 없음", () => {
     const w = world();
     w.sig(0, { type: "run_start" });
     w.sig(0.2, { type: "answering" });
     w.sig(3, { type: "done", petState: null });
     w.to(6);
-    expect(w.ctrl.seen("act:")).toEqual(["0.2 act:typing", "4.2 act:null"]);
+    expect(w.ctrl.seen("act:")).toEqual(["0.2 act:typing", "3.8 act:null"]);
     expect(w.ctrl.seen("react:")).toEqual([]);
   });
 
@@ -195,9 +196,9 @@ describe("스케줄러 규칙", () => {
     w.sig(0, { type: "tool_start", tool: "web.search" });
     w.sig(2, { type: "tool_end", tool: "web.search" });
     w.sig(2, { type: "thinking" });
-    w.to(5);
-    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "4.0 act:think"]);
-    expect(w.ctrl.seen("pose:").filter((x) => !x.startsWith("0.0"))).toEqual(["4.0 pose:sit"]);
+    w.to(7);
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "6.0 act:think"]);
+    expect(w.ctrl.seen("pose:").filter((x) => !x.startsWith("0.0"))).toEqual(["6.0 pose:sit"]);
   });
 
   it("발도장을 하는 동안 확인 창이 뜨면 끊고 기다린다", () => {
@@ -243,7 +244,7 @@ describe("스케줄러 규칙", () => {
     expect(w.ctrl.seen("react:")).toEqual(["1.6 react:startle", "2.8 react:down"]);
   });
 
-  it("일하는 활동의 머무름(4초)은 확인 기다림을 막지 않는다", () => {
+  it("일하는 활동의 머무름(6초)은 확인 기다림을 막지 않는다", () => {
     const w = world();
     w.sig(0, { type: "run_start" });
     w.sig(0, { type: "tool_start", tool: "web.search" });
@@ -289,5 +290,38 @@ describe("곁들임(음악, docs/neko-activity-mix.md §1.13)", () => {
     w.set(DEEP_SLEEP_MS / 1000 + 31, { lastActiveAt: (DEEP_SLEEP_MS / 1000 + 31) * 1000 });
     w.to(DEEP_SLEEP_MS / 1000 + 40);
     expect(w.ctrl.side).toBe("music");
+  });
+});
+
+describe("일할 때 머무름 6초와 마무리", () => {
+  it("짧은 답(1.5초)은 0.8초만 마무리하고 끝 — 6초를 채우지 않는다", () => {
+    const w = world();
+    w.sig(0, { type: "run_start" });
+    w.sig(0, { type: "answering" });
+    w.sig(1.5, { type: "done", petState: null });
+    w.to(8);
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:typing", "2.3 act:null"]);
+  });
+
+  it("타이핑 → 타이핑(답 쓰기 → 파일 쓰기)은 다시 시작하지 않고 이어 간다", () => {
+    const w = world();
+    w.sig(0, { type: "run_start" });
+    w.sig(0, { type: "answering" });
+    w.sig(2, { type: "tool_start", tool: "fs.write" });
+    w.sig(9, { type: "tool_end", tool: "fs.write" });
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:typing"]);
+  });
+
+  it("도구가 빨리 연달아 와도 6초씩 보이고, 일이 끝나면 밀린 활동을 늦게 보여 주지 않는다", () => {
+    const w = world();
+    w.sig(0, { type: "run_start" });
+    w.sig(0, { type: "tool_start", tool: "web.search" });
+    w.sig(0.5, { type: "tool_start", tool: "web.scrape" });
+    w.sig(1, { type: "tool_start", tool: "fs.write" });
+    w.sig(7, { type: "tool_end", tool: "fs.write" });
+    w.sig(7.2, { type: "done", petState: null });
+    w.to(12);
+    // 창밖 6초 → 지금 도구(타이핑) → 끝나면 0.8초 마무리. 지나간 신문 읽기는 건너뛴다
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "6.0 act:typing", "8.0 act:null"]);
   });
 });

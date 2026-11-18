@@ -14,11 +14,18 @@ import type { NekoLayer, NekoPlan, Reaction } from "./types";
 
 export const DWELL_MS = 1500;
 /**
- * 일할 때(도구·답 쓰기) 활동은 한 번 시작하면 이만큼은 보인다. 빠른 도구가 연달아 와도 활동이 스쳐 지나가거나
- * 깜빡이지 않게 — 그동안 온 다음 도구의 활동은 이 뒤에 이어 보인다. 기다림(확인·질문)은 막지 않고, 결과 반응도
- * 줄을 따로 서서 밀리지 않는다.
+ * 일할 때(도구·답 쓰기) 활동은 한 번 시작하면 이만큼은 보인다(사용자: 5~10초, 6초로 정함). 빠른 도구가 연달아 와도
+ * 활동이 스쳐 지나가거나 깜빡이지 않게 — 그동안 온 다음 도구의 활동은 이 뒤에 이어 보인다. 기다림(확인·질문)은
+ * 막지 않는다. 일이 끝나면(세션이 일에서 벗어남) 남은 머무름을 다 채우지 않고 FINISH_MS 만 마무리한다.
  */
-export const WORK_DWELL_MS = 4000;
+export const WORK_DWELL_MS = 6000;
+/**
+ * 일이 끝났을 때 하던 동작을 마무리하는 시간(타자를 마지막으로 탁탁). 그 뒤 결과 표정으로 가고, 결과 반응(떨기 등)도
+ * 이 마무리가 끝나야 나온다 — 머무름 6초에 밀려 답이 끝난 한참 뒤에 나오지 않게, 타이핑 중에 떨지 않게.
+ */
+export const FINISH_MS = 800;
+/** 세션이 아직 일하는 중인 층. 이 밖으로 가면 '일이 끝났다' */
+const WORK_LAYERS: ReadonlySet<NekoLayer> = new Set(["tool", "think", "answer", "waiting"]);
 /** 다른 앱 따라 하기 활동은 앱을 금방 바꿔도 이만큼은 이어 한다(⌘Tab 마다 바꾸면 산만해 보인다) */
 export const AMBIENT_DWELL_MS = 15_000;
 export const ONE_SHOT_CAP_MS = 12_000;
@@ -62,6 +69,10 @@ interface Running {
   dwell: boolean;
   /** 최소 머무름 길이(일하는 활동은 WORK_DWELL_MS) */
   dwellMs: number;
+  /** 이 활동을 시킨 층 */
+  layer: NekoLayer;
+  /** 세션 일(도구·답 쓰기)로 하던 활동인데 일이 끝난 걸 처음 본 시각. 이 뒤 FINISH_MS 만 더 한다 */
+  finishFrom: number | null;
   instance: string;
   /** 엔진이 끝냈거나(한 번짜리 끝·잡힘) 우리가 바꾼 시각 */
   endedAt: number | null;
@@ -106,6 +117,8 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
   let lastFireAt = -Infinity;
   /** 마지막 한 번짜리 활동이 끝난 시각: 결과 반응은 이 뒤 여운만큼 기다린다 */
   let oneShotEndedAt = -Infinity;
+  /** 머무름으로 지금 활동을 붙잡아 둔 끝 시각. 결과 반응은 이 뒤에(마무리 중에 떨지 않게) */
+  let holdUntil = -Infinity;
   /** 머무름 때문에 밀린 한 번짜리 도구 활동(발도장): 짧은 도구라도 꼭 한 번은 보여 준다 */
   let owed: NekoPlan | null = null;
   let timer: unknown = null;
@@ -143,7 +156,7 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
   function start(p: NekoPlan, now: number) {
     if (p.activity === null) return;
     ctrl.act(p.activity);
-    cur = { activity: p.activity, startedAt: now, oneShot: p.oneShot, dwell: p.dwell, dwellMs: dwellMsOf(p), instance: p.instance, endedAt: null };
+    cur = { activity: p.activity, startedAt: now, oneShot: p.oneShot, dwell: p.dwell, dwellMs: dwellMsOf(p), layer: p.layer, finishFrom: null, instance: p.instance, endedAt: null };
     log(`활동 ${p.activity}`);
   }
 
@@ -176,6 +189,7 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
     for (const q of queue) {
       if (q.dueAt > now) { keep.push(q); want(q.dueAt); continue; }
       if (q.gated && oneShotBusy) { keep.push(q); continue; } // 한 번짜리(발도장·간식)가 끝난 뒤에
+      if (q.gated && now < holdUntil) { keep.push(q); want(holdUntil); continue; } // 하던 일 마무리가 끝난 뒤에
       if (q.gated && now < oneShotEndedAt + RESULT_LINGER_MS) { keep.push(q); want(oneShotEndedAt + RESULT_LINGER_MS); continue; } // …여운을 두고
       if (now < lastFireAt + REACT_GAP_MS) { keep.push(q); want(lastFireAt + REACT_GAP_MS); continue; }
       if (fire(q.r, now)) lastFireAt = now;
@@ -213,7 +227,7 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
     // 9) 깨어남: 자다가 다른 층으로 → 기지개(한 번) → 인사
     if (lastLayer === "sleep" && p.layer !== "sleep" && p.layer !== "waiting") {
       ctrl.act("stretch");
-      cur = { activity: "stretch", startedAt: now, oneShot: true, dwell: false, dwellMs: DWELL_MS, instance: `wake:${now}`, endedAt: null };
+      cur = { activity: "stretch", startedAt: now, oneShot: true, dwell: false, dwellMs: DWELL_MS, layer: p.layer, finishFrom: null, instance: `wake:${now}`, endedAt: null };
       wakeGreetPending = true;
       log("깨어남 기지개");
     }
@@ -236,13 +250,20 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
     // 1) 최소 머무름(기다림은 막지 않는다). 한 번짜리 도구(발도장)는 짧은 머무름 뒤에 끼어든다 — 결과 떨기보다 먼저 찍게
     else if (running() && cur!.dwell && p.activity !== cur!.activity && p.layer !== "waiting") {
       const oneShotTool = p.layer === "tool" && p.oneShot;
-      const until = cur!.startedAt + (oneShotTool || owed ? DWELL_MS : cur!.dwellMs);
+      let until = cur!.startedAt + (oneShotTool || owed ? DWELL_MS : cur!.dwellMs);
+      // 세션 일로 하던 활동인데 일이 끝났다: 남은 머무름 대신 마무리만(FINISH_MS)
+      if ((cur!.layer === "tool" || cur!.layer === "answer") && !WORK_LAYERS.has(p.layer)) {
+        cur!.finishFrom ??= now;
+        until = Math.min(until, cur!.finishFrom + FINISH_MS);
+      } else cur!.finishFrom = null;
       if (now < until) {
         hold = true;
+        holdUntil = until;
         want(until);
         if (oneShotTool) owed = p;
       }
     }
+    if (!hold) holdUntil = -Infinity;
 
     if (!hold && owed) {
       // 밀린 발도장: 기다림이 아니고 지금 계획이 다른 한 번짜리가 아니면 먼저 찍는다
@@ -260,8 +281,8 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
         if (engineAct !== null) { ctrl.act(null); log("활동 끝냄"); }
       } else if (engineAct === p.activity) {
         // 2) 같은 활동이면 이어 간다(소품을 다시 뽑지 않음)
-        if (cur && cur.activity === p.activity) { cur.instance = p.instance; cur.dwell = p.dwell; cur.dwellMs = Math.max(cur.dwellMs, dwellMsOf(p)); }
-        else cur = { activity: p.activity, startedAt: now, oneShot: p.oneShot, dwell: p.dwell, dwellMs: dwellMsOf(p), instance: p.instance, endedAt: null };
+        if (cur && cur.activity === p.activity) { cur.instance = p.instance; cur.dwell = p.dwell; cur.dwellMs = Math.max(cur.dwellMs, dwellMsOf(p)); cur.layer = p.layer; cur.finishFrom = null; }
+        else cur = { activity: p.activity, startedAt: now, oneShot: p.oneShot, dwell: p.dwell, dwellMs: dwellMsOf(p), layer: p.layer, finishFrom: null, instance: p.instance, endedAt: null };
       } else if (p.oneShot && cur && cur.activity === p.activity && cur.instance === p.instance && cur.endedAt !== null) {
         // 이 일에서 이미 한 번 했다: 되풀이면 잠깐 쉬고 다시, 아니면 그대로 둔다
         if (p.repeat) {
