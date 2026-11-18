@@ -73,6 +73,23 @@ describe("선물함", () => {
     expect(useNekoGifts.getState().gifts[0].shape.parts[0].t).toBe("ellipse"); // 조약돌
   });
 
+  it("버리면 목록과 놓인 자리에서 빠지고, 다른 선물은 그대로다(다시 불러와도)", async () => {
+    const { decorItems } = await import("./gifts");
+    const s = useNekoGifts.getState();
+    for (const id of ["a", "b", "c"]) s.add({ id, title: id, body: "", shape: dot });
+    useNekoGifts.getState().place("a", "auto", "dock");
+    useNekoGifts.getState().place("b", "auto", "dock");
+    const before = useNekoGifts.getState().gifts.filter((g) => g.id !== "a");
+    useNekoGifts.getState().remove("a");
+    const ids = () => useNekoGifts.getState().gifts.map((g) => g.id);
+    expect(ids()).toEqual(["b", "c"]);
+    expect(useNekoGifts.getState().gifts).toEqual(before); // b 의 자리·c 는 그대로
+    expect(decorItems(useNekoGifts.getState().gifts, "dock").map((d) => d.id)).toEqual(["b"]);
+    useNekoGifts.setState({ gifts: [], loaded: false });
+    await useNekoGifts.getState().load();
+    expect(ids()).toEqual(["b", "c"]);
+  });
+
   it("장소마다 들어가는 크기: 방은 작은 것만, 거실은 중간까지, 마당은 다", () => {
     expect(["small", "medium", "large"].map((z) => fits(z as never, "sidebar"))).toEqual([true, false, false]);
     expect(["small", "medium", "large"].map((z) => fits(z as never, "dock"))).toEqual([true, true, false]);

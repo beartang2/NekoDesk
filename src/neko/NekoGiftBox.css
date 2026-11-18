@@ -72,6 +72,43 @@
   font-size: 11px;
   padding: 2px 6px;
 }
+/* 버리기: 왼쪽 위 작은 휴지통. 칸에 마우스를 올려야 보인다(실수로 누르지 않게) */
+.neko-gifts__drop {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-micro), color var(--dur-micro), background var(--dur-micro);
+}
+.neko-gifts__item:hover .neko-gifts__drop,
+.neko-gifts__drop:focus-visible {
+  opacity: 1;
+}
+.neko-gifts__drop:hover {
+  color: var(--error);
+  background: color-mix(in oklab, var(--error) 14%, transparent);
+}
+/* 확인 창의 '버리기'(update-dialog__btn--primary 와 같은 꼴, 빨강) */
+.neko-gifts__drop-ok {
+  background: var(--error);
+  color: var(--bg-base);
+  font-weight: 600;
+}
+.neko-gifts__drop-ok:hover {
+  background: color-mix(in oklab, var(--error) 88%, var(--text-primary));
+  color: var(--bg-base);
+}
 
 /* 선물 그림 시험(개발 빌드) */
 .gift-lab {

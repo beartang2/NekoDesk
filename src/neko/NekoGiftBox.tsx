@@ -1,10 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { AlertDialog } from "radix-ui";
+import { Trash2 } from "lucide-react";
 import { drawShape, shapeBounds, type GiftShape } from "./engine/gift-shape";
 import { PLACE_NAME, fits, smallestPlace, useNekoGifts, type NekoGift } from "./gifts";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { GiftLab } from "./GiftLab";
+import { josa } from "../lib/hangul";
 import "./NekoCustomizeModal.css";
+import "../components/Update.css"; // 확인 창은 새 버전 창과 같은 모양
 import "./NekoGiftBox.css";
 
 /** 선물 그림. 무대와 같은 그리기 함수(drawShape)라 그림체가 같다. */
@@ -70,6 +74,8 @@ export function NekoGiftBox() {
 export function NekoGiftPanel() {
   const gifts = useNekoGifts((s) => s.gifts);
   const here = useNekoStore((s) => s.stage.placement);
+  /** 버릴지 묻는 중인 선물 */
+  const [drop, setDrop] = useState<NekoGift | null>(null);
   useEffect(() => { void useNekoGifts.getState().load(); }, []);
 
   return (
@@ -89,6 +95,9 @@ export function NekoGiftPanel() {
                 className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}${ok ? "" : " neko-gifts__item--off"}`}
                 title={`${g.body || g.title}\n${DAY.format(new Date(g.at))}에 받음${g.placed ? ` · ${PLACE_NAME[g.placed.at]}에 놓여 있어` : ""}`}
               >
+                <button type="button" className="neko-gifts__drop" aria-label={`${g.title} 버리기`} title="버리기" onClick={() => setDrop(g)}>
+                  <Trash2 size={12} />
+                </button>
                 <GiftThumb shape={g.shape} size={64} />
                 <span className="neko-gifts__title">{g.title}</span>
                 <button type="button" className="settings-btn neko-gifts__btn" disabled={!act.run} onClick={act.run ?? undefined}>
@@ -99,6 +108,25 @@ export function NekoGiftPanel() {
           })}
         </ul>
       </div>
+      {/* 버리기 확인. 처음 포커스는 취소, Esc 도 취소(Radix 가 Esc 를 먹어 창은 안 닫힌다). 버리면 windowSync 로 방·거실·마당에서도 빠진다 */}
+      <AlertDialog.Root open={!!drop} onOpenChange={(open) => { if (!open) setDrop(null); }}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="update-overlay">
+            <AlertDialog.Content className="update-dialog">
+              <AlertDialog.Title className="update-dialog__title">
+                {drop && `'${drop.title}'${josa(drop.title, "을/를").slice(drop.title.length)} 버릴까?`}
+              </AlertDialog.Title>
+              <AlertDialog.Description className="update-dialog__sub">되돌릴 수 없어.</AlertDialog.Description>
+              <div className="update-dialog__actions">
+                <AlertDialog.Cancel className="update-dialog__btn">취소</AlertDialog.Cancel>
+                <AlertDialog.Action className="update-dialog__btn neko-gifts__drop-ok" onClick={() => drop && useNekoGifts.getState().remove(drop.id)}>
+                  버리기
+                </AlertDialog.Action>
+              </div>
+            </AlertDialog.Content>
+          </AlertDialog.Overlay>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </div>
   );
 }
