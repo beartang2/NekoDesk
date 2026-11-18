@@ -360,6 +360,11 @@ pub fn apply(conn: &Connection, me: &str, key: &Key, r: &Record, ch: &mut Change
         )
         .optional()?;
     let session = r.coll == "session";
+    // 맞추는 설정 키만 받는다. 연결된 다른 기기라도 권한·경로·비밀 같은 로컬 설정은 못 바꾼다(지움도 같다)
+    if r.coll == "setting" && !crate::db::SYNCED_SETTINGS.contains(&r.id.as_str()) {
+        log::warn!("동기화: 맞추지 않는 설정 키를 받아 버렸어: {}", r.id);
+        return Ok(());
+    }
     if let Some((_, lts, ldev, ldel, lcut)) = &local {
         // 메시지는 덧붙기만: 이미 있으면 끝
         if r.coll == "msg" || (session && user_tomb(*ldel, *lcut)) {
@@ -387,6 +392,11 @@ pub fn apply(conn: &Connection, me: &str, key: &Key, r: &Record, ch: &mut Change
 
     if r.coll == "msg" {
         let parent = r.parent.as_deref().unwrap_or("");
+        // 넣는 세션은 머리(parent, AAD 로 묶임)와 같아야 한다 — 지운 세션 검사를 내용으로 비켜 가지 못하게
+        let inner = serde_json::from_str::<Value>(&plain).ok().and_then(|v| v.get("session_id").and_then(Value::as_str).map(str::to_owned));
+        if parent.is_empty() || inner.as_deref() != Some(parent) {
+            return Err(AppError::msg("메시지의 세션이 머리와 달라"));
+        }
         // 지운 세션, 요약(cut)으로 지운 시각 안쪽이면 버린다
         let gone: bool = conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM sync_meta WHERE coll = 'session' AND uid = ?1 AND (deleted = 1 OR cut >= ?2))",

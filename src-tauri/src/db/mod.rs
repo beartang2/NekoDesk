@@ -17,6 +17,10 @@ pub mod terms;
 
 /// 동기화로 맞추는 설정 키(§2.2). 선물(neko_gifts)은 선물 하나씩 따로 맞춘다.
 /// 바꾸면 이미 배포된 마이그레이션 4번은 그대로 두고, 트리거를 새 마이그레이션에서 다시 만든다.
+/// 비밀(키체인·API 키), 경로·권한·실행 관련 키(fs_write_roots 등), 모델 프로필, 예산·장부는 절대 넣지 않는다 —
+/// 연결된 다른 기기가 이 맥의 권한을 넓힐 수 있게 된다. 받을 때도 이 목록 밖은 버린다(crate::sync::apply).
+pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention"];
+/// 트리거용 같은 목록(SQL 글). concat! 은 상수를 못 받아 따로 적고, 테스트가 둘이 같은지 본다.
 macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention')" } }
 
 /// 지금 시각(ms). SQLite 의 julianday 는 ms 까지 준다
@@ -236,6 +240,15 @@ mod tests {
 
     fn version(c: &Connection) -> i64 {
         c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn synced_settings_list_matches_the_trigger_sql() {
+        let sql = format!("({})", SYNCED_SETTINGS.iter().map(|k| format!("'{k}'")).collect::<Vec<_>>().join(", "));
+        assert_eq!(sql, synced_keys!());
+        for bad in ["fs_write_roots", "anthropic_api_key", "db_key", "sync_key", "neko_stage", "neko_gifts"] {
+            assert!(!SYNCED_SETTINGS.contains(&bad), "{bad}");
+        }
     }
 
     #[test]

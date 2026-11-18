@@ -260,6 +260,39 @@ fn gifts_sync_one_by_one_and_keep_device_only_fields() {
 }
 
 #[test]
+fn settings_outside_the_synced_list_are_ignored_when_received() {
+    let (a, b) = (db(), db());
+    settings::set(&b, "fs_write_roots", "/Users/me/safe").unwrap();
+    let mk = |id: &str, ts: i64, deleted: i64, value: &str| {
+        let mut r = Record { coll: "setting".into(), id: id.into(), parent: None, ts, device: "X".into(), deleted, cut: None, blob: None };
+        if deleted == 0 {
+            r.blob = Some(seal(&KEY, &r, serde_json::json!({ "value": value }).to_string().as_bytes()).unwrap());
+        }
+        r
+    };
+    apply_all(&b, "B", &[mk("fs_write_roots", now_ms(), 0, "/"), mk("anthropic_api_key", now_ms(), 0, "sk-x")]);
+    assert_eq!(settings::get(&b, "fs_write_roots").unwrap().as_deref(), Some("/Users/me/safe"));
+    assert_eq!(settings::get(&b, "anthropic_api_key").unwrap(), None);
+    apply_all(&b, "B", &[mk("fs_write_roots", now_ms() + 1, 1, "")]);
+    assert_eq!(settings::get(&b, "fs_write_roots").unwrap().as_deref(), Some("/Users/me/safe"), "지움도 버린다");
+    // 맞추는 키는 받는다
+    apply_all(&b, "B", &[mk("neko_name", now_ms(), 0, "나비")]);
+    assert_eq!(settings::get(&b, "neko_name").unwrap().as_deref(), Some("나비"));
+    // 올리는 쪽도 목록 밖 키는 안 올린다
+    settings::set(&a, "fs_write_roots", "/").unwrap();
+    assert!(push_all(&a, "A").is_empty());
+}
+
+#[test]
+fn a_message_whose_body_names_another_session_is_refused() {
+    let b = db();
+    let mut r = Record { coll: "msg".into(), id: "m".into(), parent: Some("s1".into()), ts: 1, device: "X".into(), deleted: 0, cut: None, blob: None };
+    r.blob = Some(seal(&KEY, &r, br#"{"session_id":"s2","role":"user","content":"x"}"#).unwrap());
+    assert!(apply(&b, "B", &KEY, &r, &mut Changes::default()).is_err());
+    assert!(conversations::load(&b, "s2").unwrap().is_empty());
+}
+
+#[test]
 fn big_messages_drop_image_bodies() {
     let c = db();
     let big = format!("data:image/png;base64,{}", "A".repeat(800_000));
