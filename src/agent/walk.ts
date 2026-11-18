@@ -427,8 +427,7 @@ function compose(g: Gathered): WalkReport {
   const diary = r?.diary || (g.findings ? "급하게 돌아왔어. 알아본 건 물어보면 얘기해 줄게." : "산책 다녀왔어.");
   const giftText = gift
     ? `\n\n**선물: ${gift.url ? `[${gift.title}](${gift.url})` : gift.title}**\n${gift.body}` +
-      (gift.file ? `\n(임시 보관함에 넣어 뒀어: ${gift.file})` : "") +
-      (gift.shape ? "\n(선물함에 넣어 뒀어 — 설정 › 고양이에서 바닥에 놓을 수 있어)" : "")
+      (gift.file ? `\n(임시 보관함에 넣어 뒀어: ${gift.file})` : "")
     : "";
   const content = diary + giftText;
 
