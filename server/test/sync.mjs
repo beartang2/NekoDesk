@@ -103,9 +103,17 @@ assert.deepEqual(r.rejected.map((x) => x.reason).sort(), ["gone", "lost"]);
 assert.equal(find(r, "session", s1).deleted, 1);
 assert.ok(!find(r, "msg", `m1-${run}`), "지운 세션의 메시지는 서버에서도 지워졌다");
 
-// 끊긴 토큰 거절
+// 짝 코드는 기기당 하나: 새로 만들면 이전 것은 죽는다
+const old1 = (await ok("POST", "/v1/pair", {}, B.token)).code;
+const kept = (await ok("POST", "/v1/pair", {}, B.token)).code;
+assert.equal((await call("POST", "/v1/devices", { name: "옛 코드", pair_code: old1 })).status, 403);
+
+// 끊긴 토큰 거절, 끊긴 기기가 미리 만든 짝 코드도 거절
 await ok("DELETE", `/v1/devices/${B.device_id}`, undefined, A.token);
-assert.equal((await call("POST", "/v1/sync", { since: 0 }, B.token)).status, 401);
+for (const [m, p] of [["POST", "/v1/sync"], ["POST", "/v1/pair"], ["GET", "/v1/devices"], ["DELETE", `/v1/devices/${A.device_id}`], ["POST", "/v1/reset"]]) {
+  assert.equal((await call(m, p, m === "POST" ? { since: 0 } : undefined, B.token)).status, 401, `${m} ${p}`);
+}
+assert.equal((await call("POST", "/v1/devices", { name: "도둑", pair_code: kept })).status, 403, "끊긴 기기의 짝 코드");
 
 // 한 번에 20개까지
 assert.equal((await call("POST", "/v1/sync", { since: 0, push: Array.from({ length: 21 }, (_, i) => rec("todo", `${run}-${i}`, now)) }, A.token)).status, 413);

@@ -69,7 +69,10 @@ async function register(req: Request, env: Env): Promise<Response> {
     if (!env.SETUP_TOKEN || !sameText(body.setup_token, env.SETUP_TOKEN)) return fail(403, "setup_token");
   } else if (typeof body?.pair_code === "string") {
     // 1회용: 지우면서 확인한다. 둘이 동시에 써도 한쪽만 지운다
-    const gone = await env.DB.prepare("DELETE FROM pair_codes WHERE code_hash = ?1 AND expires > ?2 RETURNING code_hash")
+    // 만든 기기가 끊겼으면 코드도 죽은 것이다
+    const gone = await env.DB.prepare(
+      `DELETE FROM pair_codes WHERE code_hash = ?1 AND expires > ?2
+         AND creator IN (SELECT id FROM devices WHERE revoked = 0) RETURNING code_hash`)
       .bind(await sha256(body.pair_code), Date.now()).first();
     if (!gone) return fail(403, "pair_code");
   } else return fail(400, "setup_token | pair_code");
@@ -216,9 +219,10 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (method === "POST" && path === "/v1/sync") return sync(req, env, device);
   if (method === "POST" && path === "/v1/pair") {
     const code = randomToken(16), expires = Date.now() + PAIR_MS;
+    // 기기당 살아 있는 코드는 하나: 새로 만들면 그 기기의 이전 코드는 지운다
     await env.DB.batch([
-      env.DB.prepare("DELETE FROM pair_codes WHERE expires <= ?1").bind(Date.now()),
-      env.DB.prepare("INSERT INTO pair_codes (code_hash, expires) VALUES (?1, ?2)").bind(await sha256(code), expires),
+      env.DB.prepare("DELETE FROM pair_codes WHERE expires <= ?1 OR creator = ?2").bind(Date.now(), device),
+      env.DB.prepare("INSERT INTO pair_codes (code_hash, expires, creator) VALUES (?1, ?2, ?3)").bind(await sha256(code), expires, device),
     ]);
     return json({ code, expires });
   }
@@ -228,7 +232,10 @@ async function route(req: Request, env: Env): Promise<Response> {
   }
   const m = /^\/v1\/devices\/([\w-]+)$/.exec(path);
   if (method === "DELETE" && m) {
-    await env.DB.prepare("UPDATE devices SET revoked = 1 WHERE id = ?1").bind(m[1]).run();
+    await env.DB.batch([
+      env.DB.prepare("UPDATE devices SET revoked = 1 WHERE id = ?1").bind(m[1]),
+      env.DB.prepare("DELETE FROM pair_codes WHERE creator = ?1").bind(m[1]),
+    ]);
     return json({ ok: true });
   }
   // 열쇠 바꾸기: 기록을 다 비운다. 기기·짝 코드는 남는다. 이 순번 앞에서 멈춘 기기는 처음부터 다시 받는다
