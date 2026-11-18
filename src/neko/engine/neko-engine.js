@@ -15,6 +15,7 @@
  */
 import { validateShape, shapeBounds, drawShape } from "./gift-shape.js";
 import { MIX, mixable, mergePose } from "./activity-mix.js";
+import * as DD from "./decor-draw.js";
 
 export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 strict
   /* ============================================================
@@ -2279,7 +2280,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      px 로 굳히지 않으니 자리를 옮기거나 높이를 끌어도 같은 자리·같은 배율에 있다(소품 배율 버그와 같은 문제가 안 생긴다).
      잡고 끌면 옮기고(decorMove), 우클릭하면 그 옆에 '정리' 버튼을 띄울 자리를 알린다(decorMenu) — 저장·버튼은 호스트 몫.
      설계: docs/neko-gifts.md §4 */
-  const DECOR_SIZE = 32;   // 한 변(S 단위) — 잎맥·꼭지 같은 결이 보이게, 머리(폭 74)의 절반 남짓
+  // 크기·자리 계산과 그리기는 decor-draw.js(모니터별 선물 창과 같이 쓴다 — 고양이가 건너가 이어받을 때 안 튀게)
   // 노는 방식(§5). 모델이 고르고, 없으면 모양으로 짐작한다: 납작하면 위에 앉기, 동글면 굴리기, 그 밖엔 앞발로 톡
   const PLAYS = new Set(["roll", "bat", "sniff", "sit_on", "carry", "scratch", "lean", "hide"]);
   // 큰 물건 놀이: 큰 걸 물고 옮기거나 굴리는 건 어색해서 이걸로 바꾼다. 작거나 중간 크기는 이걸 못 한다(냄새만)
@@ -2288,7 +2289,6 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const b = shapeBounds(shape);
     return b.h < b.w * 0.5 ? "sit_on" : Math.abs(b.w - b.h) < b.w * 0.2 ? "roll" : "bat";
   }
-  const WALL_GAP = 18;     // 바닥에서 이만큼(S) 넘게 띄워 놓으면 벽에 건다
   let decor = [];          // { id, surface, u, v, shape, t0, box }
   let decorDrag = null;    // { id, pointerId, dx, dy, x, bottom } 끄는 중(무대 px)
   function setDecor(items) {
@@ -2307,55 +2307,26 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       };
     });
   }
-  /** 물건 한 개의 크기(px)와 그리기 배율 */
-  /** 물건 크기(실제 크기를 모델이 고름). 큰 것도 고양이 몸(길이 약 100)보다 작게 */
-  const SIZE_K = { small: 0.6, medium: 1, large: 1.45 };
-  const sizeK = (size) => (Object.hasOwn(SIZE_K, size) ? SIZE_K[size] : 1);
-  function decorDims(shape, k = 1) {
-    const bd = shapeBounds(shape), u = (DECOR_SIZE * k * S) / Math.max(bd.w, bd.h);
-    return { bd, u, w: bd.w * u, h: bd.h * u };
-  }
-  const decorM = () => 16 * S;
-  const wallSpan = (h) => Math.max(1, floorY - h - 10 * S); // 벽 v = 1 이면 물건 위가 무대 위에서 10 아래
+  const sizeK = DD.sizeK;
+  const geomNow = () => ({ W, floorY, S });
+  const decorDims = (shape, k = 1) => DD.decorDims(shape, k, S);
+  const decorM = () => DD.decorM(S);
+  const wallSpan = (h) => DD.wallSpan(h, geomNow());
   /** 자리(면·비율) → 그릴 자리(가운데 x, 바닥 y) */
-  function decorAt(d, h) {
-    const m = decorM(), x = m + d.u * Math.max(0, W - 2 * m);
-    return [x, d.surface === "wall" ? floorY - d.v * wallSpan(h) : floorY];
-  }
+  const decorAt = (d, h) => DD.decorAt(d, h, geomNow());
   /** 무대의 한 점(물건 가운데 x, 바닥 y) → 자리(면·비율). 바닥 가까이면 바닥, 높이 띄우면 벽 */
-  function spotOf(x, bottom, h) {
-    const m = decorM(), u = clamp((x - m) / Math.max(1, W - 2 * m), 0, 1);
-    return floorY - bottom < WALL_GAP * S ? { surface: "floor", u } : { surface: "wall", u, v: clamp((floorY - bottom) / wallSpan(h), 0, 1) };
-  }
+  const spotOf = (x, bottom, h) => DD.spotOf(x, bottom, h, geomNow());
   /** 물건 하나를 그릴 자리·크기(무대 px). 끄는 중이면 손을 따라, 놀다 옮겨졌으면 그 자리 */
   function decorLayout(d) {
     const { bd, u, w, h } = decorDims(d.shape, d.k), drag = !!decorDrag && decorDrag.id === d.id;
     let [x, bottom] = d.px || decorAt(d, h);
     if (drag) { x = decorDrag.x; bottom = decorDrag.bottom; }
-    return { bd, u, w, h, x, bottom, drag, onFloor: drag ? floorY - bottom < WALL_GAP * S : d.surface === "floor" };
+    return { bd, u, w, h, x, bottom, drag, onFloor: drag ? floorY - bottom < DD.WALL_GAP * S : d.surface === "floor" };
   }
   /** 물건 하나를 g 에 그린다(앱 무대는 고양이 캔버스, 화면 모드는 선물 캔버스) */
   function drawDecorItem(g, d, L) {
-    const { bd, u, h, x, bottom, drag, onFloor } = L;
-    if (onFloor) { // 고양이와 같은 바닥 그림자(끄는 중엔 바닥에 놓일 자리에)
-      g.save(); g.globalAlpha = 0.5; g.fillStyle = theme.shadow;
-      g.beginPath(); g.ellipse(x, floorY + 1 * S, L.w * 0.5, 2.6 * S, 0, 0, TAU); g.fill(); g.restore();
-    }
-    const sc = popIn(time - d.t0).map((k) => k * (drag ? 1.08 : 1)); // 들어 올린 느낌
-    if (sc[0] <= 0.002 || sc[1] <= 0.002) return;
-    g.save();
-    g.translate(x, bottom); g.scale(sc[0], sc[1]); g.translate(-x, -bottom);
-    // 굴러가면 가운데를 축으로 돌고(rot), 앞발로 톡 치면 바닥을 축으로 흔들린다(wob)
-    g.save();
-    g.translate(x, bottom - h / 2); g.rotate(d.rot); g.translate(-x, -(bottom - h / 2));
-    g.translate(x, bottom); g.rotate(d.wob.x); g.translate(-x, -bottom);
-    drawShape(g, d.shape, x - ((bd.x0 + bd.x1) / 2) * u, bottom, u, (drag ? 7 : 4) * DPR);
-    g.restore();
-    if (!onFloor) { // 벽에 건 것: 위에 작은 압정
-      g.fillStyle = "#8f8a86"; g.beginPath(); g.arc(x, bottom - h + 1.5 * S, 1.8 * S, 0, TAU); g.fill();
-      g.fillStyle = "rgba(255,255,255,0.6)"; g.beginPath(); g.arc(x - 0.5 * S, bottom - h + 1 * S, 0.7 * S, 0, TAU); g.fill();
-    }
-    g.restore();
+    const sc = popIn(time - d.t0).map((k) => k * (L.drag ? 1.08 : 1)); // 들어 올린 느낌
+    DD.paintDecor(g, d.shape, L, geomNow(), { shadow: theme.shadow, sc, rot: d.rot, wob: d.wob.x, edge: (L.drag ? 7 : 4) * DPR });
   }
   /** 고양이 뒤에 그릴 물건들(front: 뒤에 숨기 동안 앞에 그릴 것은 빼고). 누르기 판정용 칸도 여기서 정한다 */
   function drawDecor(g = ctx, front = false) {
@@ -3130,8 +3101,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.ellipse(x, y, r * 1.1, r * 0.45, b.rot + k * 0.6, 0, TAU); ctx.stroke(); }
     ctx.restore();
   }
+  /** 끌어낼 때 공 속도: 고양이 너머로 70~120 더 굴러가게(구름 감쇠 1.3 이면 굴러가는 거리 = 속도 / 1.3) */
+  const pullSpeed = (x) => (Math.abs(cat.x - x) + rand(70, 120) * S) * 1.3;
   function huntYarn(A) { // 공 뒤까지 걸어가서, 서면 앞발로 툭
-    const c = cat, b = A.ball, dir = Math.sign(b.x - c.x) || c.face, want = clamp(b.x - dir * 44 * S, EDGE * S, W - EDGE * S);
+    const c = cat, b = A.ball, dir = Math.sign(b.x - c.x) || c.face, raw = b.x - dir * 44 * S, want = clamp(raw, EDGE * S, W - EDGE * S);
     const rolling = Math.abs(b.vx) > 70 * S;
     if (c.mode === "walk") {
       if (Math.abs(c.x - want) < 6 * S && !rolling) { c.vx = 0; c.speed = 0; setMode("idle"); return; }
@@ -3141,7 +3114,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (rolling) return; // 굴러가는 동안은 눈으로만 쫓는다
     if (Math.abs(c.x - want) > 12 * S && c.modeT > 0.25) { walkTo(want); return; }
     if (dir !== c.face && c.modeT > 0.3) { c.face = dir; setMode("idle"); return; }
-    if (A.cool <= 0 && c.modeT > 0.35) { A.swipe = 0; A.pull = pawReach(b.x) === "pull"; setMode("act"); }
+    // 공 뒤로 못 돌아가면(벽 쪽에 붙음) 늘 끌어낸다 — 벽 쪽으로 밀면 튕겨 나왔다 다시 밀기를 되풀이했다
+    if (A.cool <= 0 && c.modeT > 0.35) { A.swipe = 0; A.pull = Math.abs(raw - want) > 12 * S && pawReach(b.x) !== null; setMode("act"); }
   }
   defineActivity("yarn", {
     name: "털실 공놀이", label: "털실 공 노는 중", roam: true, keepOnGrab: true,
@@ -3157,8 +3131,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       if (cat.mode !== "act" || A.swipe < 0) return;
       const prev = A.swipe; A.swipe += dt;
       const how = prev < 0.27 && A.swipe >= 0.27 && pawReach(A.ball.x);
-      if (how) { // 툭! 끌어낼 땐 이쪽으로 살살
-        A.ball.vx = cat.face * (how === "pull" ? -rand(100, 160) : rand(170, 300)) * S; A.cool = 0.5; say("톡", A.ball.x, floorY - 26 * S);
+      if (how) { // 툭! 끌어낼 땐 고양이 너머까지 이쪽으로
+        A.ball.vx = A.pull ? -cat.face * pullSpeed(A.ball.x) : cat.face * rand(170, 300) * S; A.cool = 0.5; say("톡", A.ball.x, floorY - 26 * S);
       }
       if (A.swipe > 0.5) { A.swipe = -1; setMode("idle"); }
     },
@@ -3259,7 +3233,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
           if (A.dt > 2.4) giftDone(A); break;
         case "roll":
           if (crossed(0.27) && pawReach(p.x, 26)) { // 툭: 굴러간다. 끝에 붙어 뒤로 못 돌아가면 뻗어서 이쪽으로 끌어낸다(털실과 같다)
-            d.px = [p.x, p.bottom]; d.vx = c.face * (pawReach(p.x, 26) === "pull" ? -rand(100, 160) : rand(150, 240)) * S; A.kicks++;
+            d.px = [p.x, p.bottom]; d.vx = pawReach(p.x, 26) === "pull" ? -c.face * pullSpeed(p.x) * (1.3 / 1.6) : c.face * rand(150, 240) * S; A.kicks++; // 선물은 감쇠 1.6
           }
           if (A.dt > 0.5) { setMode("idle"); A.stage = d.vx ? "rolling" : "done"; if (A.stage === "done") giftDone(A); }
           break;

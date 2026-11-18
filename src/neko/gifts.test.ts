@@ -138,6 +138,38 @@ describe("선물 놀이 기록·장소별 엔진 목록", () => {
   });
 });
 
+describe("모니터별 마당", () => {
+  it("마당은 놓인 모니터를 적고, 그 모니터에 보이는 것만 엔진 모양으로(빠진 모니터·옛것은 주 모니터에)", async () => {
+    const { decorItems } = await import("./gifts");
+    const s = useNekoGifts.getState();
+    for (const id of ["a", "b", "c", "d"]) s.add({ id, title: id, body: "", shape: dot, size: id === "d" ? "medium" : "large" });
+    useNekoGifts.getState().place("a", "auto", "screen");          // 처음 놓기 + 모니터 안 줌 = 주 모니터(없음)
+    useNekoGifts.getState().place("b", "auto", "screen", "L");     // 왼쪽 모니터
+    useNekoGifts.getState().place("c", "auto", "screen", "GONE");  // 지금은 빠진 모니터
+    useNekoGifts.getState().place("d", "auto", "dock", "L");       // 마당이 아니면 모니터는 버린다
+    const g = () => useNekoGifts.getState().gifts;
+    expect(g().map((x) => x.placed?.screen)).toEqual([undefined, "L", "GONE", undefined]);
+    expect(g()[3].placed).toEqual({ surface: "floor", u: 0.35, at: "dock" });
+    // 같은 모니터끼리만 빈 자리를 센다: a(주)·b(L)·c(GONE) 모두 첫 자리
+    expect(g().slice(0, 3).map((x) => x.placed?.u)).toEqual([0.35, 0.35, 0.35]);
+    const ids = (screen: string) => decorItems(g(), "screen", { id: screen, main: "M", known: ["M", "L"] }).map((x) => x.id);
+    expect(ids("M")).toEqual(["a", "c"]); // 빠진 모니터의 것은 주 모니터에
+    expect(ids("L")).toEqual(["b"]);
+    expect(decorItems(g(), "screen").map((x) => x.id)).toEqual(["a", "b", "c"]); // 모니터를 안 주면 안 가린다
+    expect(decorItems(g(), "screen", { id: "L", main: "M", known: ["M", "L"] })[0]).not.toHaveProperty("screen");
+    // 끌어 옮김(모니터 안 줌): 모니터 그대로. 주 모니터에서 옮기면(주 모니터 id 를 줌) 그 id 로
+    useNekoGifts.getState().place("b", { surface: "floor", u: 0.9 });
+    expect(g()[1].placed).toEqual({ surface: "floor", u: 0.9, at: "screen", screen: "L" });
+    useNekoGifts.getState().place("c", { surface: "floor", u: 0.2 }, undefined, "M");
+    expect(g()[2].placed).toEqual({ surface: "floor", u: 0.2, at: "screen", screen: "M" });
+    // 마당에서 거실로 옮기면 모니터는 버린다
+    useNekoGifts.getState().place("d", "auto", "screen", "L");
+    expect(g()[3].placed?.screen).toBe("L");
+    useNekoGifts.getState().place("d", "auto", "dock");
+    expect(g()[3].placed).not.toHaveProperty("screen");
+  });
+});
+
 describe("액자", () => {
   it("'걸기'(auto)는 벽에, 같은 장소 벽에 건 것끼리 빈 자리를 찾는다", () => {
     const s = useNekoGifts.getState();

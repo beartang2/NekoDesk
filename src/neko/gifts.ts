@@ -29,8 +29,18 @@ export const fits = (size: NekoGiftSize | undefined, at: NekoPlacement): boolean
 export const smallestPlace = (size?: NekoGiftSize): NekoPlacement =>
   (["sidebar", "dock", "screen"] as const).find((p) => fits(size, p)) ?? "screen";
 
-/** 놓인 자리: 장소(at) + 그 무대 안 자리. 바닥: u = 무대 폭(양끝 여백 제외) 비율. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율. 모두 0~1 */
-export type GiftPlacement = NekoDecorSpot & { at: NekoPlacement };
+/**
+ * 놓인 자리: 장소(at) + 그 무대 안 자리. 바닥: u = 무대 폭(양끝 여백 제외) 비율. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율. 모두 0~1.
+ * screen: 마당(at "screen")에서 놓인 모니터(CGDisplay UUID). 없으면 주 모니터다(예전에 놓은 것). 그 모니터가 빠져 있으면
+ * 값은 그대로 두고 주 모니터에 보여 준다 — 다시 꽂으면 제자리로 돌아간다
+ */
+export type GiftPlacement = NekoDecorSpot & { at: NekoPlacement; screen?: string };
+
+/** 마당 모니터: 지금 모니터(id), 주 모니터(main), 꽂혀 있는 모니터들(known) */
+export interface ScreenPick { id: string; main: string; known: readonly string[] }
+/** 놓인 모니터가 빠져 있거나 정해지지 않았으면 주 모니터 */
+export const shownScreen = (p: GiftPlacement, s: Pick<ScreenPick, "main" | "known">): string =>
+  p.screen && s.known.includes(p.screen) ? p.screen : s.main;
 
 export interface NekoGift {
   id: string;
@@ -50,11 +60,12 @@ export interface NekoGift {
   lastPlayed?: number;
 }
 
-/** 그 장소에 놓인 것을 엔진 setDecor 모양으로 */
-export function decorItems(gifts: NekoGift[], at: NekoPlacement) {
+/** 그 장소에 놓인 것을 엔진 setDecor 모양으로. 마당은 screen 을 주면 그 모니터에 보이는 것만(없으면 모니터를 안 가린다) */
+export function decorItems(gifts: NekoGift[], at: NekoPlacement, screen?: ScreenPick) {
   return gifts.flatMap((g) => {
     if (g.placed?.at !== at) return [];
-    const { at: _at, ...spot } = g.placed;
+    if (at === "screen" && screen && shownScreen(g.placed, screen) !== screen.id) return [];
+    const { at: _at, screen: _scr, ...spot } = g.placed;
     return [{ id: g.id, shape: g.shape, play: g.play, size: g.size, lastPlayed: g.lastPlayed, ...spot }];
   });
 }
@@ -86,8 +97,9 @@ interface GiftStore {
   /**
    * 장소 at 의 그 자리에 놓는다("auto" 면 그 장소 바닥의 빈 곳). at 을 안 주면 놓여 있던 장소 그대로(무대 안에서
    * 끌어 옮길 때). 다른 장소를 주면 그리로 옮긴다. 그 장소에 안 맞는 크기면 아무것도 안 한다. null 이면 치운다(선물함으로)
+   * screen: 마당의 모니터. 안 주면 놓여 있던 모니터 그대로(처음 놓는 거면 주 모니터 = 없음). 마당이 아니면 버린다
    */
-  place: (id: string, spot: NekoDecorSpot | "auto" | null, at?: NekoPlacement) => void;
+  place: (id: string, spot: NekoDecorSpot | "auto" | null, at?: NekoPlacement, screen?: string) => void;
   remove: (id: string) => void;
   /** 네코가 갖고 놀았다(엔진 decorPlayed) */
   played: (id: string, at: number) => void;
@@ -132,18 +144,21 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
     set({ gifts });
     persist(gifts);
   },
-  place(id, spot, at) {
+  place(id, spot, at, screen) {
     const gift = get().gifts.find((g) => g.id === id);
     if (!gift) return;
     let placed: GiftPlacement | null = null;
     if (spot !== null) {
       const where = at ?? gift.placed?.at;
       if (!where || !fits(gift.size, where)) return;
-      // 빈 자리는 같은 장소 같은 면(액자는 벽, 나머지는 바닥)끼리 센다
+      // 마당의 모니터: 준 것, 아니면 같은 마당에 있던 모니터(없으면 주 모니터)
+      const scr = where !== "screen" ? undefined : screen ?? (gift.placed?.at === "screen" ? gift.placed.screen : undefined);
+      // 빈 자리는 같은 장소(마당은 같은 모니터) 같은 면(액자는 벽, 나머지는 바닥)끼리 센다
       const face = gift.frame ? "wall" : "floor";
-      const us = get().gifts.filter((g) => g.id !== id && g.placed?.at === where && g.placed.surface === face).map((g) => g.placed!.u);
+      const us = get().gifts.filter((g) => g.id !== id && g.placed?.at === where && g.placed.surface === face && g.placed.screen === scr).map((g) => g.placed!.u);
       const s: NekoDecorSpot = spot !== "auto" ? spot : gift.frame ? { surface: "wall", u: freeSpot(us), v: FRAME_V } : { surface: "floor", u: freeSpot(us) };
       placed = s.surface === "wall" ? { surface: "wall", u: s.u, v: s.v, at: where } : { surface: "floor", u: s.u, at: where };
+      if (scr) placed.screen = scr;
     }
     const gifts = get().gifts.map((g) => {
       if (g.id !== id) return g;
