@@ -1922,7 +1922,7 @@ export default function App() {
     });
   }, []);
 
-  // ── ⌘K 커맨드 팔레트 ───────────────────────────────────────────────────────
+  // ── ⌘K 커맨드 팔레트 · ⌘N 새 대화 · ⌘, 설정 ─────────────────────────────────
   const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1934,6 +1934,10 @@ export default function App() {
       } else if (k === "n") {
         e.preventDefault();
         handleNew();
+      } else if (e.key === ",") {
+        // ⌘, : 설정(macOS 앱 관례). 열려 있으면 닫는다
+        e.preventDefault();
+        setMenuOpen((v) => !v);
       }
     }
     window.addEventListener("keydown", onKey);
