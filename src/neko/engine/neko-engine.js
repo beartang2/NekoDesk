@@ -2997,14 +2997,27 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
   /* ----- 털실 공놀이 ----- */
   /**
-   * 공이 굴러다닐 폭. 넓은 자리는 고양이가 공 양쪽 어디로든 돌아갈 수 있게 걷는 폭 안쪽(EDGE + 50)으로 둔다.
-   * 좁은 자리(사이드바 220px)에선 그 폭이 없어져 공이 가운데 못 박혔다 — 차도 안 움직이고 제자리에서 계속 찼다.
-   * 그땐 걸을 수 있는 끝에 서서 앞발이 닿는 데(44)까지 넓힌다. 끝에 닿은 공은 튕겨 돌아온다(ballStep).
+   * 공이 굴러다닐 폭: 자리의 실제 끝(공 반지름 + 2 안)까지. 끝에 닿은 공은 튕겨 돌아온다(ballStep). 화면 모드에선 화면 끝이다 —
+   * 옆 모니터로 열린 가장자리라도 공은 넘어가지 않는다.
+   * 예전엔 고양이가 공 뒤로 돌아갈 자리를 남기려고 양 끝 EDGE + 50 안쪽을 벽으로 써서, 자리가 한참 남았는데 공이 '투명 벽'에 튕겼다.
+   * 이제 고양이는 걸을 수 있는 끝에서 앞발을 뻗어 끝에 붙은 공을 끌어낸다(pawReach).
+   * 좁은 자리(사이드바 220px)는 걷는 폭이 거의 없어, 전처럼 걸을 수 있는 끝에 서서 앞발이 닿는 데(EDGE - 44)까지만 굴린다.
    */
   function yarnBounds() {
-    const lo = (EDGE + 50) * S, hi = W - (EDGE + 50) * S;
-    if (hi - lo >= 120 * S) return [lo, hi];
-    return [Math.max(12 * S, (EDGE - 44) * S), Math.min(W - 12 * S, W - (EDGE - 44) * S)];
+    const r = 11 * S;
+    if (W - 2 * (EDGE + 50) * S >= 120 * S) return [r, W - r];
+    return [Math.max(r, (EDGE - 44) * S), Math.min(W - r, W - (EDGE - 44) * S)];
+  }
+  /**
+   * 바라보는 쪽 x 에 놓인 물건을 앞발로 칠 수 있나. 앞발 자리(ahead 44)에서 물건까지 바라보는 쪽으로 잰 거리로 본다.
+   * push: 앞발 앞이거나 발밑 — 밀어 찬다. pull: 앞발보다 멀다 — 뻗어서 이쪽으로 끌어낸다(끝에 붙어 뒤로 못 돌아갈 때).
+   * 둘 사이에 빈틈이 없어서, 걸을 수 있는 끝에 선 고양이는 끝까지 굴러간 공도 늘 친다(구석에서 헛발질만 되풀이하지 않는다).
+   */
+  function pawReach(x, near = 22) {
+    const d = (x - ahead(44)) * cat.face;
+    if (d > -50 * S && d < near * S) return "push";
+    if (d >= near * S && d < 75 * S) return "pull";
+    return null;
   }
   function ballStep(b, dt) {
     const [lo, hi] = yarnBounds();
@@ -3036,7 +3049,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (rolling) return; // 굴러가는 동안은 눈으로만 쫓는다
     if (Math.abs(c.x - want) > 12 * S && c.modeT > 0.25) { walkTo(want); return; }
     if (dir !== c.face && c.modeT > 0.3) { c.face = dir; setMode("idle"); return; }
-    if (A.cool <= 0 && c.modeT > 0.35) { A.swipe = 0; setMode("act"); }
+    if (A.cool <= 0 && c.modeT > 0.35) { A.swipe = 0; A.pull = pawReach(b.x) === "pull"; setMode("act"); }
   }
   defineActivity("yarn", {
     name: "털실 공놀이", label: "털실 공 노는 중", roam: true, keepOnGrab: true,
@@ -3051,20 +3064,21 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       A.cool -= dt; ballStep(A.ball, dt);
       if (cat.mode !== "act" || A.swipe < 0) return;
       const prev = A.swipe; A.swipe += dt;
-      if (prev < 0.27 && A.swipe >= 0.27 && Math.abs(A.ball.x - ahead(44)) < 22 * S) { // 툭!
-        A.ball.vx = cat.face * rand(170, 300) * S; A.cool = 0.5; say("톡", A.ball.x, floorY - 26 * S);
+      const how = prev < 0.27 && A.swipe >= 0.27 && pawReach(A.ball.x);
+      if (how) { // 툭! 끌어낼 땐 이쪽으로 살살
+        A.ball.vx = cat.face * (how === "pull" ? -rand(100, 160) : rand(170, 300)) * S; A.cool = 0.5; say("톡", A.ball.x, floorY - 26 * S);
       }
       if (A.swipe > 0.5) { A.swipe = -1; setMode("idle"); }
     },
     wander: huntYarn,
     look: (A) => [A.ball.x, floorY - A.ball.r],
-    pose(A) { // 공을 향해 앞발을 뒤로 뺐다가 툭
-      const c = cat, u = Math.max(0, A.swipe), b = A.ball, hit = [b.x - c.face * 7 * S, floorY - b.r * 0.9], up = [ahead(30), floorY - 22 * S];
+    pose(A) { // 공을 향해 앞발을 뒤로 뺐다가 툭. 끌어낼 땐 공 너머로 뻗어 이쪽으로
+      const c = cat, u = Math.max(0, A.swipe), b = A.ball, hit = [b.x - (A.pull ? -1 : 1) * c.face * 7 * S, floorY - b.r * 0.9], up = [ahead(30), floorY - 22 * S];
       let pt, w;
       if (u < 0.2) { pt = up; w = smooth(u / 0.2); }
       else if (u < 0.3) { const e = smooth((u - 0.2) / 0.1); pt = [lerp(up[0], hit[0], e), lerp(up[1], hit[1], e)]; w = 1; }
       else { pt = hit; w = 1 - smooth((u - 0.3) / 0.2); }
-      return { tilt: 0.05, ear: -0.12, expr: "curious", look: [b.x, floorY - b.r], feetW: w, feet: { [NEAR_FRONT]: () => pt },
+      return { tilt: 0.05, ear: -0.12, expr: "curious", look: [b.x, floorY - b.r], feetW: w, feet: { [NEAR_FRONT]: () => pt }, reach: A.pull ? { [NEAR_FRONT]: 1.5 } : null,
         tail: { base: 214, curl: 4, hook: 10, sway: 8, period: 1.2, still: 0, flick: null, dyn: { w0: 5, zeta: 0.5, grav: 0.1, inert: 1 } } };
     },
   });
@@ -3115,7 +3129,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (Math.abs(c.x - want) > 12 * S && c.modeT > 0.25) { walkTo(want); return; }
     const dir = A.stage === "move" ? c.face : Math.sign(x - c.x) || c.face;
     if (A.play !== "sit_on" && A.play !== "hide" && dir !== c.face && c.modeT > 0.3) { c.face = dir; setMode("idle"); return; }
-    if (c.modeT > 0.35) { A.dt = 0; A.hit = false; setMode("act"); }
+    if (c.modeT > 0.35) { A.dt = 0; A.hit = false; A.pull = A.play === "roll" && pawReach(x, 26) === "pull"; setMode("act"); }
   }
   function giftDone(A, rest = rand(2, 4)) {
     const d = giftOf(A);
@@ -3152,8 +3166,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
           if (Math.floor((A.dt - 0.27) / 0.8) > Math.floor((prev - 0.27) / 0.8) && Math.abs(p.x - ahead(44)) < 26 * S) d.wob.v += c.face * 5;
           if (A.dt > 2.4) giftDone(A); break;
         case "roll":
-          if (crossed(0.27) && Math.abs(p.x - ahead(44)) < 26 * S) { // 툭: 굴러간다
-            d.px = [p.x, p.bottom]; d.vx = c.face * rand(150, 240) * S; A.kicks++;
+          if (crossed(0.27) && pawReach(p.x, 26)) { // 툭: 굴러간다. 끝에 붙어 뒤로 못 돌아가면 뻗어서 이쪽으로 끌어낸다(털실과 같다)
+            d.px = [p.x, p.bottom]; d.vx = c.face * (pawReach(p.x, 26) === "pull" ? -rand(100, 160) : rand(150, 240)) * S; A.kicks++;
           }
           if (A.dt > 0.5) { setMode("idle"); A.stage = d.vx ? "rolling" : "done"; if (A.stage === "done") giftDone(A); }
           break;
@@ -3190,12 +3204,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         const k = ramp; return { tilt: 0.28 * k, dy: 6 * k, tt: 0.3 * k, ear: -0.08, expr: "curious", look };
       }
       // bat · roll: 털실처럼 앞발을 뒤로 뺐다가 톡(bat 은 0.8초 박자마다 0.27 에)
-      const u = A.play === "bat" ? A.dt % 0.8 : A.dt, hit = [p.x - c.face * 7 * S, p.bottom - p.h * 0.5], up = [ahead(30), floorY - 22 * S];
+      const u = A.play === "bat" ? A.dt % 0.8 : A.dt, hit = [p.x - (A.pull ? -1 : 1) * c.face * 7 * S, p.bottom - p.h * 0.5], up = [ahead(30), floorY - 22 * S];
       let pt, w;
       if (u < 0.2) { pt = up; w = smooth(Math.max(0, u) / 0.2); }
       else if (u < 0.3) { const e = smooth((u - 0.2) / 0.1); pt = [lerp(up[0], hit[0], e), lerp(up[1], hit[1], e)]; w = 1; }
       else { pt = hit; w = 1 - smooth((u - 0.3) / 0.2); }
-      return { tilt: 0.05, ear: -0.12, expr: "curious", look, feetW: w, feet: { [NEAR_FRONT]: () => pt } };
+      return { tilt: 0.05, ear: -0.12, expr: "curious", look, feetW: w, feet: { [NEAR_FRONT]: () => pt }, reach: A.pull ? { [NEAR_FRONT]: 1.5 } : null };
     },
     end(A) { // 그만하라면: 물고 있던 건 그 자리에 내려놓고, 굴러가던 건 선 자리로
       const d = giftOf(A); if (!d) return;

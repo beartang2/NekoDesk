@@ -511,6 +511,48 @@ try {
     await p.close();
   }
 
+  // 9-m) 털실: 공은 자리의 실제 끝까지 굴러가 튕긴다(안쪽 '투명 벽' 없음). 끝에 붙은 공은 앞발을 뻗어 끌어내서,
+  //      구석에서 헛발질만 되풀이하지 않는다. 좁은 자리도 공이 움직이고, 화면 모드에선 열린 가장자리로도 공이 안 나간다
+  {
+    const yarn = async (q, vp, start) => {
+      const p = await open(q, vp);
+      const r = await p.evaluate((start) => {
+        const n = window.__neko, c = n.cat, S = n.S, W = n.W;
+        n.step(60); n.act("yarn"); n.step(2);
+        const A = c.act, b = A.ball;
+        if (start.x === "L") b.x = 15 * S; else if (start.x === "R") b.x = W - 15 * S; else if (start.x != null) b.x = start.x * W;
+        if (start.vx) b.vx = start.vx * S;
+        let minX = Infinity, maxX = -Infinity, swipes = 0, kicks = 0, pulls = 0, sw = A.swipe, vx = b.vx;
+        for (let i = 0; i < 120 * start.sec; i++) {
+          n.step(1);
+          if (sw < 0 && A.swipe >= 0) swipes++;
+          if (Math.abs(b.vx - vx) > 50 * S && Math.abs(vx) < 60 * S) { kicks++; if (Math.sign(b.vx) !== c.face) pulls++; }
+          sw = A.swipe; vx = b.vx; minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x);
+        }
+        return { minEdge: minX / S, maxEdge: (W - maxX) / S, swipes, kicks, pulls, span: (maxX - minX) / S };
+      }, start);
+      await p.close();
+      return r;
+    };
+    const wide = await yarn("", { width: 760, height: 1000 }, { x: 0.5, vx: -700, sec: 4 });
+    check("털실: 공이 자리의 실제 끝까지 굴러간다(투명 벽 없음)", `끝까지 ${wide.minEdge.toFixed(0)}단위(예전 150)`, wide.minEdge < 20);
+    const L = await yarn("", { width: 760, height: 1000 }, { x: "L", sec: 25 }), R = await yarn("", { width: 760, height: 1000 }, { x: "R", sec: 25 });
+    const ok = (r) => r.pulls > 0 && r.span > 250 && r.swipes - r.kicks <= 1;
+    check("털실: 끝에 붙은 공은 앞발을 뻗어 끌어내고, 헛발질을 되풀이하지 않는다", `왼쪽 끌어냄 ${L.pulls}·찬 ${L.kicks}/${L.swipes} · 오른쪽 끌어냄 ${R.pulls}·찬 ${R.kicks}/${R.swipes}`, ok(L) && ok(R));
+    const narrow = await yarn("?w=220&h=200&scale=height", { width: 760, height: 1000 }, { sec: 25 });
+    check("털실: 좁은 자리(220×200)도 공이 움직이고 헛발질을 되풀이하지 않는다", `찬 ${narrow.kicks}/${narrow.swipes} · 움직인 폭 ${narrow.span.toFixed(0)}단위`, narrow.kicks >= 5 && narrow.swipes - narrow.kicks <= 1);
+    const p = await open("?world=1&fixed=0.8", { width: 1200, height: 700 });
+    const w = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, S = n.S, W = n.W;
+      n.setGround(600); n.step(60); n.setEdges({ left: true, right: true }); n.act("yarn"); n.step(2);
+      const b = c.act.ball; let minX = Infinity, maxX = -Infinity;
+      for (let k = 0; k < 6; k++) { b.vx = (k % 2 ? 900 : -900) * S; for (let i = 0; i < 600; i++) { n.step(1); minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x); } }
+      return { inside: minX >= 0 && maxX <= W, near: minX < 20 * S || W - maxX < 20 * S, cat: c.x > 0 && c.x < W };
+    });
+    await p.close();
+    check("털실: 화면 모드 열린 가장자리로도 공이 나가지 않는다(화면 끝에서 튕김)", `안 ${w.inside} · 끝까지 ${w.near} · 고양이 화면 안 ${w.cat}`, w.inside && w.near && w.cat);
+  }
+
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다
   for (const [w, h] of [[704, 282], [220, 150], [900, 150]]) {
     const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
