@@ -964,9 +964,10 @@ function WeatherSection() {
 
   return (
     <section className="settings-section">
-      <h3 className="settings-section__title">날씨</h3>
+      <h3 className="settings-section__title">날씨와 위치</h3>
       <p className="settings-section__desc">
-        {name} 왼쪽 위에 지금 날씨를 띄워요. 지역 이름을 적거나 현재 위치를 쓰고, 비우면 숨겨요.
+        {name} 방 벽의 액자에 지금 날씨를 걸어요. 지역 이름을 적거나 현재 위치를 쓰고, 비우면 액자를 내려요.
+        산책 지도가 내 위치를 못 받으면 이 위치를 집으로 써요.
       </p>
       <div className="settings-row">
         <input
@@ -1648,9 +1649,6 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
               {/* ── 고양이(네코): 외형·자리 ─────────────────────────── */}
               <NekoSettingsSection />
 
-              {/* ── 날씨 ──────────────────────────────────────────────── */}
-              <WeatherSection />
-
               {/* ── 사용자 프로필 ────────────────────────────────────── */}
               <UserProfileSection />
 
@@ -1702,6 +1700,9 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
           )}
           {tab === "connect" && (
             <>
+              {/* ── 날씨와 위치 ──────────────────────────────────────── */}
+              <WeatherSection />
+
               {/* ── 이미지 생성 ──────────────────────────────────────── */}
               <ImageGenSection />
 
@@ -1751,6 +1752,11 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                       label: "화면 녹화",
                       desc: "스크린샷·화면 캡처 접근",
                       url: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+                    },
+                    {
+                      label: "위치 서비스",
+                      desc: "현재 위치(날씨·산책 지도의 집)",
+                      url: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices",
                     },
                   ].map(({ label, desc, url }) => (
                     <button
