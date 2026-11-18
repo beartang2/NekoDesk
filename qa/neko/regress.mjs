@@ -447,10 +447,21 @@ try {
       for (let i = 0; i < 60; i++) { n.step(1); worst = Math.max(worst, Math.abs(n.cat.scruff.y - cy - 60)); }
       return { worst: +worst.toFixed(1), floor: n.floorY };
     }, cy);
+    // 커서가 창 밖(다른 모니터)으로 나가면 묶지 않고 따라간다 — held 가 경계를 넘어 호스트가 창을 옮길 수 있다
+    const out = await p.evaluate(() => {
+      const n = window.__neko, cv = document.getElementById("stage");
+      cv.dispatchEvent(new PointerEvent("pointermove", { clientX: n.W + 214, clientY: 650, pointerId: 1, bubbles: true }));
+      n.step(90); const held = n.held;
+      cv.dispatchEvent(new PointerEvent("pointermove", { clientX: n.W - 20, clientY: 650, pointerId: 1, bubbles: true }));
+      n.step(90); const back = n.held;
+      return { past: !!held && held[0] > n.W + 100, clampedBack: !!back && back[0] <= n.W - 60 * n.S + 1 };
+    });
     await p.mouse.up();
+    const released = await p.evaluate(() => { window.__neko.step(30); return window.__neko.held; });
     const dragOk = before.grabbed && Math.abs(drag.d0 - before.d) < 2 && after.worst < Math.abs(before.d) + 4 && after.floor === 700;
     check("여러 모니터: 바닥이 다른 모니터로 걸어 건너가면 발이 새 바닥에서 안 튀고 머리 높이 그대로", JSON.stringify(walk), walk.edge && walk.floor === 760 && walk.worstFoot < 3 && walk.worstHead < 2);
     check("여러 모니터: 바닥이 다른 모니터로 끌어 건너가면 목덜미가 커서 밑에 그대로", JSON.stringify({ before, drag, after }), dragOk);
+    check("여러 모니터: 끄는 커서가 창 밖이면 묶지 않고 따라가 경계를 넘는다(held), 돌아오면 다시 묶음, 놓으면 null", JSON.stringify({ ...out, released }), out.past && out.clampedBack && released === null);
     await p.close();
   }
 

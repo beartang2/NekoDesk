@@ -180,6 +180,8 @@ export interface NekoController {
   readonly away: boolean;
   /** 지금 그리는 영역(세계 좌표). 화면 모드에선 고양이 둘레, 아니면 무대 전체 */
   readonly region: { x: number; y: number; w: number; h: number };
+  /** 잡혀 있을 때 목덜미 자리(세계 좌표), 아니면 null. 화면 모드에선 커서가 창 밖이면 묶지 않고 따라가니, 호스트가 이 점이 다른 모니터에 닿을 때 창을 옮긴다 */
+  readonly held: [number, number] | null;
   /** 입에 문다. 같은 id 면 바꾼다. 여럿이면 최대 3장이 겹쳐 보인다 */
   carry(items: NekoCarryItem | NekoCarryItem[]): void;
   /** 입에서 뺀다(id 없으면 전부). 뺀 것을 돌려준다 */

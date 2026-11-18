@@ -540,8 +540,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         break;
       case "grabbed": {
         // 약한 스프링: 손을 한 박자 늦게 따라오고 더 크게 데롱거린다
-        const vx0 = c.scruff.vx;
-        c.scruff.step(clamp(mouse.x, 60 * S, W - 60 * S), clamp(mouse.y, 30 * S, floorY - 66 * S), lerp(520, 250, c.soft), lerp(40, 24, c.soft), dt);
+        // 화면 모드에서 커서가 창 밖(다른 모니터 위)이면 묶지 않고 따라간다 — 고양이가 실제로 경계를 넘을 때 호스트가 창을
+        // 옮긴다(held). 묶으면 빨리 끌 때 목덜미가 옛 화면 끝에 남았다가 새 화면 왼쪽 끝에서 미끄러져 들어왔다
+        const vx0 = c.scruff.vx, out = WORLD && (mouse.x < 0 || mouse.x > W || mouse.y < 0 || mouse.y > H);
+        const tx = out ? mouse.x : clamp(mouse.x, 60 * S, W - 60 * S), ty = out ? mouse.y : clamp(mouse.y, 30 * S, floorY - 66 * S);
+        c.scruff.step(tx, ty, lerp(520, 250, c.soft), lerp(40, 24, c.soft), dt);
         c.ax = clamp((c.scruff.vx - vx0) / dt, -16000 * S, 16000 * S);
         break;
       }
@@ -4396,6 +4399,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     setScale(v) { FIXED_S = Number.isFinite(v) ? clamp(v, 0.35, 1.4) : null; resize(); },
     setGround(y) { GROUND_Y = Number.isFinite(y) ? y : null; resize(); },
     get region() { return { x: RX, y: RY, w: RW, h: RH }; },
+    get held() { return cat.mode === "grabbed" ? [cat.scruff.x, cat.scruff.y] : null; },
     hit: hitCat,
     // 입에 물기(docs/neko-gifts.md §6)
     carry(items) {
