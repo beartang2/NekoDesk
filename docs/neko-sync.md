@@ -1,6 +1,6 @@
 # 네코 동기화 — 맥·아이폰에서 같은 네코, 같은 대화
 
-상태: 2단계(Worker + 맥 동기화) 구현됨, 배포 전. 2026-11-18. 구현 메모는 §11.
+상태: 2단계(Worker + 맥 동기화) 구현됨, 배포 전. 2026-11-18. 구현 메모·배포 절차는 §11.
 관련 문서: `docs/neko-gifts.md`(선물함), `docs/neko-screen-mode.md`(네코 자리).
 
 맥북을 덮어도 아이폰에서 같은 대화를 이어 가고, 맥을 다시 열면 폰에서 한 말이 보인다.
@@ -632,24 +632,42 @@ cron 이 10분마다 깬다. 아래가 다 맞을 때만 나간다.
 - 처음 올리기는 하루 2만 기록까지(D1 무료 쓰기 한도 §4.4). 넘으면 다음 날 이어 올린다(받기는 계속).
 - 동기화 주기는 "앱을 쓰는 중" 대신 **메인 창이 앞에 있으면 15초, 아니면 5분**, 쓴 직후·창이 앞으로 올 때 바로. `active_at` 은 창이 앞에 있을 때의 지금 시각(4단계 서버 산책 조건용).
 
-### 11.2 아직 안 한 것
+### 11.2 0.1.15 에 더한 것
+
+- 설정 › 연동 › 동기화: 기기 목록, 다른 기기 끊기, **열쇠 바꾸기**(다른 기기를 모두 끊고 → 서버 기록을 비우고(`/v1/reset`) → 새 열쇠로 이 맥 것을 처음부터 다시 올린다. 다른 기기는 새 짝 문자열로 다시 맞춘다. 옛 열쇠로 올린 기록이 섞이지 않게 먼저 끊는다).
+- 할 일·일정(오른쪽 패널)과 기억(설정)은 `sync-changed` 를 받으면 바로 다시 읽는다(`appEvents.syncChanged`).
+- 받을 때도 세션당 5000개로 자른다. "최근"은 불러오는 순서(ts, 기기, id)라 늦게 받은 옛 메시지가 남지 않는다. 저장할 때 자르기도 같은 순서로 바꿨다.
+- 배포본 첫 실행 안전:
+  - 마이그레이션 4 는 한 트랜잭션이다. 중간에 꺼지면 3 에 그대로 남고 다음에 켤 때 처음부터 다시 한다. 시각이 이상한 행은 지금 시각으로 찍는다(테스트 `migration_4_survives_odd_dates_and_rolls_back_if_cut_off`).
+  - 세션 목록 옮기기는 이미 있는 세션을 건드리지 않아 몇 번이고 다시 해도 되고, 다 옮긴 뒤에야 "옮김" 표시(`nekodesk_sessions_in_db`)를 남긴다. 중간에 꺼지면 다음에 다시 옮긴다.
+  - localStorage 는 지우지 않는다. 세션 목록(`nekodesk_sessions`)·요약(`nekodesk_compact_*`)·이름·성격·프로필·지우기 설정을 DB 값으로 계속 맞춰 두어, 0.1.14 로 되돌려도 그대로 보인다(수동 요약도 예전 자리에 같이 적는다).
+
+### 11.3 아직 안 한 것
 
 - 지움 표시 90일 치우기: cron 이 4단계라 아직 없다. 서버는 `purged_seq` 로 `reset` 을 돌려줄 준비만 돼 있다.
 - 짝 문자열에 Claude API 키 싣기(§6.4)는 폰이 생기는 3단계에서.
-- 받을 때 세션당 5000개 자르기(§9)는 안 했다. 그 세션에 이 기기가 다음에 저장할 때 잘린다.
-- 할 일·일정·기억 화면은 `sync-changed` 로 다시 읽지 않는다(그 화면을 다시 열면 보인다). 세션 목록·열린 대화·요약·이름·성격·프로필·외형·선물함은 바로 바뀐다.
-- 기기 목록·끊기·열쇠 바꾸기 화면은 아직 없다(서버 API 만 있다).
 - 두 번째 맥 앱을 따로 띄우는 확인(§8)은 대신 Rust `sync::tests::live` 가 기기 둘(메모리 DB)로 `wrangler dev` 에 대고 한다.
 
-### 11.3 배포(사용자 몫)
+### 11.4 배포·서버 스키마 (대시보드 기준)
 
-`server/` 에서, Cloudflare 로그인(`npx wrangler login`) 뒤:
+사용자가 Cloudflare 대시보드로 Worker + D1 + `SETUP_TOKEN` + 사용자 도메인을 만들었다. D1 표는 Console 에 SQL 을 붙여 만들었고 wrangler 마이그레이션 기록은 없다.
 
-1. `npx wrangler d1 create nekodesk-sync` → 나온 `database_id` 를 `wrangler.toml` 에 넣는다. Worker 이름(`name`)도 고른다.
-2. `npm run migrate:remote` (D1 마이그레이션 0001·0002).
-3. `npx wrangler secret put SETUP_TOKEN` — 길고 무작위인 값(예: `openssl rand -hex 32`). 맥 설정에 한 번 넣는다.
-4. 사용자 도메인: Cloudflare 영역에 있는 도메인으로 `wrangler.toml` 의 `routes = [{ pattern = "sync.<도메인>", custom_domain = true }]` 주석을 풀고(필요하면 `workers_dev = false`), `npm run deploy`.
-5. 맥 설정 › 연동 › 동기화: `https://sync.<도메인>` + SETUP_TOKEN → "등록하고 켜기".
-6. 다른 기기: 맥에서 "짝 문자열 만들기" → 그 기기에 붙여넣기.
+| 파일 | 대시보드 D1 에 |
+|---|---|
+| `server/migrations/0001_init.sql` | 적용됨 |
+| `server/migrations/0002_pair_creator.sql` | 적용됨 |
 
-로컬 확인: `npm run migrate:local && npm run dev`(다른 창), `npm test`, 그리고 `cd ../src-tauri && cargo test --lib sync::tests::live -- --ignored`.
+서버 스키마가 바뀔 때
+
+1. 새 파일은 `server/migrations/000N_<이름>.sql` 하나로 만든다. Console 에 그대로 붙여도 되는 SQL 만 쓴다(wrangler 전용 문법 없음, 한 번만 돌아야 하는 것은 그 파일 안에 적는다). 로컬 `wrangler dev` 도 같은 파일을 쓴다(`npm run migrate:local`).
+2. **Worker 코드보다 먼저** 대시보드 › D1 › nekodesk-sync › Console 에 그 파일 내용을 붙여 실행한다. 새 칸을 읽는 Worker 가 먼저 나가면 요청이 실패한다.
+3. 위 표에 "적용됨"을 적는다.
+4. Worker 코드(`server/src/index.ts`)를 다시 배포한다(대시보드 편집기에 붙이거나 `npm run deploy`).
+5. 언젠가 wrangler 로 바꾸려면 `server/console/wrangler-ledger.sql` 을 한 번 붙여 0001·0002 를 적용한 것으로 적어 두고, 그 뒤로는 `npm run migrate:remote`.
+
+맥에서
+
+- 설정 › 연동 › 동기화: `https://sync.<도메인>` + SETUP_TOKEN → "등록하고 켜기".
+- 다른 기기: 맥에서 "짝 문자열 만들기" → 그 기기에 붙여넣기(10분, 한 번).
+
+로컬 확인: `cd server && npm run migrate:local && npm run dev`(다른 창), `npm test`, 그리고 `cd ../src-tauri && cargo test --lib sync::tests::live -- --ignored`.
