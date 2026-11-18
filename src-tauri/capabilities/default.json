@@ -8,7 +8,9 @@
     "capture-*",
     "viewer",
     "glow",
-    "neko-screen"
+    "neko-screen",
+    "neko-customize",
+    "neko-gifts"
   ],
   "permissions": [
     "core:default",

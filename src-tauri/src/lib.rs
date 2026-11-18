@@ -690,6 +690,29 @@ mod commands {
         Ok(())
     }
 
+    /// 설정에서 따로 띄우는 창(네코 꾸미기·선물함). 떠 있으면 앞으로 가져온다. 내용은 같은 번들이 창 이름을 보고 그린다(main.tsx).
+    #[tauri::command]
+    pub fn panel_open(app: tauri::AppHandle, kind: String) -> Result<(), AppError> {
+        let (title, w, h, min_w, min_h) = match kind.as_str() {
+            "neko-customize" => ("네코 꾸미기", 780.0, 720.0, 520.0, 520.0),
+            "neko-gifts" => ("선물함", 600.0, 640.0, 380.0, 360.0),
+            _ => return Err(format!("모르는 창: {kind}").into()),
+        };
+        if let Some(win) = app.get_webview_window(&kind) {
+            let _ = win.unminimize();
+            win.show()?;
+            win.set_focus()?;
+            return Ok(());
+        }
+        tauri::WebviewWindowBuilder::new(&app, &kind, tauri::WebviewUrl::App("index.html".into()))
+            .title(title)
+            .inner_size(w, h)
+            .min_inner_size(min_w, min_h)
+            .center()
+            .build()?;
+        Ok(())
+    }
+
     /// 뷰어 창이 띄울 것을 가져간다.
     #[tauri::command]
     pub fn viewer_item(state: State<'_, crate::ViewerState>) -> Result<Option<crate::ViewerItem>, AppError> {
@@ -1284,6 +1307,7 @@ pub fn run() {
             commands::shelf_remove,
             commands::haptic_feedback,
             commands::viewer_open,
+            commands::panel_open,
             commands::viewer_item,
             commands::save_download,
             commands::reveal_in_finder,
