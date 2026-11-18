@@ -59,18 +59,19 @@ function dragGift(e: React.PointerEvent<HTMLElement>, id: string) {
     }
   };
   const end = (ev: PointerEvent) => {
-    cell.removeEventListener("pointermove", move);
-    cell.removeEventListener("pointerup", end);
-    cell.removeEventListener("pointercancel", end);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
     if (!ghost) return;
     ghost.remove();
     document.body.classList.remove("neko-gift-dragging");
     over?.classList.remove("is-gift-over");
     if (ev.type === "pointerup" && over) over.dispatchEvent(new CustomEvent<GiftDrop>(GIFT_DROP, { detail: { id, x: ev.clientX, y: ev.clientY } }));
   };
-  cell.addEventListener("pointermove", move);
-  cell.addEventListener("pointerup", end);
-  cell.addEventListener("pointercancel", end);
+  // 칸이 아니라 window 에서 듣는다: 캡처가 풀려도(WebKit) 손을 따라가고 뗀 걸 놓치지 않는다
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
 }
 
 const DAY = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric" });
