@@ -48,6 +48,9 @@ describe("숨은 게이지(docs/neko-activity-mix.md 2부)", () => {
     const keys = (o: Parameters<typeof soloOdds>[1]) => soloOdds(START, o).map((x) => x.key);
     expect(keys({ last: "window", hasGifts: false })).not.toContain("window");
     expect(keys({ last: null, hasGifts: false })).not.toContain("giftplay");
+    // 창 탐험은 갈 창이 있을 때만(화면 모드)
+    expect(keys({ last: null, hasGifts: false })).not.toContain("tower");
+    expect(keys({ last: null, hasGifts: false, towerOk: true })).toContain("tower");
     const odds = soloOdds(START, { last: null, hasGifts: true });
     const p = (k: string) => odds.find((x) => x.key === k)!.p;
     expect(p("giftplay") / p("draw")).toBeCloseTo((score(START, fillsOf("giftplay")) * 2) / score(START, fillsOf("draw")));

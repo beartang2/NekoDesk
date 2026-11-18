@@ -101,6 +101,12 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     tauri.handlers.get("neko-decor-move")?.({ payload: { id: "a", screen: "B", surface: "floor", u: 0.5 } });
     expect(useNekoGifts.getState().gifts.find((g) => g.id === "a")?.placed).toMatchObject({ at: "screen", screen: "B", u: 0.5 });
     expect(items()).toEqual({ "neko-decor-A": ["b"], "neko-decor-B": ["a", "c"] });
+    // 감독이 혼자 놀 거리를 고를 때 읽는 값: 함수가 아니라 엔진에 넘긴 선물 수, 화면 창이 알린 창 탐험 가능
+    const r = createRemoteNeko(() => {});
+    expect(r.decorCount).toBe(2);
+    expect(r.towerOk).toBe(false);
+    tauri.handlers.get("neko-screen-tower")?.({ payload: true });
+    expect(r.towerOk).toBe(true);
   });
 
   it("선물함에서 마당에 새로 놓으면(모니터 모름) 고양이가 있는 모니터로 적는다. 이미 마당에 있던 건 그대로", () => {

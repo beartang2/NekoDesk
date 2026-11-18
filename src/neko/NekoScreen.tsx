@@ -138,7 +138,15 @@ export function NekoScreen() {
       perchSent = perch;
       void invoke("neko_screen_cat", { at: moved ? at : null, perch }).catch(() => {});
     };
-    const timer = setInterval(() => { reportHeld(); reportCat(); if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
+    // 창 탐험(tower)을 할 만한가를 메인 창(감독이 혼자 놀 거리를 고를 때)에 — 바뀔 때만
+    let towerSent: boolean | null = null;
+    const reportTower = () => {
+      const ok = ctrl.towerOk;
+      if (ok === towerSent) return;
+      towerSent = ok;
+      void emitTo("main", "neko-screen-tower", ok).catch(() => {});
+    };
+    const timer = setInterval(() => { reportHeld(); reportCat(); reportTower(); if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
     // 끝을 넘었다 — 커서가 아직 그쪽이면 Rust 가 창을 옮긴다(neko-screen-moved). 그새 돌아왔으면 걸어 들어온다
     const offMenu = ctrl.on("decorMenu", setMenu);
     // 고양이 우클릭: 엔진은 선물만 메뉴를 띄우고(기본 메뉴를 막음) 고양이엔 안 띄운다. 오른쪽 버튼 누름은 엔진에
@@ -227,7 +235,7 @@ export function NekoScreen() {
       me.listen<Perches>("neko-screen-perches", ({ payload }) => ctrl.setPerches(payload)),
       me.listen<number>("neko-screen-scale", ({ payload }) => ctrl.setScale(payload)),
       me.listen<number>("neko-screen-fps", ({ payload }) => { maxFps = payload; fps(); }),
-      me.listen("neko-screen-ping", () => void emitTo("main", "neko-screen-ready").catch(() => {})),
+      me.listen("neko-screen-ping", () => { towerSent = null; void emitTo("main", "neko-screen-ready").catch(() => {}); }),
       me.listen("neko-screen-press-out", () => setMenu(null)), // 다른 데를 눌렀다
       me.listen<{ screen: string; x: number; y: number } | null>("neko-screen-elsewhere", ({ payload }) => { elsewhere = payload; }),
     ];

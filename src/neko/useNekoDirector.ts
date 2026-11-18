@@ -98,7 +98,9 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
         boxTimer = setTimeout(() => {
           boxTimer = null;
           // 놓아 둔 선물이 있으면 그걸 갖고 노는 것도 고른다(docs/neko-gifts.md §5)
-          const kind = pickByNeeds(useNekoNeeds.getState().needs, { last: lastSolo, hasGifts: !!(ctrl as { decorCount?: number }).decorCount });
+          // 창 탐험은 화면 모드에서 갈 창이 있을 때만(엔진 towerOk — 대리는 화면 창이 알린 값)
+          const c = ctrl as { decorCount?: number; towerOk?: boolean };
+          const kind = pickByNeeds(useNekoNeeds.getState().needs, { last: lastSolo, hasGifts: !!c.decorCount, towerOk: c.towerOk === true });
           lastSolo = kind;
           box = { since: performance.now(), kind };
           // 그리기면 정말 그린다(하루 두 장, Claude 일 때만). 다 그려 액자를 선물함에 넣으면 꼬리 세우기

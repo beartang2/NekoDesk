@@ -62,6 +62,8 @@ export function createRemoteNeko(send: Send = sendToScreen): NekoController {
   // 화면 창이 새로 준비되면 감독이 새 스케줄러로 처음부터 다시 보내므로 따로 다시 보낼 것은 없다
   let side: NekoActivity | null = null;
   addListener("side", (a) => { side = (a as NekoActivity | null) ?? null; });
+  // 감독이 혼자 놀 거리를 고를 때 읽는 값. 대리가 함수를 돌려주면 늘 참으로 읽혀 선물이 없어도 선물 놀이를 골랐다
+  // — 선물 수는 엔진에 넘긴 마당 선물(pushDecor)로, 창 탐험 가능은 화면 창이 알린 값(neko-screen-tower)으로 답한다
   const own: Record<string, unknown> = {
     on: addListener,
     // 선물 창 그림자 색도 맞추게 적어 둔다
@@ -83,6 +85,8 @@ export function createRemoteNeko(send: Send = sendToScreen): NekoController {
       if (key === "activity") return activity;
       if (key === "side") return side;
       if (key === "carrying") return false;
+      if (key === "decorCount") return engineDecor;
+      if (key === "towerOk") return towerOk;
       if (typeof key !== "string" || key === "then") return undefined; // await·Promise 판별에 걸리지 않게
       return own[key] ?? ((...args: unknown[]) => send({ m: key, args }));
     },
@@ -98,6 +102,9 @@ interface Screens { screens: ScreenInfo[]; main: string; cat: string | null }
 /** Rust 가 알린 모니터 목록(neko-screens). 모르면 null — 그땐 모니터를 가리지 않는다(예전처럼) */
 let screens: Screens | null = null;
 let dark = false;
+/** 엔진(고양이 모니터)에 넘긴 선물 수·창 탐험을 할 만한가(화면 창 엔진 towerOk). 대리 컨트롤러가 답한다 */
+let engineDecor = 0;
+let towerOk = false;
 /** 엔진이 갖고 노느라 잡은 선물(고양이 모니터). 엔진이 새로 뜨거나 고양이가 건너가면 비운다 */
 let held = new Set<string>();
 const pickFor = (id: string): ScreenPick | undefined =>
@@ -109,7 +116,11 @@ const pickFor = (id: string): ScreenPick | undefined =>
  */
 function pushDecor(heldOnly = false): void {
   const gifts = useNekoGifts.getState().gifts;
-  if (!heldOnly) remote?.setDecor(decorItems(gifts, "screen", screens ? pickFor(screens.cat ?? screens.main) : undefined));
+  if (!heldOnly) {
+    const items = decorItems(gifts, "screen", screens ? pickFor(screens.cat ?? screens.main) : undefined);
+    engineDecor = items.length;
+    remote?.setDecor(items);
+  }
   if (!screens) return;
   const scale = useNekoStore.getState().stage.screenScale;
   for (const s of screens.screens) {
@@ -186,6 +197,7 @@ export function link(): void {
   addListener("decorMove", (p) => { const { id, ...spot } = p as { id: string } & NekoDecorSpot; useNekoGifts.getState().place(id, spot, undefined, screens?.cat ?? undefined); });
   addListener("decorPlayed", (p) => { const { id, at } = p as { id: string; at: number }; useNekoGifts.getState().played(id, at); });
   void listen<string>("neko-screen-put", (e) => useNekoGifts.getState().place(e.payload, null)).catch(() => {});
+  void listen<boolean>("neko-screen-tower", (e) => { towerOk = e.payload === true; }).catch(() => {});
   // 고양이 메뉴 '숨기기'·다시 보임(Rust). 감독은 숨긴 동안 아무 활동도 안 시킨다
   void listen<boolean>("neko-screen-hidden", (e) => useNekoApp.getState().setScreenHidden(e.payload)).catch(() => {});
   useNekoStore.subscribe((s, p) => {
