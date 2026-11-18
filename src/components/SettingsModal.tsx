@@ -7,6 +7,7 @@ import {
 import { Accordion, Popover } from "radix-ui";
 import { AnimatePresence, Reorder, motion, useDragControls } from "motion/react";
 import type { Memory } from "../agent/types";
+import { loadTidyLog, type TidyRecord } from "../agent/memory-tidy";
 import { Collapse, EASE, IconButton, SavedLabel, Segmented, Select, SwitchRow, Switch, listItem } from "./ui";
 import {
   getMcpTools,
@@ -1094,6 +1095,13 @@ function MemoriesSection() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // 쉴 때 정리(agent/memory-tidy): 켜고 끄기와 최근에 무엇을 합쳤는지
+  const tidy = useSettingsStore((s) => s.memoryTidy);
+  const setTidy = useSettingsStore((s) => s.setMemoryTidy);
+  const name = useSettingsStore(nekoNameOf);
+  const [tidyLog, setTidyLog] = useState<TidyRecord[]>([]);
+  useEffect(() => { void loadTidyLog().then(setTidyLog); }, []);
+
   async function remove(id: number) {
     await memoryApi.delete(id).catch(() => {});
     setMemories((prev) => prev.filter((m) => m.id !== id));
@@ -1123,9 +1131,32 @@ function MemoriesSection() {
           </AnimatePresence>
         </div>
       )}
+      <SwitchRow label="쉴 때 정리하기" checked={tidy} onChange={setTidy} />
+      <p className="settings-section__desc">
+        {josa(name, "이/가")} 졸 때 하루 한 번 밥을 먹으며 같은 내용을 여러 번 적은 기억을 한 줄로 합쳐요.
+        내용이 다른 기억은 지우지 않아요. Claude 프로필일 때만, 산책 중이 아닐 때만 해요.
+      </p>
+      {tidyLog.length > 0 && (
+        <details className="memory-tidy-log">
+          <summary>최근 정리 {tidyLog.length}번</summary>
+          {tidyLog.map((r) => (
+            <div key={r.at} className="memory-tidy-log__day">
+              <div className="memory-tidy-log__at">{TIDY_AT.format(new Date(r.at))}</div>
+              {r.merges.map((m, i) => (
+                <div key={i} className="memory-tidy-log__merge">
+                  <span className="memory-tidy-log__from">{m.from.join(" · ")}</span>
+                  <span className="memory-tidy-log__to">→ {m.to}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </details>
+      )}
     </section>
   );
 }
+
+const TIDY_AT = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 // ── Image generation section ──────────────────────────────────────────────────
 

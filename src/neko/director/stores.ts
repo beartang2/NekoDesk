@@ -44,7 +44,8 @@ interface NekoAppStore {
   lastActiveAt: number;
   /** 쓰다듬은 횟수(상자에서 나오기 셈) */
   pets: number;
-  setFeeding: (on: boolean) => void;
+  /** wake=false 면 깨우지 않는다(졸 때 도는 기억 정리 — 앱을 쓰는 중으로 치지 않는다) */
+  setFeeding: (on: boolean, wake?: boolean) => void;
   /** 놀아주기: 털실·나비를 번갈아 */
   play: () => void;
   /** 게임 호환: 게임 훅의 onEmotionChange(감정, ms) 를 그대로 받는다 */
@@ -60,10 +61,10 @@ export const useNekoApp = create<NekoAppStore>((set, get) => ({
   game: null,
   lastActiveAt: performance.now(),
   pets: 0,
-  setFeeding: (on) => {
+  setFeeding: (on, wake = true) => {
     const now = performance.now();
     const cur = get().feeding;
-    if (on && !cur) set({ feeding: { since: now }, lastActiveAt: now });
+    if (on && !cur) set(wake ? { feeding: { since: now }, lastActiveAt: now } : { feeding: { since: now } });
     else if (!on && cur) set({ feeding: null, fedAt: now });
   },
   play: () => {

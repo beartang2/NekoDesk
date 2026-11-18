@@ -1184,3 +1184,37 @@ code.rule-row__key {
   font-size: 0.78rem;
   color: var(--text-secondary);
 }
+
+/* 쉴 때 기억 정리 기록(네코가 기억하는 것) */
+.memory-tidy-log {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.memory-tidy-log summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+.memory-tidy-log__day {
+  padding: 6px 0;
+  border-top: var(--hairline);
+}
+.memory-tidy-log__at {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.memory-tidy-log__merge {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+.memory-tidy-log__from {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.memory-tidy-log__to {
+  color: var(--text-primary);
+}

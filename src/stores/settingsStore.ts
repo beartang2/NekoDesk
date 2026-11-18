@@ -61,6 +61,7 @@ const K = {
   claudeContext: "nekodesk_claude_context",
   autoCompact: "nekodesk_auto_compact",
   sessionRetention: "nekodesk_session_retention",
+  memoryTidy: "nekodesk_memory_tidy",
 } as const;
 
 /** 오래된 대화를 지우는 기준(일). 0 이면 끔 */
@@ -130,6 +131,8 @@ interface SettingsStore {
   autoCompact: boolean;
   /** 마지막으로 쓴 지 이만큼(일) 지난 대화를 켤 때 지운다(sessionStore.pruneOldSessions). 0 이면 끔 */
   sessionRetention: SessionRetention;
+  /** 네코가 졸 때 하루 한 번 겹치는 기억을 합친다(neko/memoryTidy.ts). Claude 프로필일 때만 돈다 */
+  memoryTidy: boolean;
   /** auto 모드에서 서버가 `tools` 를 거부해 json 으로 내려앉았다. 영속화하지 않는다. */
   nativeToolsDegraded: boolean;
   setLlmUrl: (url: string) => void;
@@ -144,6 +147,7 @@ interface SettingsStore {
   setClaudeContext: (model: string, tokens: number) => void;
   setAutoCompact: (on: boolean) => void;
   setSessionRetention: (days: SessionRetention) => void;
+  setMemoryTidy: (on: boolean) => void;
   setNativeToolsDegraded: (v: boolean) => void;
 }
 
@@ -161,6 +165,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   claudeContext: loadClaudeContext(),
   autoCompact: localStorage.getItem(K.autoCompact) !== "off",
   sessionRetention: loadSessionRetention(),
+  memoryTidy: localStorage.getItem(K.memoryTidy) !== "off",
   nativeToolsDegraded: false,
 
   setLlmUrl: (url) => {
@@ -213,6 +218,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setSessionRetention: (days) => {
     localStorage.setItem(K.sessionRetention, String(days));
     set({ sessionRetention: days });
+  },
+  setMemoryTidy: (on) => {
+    localStorage.setItem(K.memoryTidy, on ? "on" : "off");
+    set({ memoryTidy: on });
   },
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));
