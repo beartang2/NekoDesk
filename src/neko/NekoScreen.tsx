@@ -23,6 +23,7 @@ import "./NekoScreen.css";
 interface Layout { w: number; h: number; ground: number }
 type Side = "left" | "right";
 interface Moved { layout: Layout; shift: [number, number] }
+type Perches = Parameters<NekoController["setPerches"]>[0];
 
 /** 잡고 끄는 동안은 설정과 상관없이 60. 졸 때는 설정의 절반 */
 const HELD_FPS = 60;
@@ -34,8 +35,10 @@ const CATCH_EVERY_MS = 100;
 const CHECK_EVERY_MS = 33;
 /** 화면 창이 스스로 다루는 것. 메인 창 명령으로는 부르지 않는다 */
 const LOCAL_ONLY: ReadonlySet<string> = new Set([
-  "pause", "resume", "resize", "destroy", "setMaxFps", "setScale", "setGround", "on", "shiftWorld", "setEdges", "walkOut",
+  "pause", "resume", "resize", "destroy", "setMaxFps", "setScale", "setGround", "on", "shiftWorld", "setEdges", "walkOut", "setPerches",
 ]);
+/** 고양이 자리를 Rust 에 다시 알리는 움직임(px). 캣타워 '창 근처' 판단용이라 거칠어도 된다 */
+const CAT_AT_STEP = 60;
 const CLOSED = { left: false, right: false } as const;
 /** 다른 모니터로 걸어 나가라고 다시 이르는 간격(하던 활동이 끝나 한가해졌을 때 이어 가게) */
 const WALK_OUT_EVERY_MS = 1000;
@@ -123,7 +126,19 @@ export function NekoScreen() {
       heldSent = key;
       void invoke("neko_screen_held", { at: h }).catch(() => {});
     };
-    const timer = setInterval(() => { reportHeld(); if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
+    // 캣타워(neko_perch.rs): 고양이 자리(크게 움직였을 때만)와 올라탄 창 번호를 Rust 에 — 근처면 창을 자주 읽고, 올라탄 창은 30Hz 로 따라 읽는다
+    let catSent: [number, number] | null = null;
+    let perchSent: number | null = null;
+    const reportCat = () => {
+      const r = ctrl.region, at: [number, number] = [r.x + r.w / 2, r.y + r.h * 0.7];
+      const win = ctrl.perch ? Number(ctrl.perch.split(":")[0]) : null, perch = Number.isFinite(win) ? win : null;
+      const moved = !catSent || Math.hypot(at[0] - catSent[0], at[1] - catSent[1]) > CAT_AT_STEP;
+      if (!moved && perch === perchSent) return;
+      if (moved) catSent = at;
+      perchSent = perch;
+      void invoke("neko_screen_cat", { at: moved ? at : null, perch }).catch(() => {});
+    };
+    const timer = setInterval(() => { reportHeld(); reportCat(); if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
     // 끝을 넘었다 — 커서가 아직 그쪽이면 Rust 가 창을 옮긴다(neko-screen-moved). 그새 돌아왔으면 걸어 들어온다
     const offMenu = ctrl.on("decorMenu", setMenu);
     // 고양이 우클릭: 엔진은 선물만 메뉴를 띄우고(기본 메뉴를 막음) 고양이엔 안 띄운다. 오른쪽 버튼 누름은 엔진에
@@ -208,6 +223,8 @@ export function NekoScreen() {
         cursor = null;
         requestAnimationFrame(() => void invoke("neko_screen_reveal").catch(() => {}));
       }),
+      // 캣타워 발판·벽(Rust, 바뀔 때만. partial 이면 그 창 것만)
+      me.listen<Perches>("neko-screen-perches", ({ payload }) => ctrl.setPerches(payload)),
       me.listen<number>("neko-screen-scale", ({ payload }) => ctrl.setScale(payload)),
       me.listen<number>("neko-screen-fps", ({ payload }) => { maxFps = payload; fps(); }),
       me.listen("neko-screen-ping", () => void emitTo("main", "neko-screen-ready").catch(() => {})),
@@ -215,6 +232,7 @@ export function NekoScreen() {
       me.listen<{ screen: string; x: number; y: number } | null>("neko-screen-elsewhere", ({ payload }) => { elsewhere = payload; }),
     ];
     void invoke<Layout | null>("neko_screen_layout").then((l) => { if (l) ctrl.setGround(l.ground); }).catch(() => {});
+    void invoke<Perches | null>("neko_screen_perches").then((p) => { if (p) ctrl.setPerches(p); }).catch(() => {});
     // 준비됐다 — 메인 창이 대리를 세우고 감독이 계획을 처음부터 보낸다
     void Promise.all(offs).then(() => emitTo("main", "neko-screen-ready")).catch(() => {});
 

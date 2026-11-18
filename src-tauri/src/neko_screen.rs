@@ -791,8 +791,10 @@ fn move_to(app: &AppHandle, win: &tauri::WebviewWindow, to: Screen, shift: [f64;
         st.away = None;
         st.held = None;
         st.hidden_at = Some(Instant::now());
-        st.perch_at = None; // 새 모니터 좌표로 다시
+        st.perch_at = None; // 새 모니터 좌표로 다시(엔진은 shiftWorld 때 목록을 비운다 — 같아 보여도 꼭 보낸다)
+        st.perches_sent = None;
         st.perch_win = None;
+        st.cat_at = None;
     }
     let _ = app.emit_to(LABEL, "neko-screen-moved", Moved { layout: to.layout, shift });
     // 고양이가 떠난 모니터엔 선물 창을, 온 모니터의 선물 창은 숨긴다(메인 창이 neko-screens 로 선물을 다시 나눈다)
