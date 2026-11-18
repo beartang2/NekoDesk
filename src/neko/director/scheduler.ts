@@ -1,4 +1,5 @@
 import type { NekoActivity, NekoMood, NekoPose, NekoReaction, NekoTailSign } from "../engine/neko-engine";
+import { baseOf, mixable } from "../engine/activity-mix";
 import { RESULT_LINGER_MS, type DeriveOut } from "./derive";
 import type { NekoLayer, NekoPlan, Reaction } from "./types";
 
@@ -36,7 +37,9 @@ export interface SchedulerCtrl {
   tail(sign: NekoTailSign, sec?: number): void;
   react(kind: NekoReaction): boolean;
   setWander(on: boolean): void;
-  on(ev: "activity", fn: (a: NekoActivity | null) => void): () => void;
+  /** 곁들임. 지금 도는 것과 안 맞으면 엔진이 거절한다(false) */
+  mix(key: NekoActivity | null): boolean;
+  on(ev: "activity" | "side", fn: (a: NekoActivity | null) => void): () => void;
   on(ev: "grab" | "drop", fn: () => void): () => void;
 }
 
@@ -95,6 +98,8 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
   let settleUntil = 0;
   let lastLayer: NekoLayer | null = null;
   let applied: { mood?: NekoMood; pose?: NekoPose; wander?: boolean } = {};
+  /** 마지막으로 보낸(엔진이 끝내면 엔진이 알린) 곁들임 */
+  let sentSide: NekoActivity | null = null;
   let tailHold: { sign: NekoTailSign; nextAt: number } | null = null;
   let queue: Queued[] = [];
   const lastFired = new Map<string, number>();
@@ -120,6 +125,8 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
       }
       if (inUpdate) dirty = true; else update();
     }),
+    // 엔진이 곁들임을 끝냄(또는 거절). 적어만 둔다 — 다음 계획 적용 때 맞춘다(여기서 다시 보내면 거절과 핑퐁)
+    ctrl.on("side", (a) => { sentSide = a; }),
     ctrl.on("grab", () => { grabbed = true; log("잡힘"); }),
     ctrl.on("drop", () => {
       grabbed = false;
@@ -265,6 +272,16 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
         start(p, now); // 3) 바꾸기: act(다음) 하나면 엔진이 소품을 쏙 넣고 새 소품을 '뿅'
       }
       setPose(p);
+    }
+
+    // 12) 곁들임: 계획의 곁들임을 지금 엔진에서 도는 것(활동, 없으면 적용한 자세의 기본 상태) 위에 얹을 수 있을 때만.
+    // 머무름으로 이전 활동이 도는 중이면 그 활동으로 본다. 바뀔 때만 보낸다
+    const on = ctrl.activity ?? baseOf(applied.pose ?? "stand");
+    const side = p.side && mixable(on, p.side).ok ? p.side : null;
+    if (side !== sentSide) {
+      sentSide = side;
+      ctrl.mix(side);
+      log(`곁들임 ${side ?? "끝"}`);
     }
 
     // 11) 꼬리 유지

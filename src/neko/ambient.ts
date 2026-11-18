@@ -7,7 +7,8 @@ import { useSettingsStore } from "../stores/settingsStore";
  * 다른 앱 따라 하기(설정 › 고양이). 사용자가 다른 앱에서 하는 일을 고양이가 흉내 낸다(src-tauri/src/ambient.rs).
  *
  * - 다른 앱에서 키를 치는 중이면 같이 타이핑한다. 그동안은 졸지 않는다(감독 derive 의 outside 층).
- * - 맨 앞 앱에 맞춰 한다: 그림 앱이면 그리기, 브라우저면 창밖 보기, 문서면 책 읽기… 음악이 나오면 음악 듣기.
+ * - 맨 앞 앱에 맞춰 한다: 그림 앱이면 그리기, 브라우저면 창밖 보기, 문서면 책 읽기…
+ * - 음악이 나오면 하던 것 위에 헤드폰을 얹는다(곁들임, docs/neko-activity-mix.md §1.13).
  * - '앱을 쓰는 중'(lastActiveAt)은 건드리지 않는다 — 산책·기억 정리처럼 '자리 비움'을 보는 일은 그대로다.
  */
 
@@ -23,8 +24,6 @@ const APPS: [prefix: string, activity: NekoActivity][] = [
   // 그림·디자인
   ["com.figma.", "draw"], ["com.adobe.Photoshop", "draw"], ["com.adobe.illustrator", "draw"],
   ["com.bohemiancoding.sketch", "draw"], ["com.apple.freeform", "draw"], ["com.seriflabs.", "draw"], ["com.pixelmator", "draw"],
-  // 음악 앱을 앞에 띄워 둠
-  ["com.apple.Music", "music"], ["com.spotify.client", "music"], ["com.apple.podcasts", "music"],
   // 읽기
   ["com.apple.Preview", "reading"], ["com.apple.iBooksX", "reading"], ["com.adobe.Reader", "reading"], ["notion.id", "reading"],
   ["com.apple.Notes", "reading"], ["md.obsidian", "reading"],
@@ -58,7 +57,7 @@ export function startAmbient(): void {
   started = true;
   let music = false;
   let musicAt = -Infinity;
-  const off = () => useNekoApp.getState().setOutside({ ...useNekoApp.getState().outside, typing: false, activity: null });
+  const off = () => useNekoApp.getState().setOutside({ ...useNekoApp.getState().outside, typing: false, activity: null, music: false });
 
   const tick = async () => {
     // 마당 고양이를 숨긴 동안도 쉰다(보일 것도 없는데 osascript 를 띄울 일이 없다)
@@ -76,8 +75,9 @@ export function startAmbient(): void {
     useNekoApp.getState().setOutside({
       typing,
       at: typing ? now : cur.at,
-      // 음악은 이 앱을 쓰는 동안에도 같이 듣는다
-      activity: music ? "music" : p.own ? null : appActivity(p.app),
+      activity: p.own ? null : appActivity(p.app),
+      // 음악은 이 앱을 쓰는 동안에도 같이 듣는다. 주 활동이 아니라 곁들임이다(감독 derive)
+      music,
     });
   };
   setInterval(() => void tick(), POLL_MS);

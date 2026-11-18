@@ -2,7 +2,7 @@
 // 도구 표가 tool-registry(→ settingsStore 가 localStorage 를 읽는다)를 불러온다
 
 import { describe, expect, it } from "vitest";
-import { deriveNeko } from "./derive";
+import { DEEP_SLEEP_MS, deriveNeko } from "./derive";
 import { createScheduler } from "./scheduler";
 import { IDLE_SESSION, reduceSession } from "./session";
 import { FakeClock, FakeCtrl } from "./testing/fakes";
@@ -14,7 +14,7 @@ function world(init: Partial<DirectorInput> = {}) {
   const ctrl = new FakeCtrl(clock);
   const input: DirectorInput = {
     session: IDLE_SESSION, feeding: null, fedAt: null, playCue: null, game: null,
-    needs: { hunger: 100, play: 60 }, lastActiveAt: 0, outside: { typing: false, at: -Infinity, activity: null }, box: null, ...init,
+    needs: { hunger: 100, play: 60 }, lastActiveAt: 0, outside: { typing: false, at: -Infinity, activity: null, music: false }, box: null, ...init,
   };
   const sch = createScheduler(ctrl, clock, (now) => deriveNeko(input, now));
   sch.update();
@@ -250,5 +250,44 @@ describe("스케줄러 규칙", () => {
     w.sig(0.5, { type: "wait", kind: "confirm", danger: false });
     w.to(1);
     expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "0.5 act:wait"]);
+  });
+});
+
+describe("곁들임(음악, docs/neko-activity-mix.md §1.13)", () => {
+  const music = { typing: false, at: -Infinity, activity: null, music: true };
+
+  it("음악이 나오면 기본 산책 위에 한 번만 얹고, 일하는 활동으로 바뀌어도 다시 보내지 않는다", () => {
+    const w = world();
+    w.set(0, { outside: music });
+    w.sig(1, { type: "run_start" });
+    w.sig(1, { type: "tool_start", tool: "web.scrape" });
+    w.to(6);
+    expect(w.ctrl.seen("mix")).toEqual(["0.0 mix:music"]);
+    expect(w.ctrl.side).toBe("music");
+  });
+
+  it("발도장 + 음악: 발도장이 끝나면 끝으로 보고(endedAt), 헤드폰은 남는다", () => {
+    const w = world({ outside: music });
+    w.sig(0, { type: "run_start" });
+    w.sig(0, { type: "tool_start", tool: "todo.complete" });
+    w.sig(0.2, { type: "tool_end", tool: "todo.complete" });
+    w.to(5);
+    expect(w.ctrl.seen("act:")[0]).toBe("0.0 act:stamp"); // (도구 끝 뒤 되풀이 여부는 음악과 무관 — 위 "오래 걸리는 발도장" 참고)
+    expect(w.ctrl.seen("end")[0]).toBe("4.3 end"); // 엔진이 끝냄 → activity null(이어받기 없음)
+    expect(w.ctrl.side).toBe("music");
+    expect(w.ctrl.seen("mix-refused")).toEqual([]);
+  });
+
+  it("누워 자면 벗고(다시 보내지 않음), 깨면 다시 얹는다", () => {
+    const w = world({ outside: music });
+    w.to(DEEP_SLEEP_MS / 1000 + 1);
+    expect(w.ctrl.pose).toBe("lie");
+    expect(w.ctrl.side).toBe(null);
+    const mixes = w.ctrl.seen("mix");
+    w.to(DEEP_SLEEP_MS / 1000 + 30);
+    expect(w.ctrl.seen("mix")).toEqual(mixes); // 자는 동안 되풀이 안 함
+    w.set(DEEP_SLEEP_MS / 1000 + 31, { lastActiveAt: (DEEP_SLEEP_MS / 1000 + 31) * 1000 });
+    w.to(DEEP_SLEEP_MS / 1000 + 40);
+    expect(w.ctrl.side).toBe("music");
   });
 });

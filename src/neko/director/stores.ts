@@ -67,12 +67,12 @@ export const useNekoApp = create<NekoAppStore>((set, get) => ({
   game: null,
   lastActiveAt: performance.now(),
   pets: 0,
-  outside: { typing: false, at: -Infinity, activity: null },
+  outside: { typing: false, at: -Infinity, activity: null, music: false },
   screenHidden: false,
   setScreenHidden: (on) => { if (get().screenHidden !== on) set({ screenHidden: on }); },
   setOutside: (o) => {
     const cur = get().outside;
-    if (cur.typing !== o.typing || cur.at !== o.at || cur.activity !== o.activity) set({ outside: o });
+    if (cur.typing !== o.typing || cur.at !== o.at || cur.activity !== o.activity || cur.music !== o.music) set({ outside: o });
   },
   setFeeding: (on, wake = true) => {
     const now = performance.now();

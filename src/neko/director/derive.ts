@@ -1,6 +1,7 @@
 import { emotionPlan } from "../emotionMap";
 import { resultLook } from "./session";
 import { ONE_SHOT } from "./toolActivity";
+import { baseOf, mixable } from "../engine/activity-mix";
 import type { NekoActivity } from "../engine/neko-engine";
 import type { DirectorInput, NekoLayer, NekoPlan } from "./types";
 
@@ -39,7 +40,7 @@ export function pickSolo(last: NekoActivity | null, hasGifts: boolean, r = Math.
 function plan(layer: NekoLayer, p: Partial<NekoPlan> = {}): NekoPlan {
   return {
     layer, mood: "idle", pose: "stand", activity: null, oneShot: false, repeat: false, dwell: false,
-    instance: layer, tailHold: null, wander: false, ...p,
+    instance: layer, tailHold: null, wander: false, side: null, ...p,
   };
 }
 
@@ -51,7 +52,11 @@ export interface DeriveOut {
 export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
   let recheckAt: number | null = null;
   const at = (t: number) => { if (t > now && (recheckAt === null || t < recheckAt)) recheckAt = t; };
-  const out = (p: NekoPlan): DeriveOut => ({ plan: p, recheckAt });
+  // 음악이 나오면 마지막에 곁들인다: 주 활동(없으면 기본 상태) 위에 얹을 수 있을 때만(누워 자기·세수 등은 안 된다)
+  const music = input.outside.music && !input.hidden;
+  const withSide = (p: NekoPlan): NekoPlan =>
+    music && mixable(p.activity ?? baseOf(p.pose), "music").ok ? { ...p, side: "music" } : p;
+  const out = (p: NekoPlan): DeriveOut => ({ plan: withSide(p), recheckAt });
   const s = input.session;
 
   // 0) 마당 고양이를 숨겼다: 아무것도 안 한다(다시 보이면 그때 상황대로)
@@ -143,7 +148,7 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
     return out(plan("box", { activity: k, instance: `box:${input.box.since}`, wander: ROAMING.has(k), oneShot: ONE_SHOT.has(k) }));
   }
 
-  // 8-1) 다른 앱 따라 하기: 맨 앞 앱·음악에 맞춘 활동(그림 앱이면 그리기, 음악이 나오면 음악 듣기…)
+  // 8-1) 다른 앱 따라 하기: 맨 앞 앱에 맞춘 활동(그림 앱이면 그리기, 브라우저면 창밖…). 음악은 곁들임(withSide)
   if (out_.activity) {
     const k = out_.activity;
     return out(plan("ambient", { activity: k, dwell: true, wander: ROAMING.has(k), instance: `ambient:${k}` }));

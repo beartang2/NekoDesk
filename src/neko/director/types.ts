@@ -81,6 +81,8 @@ export interface NekoPlan {
   tailHold: NekoTailSign | null;
   /** 산책 허용 */
   wander: boolean;
+  /** 곁들임(docs/neko-activity-mix.md §1.13): 주 활동(없으면 기본 상태) 위에 얹을 활동. 1단계는 음악이 나올 때 music 만 */
+  side: NekoActivity | null;
 }
 
 /** deriveNeko 의 입력(§5.1) */
@@ -117,5 +119,8 @@ export interface DirectorInput {
 export interface OutsideState {
   typing: boolean;
   at: number;
+  /** 맨 앞 앱으로 고른 활동(음악은 여기 안 넣는다 — music 으로 곁들인다) */
   activity: NekoActivity | null;
+  /** 음악 앱이 재생 중 */
+  music: boolean;
 }

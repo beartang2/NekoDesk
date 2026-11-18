@@ -1,4 +1,5 @@
 import type { NekoActivity, NekoMood, NekoPose, NekoReaction, NekoTailSign } from "../../engine/neko-engine";
+import { baseOf, mixable } from "../../engine/activity-mix";
 import type { Clock, SchedulerCtrl } from "../scheduler";
 
 /** 가짜 시계: advance(ms) 로 시간을 흘리면 그 사이 타이머를 차례로 부른다 */
@@ -44,7 +45,21 @@ export class FakeCtrl implements SchedulerCtrl {
     return () => set.delete(fn as (a?: unknown) => void);
   }
   setMood(m: NekoMood) { this.mood = m; this.rec(`mood:${m}`); }
-  setPose(p: NekoPose) { this.pose = p; this.rec(`pose:${p}`); }
+  setPose(p: NekoPose) { this.pose = p; this.rec(`pose:${p}`); this.keepSide(); }
+  side: NekoActivity | null = null;
+  /** 곁들임: 지금 도는 것 위에 얹을 수 없으면 거절(엔진처럼 side 이벤트는 null) */
+  mix(key: NekoActivity | null) {
+    if (key === this.side) return true;
+    const ok = key === null || mixable(this.activity ?? baseOf(this.pose), key).ok;
+    this.side = ok ? key : null;
+    this.rec(ok ? `mix:${key}` : `mix-refused:${key}`);
+    this.emit("side", this.side);
+    return ok;
+  }
+  /** 주 활동·자세가 바뀌어 곁들임과 안 맞으면 엔진이 벗긴다 */
+  private keepSide() {
+    if (this.side && !mixable(this.activity ?? baseOf(this.pose), this.side).ok) { this.side = null; this.rec("side-off"); this.emit("side", null); }
+  }
   setWander(on: boolean) { this.wander = on; this.rec(`wander:${on}`); }
   tail(sign: NekoTailSign, sec?: number) { this.rec(`tail:${sign}${sec ? `:${sec}` : ""}`); }
   react(kind: NekoReaction) { this.rec(`react:${kind}`); return true; }
@@ -58,6 +73,7 @@ export class FakeCtrl implements SchedulerCtrl {
     }
     this.startedAt = this.clock.now();
     this.emit("activity", key);
+    this.keepSide();
   }
   private startedAt = 0;
   /** 엔진이 활동을 스스로 끝냄 */
