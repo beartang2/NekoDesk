@@ -753,6 +753,50 @@ try {
     await p.close();
   }
 
+  // 9-r) 채팅 낙서 선물(pictureGift): 큰 그림은 긴 변 256 으로 줄이고(투명 그대로), 아주 복잡하면 더 줄여 상한 안에.
+  //      액자 안 그림은 엔진(방)과 선물 창(decor-draw) 모두 그린다 — 그림을 다 읽으면 onShapeImage 로 다시 그린다
+  {
+    const p = await open(`?w=680&h=300&scale=height`, { width: 1000, height: 600 }, 2);
+    const r = await p.evaluate(async () => {
+      const { shrinkPicture, pictureShape, PICTURE_BUDGET } = await import("/src/neko/pictureGift.ts");
+      const { onShapeImage } = await import("/src/neko/engine/gift-shape.js");
+      const dd = await import("/src/neko/engine/decor-draw.js");
+      const big = document.createElement("canvas"); big.width = 1200; big.height = 800;
+      const g = big.getContext("2d"); g.fillStyle = "#e0303a"; g.beginPath(); g.arc(600, 400, 300, 0, Math.PI * 2); g.fill();
+      const a = await shrinkPicture(big.toDataURL("image/png"));
+      const back = new Image(); back.src = a.url; await back.decode();
+      const t = document.createElement("canvas"); t.width = a.w; t.height = a.h; const tg = t.getContext("2d"); tg.drawImage(back, 0, 0);
+      const clear = tg.getImageData(0, 0, 1, 1).data[3] === 0, red = tg.getImageData(a.w >> 1, a.h >> 1, 1, 1).data;
+      const noisy = document.createElement("canvas"); noisy.width = 1200; noisy.height = 800;
+      const ng = noisy.getContext("2d"), px = ng.createImageData(1200, 800);
+      for (let i = 0; i < px.data.length; i++) px.data[i] = (Math.random() * 256) | 0;
+      ng.putImageData(px, 0, 0);
+      const b = await shrinkPicture(noisy.toDataURL("image/png"));
+      // 그림을 처음 보는 창: 읽기 전엔 매트만, 다 읽으면 알림 → 다시 그리면 그림이 보인다
+      const shape = pictureShape(a.url + "", a.w, a.h);
+      const items = [{ id: "pic", shape, size: "large", surface: "floor", u: 0.5 }];
+      const cv = document.createElement("canvas"), view = { W: 400, H: 200, floorY: 180, scale: 1 };
+      const redIn = () => { const [box] = dd.decorBoxes(items, view), d = cv.getContext("2d").getImageData(Math.round(box.x + box.w / 2), Math.round(box.y + box.h / 2), 1, 1).data; return d[0] > 180 && d[1] < 110; };
+      const loaded = new Promise((ok) => { const off = onShapeImage(() => { off(); ok(true); }); setTimeout(() => ok(false), 3000); });
+      dd.drawDecor(cv, items, view);
+      const before = redIn();
+      const notified = await loaded;
+      dd.drawDecor(cv, items, view);
+      const after = redIn();
+      // 엔진(방)도 같은 모양으로
+      const n = window.__neko; n.setWander(false); n.setDecor([{ id: "pic", shape, size: "large", surface: "wall", u: 0.3, v: 0.5 }]); n.step(30); n.draw();
+      let engineRed = false;
+      for (let y = 0; y < n.floorY && !engineRed; y += 2) for (let x = 0; x < n.W && !engineRed; x += 2) if (n.hitDecor(x, y) === "pic") {
+        const cvs = document.getElementById("stage"), d = cvs.getContext("2d").getImageData(Math.round((x + 3) * 2), Math.round((y + 3) * 2), 1, 1).data; if (d[0] > 180 && d[1] < 110) engineRed = true;
+      }
+      return { first: { w: a.w, h: a.h, len: a.url.length, clear, red: red[0] > 200 && red[3] > 200 }, noisy: { w: b.w, len: b.len ?? b.url.length }, budget: PICTURE_BUDGET, before, notified, after, engineRed };
+    });
+    check("채팅 낙서 선물: 큰 그림은 긴 변 256 으로(투명 그대로), 복잡하면 더 줄여 상한 안", JSON.stringify({ ...r.first, noisy: r.noisy }),
+      r.first.w === 256 && r.first.h <= 171 && r.first.len <= r.budget && r.first.clear && r.first.red && r.noisy.w < 256 && r.noisy.len <= r.budget);
+    check("채팅 낙서 선물: 액자 안 그림 — 선물 창은 다 읽으면 알림 받고 다시 그려 보이고, 엔진(방)도 그린다", `알림 ${r.notified} · 다시 그림 ${r.after} · 엔진 ${r.engineRed}`, r.notified && r.after && r.engineRed);
+    await p.close();
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {
