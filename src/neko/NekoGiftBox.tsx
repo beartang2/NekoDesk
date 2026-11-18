@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { AlertDialog } from "radix-ui";
 import { Trash2 } from "lucide-react";
 import { drawShape, onShapeImage, shapeBounds, type GiftShape } from "./engine/gift-shape";
+import { SCALE_MAX, SCALE_MIN } from "./engine/decor-draw";
 import { PLACE_NAME, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { GiftLab } from "./GiftLab";
@@ -42,7 +43,6 @@ function action(g: NekoGift, here: NekoPlacement): { label: string; run: () => v
  * 배율 슬라이더: 0.5 ~ 3배(기본 크기를 2배로 키운 뒤의 범위 — 0.5배가 예전 기본). 가운데가 1배이고 양쪽이 저마다 로그 눈금이다:
  * 슬라이더 값 t ∈ [-1, 1] 에서 왼쪽은 0.5^-t, 오른쪽은 3^t. 끝이 비대칭이어도 1배가 가운데에 오고 작은 쪽·큰 쪽이 다 세밀하다
  */
-const SCALE_MIN = 0.5, SCALE_MAX = 3;
 const toScale = (t: number) => (t < 0 ? SCALE_MIN ** -t : SCALE_MAX ** t);
 const toT = (s: number) => Math.max(-1, Math.min(1, s < 1 ? -Math.log(s) / Math.log(SCALE_MIN) : Math.log(s) / Math.log(SCALE_MAX)));
 const fmtScale = (s: number) => `×${+s.toFixed(s >= 1 ? 1 : 2)}`;
