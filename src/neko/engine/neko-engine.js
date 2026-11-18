@@ -2876,6 +2876,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     step(A, dt) {
       const lap = A.lap;
       lap.press = lap.press.map((v) => Math.max(0, v - dt * 7));
+      // 쉼(setRest): 다른 앱에서 타이핑을 멈췄다. 키 위에 발만 얹고 화면을 보며 가끔 천천히 깜빡인다(글자 안 늘어남)
+      A.rk = (A.rk || 0) + ((A.rest ? 1 : 0) - (A.rk || 0)) * Math.min(1, dt * 5);
+      if (A.rest) {
+        A.blink = (A.blink ?? rand(1.5, 3)) - dt;
+        if (A.blink < -0.5) A.blink = rand(3, 5);
+        return;
+      }
       lap.keyT -= dt;
       if (lap.keyT <= 0 && A.t > 0.6) {
         lap.keyT = rand(0.1, 0.2); lap.paw ^= 1; lap.press[lap.paw] = 1;
@@ -2886,9 +2893,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       }
     },
     pose(A, ramp) {
-      const c = cat, lap = A.lap, k = S * PROP, keyY = floorY - 6 * k, up = (i) => (1 - lap.press[i]) * 5 * S;
+      const c = cat, lap = A.lap, k = S * PROP, keyY = floorY - 6 * k, r = smooth(A.rk || 0);
+      const up = (i) => lerp((1 - lap.press[i]) * 5, 6.5, r) * S; // 쉴 땐 키 위에 살짝 띄워 둔다
+      const blink = A.rest && A.blink < 0 ? Math.sin(Math.PI * (-A.blink / 0.5)) : 0;
       return {
-        sit: true, ear: -0.05, lid: 0.2, expr: "idle", tt: 0.08, look: [lap.x + c.face * 9 * k, floorY - 17 * k], feetW: ramp,
+        sit: true, ear: lerp(-0.05, 0.06, r), lid: lerp(0.2, 0.12, r) + 0.85 * blink, expr: "idle", tt: 0.08 + 0.07 * r, // 화면을 보며 고개 살짝 갸웃
+        look: [lap.x + c.face * 9 * k, floorY - (17 + 2 * r) * k], feetW: ramp,
         feet: { [NEAR_FRONT]: () => [lap.x - c.face * 11 * k, keyY - up(0)], [FAR_FRONT]: () => [lap.x - c.face * 5 * k, keyY - 2.5 * S - up(1)] },
         tail: calmTail(4, [3, 7, 10, 0.4]),
       };
@@ -4400,6 +4410,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     setGround(y) { GROUND_Y = Number.isFinite(y) ? y : null; resize(); },
     get region() { return { x: RX, y: RY, w: RW, h: RH }; },
     get held() { return cat.mode === "grabbed" ? [cat.scruff.x, cat.scruff.y] : null; },
+    /** 타이핑 쉼(다른 앱에서 타이핑을 잠깐 멈춤). 타이핑일 때만 듣고, 활동이 바뀌면 저절로 꺼진다 */
+    setRest(on) { if (cat.act && cat.act.key === "typing") cat.act.rest = !!on; },
     hit: hitCat,
     // 입에 물기(docs/neko-gifts.md §6)
     carry(items) {

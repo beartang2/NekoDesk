@@ -732,6 +732,27 @@ try {
     await p.close();
   }
 
+  // 9-q) 타이핑 쉼(setRest): 키를 안 누르고 글자가 안 늘며 가끔 깜빡인다. 끄면 다시 친다. 타이핑이 아니면 무시, 활동이 바뀌면 꺼진다
+  {
+    const p = await open(`?w=680&h=300&scale=height&transparent=1`, { width: 1000, height: 600 });
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat;
+      n.setWander(false); n.act("typing"); n.step(240);
+      const typed = () => c.act.lap.lines.reduce((a, l) => a + l.w, 0) + c.act.lap.lines.length * 100;
+      n.setRest(true); n.step(30); const w0 = typed();
+      let presses = 0, lidMax = 0;
+      for (let i = 0; i < 120 * 8; i++) { n.step(1); if (c.act.lap.press.some((v) => v > 0.5)) presses++; lidMax = Math.max(lidMax, c.actP.lid ?? 0); }
+      const rest = { still: typed() === w0, presses, blinked: lidMax > 0.8 };
+      n.setRest(false); n.step(240); const resumed = typed() > w0;
+      n.setRest(true); n.act("reading"); n.step(30); n.setRest(true); const ignored = c.act.rest === undefined;
+      n.act("typing"); n.step(5); const fresh = !c.act.rest;
+      return { ...rest, resumed, ignored, fresh };
+    });
+    check("타이핑 쉼: 키를 안 누르고 글자가 안 늘며 가끔 깜빡, 끄면 다시 친다, 다른 활동은 무시·새 활동은 꺼짐", JSON.stringify(r),
+      r.still && r.presses === 0 && r.blinked && r.resumed && r.ignored && r.fresh);
+    await p.close();
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {
