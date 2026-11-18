@@ -33,5 +33,7 @@
   transform: translateY(-100%);
 }
 .neko-screen__tidy:hover { border-color: var(--accent); }
-.neko-screen__canvas.can-grab { cursor: grab; }
-.neko-screen__canvas.dragging { cursor: grabbing; }
+.neko-screen__canvas.can-grab,
+.neko-screen__decor.can-grab { cursor: grab; }
+.neko-screen__canvas.dragging,
+.neko-screen__decor.dragging { cursor: grabbing; }
