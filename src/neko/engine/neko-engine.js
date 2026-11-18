@@ -2590,43 +2590,51 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const at = (sat, l) => `hsl(${Math.round(hue)}, ${sat}%, ${l}%)`;
     return { light: at(70, 93), col: at(62, 84), deep: at(46, 72), motif: Math.random() < 0.5 ? "paw" : "star" };
   }
-  function drawHeadphones(hp, t) {
-    const c = cat, tsx = Math.max(0.15, Math.abs(c.turn.x)), sg = Math.sign(c.turn.x) || 1, r = c.headRot, s = S;
+  /**
+   * 헤드폰은 3/4 구도(네코는 살짝 사선을 본다)에 맞춰 비대칭으로 그린다. 머리 로컬 +x 가 바라보는 쪽(먼 쪽), -x 가 가까운 쪽이다.
+   * part "near": 가까운 쪽 띠 반쪽과 컵 — 고양이 앞(쓰는 소품 층)에, 조금 크고 조금 바깥에. 띠는 귀 모양으로 오려 귀 뒤로 숨긴다.
+   * part "far": 먼 쪽 띠 반쪽과 컵 — 고양이 뒤(뒤 소품 층)에, 조금 작게. 머리·귀가 덮고 바깥 가장자리만 보인다.
+   * 고개를 돌리는 중(옆폭이 줄어듦)엔 둘이 같아진다.
+   */
+  function drawHeadphones(hp, t, part) {
+    const c = cat, w = clamp(Math.abs(c.turn.x), 0, 1), tsx = Math.max(0.15, w), sg = Math.sign(c.turn.x) || 1, r = c.headRot, s = S;
     const bop = 1 + 0.07 * Math.max(0, Math.sin(t * 1.6 * TAU)); // 고개 까딱과 같은 박자
-    // 컵은 머리에서 조금 떨어져(가운데 ±34) 조금 크게(1.12배). 띠 끝은 컵 위쪽 안(±35, -2)에 묻힌다
-    const CUP_X = 34, CUP_K = 1.12, BAND_X = 35;
-    const band = (dy, w, color) => { // 반타원: 꼭대기는 정수리(-27) 살짝 위 -29.5. 포물선은 꼭대기가 뾰족해 보였다
-      ctx.strokeStyle = color; ctx.lineWidth = w; ctx.beginPath();
-      for (let i = 0; i <= 24; i++) {
+    const near = part === "near", side = near ? -1 : 1;
+    // 컵: 가까운 쪽은 가운데 ±35.5 에 1.19배, 먼 쪽은 ±33 에 1배(머리 뒤에서 가장자리가 보이게. 옆폭이 줄면 둘 다 ±34·1.12 로). 띠 끝(±35, -2)은 컵 위쪽 안에 묻힌다
+    const cupX = lerp(34, near ? 35.5 : 33, w), cupK = lerp(1.12, near ? 1.19 : 1, w), BAND_X = 35;
+    const band = (dy, wd, color) => { // 반타원의 반쪽: 꼭대기는 정수리(-27) 살짝 위 -29.5. 가운데서 조금 겹쳐 이음매가 안 보이게
+      ctx.strokeStyle = color; ctx.lineWidth = wd; ctx.beginPath();
+      const [i0, i1] = near ? [0, 13] : [11, 24];
+      for (let i = i0; i <= i1; i++) {
         const a = Math.PI * (1 + i / 24), p = H2W(BAND_X * Math.cos(a), -2 + dy + 27.5 * Math.sin(a));
-        i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
+        i > i0 ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
       }
       ctx.stroke();
     };
     ctx.save(); ctx.lineCap = ctx.lineJoin = "round";
-    const clip = new Path2D(); // 화면 전체에서 두 귀를 뺀 곳
-    clip.rect(-1e5, -1e5, 2e5, 2e5);
-    addEar(clip, -1, earAng(c.ears[0].x)); addEar(clip, 1, earAng(c.ears[1].x));
-    ctx.clip(clip, "evenodd");
+    if (near) { // 화면 전체에서 두 귀를 뺀 곳(먼 쪽은 고양이 뒤라 귀가 알아서 덮는다)
+      const clip = new Path2D();
+      clip.rect(-1e5, -1e5, 2e5, 2e5);
+      addEar(clip, -1, earAng(c.ears[0].x)); addEar(clip, 1, earAng(c.ears[1].x));
+      ctx.clip(clip, "evenodd");
+    }
     band(1.4, 7.2 * s, "rgba(50,32,60,0.13)"); // 털 위에 얹힌 그림자
     band(0, 6.6 * s, hp.col);
     band(-1.3, 1.7 * s, "rgba(255,255,255,0.5)"); // 위쪽 반짝
     ctx.restore();
-    for (const side of [-1, 1]) { // 컵: 이 좌표계에서 +x 가 머리 바깥쪽
-      const q = H2W(side * CUP_X, 3);
-      ctx.save(); ctx.translate(q[0], q[1]); ctx.rotate(r); ctx.scale(tsx * sg * side * bop * CUP_K, bop * CUP_K);
-      ctx.fillStyle = hp.deep; ctx.beginPath(); ctx.ellipse(-3.2 * s, 0.4 * s, 4.4 * s, 7.6 * s, 0, 0, TAU); ctx.fill(); // 머리 쪽 쿠션
-      const g = ctx.createRadialGradient(-0.5 * s, -3.5 * s, 1 * s, 1.4 * s, 0.5 * s, 9 * s); // 위쪽이 밝은 동그란 볼륨
-      g.addColorStop(0, hp.light); g.addColorStop(0.45, hp.col); g.addColorStop(1, hp.deep);
-      ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(1.4 * s, 0.5 * s, 7.4 * s, 8.4 * s, 0, 0, TAU); ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      if (hp.motif === "star") drawStar(1.8 * s, 1.2 * s, 3.6 * s, ctx.fillStyle);
-      else { // 발바닥: 큰 젤리 하나 + 발가락 셋
-        ctx.beginPath(); ctx.ellipse(1.8 * s, 2.6 * s, 2.3 * s, 1.8 * s, 0, 0, TAU);
-        for (const [dx, dy] of [[-1.9, -0.9], [0, -1.8], [1.9, -0.9]]) { ctx.moveTo((1.8 + dx + 0.95) * s, (dy + 0.2) * s); ctx.arc((1.8 + dx) * s, (dy + 0.2) * s, 0.95 * s, 0, TAU); }
-        ctx.fill();
-      }
-      ctx.restore();
+    // 컵: 이 좌표계에서 +x 가 머리 바깥쪽
+    const q = H2W(side * cupX, 3);
+    ctx.save(); ctx.translate(q[0], q[1]); ctx.rotate(r); ctx.scale(tsx * sg * side * bop * cupK, bop * cupK);
+    ctx.fillStyle = hp.deep; ctx.beginPath(); ctx.ellipse(-3.2 * s, 0.4 * s, 4.4 * s, 7.6 * s, 0, 0, TAU); ctx.fill(); // 머리 쪽 쿠션
+    const g = ctx.createRadialGradient(-0.5 * s, -3.5 * s, 1 * s, 1.4 * s, 0.5 * s, 9 * s); // 위쪽이 밝은 동그란 볼륨
+    g.addColorStop(0, hp.light); g.addColorStop(0.45, hp.col); g.addColorStop(1, hp.deep);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(1.4 * s, 0.5 * s, 7.4 * s, 8.4 * s, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    if (hp.motif === "star") drawStar(1.8 * s, 1.2 * s, 3.6 * s, ctx.fillStyle);
+    else { // 발바닥: 큰 젤리 하나 + 발가락 셋
+      ctx.beginPath(); ctx.ellipse(1.8 * s, 2.6 * s, 2.3 * s, 1.8 * s, 0, 0, TAU);
+      for (const [dx, dy] of [[-1.9, -0.9], [0, -1.8], [1.9, -0.9]]) { ctx.moveTo((1.8 + dx + 0.95) * s, (dy + 0.2) * s); ctx.arc((1.8 + dx) * s, (dy + 0.2) * s, 0.95 * s, 0, TAU); }
+      ctx.fill();
     }
     ctx.restore();
   }
@@ -2770,7 +2778,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     name: "음악 듣기", label: "음악 듣는 중", keepOnGrab: true,
     start(A, kit) {
       A.noteT = 0.3; A.hp = phoneColors();
-      kit.wear(() => H2W(0, -26), () => drawHeadphones(A.hp, A.t), { delay: 0.05, follow: true });
+      // 3/4 구도: 먼 쪽 반은 고양이 뒤에, 가까운 쪽 반은 앞에(쓰는 소품 층 — 상자 앞벽·그릇에 가려진다)
+      kit.back(() => H2W(0, -26), () => drawHeadphones(A.hp, A.t, "far"), { delay: 0.05, follow: true });
+      kit.wear(() => H2W(0, -26), () => drawHeadphones(A.hp, A.t, "near"), { delay: 0.05, follow: true });
       burst(cat.head.x, cat.head.y - 30 * S);
     },
     step(A, dt) { A.noteT -= dt; if (A.noteT <= 0) { A.noteT = movingNow() ? 1.1 : 0.62; if (!reduced.matches) spawnNote(); } }, // 움직이는 동안은 음표를 줄인다
