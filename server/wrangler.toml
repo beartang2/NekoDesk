@@ -1,0 +1,20 @@
+# 네코 동기화 Worker (docs/neko-sync.md §4). 값은 자리표시자다 — 배포 전에 사용자가 채운다.
+name = "nekodesk-sync"                     # 자리표시자: Worker 이름
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# 사용자 도메인을 붙인다(§10.1, 13번). 도메인이 Cloudflare 영역에 있어야 한다. 붙이면 workers.dev 주소는 꺼도 된다.
+# routes = [{ pattern = "sync.example.com", custom_domain = true }]   # 자리표시자: 사용자 도메인
+# workers_dev = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nekodesk-sync"            # 자리표시자
+database_id = "00000000-0000-0000-0000-000000000000"   # 자리표시자: `wrangler d1 create` 가 알려 주는 id
+migrations_dir = "migrations"
+
+# secret(저장소에 안 적는다): SETUP_TOKEN — 첫 기기(맥) 등록용. `wrangler secret put SETUP_TOKEN`
+# 로컬 `wrangler dev` 는 package.json 의 dev 스크립트가 --var 로 시험용 값을 준다.
+
+# 4단계(서버 산책): [vars] WALK_MODEL = "claude-sonnet-5-5", WALK_BUDGET_USD = "15", [triggers] crons = ["*/10 * * * *"],
+# secret ANTHROPIC_API_KEY. 아직 안 쓴다.

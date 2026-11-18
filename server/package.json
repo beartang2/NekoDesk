@@ -1,0 +1,15 @@
+{
+  "name": "nekodesk-sync",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --var SETUP_TOKEN:dev-setup-token",
+    "migrate:local": "wrangler d1 migrations apply nekodesk-sync --local",
+    "migrate:remote": "wrangler d1 migrations apply nekodesk-sync --remote",
+    "deploy": "wrangler deploy",
+    "test": "node test/sync.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.164.0"
+  }
+}
