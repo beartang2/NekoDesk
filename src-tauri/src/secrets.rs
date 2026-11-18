@@ -104,6 +104,45 @@ pub fn db_key() -> Result<String, AppError> {
     Ok(key)
 }
 
+/// 동기화 열쇠·기기 토큰의 키체인 이름(crate::sync). `KEYS` 밖이라 화면에서 읽거나 바꿀 수 없다.
+const SYNC_NAMES: &[&str] = &["sync_key", "sync_token"];
+
+fn check_sync(name: &str) -> Result<(), AppError> {
+    if SYNC_NAMES.contains(&name) { Ok(()) } else { Err(AppError::msg(format!("동기화 비밀 이름이 아니야: {name}"))) }
+}
+
+/// 동기화 비밀을 꺼낸다(실행당 한 번만 키체인에 묻는다 — `get` 과 같은 캐시).
+#[cfg(target_os = "macos")]
+pub fn sync_get(name: &str) -> Result<Option<String>, AppError> {
+    check_sync(name)?;
+    if let Some(hit) = cache().lock()?.get(name) {
+        return Ok(hit.clone());
+    }
+    let value = keychain_get(SERVICE, name)?;
+    cache().lock()?.insert(name.to_owned(), value.clone());
+    Ok(value)
+}
+
+#[cfg(target_os = "macos")]
+pub fn sync_set(name: &str, value: &str) -> Result<(), AppError> {
+    check_sync(name)?;
+    keychain_set(SERVICE, name, value)?;
+    cache().lock()?.insert(name.to_owned(), (!value.trim().is_empty()).then(|| value.trim().to_owned()));
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn sync_get(name: &str) -> Result<Option<String>, AppError> {
+    check_sync(name)?;
+    Err(AppError::msg("키체인은 macOS 에서만 쓸 수 있어."))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn sync_set(name: &str, _value: &str) -> Result<(), AppError> {
+    check_sync(name)?;
+    Err(AppError::msg("키체인은 macOS 에서만 쓸 수 있어."))
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn db_key() -> Result<String, AppError> {
     Err(AppError::msg("키체인은 macOS 에서만 쓸 수 있어."))
@@ -145,6 +184,9 @@ mod tests {
         assert!(!is_secret("cf_account_id"));
         assert!(!is_secret("memo"));
         assert!(get("memo").is_err());
+        // 동기화 비밀은 화면 쪽 이름(KEYS)이 아니다
+        assert!(!is_secret("sync_key") && !is_secret("sync_token"));
+        assert!(sync_get("db_key").is_err());
     }
 
     /// 진짜 키체인에 넣고 꺼내고 지운다(테스트 전용 서비스 이름). 키체인이 잠긴 CI 에선 못 돌아

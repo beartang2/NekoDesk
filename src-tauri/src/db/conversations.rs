@@ -37,9 +37,14 @@ pub fn save(
     Ok(())
 }
 
+/// 동기화 순서(ts, 기기, id)로 — 두 기기가 따로 쓴 말은 시각순으로 섞인다(docs/neko-sync.md §2.3).
+/// 한 기기 안에선 id 순서와 같다.
 pub fn load(conn: &Connection, session_id: &str) -> AppResult<Vec<ConversationMessage>> {
+    let cols = COLS.split(", ").map(|c| format!("c.{c}")).collect::<Vec<_>>().join(", ");
     let sql = format!(
-        "SELECT {COLS} FROM conversation_messages WHERE session_id = ?1 ORDER BY id ASC"
+        "SELECT {cols} FROM conversation_messages c
+         LEFT JOIN sync_meta s ON s.coll = 'msg' AND s.local_key = CAST(c.id AS TEXT)
+         WHERE c.session_id = ?1 ORDER BY s.ts, s.device, c.id"
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params![session_id], |r| ConversationMessage::try_from(r))?;
