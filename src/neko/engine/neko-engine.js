@@ -4285,6 +4285,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   // 화면 모드는 캔버스 크기를 엔진이 정하니 창 크기를 본다(캔버스를 보면 제가 바꾼 크기에 다시 불린다)
   const ro = new ResizeObserver(() => resize());
   if (WORLD) window.addEventListener("resize", resize); else ro.observe(canvas);
+  // 배율이 다른 모니터로 옮겨지면(레티나 ↔ 1배) 크기는 같아 resize 가 안 와서 DPR 이 낡은 채 흐리게 그렸다. 배율 바뀜을 따로 듣는다
+  let dprMq = null;
+  function watchDpr() {
+    dprMq?.removeEventListener("change", onDpr);
+    dprMq = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    dprMq.addEventListener("change", onDpr);
+  }
+  function onDpr() { resize(); watchDpr(); }
+  watchDpr();
 
   /* ---------- 외형 ---------- */
   const appearance = { coat: "black", color: "#c8a27a", patterns: [], seed: 1, eye: "yellow", fur: "short", ear: "pointy", tail: "long", build: "normal", legs: "normal", soft: 0.6 };
@@ -4382,7 +4391,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     resize,
     pause() { paused = true; },
     resume() { if (paused) { paused = false; last = performance.now(); } },
-    destroy() { cancelAnimationFrame(raf); paused = true; listeners.clear(); ro.disconnect(); window.removeEventListener("resize", resize); },
+    destroy() { cancelAnimationFrame(raf); paused = true; listeners.clear(); ro.disconnect(); window.removeEventListener("resize", resize); dprMq?.removeEventListener("change", onDpr); },
     // 화면 모드(docs/neko-screen-mode.md §9): E2 크기 고정 · E3 바닥
     setScale(v) { FIXED_S = Number.isFinite(v) ? clamp(v, 0.35, 1.4) : null; resize(); },
     setGround(y) { GROUND_Y = Number.isFinite(y) ? y : null; resize(); },
