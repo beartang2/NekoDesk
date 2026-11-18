@@ -118,4 +118,12 @@ assert.equal((await call("POST", "/v1/devices", { name: "도둑", pair_code: kep
 // 한 번에 20개까지
 assert.equal((await call("POST", "/v1/sync", { since: 0, push: Array.from({ length: 21 }, (_, i) => rec("todo", `${run}-${i}`, now)) }, A.token)).status, 413);
 
+// 열쇠 바꾸기(reset): 기록을 비우고, 그 전 순번에서 멈춘 기기는 처음부터 다시 받으라고(reset) 듣는다
+const before = (await sync(A.token, 0)).seq;
+await ok("POST", "/v1/reset", {}, A.token);
+r = await sync(A.token, before);
+assert.equal(r.reset, true);
+r = await sync(A.token, 0);
+assert.ok(!find(r, "memory", `k-${run}`), "기록이 비었다");
+
 console.log("server sync ok");

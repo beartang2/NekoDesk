@@ -26,11 +26,25 @@ pub fn save(
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![session_id, role, content, attachments, meta],
     )?;
-    // 세션당 최근 MAX_PER_SESSION 개만 남기고 오래된 것 삭제
+    trim(conn, session_id)
+}
+
+/// 세션당 최근 MAX_PER_SESSION 개만 남긴다. "최근"은 불러오는 순서(ts, 기기, id)로 — 다른 기기에서 늦게 받은
+/// 옛 메시지가 id 만 커서 남는 일이 없다. 동기화로 받은 뒤에도 부른다(crate::sync).
+pub fn trim(conn: &Connection, session_id: &str) -> AppResult<()> {
+    let n: i64 = conn.query_row(
+        "SELECT count(*) FROM conversation_messages WHERE session_id = ?1",
+        params![session_id],
+        |r| r.get(0),
+    )?;
+    if n <= MAX_PER_SESSION {
+        return Ok(());
+    }
     conn.execute(
         "DELETE FROM conversation_messages WHERE session_id = ?1 AND id NOT IN (
-             SELECT id FROM conversation_messages WHERE session_id = ?1
-             ORDER BY id DESC LIMIT ?2
+             SELECT c.id FROM conversation_messages c
+             LEFT JOIN sync_meta s ON s.coll = 'msg' AND s.local_key = CAST(c.id AS TEXT)
+             WHERE c.session_id = ?1 ORDER BY s.ts DESC, s.device DESC, c.id DESC LIMIT ?2
          )",
         params![session_id, MAX_PER_SESSION],
     )?;

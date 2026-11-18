@@ -97,6 +97,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   compact: async (id, summary) => {
     const sessions = get().sessions.map((s) => (s.id === id ? { ...s, summary } : s));
     localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+    // 예전 자리에도 적어 둔다 — 이전 버전으로 되돌려도 요약이 보인다
+    localStorage.setItem(COMPACT_KEY(id), summary);
     set({ sessions });
     await sessionApi.compact(id, summary);
   },
@@ -120,7 +122,9 @@ function applyRows(rows: SessionRow[]) {
     sessions = [fresh];
     void sessionApi.put(fresh.id, fresh.title, fresh.createdAt!).catch(() => {});
   }
+  // localStorage 는 지우지 않고 DB 값으로 맞춰 둔다 — 이전 버전으로 되돌려도 목록·요약이 그대로 보인다
   localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+  for (const s of sessions) if (s.summary) localStorage.setItem(COMPACT_KEY(s.id), s.summary);
   useSessionStore.setState({ sessions });
   if (!sessions.some((s) => s.id === activeId)) useSessionStore.getState().setActiveId(sessions[0].id);
 }

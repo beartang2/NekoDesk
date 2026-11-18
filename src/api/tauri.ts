@@ -285,7 +285,12 @@ export const syncApi = {
   /** 다른 기기에 붙여넣을 짝 문자열(10분) */
   pairMake: () => invoke<string>("sync_pair_make"),
   pairJoin: (pairing: string) => invoke<void>("sync_pair_join", { pairing }),
+  devices: () => invoke<{ devices: SyncDevice[]; me: string }>("sync_devices"),
+  revoke: (id: string) => invoke<void>("sync_revoke", { id }),
+  /** 다른 기기를 다 끊고 서버를 비운 뒤 새 열쇠로 이 맥 것을 다시 올린다 */
+  rekey: () => invoke<void>("sync_rekey"),
 };
+export interface SyncDevice { id: string; name: string; created_at: number; last_seen: number | null; revoked: number }
 
 export const execHistoryApi = {
   list: () => invoke<ExecHistoryItem[]>("exec_history_list"),

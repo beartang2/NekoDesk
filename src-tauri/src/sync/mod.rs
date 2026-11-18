@@ -590,7 +590,11 @@ pub(crate) fn client() -> &'static reqwest::Client {
 pub(crate) async fn call<T: serde::de::DeserializeOwned>(
     method: reqwest::Method, url: &str, path: &str, token: Option<&str>, body: &Value,
 ) -> AppResult<T> {
-    let mut req = client().request(method, format!("{}{path}", url.trim_end_matches('/'))).json(body);
+    let mut req = client().request(method, format!("{}{path}", url.trim_end_matches('/')));
+    // GET·DELETE 는 본문 없이(Workers 는 본문 있는 GET 을 거절한다)
+    if !body.is_null() {
+        req = req.json(body);
+    }
     if let Some(t) = token {
         req = req.bearer_auth(t);
     }
@@ -644,12 +648,19 @@ fn settle(conn: &Connection, srv: &Server, push: &[Record], resp: &SyncResp, ch:
     if !push.is_empty() {
         count_push(conn, push.len())?;
     }
+    let mut got = Changes::default();
     for r in &resp.records {
         // 하나 못 풀었다고 나머지를 멈추지 않는다
-        if let Err(e) = apply(conn, &srv.device, &srv.key, r, ch) {
+        if let Err(e) = apply(conn, &srv.device, &srv.key, r, &mut got) {
             log::warn!("동기화: {} {} 적용 못 함: {e}", r.coll, r.id);
         }
     }
+    // 받을 때도 세션당 상한으로 자른다(§9) — 새 기기가 서버의 긴 대화를 다 받아도 다른 기기와 같은 만큼만
+    for id in &got.sessions {
+        crate::db::conversations::trim(conn, id)?;
+    }
+    ch.colls.extend(got.colls);
+    ch.sessions.extend(got.sessions);
     let again = resp.reset || repull;
     set_state(conn, "since", &(if again { 0 } else { resp.seq }).to_string())?;
     set_state(conn, "last_sync", &now_ms().to_string())?;

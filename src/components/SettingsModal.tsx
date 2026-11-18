@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { memoryApi, secretsApi, settingsApi, syncApi, type SyncStatus } from "../api/tauri";
+import { memoryApi, secretsApi, settingsApi, syncApi, type SyncDevice, type SyncStatus } from "../api/tauri";
+import { appEvents } from "../lib/events";
 import {
   X, Zap, Pencil, Trash2, Settings, Plus, RefreshCw, MapPin, Loader2, ChevronRight, ArrowUpRight, Info, Copy,
 } from "lucide-react";
@@ -1095,6 +1096,8 @@ function MemoriesSection() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+  // 다른 기기에서 기억이 왔다
+  useEffect(() => appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("memory")) void refresh(); }), [refresh]);
 
   // 쉴 때 정리(agent/memory-tidy): 켜고 끄기와 최근에 무엇을 합쳤는지
   const tidy = useSettingsStore((s) => s.memoryTidy);
@@ -1225,6 +1228,7 @@ function SyncSection() {
   const [setup, setSetup] = useState("");
   const [pasted, setPasted] = useState("");
   const [pairing, setPairing] = useState("");
+  const [devices, setDevices] = useState<{ devices: SyncDevice[]; me: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const refresh = useCallback(() => { syncApi.status().then(setSt).catch(() => {}); }, []);
@@ -1233,6 +1237,16 @@ function SyncSection() {
     const t = window.setInterval(refresh, 5000);
     return () => window.clearInterval(t);
   }, [refresh]);
+
+  const loadDevices = () => run(async () => setDevices(await syncApi.devices()));
+  async function revoke(d: SyncDevice) {
+    if (!window.confirm(`"${d.name}" 기기를 끊을까? 그 기기는 더 못 맞춘다. 잃어버린 기기면 열쇠도 바꿔줘.`)) return;
+    await run(async () => { await syncApi.revoke(d.id); setDevices(await syncApi.devices()); });
+  }
+  async function rekey() {
+    if (!window.confirm("열쇠를 바꿀까? 다른 기기는 모두 끊기고, 서버 기록을 비운 뒤 이 맥 것을 새 열쇠로 다시 올린다. 다른 기기는 새 짝 문자열로 다시 맞춰야 한다.")) return;
+    await run(async () => { await syncApi.rekey(); setPairing(""); setDevices(await syncApi.devices()); });
+  }
 
   async function run(job: () => Promise<unknown>) {
     setBusy(true);
@@ -1267,6 +1281,23 @@ function SyncSection() {
               지금 맞추기
             </button>
           </div>
+          <div className="settings-row">
+            <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void loadDevices()}>기기 목록</button>
+            <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void rekey()}>열쇠 바꾸기</button>
+          </div>
+          {devices && (
+            <ul className="settings-section__desc">
+              {devices.devices.map((d) => (
+                <li key={d.id}>
+                  {d.name}{d.id === devices.me ? " (이 맥)" : ""}
+                  {" · "}{d.revoked ? "끊김" : d.last_seen ? `마지막 접속 ${new Date(d.last_seen).toLocaleString("ko-KR")}` : "접속 전"}
+                  {d.id !== devices.me && !d.revoked && (
+                    <> <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void revoke(d)}>끊기</button></>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
           {pairing && (
             <>
               <p className="settings-section__desc">

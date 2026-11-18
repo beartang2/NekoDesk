@@ -4,6 +4,7 @@ import { hydrateSessions, pruneOldSessions } from "../stores/sessionStore";
 import { hydrateSyncedSettings, useSettingsStore } from "../stores/settingsStore";
 import { useNekoStore } from "../neko/nekoStore";
 import { useNekoGifts } from "../neko/gifts";
+import { appEvents } from "./events";
 
 /**
  * 메인 창: 세션 목록·같이 쓰는 설정을 DB 에서 읽고, 동기화가 다른 기기에서 받아 온 것(sync-changed)으로 스토어를
@@ -20,6 +21,8 @@ export function startSync(): void {
       void useNekoStore.getState().load();
     }
     if (payload.colls.includes("gift")) void useNekoGifts.getState().reload();
+    // 할 일·일정·기억 목록 화면
+    if (payload.colls.length) appEvents.emit("syncChanged", { colls: payload.colls });
     // 켜져 있으면 오래된 대화 지우기는 이번 실행에서 한 번 다 맞춘 뒤에야 돈다(백엔드가 그 전엔 빈 목록)
     if (payload.first) void pruneOldSessions(useSettingsStore.getState().sessionRetention).catch(() => {});
   });

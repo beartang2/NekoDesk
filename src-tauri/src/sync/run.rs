@@ -256,6 +256,67 @@ pub async fn sync_pair_join(db: State<'_, DbState>, pairing: String) -> Result<(
     save(&db, &url, reg, &key)
 }
 
+// ── 기기 목록·끊기·열쇠 바꾸기 ───────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize)]
+pub struct Device {
+    id: String,
+    name: String,
+    created_at: i64,
+    last_seen: Option<i64>,
+    revoked: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Devices {
+    devices: Vec<Device>,
+    me: String,
+}
+
+fn registered(db: &DbState) -> AppResult<Server> {
+    Ok(creds(&*db.0.lock()?)?.ok_or("먼저 서버에 이 맥을 등록해줘.")?)
+}
+
+#[tauri::command]
+pub async fn sync_devices(db: State<'_, DbState>) -> Result<Devices, AppError> {
+    let srv = registered(&db)?;
+    call(reqwest::Method::GET, &srv.url, "/v1/devices", Some(&srv.token), &Value::Null).await
+}
+
+/// 다른 기기를 끊는다(토큰이 더는 안 통하고, 그 기기가 만든 짝 코드도 지워진다). 열쇠는 그 기기에 남으니
+/// 잃어버린 기기면 열쇠 바꾸기도 한다.
+#[tauri::command]
+pub async fn sync_revoke(db: State<'_, DbState>, id: String) -> Result<(), AppError> {
+    let srv = registered(&db)?;
+    if id == srv.device {
+        return Err(AppError::msg("이 맥은 여기서 못 끊어. 동기화를 끄면 돼."));
+    }
+    let _: Value = call(reqwest::Method::DELETE, &srv.url, &format!("/v1/devices/{id}"), Some(&srv.token), &Value::Null).await?;
+    Ok(())
+}
+
+/// 열쇠 바꾸기(§3.2): 다른 기기를 모두 끊고, 서버 기록을 비우고, 새 열쇠로 이 맥의 것을 처음부터 다시 올린다.
+/// 다른 기기는 새 짝 문자열로 다시 맞춘다(옛 열쇠로 올린 기록이 섞이지 않게 먼저 끊는다).
+#[tauri::command]
+pub async fn sync_rekey(db: State<'_, DbState>) -> Result<(), AppError> {
+    let srv = registered(&db)?;
+    let list: Devices = call(reqwest::Method::GET, &srv.url, "/v1/devices", Some(&srv.token), &Value::Null).await?;
+    for d in list.devices.iter().filter(|d| d.id != srv.device && d.revoked == 0) {
+        let _: Value = call(reqwest::Method::DELETE, &srv.url, &format!("/v1/devices/{}", d.id), Some(&srv.token), &Value::Null).await?;
+    }
+    let _: Value = call(reqwest::Method::POST, &srv.url, "/v1/reset", Some(&srv.token), &serde_json::json!({})).await?;
+    let mut key = [0u8; 32];
+    OsRng.fill_bytes(&mut key);
+    crate::secrets::sync_set("sync_key", &hex(&key))?;
+    {
+        let c = db.0.lock()?;
+        set_state(&c, "since", "0")?;
+        c.execute("UPDATE sync_meta SET dirty = 1", [])?;
+    }
+    kick();
+    Ok(())
+}
+
 // ── 세션 목록(화면의 sessionStore) ───────────────────────────────────────────
 
 #[tauri::command(async)]

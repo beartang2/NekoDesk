@@ -80,6 +80,54 @@ fn existing_data_is_marked_for_upload_by_the_migration() {
 }
 
 #[test]
+fn migration_4_survives_odd_dates_and_rolls_back_if_cut_off() {
+    // 배포본 첫 실행: 3 까지 있는 실제 모양 DB. 시각이 이상한 행도 있다
+    let c = Connection::open_in_memory().unwrap();
+    crate::db::run_migrations(&c, &crate::db::MIGRATIONS[..3]).unwrap();
+    conversations::save(&c, "s1", "user", "안녕", None, None).unwrap();
+    c.execute("INSERT INTO memories (kind, content, created_at) VALUES ('fact', '이상한 시각', '어제쯤')", []).unwrap();
+    // 4 를 적용하다 앱이 꺼진 셈(같은 트랜잭션 안에서 실패) → 3 에 그대로 남고 데이터도 그대로
+    let broken = format!("{} THIS IS NOT SQL;", crate::db::MIGRATIONS[3]);
+    let steps: Vec<&str> = crate::db::MIGRATIONS[..3].iter().copied().chain([broken.as_str()]).collect();
+    assert!(crate::db::run_migrations(&c, &steps).is_err());
+    assert_eq!(c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).unwrap(), 3);
+    assert_eq!(c.query_row("SELECT count(*) FROM sqlite_master WHERE name IN ('sync_meta', 'sessions')", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    // 다시 켜면 이어서 된다
+    crate::db::init_schema(&c).unwrap();
+    assert_eq!(conversations::load(&c, "s1").unwrap()[0].content, "안녕");
+    let up = push_all(&c, "A");
+    assert_eq!(up.len(), 2, "이상한 시각의 기억도 지금 시각으로 올라간다");
+    assert!(up.iter().all(|r| r.ts > 0));
+    // 세션 옮기기는 여러 번 불려도 안전하다(중간에 꺼졌다 다시)
+    let rows = vec![SessionRow { id: "s1".into(), title: "옛 대화".into(), created_at: 1, summary: Some("요약".into()) }];
+    session_import(&c, &rows[..0]).unwrap();
+    session_import(&c, &rows).unwrap();
+    session_import(&c, &rows).unwrap();
+    assert_eq!(session_list(&c).unwrap(), rows);
+}
+
+#[test]
+fn received_messages_are_trimmed_to_the_session_cap_newest_kept() {
+    let (a, b) = (db(), db());
+    session_put(&a, "s", "s", 1).unwrap();
+    // A 는 저장할 때 자르니 직접 넣어 서버에 5003 개가 있는 셈으로
+    for i in 0..5003 {
+        a.execute("INSERT INTO conversation_messages (session_id, role, content) VALUES ('s', 'user', ?1)", [format!("m{i}")]).unwrap();
+    }
+    let recs = push_all(&a, "A");
+    let mut got = Changes::default();
+    for r in &recs {
+        apply(&b, "B", &KEY, r, &mut got).unwrap();
+    }
+    for id in &got.sessions {
+        conversations::trim(&b, id).unwrap();
+    }
+    let msgs = conversations::load(&b, "s").unwrap();
+    assert_eq!(msgs.len(), 5000);
+    assert_eq!((msgs[0].content.as_str(), msgs.last().unwrap().content.as_str()), ("m3", "m5002"));
+}
+
+#[test]
 fn device_b_gets_what_device_a_wrote_without_echo() {
     let (a, b) = (db(), db());
     session_put(&a, "s1", "고양이 얘기", 1000).unwrap();
@@ -456,6 +504,9 @@ fn live() {
         }
         assert_eq!(dirty(&a.lock().unwrap()), 0);
         assert_eq!(dirty(&b.lock().unwrap()), 0);
+        // 본문 없는 GET(기기 목록) — Workers 는 본문 있는 GET 을 거절한다
+        let list: Value = call(reqwest::Method::GET, &sa.url, "/v1/devices", Some(&sa.token), &Value::Null).await.unwrap();
+        assert!(list["devices"].as_array().unwrap().iter().any(|d| d["id"] == sb.device.as_str()));
         println!("live sync ok (A {}, B {})", sa.device, sb.device);
     });
 }

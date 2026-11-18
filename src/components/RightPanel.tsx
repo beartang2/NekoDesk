@@ -176,7 +176,9 @@ function TodoCard() {
 
   useEffect(() => {
     load();
-    return appEvents.on("agentDone", () => load());
+    const offSync = appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("todo")) { load(); loadDone(); } });
+    const offDone = appEvents.on("agentDone", () => load());
+    return () => { offSync(); offDone(); };
   }, []);
 
   useEffect(() => {
@@ -292,7 +294,9 @@ function CalendarCard() {
 
   useEffect(() => {
     loadEvents();
-    return appEvents.on("agentDone", () => loadEvents());
+    const offSync = appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("event")) loadEvents(); });
+    const offDone = appEvents.on("agentDone", () => loadEvents());
+    return () => { offSync(); offDone(); };
   }, []);
 
   const [calKey, setCalKey] = useState(0);
