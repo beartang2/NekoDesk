@@ -56,9 +56,14 @@ export function createRemoteNeko(send: Send = sendToScreen): NekoController {
   // 안 바로잡으면 엔진이 끝낸 한 번짜리(발도장·간식)를 아직 하는 줄 알아 다시 시키지 못한다
   let activity: NekoActivity | null = null;
   addListener("activity", (a) => { activity = (a as NekoActivity | null) ?? null; });
+  // 곁들임(docs/neko-activity-mix.md §1.12)도 같다: 보내면서 바꿔 두고, 화면 창이 거절하거나 끝내면 side 이벤트로 바로잡는다.
+  // 화면 창이 새로 준비되면 감독이 새 스케줄러로 처음부터 다시 보내므로 따로 다시 보낼 것은 없다
+  let side: NekoActivity | null = null;
+  addListener("side", (a) => { side = (a as NekoActivity | null) ?? null; });
   const own: Record<string, unknown> = {
     on: addListener,
     act: (a: NekoActivity | null) => { activity = a ?? null; send({ m: "act", args: [a] }); },
+    mix: (a: NekoActivity | null) => { side = a ?? null; send({ m: "mix", args: [a] }); return true; },
     // 반환값을 쓰는 곳은 NekoSlot 문지르기뿐이다. 화면 자리에선 화면 창이 직접 문지른다
     react: (k: string) => { send({ m: "react", args: [k] }); return true; },
     hit: () => false,
@@ -72,6 +77,7 @@ export function createRemoteNeko(send: Send = sendToScreen): NekoController {
   return new Proxy({} as NekoController, {
     get(_, key) {
       if (key === "activity") return activity;
+      if (key === "side") return side;
       if (key === "carrying") return false;
       if (typeof key !== "string" || key === "then") return undefined; // await·Promise 판별에 걸리지 않게
       return own[key] ?? ((...args: unknown[]) => send({ m: key, args }));

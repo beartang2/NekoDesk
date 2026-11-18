@@ -14,6 +14,7 @@
  * 설계: docs/neko-v26-integration.md
  */
 import { validateShape, shapeBounds, drawShape } from "./gift-shape.js";
+import { MIX, mixable, mergePose } from "./activity-mix.js";
 
 export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 strict
   /* ============================================================
@@ -23,6 +24,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      ============================================================ */
   const ctx = canvas.getContext("2d");
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  const NO_ADD = Object.freeze({});
+  /** 곁들임이 더하는 차이(활동 겹치기, docs/neko-activity-mix.md §1.6). 엔진이 값을 다 정한 뒤 더한다 */
+  const addOf = (k) => (cat.actP && cat.actP.add && cat.actP.add[k]) || 0;
   // 앱에선 패널 배경 위에 투명하게 그린다(바닥선·그림자만). 시안처럼 무대 배경을 그리려면 transparent: false
   // 화면 모드(docs/neko-screen-mode.md §2·§9): 세계는 창 전체, 캔버스는 고양이 둘레만 덮고 고양이를 따라간다.
   // 앱 안의 네코(사이드바·채팅 바 아래)는 이 옵션 없이 예전 그대로다.
@@ -236,7 +240,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     mood: "idle", pose: "stand", soft: 0.6, nyangT: 0,
     build: "normal", bd: { ...BUILDS.normal }, // 고른 체형과, 지금 그 체형으로 바뀌어 가는 중간값
     legLen: "normal", ll: { ...LEG_LENS.normal }, // 다리 길이도 마찬가지
-    act: null, actP: null, pounce: null,
+    act: null, side: null, actP: null, pounce: null,
     tailEp: null, tailForce: null, annoy: 0, puffHold: 0, dropH: 0, // 꼬리 언어: 사건 신호 · 미리보기 · 짜증 · 꼬리펑 유지 · 떨어진 높이
   };
   const NECK_PROBE = jigProbe(NECK[0], NECK[1]);
@@ -332,8 +336,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     c.mode = m; c.modeT = 0;
     if (m === "walk" || m === "idle" || POSE_MODES.has(m) || m === "act") for (const L of c.legs) { L.off0 = L.off; L.lift0 = L.lift; }
     if (m === "idle") c.wanderT = rand(1.3, 3.4);
+    refreshLabel();
+  }
+  /** 상태 글자: 활동 이름(돌아다니는 활동은 걷는 동안에도), 곁들임이 있으면 앞말을 붙인다("음악 들으며 걷는 중") */
+  function refreshLabel() {
+    const c = cat, m = c.mode;
     let label = LABEL[m];
     if (c.act) { const sp = actOf(c.act.key); if (m === "act" || (sp.roam && (m === "idle" || m === "walk" || m === "crouch"))) label = sp.label; }
+    const w = c.side && sideOk(onKey(), c.side.key) && (declFor(c.side.key) || MIX[c.side.key] || {}).with; // 곧 벗을 곁들임은 빼고
+    if (w) label = `${w} ${label}`;
     if (label !== lastLabel) { lastLabel = label; emit("label", label); }
   }
   function walkTo(x) {
@@ -386,6 +397,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     c.afterGrab = true; c.resume = false; c.nyangT = 0;
     c.annoy += 1; c.puffHold = 1.1; c.tailEp = null; // 꼬리 언어: 잡히는 순간 꼬리펑, 자꾸 잡으면 짜증이 쌓인다
     if (c.act && !actOf(c.act.key).keepOnGrab) endAct(); // 잡히면 하던 걸 그만(음악·나비·공놀이는 이어 간다)
+    if (c.side && !actOf(c.side.key).keepOnGrab) endSide();
     c.pounce = null;
     c.ears.forEach((e) => (e.v += 4)); c.squash.v += 1.5; c.stretch.v += 2.5;
     setMode("grabbed");
@@ -451,12 +463,14 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const LT = LEG_LENS[c.legLen];
     for (const key of ["len", "hind", "front"]) c.ll[key] = lerp(c.ll[key], LT[key], kb);
     if (c.act) actStep(dt);
+    if (c.side) sideStep(dt);
     propsStep(dt);
     carryStep(dt);
     decorStep(dt);
     if (WORLD) checkEdges();
-    c.actP = c.mode === "act" && c.act ? actPose() : null;
-    const P = c.actP;
+    const mainP = c.mode === "act" && c.act ? actPose() : null;
+    c.actP = c.side ? sidePose(mainP) : mainP;
+    const P = c.actP, AD = (P && P.add) || NO_ADD;
     const standY = floorY - standH() * S;
 
     // 1) 상태별 이동
@@ -540,6 +554,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     else if (m === "walk") sq = 1 + 0.02 * Math.cos(c.gait * TAU * 2);
     else if (m === "crouch") sq = 0.8;
     else if (m === "air") sq = 1 + clamp(Math.abs(c.vy) / (2600 * S), 0, 0.15);
+    sq += AD.sq || 0;
     sq -= 0.12 * turning;
     c.squash.step(sq, lerp(330, 165, c.soft), lerp(17, 6.5, c.soft), dt); // 말랑할수록 눌렸다 튀는 게 크고 오래간다
     if (m === "grabbed") c.stretch.step(lerp(1.08, 1.3, c.soft), 105, 5.5, dt); else c.stretch.step(1, 170, 14, dt);
@@ -547,6 +562,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
     let at = -SIT_TILT * c.face * clamp(c.sit.x, 0, 1), k = 140, d = 16; // 앉기: 엉덩이를 내리고 앞을 든다
     if (P && P.tilt) at += P.tilt * c.face;
+    at += (AD.tilt || 0) * c.face;
     if (m === "crouch") at = c.pounce ? (0.07 + 0.05 * Math.sin(c.modeT * 30)) * c.face : 0.07 * c.face;
     else if (m === "air") at = c.face * clamp(c.vy / (2800 * S), -0.3, 0.3);
     else if (m === "grabbed") { at = -1.12 * c.face; k = 50; d = 8.5; }
@@ -578,6 +594,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         y = lerp(y, floorY - seat - rb, sv);
       }
       if (P && P.dy) y += P.dy * S;
+      y += (AD.dy || 0) * S;
       c.y = y;
       if (P && P.pos) { c.x = P.pos[0]; c.y = P.pos[1]; } // 활동이 몸 자리를 직접 정함(벽 타기)
     }
@@ -728,6 +745,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (ex === "curious") tt += 0.16 * c.face;
     if (m === "lie") tt = 0.1 * c.face;
     if (P && P.tt != null) tt = P.tt * c.face;
+    tt += addOf("tt") * c.face;
     if (c.petSulk > 0) tt -= 0.12 * c.face; // 짜증: 코를 살짝 들고 고개를 돌린다
     if (m === "grabbed") tt = -0.2 * c.face + 0.05 * Math.sin(time * 1.4);
     else if (m === "crouch") tt = 0.06 * c.face;
@@ -737,6 +755,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
     let earT = { idle: 0, walk: -0.06, crouch: 0.18, air: -0.08, land: 0.1, grabbed: 0.5, fall: 0.22, shake: 0, loaf: 0.12, sit: 0.04, lie: 0.3 }[m] ?? 0;
     if (P && P.ear != null) earT = P.ear;
+    earT += addOf("ear");
     const sg = activeTailSign(); if (sg && m !== "grabbed" && TAIL_SIGNS[sg].ear != null) earT = TAIL_SIGNS[sg].ear; // 꼬리 신호와 같이: 화나면 귀를 젖힌다
     if (c.petSulk > 0 && m !== "grabbed") earT = Math.max(earT, 0.42); // 너무 만져 짜증: 귀를 뒤로 젖힌다
     if (ex === "curious") earT -= 0.14;
@@ -906,7 +925,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const hookN = Math.max(0, v - 7); // 끝 3/10 만 더 말린다
     const tipW = smooth((v - 6) / 4);  // 까딱은 끝 4/10 에
     const wave = P.sway * P.env * Math.pow(f, 1.2) * Math.sin(P.phase - v * 0.33);
-    let th = (P.base + v * P.curl + hookN * (P.hook + P.breath) + wave + P.flick * tipW) * DEG;
+    let th = (P.base + v * P.curl + hookN * (P.hook + P.breath) + wave + (P.flick + addOf("tail")) * tipW) * DEG;
     if (P.thump > 0.01) th += P.thump * 80 * DEG * smooth((f - 0.2) / 0.6) * thumpLift(P.thumpPh); // 바깥 절반을 들었다 내리친다
     if (P.wrap > 0.001) th = lerp(th, (WRAP_TAIL.base + v * WRAP_TAIL.curl + hookN * WRAP_TAIL.hook - wave - P.flick * tipW) * DEG, P.wrap); // 감은 꼬리: 끝 흔들림은 위로
     return Math.atan2(Math.sin(th), Math.cos(th) * c.face) + c.rot;
@@ -1987,6 +2006,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
        pose(A, ramp)    'act' 상태일 때의 자세. ramp = 시작 후 0→1(0.6초)
        wander(A)        roam: 쉬거나 걷는 동안 할 일 · look(A): roam 에서 'act' 가 아닐 때 바라볼 곳
        drawBack(A) / drawFront(A)   소품 말고 따로 그릴 것(고양이 뒤 / 앞) · end(A): 끝날 때 정리
+       mix              겹치기 선언(activity-mix.js 의 MIX 와 같은 모양). 없으면 MIX[키], 그것도 없으면 전부 차지함(혼자만)
+       overlay(A, ramp) 곁들일 때 더할 차이 { tt, ear, sq, tilt, dy, tail }. 얹는 부위가 있는 활동만
+       kit.wear         몸에 쓰는 소품(헤드폰): 고양이 바로 다음, 앞 소품보다 먼저 그린다 — 상자 앞벽·그릇에 가려진다
+     곁들임(cat.side): 주 활동(없으면 기본 상태) 위에 얹는 활동 하나. 같이 되는지는 activity-mix.js 의 mixable 이 정한다
      pose 키: sit·loaf 바탕 자세 · tilt 몸 기울기(+면 앞이 내려감) · dy 몸 낮추기 · sq 눌림 · pos 몸 자리(월드)
        feet{다리번호: (L, 엉덩이) → [x, y]} 발 목표 · feetW 섞는 정도 · pawFront 앞발(아래팔)을 얼굴 앞에(true | 다리번호 배열, pawBeans: false 면 젤리 없이)
        bend{다리번호: [x, y]} 관절이 꺾이는 쪽(월드 방향, bendW 로 섞음. 기본은 발 방향을 따라 돌아가서 거의 필요 없다)
@@ -1999,9 +2022,24 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   const leftovers = []; // 활동이 끝난 뒤 쏙 들어가는 소품, 날아가는 나비 등
   function defineActivity(key, spec) {
     ACTIVITIES.set(key, { roam: false, room: 0, keepOnGrab: false, ...spec, key });
+    okCache.clear();
     buildActUI();
   }
   const actOf = (key) => ACTIVITIES.get(key);
+  /** 겹치기 선언: spec.mix 가 있으면 그것(없으면 activity-mix.js 의 MIX) */
+  const declFor = (key) => (ACTIVITIES.get(key) || {}).mix;
+  const okCache = new Map();
+  /** 같이 되나(활동 키 둘마다 한 번만 계산) */
+  function sideOk(on, side) {
+    const k = on + "|" + side;
+    let v = okCache.get(k);
+    if (v === undefined) okCache.set(k, (v = mixable(on, side, declFor).ok));
+    return v;
+  }
+  /** 주 활동이 없을 때의 기본 상태. 잡힘·점프 같은 잠깐 상태는 서기로 본다 */
+  const baseKey = () => { const m = cat.mode; return m === "lie" ? "base:lie" : m === "loaf" ? "base:loaf" : m === "sit" ? "base:sit" : "base:stand"; };
+  /** 곁들임이 얹히는 아래쪽: 주 활동, 없으면 기본 상태 */
+  const onKey = () => (cat.act ? cat.act.key : baseKey());
   const isRoam = () => !!(cat.act && actOf(cat.act.key).roam);
 
   // ── 활동 모듈이 같이 쓰는 도구 ──
@@ -2046,15 +2084,29 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   // ── 시작 · 끝 · 흐름 ──
   function buildActUI() {} // 앱엔 활동 칩이 없다(컨트롤러 act 로 고른다)
   function syncActUI() { emit("activity", cat.act ? cat.act.key : null); }
+  const kitFor = (A) => {
+    const add = (layer) => (anchor, draw, opt = {}) => A.props.push({ layer, anchor, draw, delay: opt.delay || 0, follow: !!opt.follow });
+    return { back: add("back"), front: add("front"), wear: add("wear") };
+  };
+  /** 끝난 활동의 소품: 그 자리에서 쏙 들어간다 */
+  function retireProps(A) {
+    for (const p of A.props) {
+      const fixed = p.anchor();
+      leftovers.push({ kind: "prop", layer: p.layer, anchor: p.follow ? p.anchor : () => fixed, draw: p.draw, t: 0, life: 0.36 });
+    }
+  }
   function startAct(key) {
     const c = cat;
     if (c.act) endAct(false);
     const spec = actOf(key);
     if (!spec) { syncActUI(); return; }
-    const A = (c.act = { key, t: 0, props: [] });
-    if (spec.room) { const x = c.x + c.face * spec.room * S; if (x < 24 * S || x > W - 24 * S) c.face = -c.face; }
-    const add = (layer) => (anchor, draw, opt = {}) => A.props.push({ layer, anchor, draw, delay: opt.delay || 0, follow: !!opt.follow });
-    if (spec.start) spec.start(A, { back: add("back"), front: add("front") });
+    if (c.side && c.side.key === key) { // 곁들임을 주 활동으로 옮겨 탄다: 소품(헤드폰)이 다시 뜨지 않는다
+      c.act = c.side; c.side = null; emit("side", null);
+    } else {
+      const A = (c.act = { key, t: 0, props: [] });
+      if (spec.room) { const x = c.x + c.face * spec.room * S; if (x < 24 * S || x > W - 24 * S) c.face = -c.face; }
+      if (spec.start) spec.start(A, kitFor(A));
+    }
     if (!spec.roam) { if (GROUND.has(c.mode) && c.mode !== "crouch") { c.vx = 0; c.speed = 0; setMode("act"); } }
     else if (c.mode === "act" || POSE_MODES.has(c.mode)) setMode("idle");
     else if (c.mode === "idle" || c.mode === "walk") setMode(c.mode); // 상태 글자만 갱신
@@ -2063,10 +2115,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function endAct(sync = true) {
     const c = cat, A = c.act;
     if (!A) return;
-    for (const p of A.props) {
-      const fixed = p.anchor();
-      leftovers.push({ kind: "prop", layer: p.layer, anchor: p.follow ? p.anchor : () => fixed, draw: p.draw, t: 0, life: 0.36 });
-    }
+    retireProps(A);
     const spec = actOf(A.key);
     if (spec.end) spec.end(A);
     c.act = null; c.actP = null; c.pounce = null;
@@ -2084,6 +2133,43 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function actPose() {
     const A = cat.act, s = actOf(A.key);
     return (s.pose && s.pose(A, smooth(A.t / 0.6))) || {};
+  }
+
+  /* ----- 곁들임(활동 겹치기, docs/neko-activity-mix.md) -----
+     주 활동이 바뀌거나 끝나도, 기본 상태가 바뀌어도(식빵 → 누워 자기) 매 스텝 다시 본다. 안 되면 끝낸다(쏙).
+     주 활동이 끝나도 곁들임은 기본 상태 위에 그대로 남는다 — 이어받기는 없다("activity" 는 null). */
+  function startSide(key) {
+    const c = cat;
+    if (c.side && c.side.key === key) return true;
+    const spec = actOf(key);
+    if (!spec || !sideOk(onKey(), key)) { emit("side", c.side ? c.side.key : null); return false; } // 거절: 하던 곁들임은 그대로
+    if (c.side) endSide(false);
+    const A = (c.side = { key, t: 0, props: [] });
+    if (spec.start) spec.start(A, kitFor(A));
+    emit("side", key); refreshLabel();
+    return true;
+  }
+  function endSide(sync = true) {
+    const c = cat, A = c.side;
+    if (!A) return;
+    retireProps(A);
+    const spec = actOf(A.key);
+    if (spec.end) spec.end(A);
+    c.side = null;
+    if (sync) { emit("side", null); refreshLabel(); }
+  }
+  function sideStep(dt) {
+    const c = cat, A = c.side;
+    if (!sideOk(onKey(), A.key)) { endSide(); return; }
+    A.t += dt;
+    const s = actOf(A.key);
+    if (s.step) s.step(A, dt);
+  }
+  /** 곁들임을 얹은 자세: 곁들임이 차지한 부위는 그 값, 나머지는 주 활동 값(없으면 엔진 기본값), overlay 는 add 로 */
+  function sidePose(mainP) {
+    const A = cat.side, s = actOf(A.key), ramp = smooth(A.t / 0.6);
+    const sp = (s.pose && s.pose(A, ramp)) || null, ov = (s.overlay && s.overlay(A, ramp)) || null;
+    return mergePose(onKey(), A.key, mainP, sp, ov, declFor);
   }
   function lookTarget() {
     const c = cat, A = c.act;
@@ -2113,22 +2199,21 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
   // ── 그리기: 고양이 뒤(drawActBack) / 얼굴까지 그린 뒤 앞(drawActFront) ──
   function drawProps(layer) {
-    const A = cat.act;
     for (const o of leftovers) if (o.kind === "prop" && o.layer === layer) { const [x, y] = o.anchor(); withPop(x, y, popOut(o.t), o.draw); }
-    if (A) for (const p of A.props) if (p.layer === layer) { const [x, y] = p.anchor(); withPop(x, y, popIn(A.t - p.delay), p.draw); }
+    for (const A of [cat.act, cat.side]) if (A) for (const p of A.props) if (p.layer === layer) { const [x, y] = p.anchor(); withPop(x, y, popIn(A.t - p.delay), p.draw); }
   }
   function drawActBack() {
     drawProps("back");
-    const A = cat.act;
-    if (A) { const s = actOf(A.key); if (s.drawBack) s.drawBack(A); }
+    for (const A of [cat.act, cat.side]) if (A) { const s = actOf(A.key); if (s.drawBack) s.drawBack(A); }
   }
   function drawActFront() {
-    const c = cat, A = c.act;
+    const c = cat;
+    drawProps("wear"); // 몸에 쓰는 것(헤드폰): 내민 앞발·앞 소품(상자 앞벽·그릇)에 가려진다
     const pf = c.actP && c.actP.pawFront; // true 면 가까운 앞발, 배열이면 그 다리들
     if (pf) for (const i of Array.isArray(pf) ? pf : [NEAR_FRONT]) drawLegOnTop(i, c.actP.pawBeans !== false);
     drawProps("front");
     for (const o of leftovers) if (o.drawFront) o.drawFront(o.t / o.life);
-    if (A) { const s = actOf(A.key); if (s.drawFront) s.drawFront(A); }
+    for (const A of [c.act, c.side]) if (A) { const s = actOf(A.key); if (s.drawFront) s.drawFront(A); }
     for (const e of effects) drawEffect(e);
   }
   /* ---------- 입에 물기 ----------
@@ -2694,14 +2779,21 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     },
   });
 
+  // 음악 듣기: 주 활동이면 앉아서 듣고, 곁들임이면 헤드폰을 낀 채 다른 일을 한다(걷기·식빵·타이핑…, docs/neko-activity-mix.md).
+  // 곁들일 땐 귀만 정하고(헤드폰이 누른다) 고개 까딱·꼬리 박자·몸 통통은 overlay 로 더한다. 걸을 땐 박자를 걸음에 싣는다
+  const movingNow = () => cat.mode === "walk" || isRoam();
   defineActivity("music", { // 헤드폰을 끼고 박자(96 BPM)에 맞춰 고개를 까딱, 꼬리도 두 박자에 한 번, 음표가 떠오른다
     name: "음악 듣기", label: "음악 듣는 중", keepOnGrab: true,
     start(A, kit) {
       A.noteT = 0.3; A.hp = phoneColors();
-      kit.front(() => H2W(0, -26), () => drawHeadphones(A.hp, A.t), { delay: 0.05, follow: true });
+      kit.wear(() => H2W(0, -26), () => drawHeadphones(A.hp, A.t), { delay: 0.05, follow: true });
       burst(cat.head.x, cat.head.y - 30 * S);
     },
-    step(A, dt) { A.noteT -= dt; if (A.noteT <= 0) { A.noteT = 0.62; if (!reduced.matches) spawnNote(); } },
+    step(A, dt) { A.noteT -= dt; if (A.noteT <= 0) { A.noteT = movingNow() ? 1.1 : 0.62; if (!reduced.matches) spawnNote(); } }, // 움직이는 동안은 음표를 줄인다
+    overlay(A, ramp) {
+      const walking = cat.mode === "walk", beat = Math.max(0, Math.sin(walking ? cat.gait * TAU * 2 : A.t * 1.6 * TAU)); // 걸을 땐 한 걸음에 한 번
+      return { tt: (walking ? 0.05 : 0.09) * beat * ramp, sq: walking ? 0 : -0.025 * beat * ramp, tail: 6 * beat * ramp };
+    },
     pose(A, ramp) {
       const beat = Math.max(0, Math.sin(A.t * 1.6 * TAU));
       return {
@@ -3910,7 +4002,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       for (const key of ["w", "h", "r", "vx", "vy"]) if (typeof o[key] === "number") o[key] *= k;
     };
     // 활동 상태 A 바로 아래의 소품 객체들(x 를 가진 것). 배열·숫자 칸은 뜻이 제각각이라 건드리지 않는다
-    if (c.act) for (const v of Object.values(c.act)) if (v && typeof v === "object" && !Array.isArray(v)) move(v);
+    for (const A of [c.act, c.side]) if (A) for (const v of Object.values(A)) if (v && typeof v === "object" && !Array.isArray(v)) move(v);
     for (const e of effects) move(e);
     // 고양이 몸에 딸린 점들: 안 옮기면 다리·꼬리·머리가 옛 자리에서 늘어났다가 따라온다(속도는 둔다 — 걸음·흔들림이 이어지게)
     c.head.x = mx(c.head.x); c.head.y = my(c.head.y); c.headAnc = [mx(c.headAnc[0]), my(c.headAnc[1])];
@@ -4192,6 +4284,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     },
     act(key) { if (!key || key === "none") endAct(); else if (!cat.act || cat.act.key !== key) startAct(key); },
     get activity() { return cat.act ? cat.act.key : null; },
+    /** 곁들임(활동 겹치기): 지금 도는 것(주 활동, 없으면 기본 상태)과 안 되면 거절하고 false */
+    mix(key) { if (!key || key === "none") { endSide(); return true; } return startSide(key); },
+    get side() { return cat.side ? cat.side.key : null; },
     tail: (sign, sec) => startTailEp(sign, sec),
     react(kind) {
       if (kind === "pet") return petReact();
@@ -4254,6 +4349,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     get S() { return S; }, get floorY() { return floorY; }, get W() { return W; },
     coat: (seed) => { cat.seed = seed >>> 0; appearance.seed = cat.seed; generateCoat(); return cat.coatTex.grade; },
     draw, defineActivity,
+    get activities() { return [...ACTIVITIES.keys()]; },
     step: (n) => { for (let i = 0; i < n; i++) step(DT); },
     debug: { bodyWorld, legSamples, tailSamples, L2W, H2W }, // 회귀 검사용(qa/neko)
   };

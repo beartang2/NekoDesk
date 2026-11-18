@@ -74,6 +74,8 @@ export interface NekoEvents {
   drop: void;
   /** 활동이 바뀌었을 때(끝나면 null) */
   activity: NekoActivity | null;
+  /** 곁들임이 바뀌었을 때(끝나거나 거절되면 null). 주 활동·기본 상태와 안 맞게 되면 엔진이 스스로 끝낸다 */
+  side: NekoActivity | null;
   /** 상태 이름(접근성 라벨 등) */
   label: string;
   error: unknown;
@@ -127,6 +129,13 @@ export interface NekoController {
   /** 활동 시작(같은 활동이면 이어 감). null 이면 끝냄 */
   act(key: NekoActivity | null): void;
   readonly activity: NekoActivity | null;
+  /**
+   * 곁들임(docs/neko-activity-mix.md): 주 활동 위에, 주 활동이 없으면 기본 상태(서기·걷기·앉기·식빵) 위에 얹는다.
+   * 지금 도는 것과 안 맞으면(activity-mix.js 의 mixable) 거절하고 false. null 이면 끝냄.
+   * 주 활동이 끝나도 곁들임은 남는다. act(지금 곁들임) 이면 곁들임이 주 활동으로 옮겨 탄다(소품이 다시 안 뜬다)
+   */
+  mix(key: NekoActivity | null): boolean;
+  readonly side: NekoActivity | null;
   /** 꼬리 언어를 잠깐(초) */
   tail(sign: NekoTailSign, sec?: number): void;
   /** "pet" 은 기분 좋게 받으면 true, 너무 만져 짜증 났으면 false(웃지 않고 피함). 나머지는 true */

@@ -48,6 +48,17 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     expect(got).toEqual(["box"]);
   });
 
+  it("곁들임: mix 는 보내면서 바꿔 두고, 화면 창의 side 이벤트로 바로잡는다", () => {
+    const sent: NekoCmd[] = [];
+    const r = createRemoteNeko((c) => sent.push(c));
+    expect(r.side).toBeNull();
+    expect(r.mix("music")).toBe(true);
+    expect(r.side).toBe("music");
+    expect(sent[sent.length - 1]).toEqual({ m: "mix", args: ["music"] });
+    dispatchEvt({ ev: "side", payload: null }); // 화면 창이 거절함(누워 자는 중)
+    expect(r.side).toBeNull();
+  });
+
   it("다른 자리에 갔다 화면으로 돌아오면 준비 신호를 다시 받아 대리를 세우고 외형을 넘긴다", () => {
     const ready = () => tauri.handlers.get("neko-screen-ready")?.({ payload: undefined });
     const sentNow = () => tauri.sent.splice(0).map(([, ev, p]) => (ev === "neko-cmd" ? (p as NekoCmd).m : ev));

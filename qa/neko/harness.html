@@ -44,6 +44,7 @@
 <fieldset><legend>기분</legend><div class="chips" id="moods"></div></fieldset>
 <fieldset><legend>꼬리 언어</legend><div class="chips" id="tailsigns"></div></fieldset>
 <fieldset><legend>활동</legend><div class="chips" id="acts"></div></fieldset>
+<fieldset><legend>곁들임</legend><div class="chips" id="sides"></div></fieldset>
 
 <script type="module">
 import { createNeko } from "/src/neko/engine/neko-engine.js";
@@ -102,6 +103,7 @@ chips("tailsigns", "tsign", [["auto", "자동"], ...["level", "up", "question", 
   (v) => { neko.cat.tailForce = v === "auto" ? null : v; });
 chips("acts", "act", [["none", "없음"], ...["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb", "think", "wait", "meal", "hungry", "dig", "calendar", "erase"].map((k) => [k, k])], "none",
   (v) => neko.act(v === "none" ? null : v));
+chips("sides", "side", [["none", "없음"], ["music", "음악"]], "none", (v) => neko.mix(v === "none" ? null : v));
 document.getElementById("jump").onclick = () => neko.jump();
 let wander = true;
 document.getElementById("wander").onclick = (e) => { wander = !wander; neko.setWander(wander); e.target.textContent = wander ? "산책 끄기" : "산책 켜기"; };
