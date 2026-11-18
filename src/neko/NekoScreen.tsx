@@ -86,7 +86,7 @@ export function NekoScreen() {
 
     // 커서 → 고양이 위인지
     let cursor: [number, number] | null = null;
-    let over = false;
+    let over: "cat" | "other" | null = null;
     let sentAt = 0;
     let active = true;
     // 고양이·마당 선물·'정리' 버튼 위면 클릭을 받는다
@@ -94,13 +94,15 @@ export function NekoScreen() {
       const r = menuRef.current?.getBoundingClientRect();
       return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     };
+    // 고양이 위인지도 같이 알린다 — 잡고 다른 모니터로 끌 때 창이 따라가는 건 고양이뿐이다(선물은 이 화면 끝에서 멈춘다)
     const check = () => {
       const now = performance.now();
-      const o = active && !!cursor && (ctrl.hit(cursor[0], cursor[1]) || ctrl.hitDecor(cursor[0], cursor[1]) !== null || overMenu(cursor[0], cursor[1]));
+      const [x, y] = cursor ?? [0, 0];
+      const o = !active || !cursor ? null : ctrl.hit(x, y) ? "cat" : ctrl.hitDecor(x, y) !== null || overMenu(x, y) ? "other" : null;
       if (o === over && !(o && now - sentAt > CATCH_EVERY_MS)) return;
       over = o;
       sentAt = now;
-      void invoke("neko_screen_catch", { on: o }).catch(() => {});
+      void invoke("neko_screen_catch", { on: o !== null, cat: o === "cat" }).catch(() => {});
     };
     // 커서가 있는 다른 모니터 쪽. 한가하면(잡혀 있지 않고 활동이 없으면) 그쪽 끝 너머로 걸어간다
     let away: Side | null = null;

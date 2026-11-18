@@ -963,11 +963,11 @@ mod commands {
         crate::neko_screen::show(&app, on, on_top)
     }
 
-    /// 화면 창: 커서가 고양이 위다(고양이 위에 있는 동안 계속 알린다).
+    /// 화면 창: 커서가 고양이·마당 선물 위다(위에 있는 동안 계속 알린다). `cat` 은 고양이 위일 때.
     #[cfg(target_os = "macos")]
     #[tauri::command]
-    pub fn neko_screen_catch(on: bool) -> Result<(), AppError> {
-        crate::neko_screen::set_catch(on)
+    pub fn neko_screen_catch(on: bool, cat: Option<bool>) -> Result<(), AppError> {
+        crate::neko_screen::set_catch(on, cat.unwrap_or(false))
     }
 
     /// 화면 창: 판 크기와 바닥. 아직 모르면 null.

@@ -93,6 +93,10 @@ struct State {
     catching: bool,
     /// 받는 중에 눌렀다 — 놓을 때까지 화면 어디서든 받는다(목덜미 잡고 끌기).
     grabbing: bool,
+    /// 화면 창이 마지막으로 알린 게 고양이 위였다(아니면 마당 선물·메뉴).
+    catch_cat: bool,
+    /// 잡은 게 고양이다. 고양이를 잡고 끌 때만 창이 다른 모니터로 따라간다.
+    grab_cat: bool,
     poller: bool,
 }
 
@@ -111,6 +115,8 @@ static STATE: Mutex<State> = Mutex::new(State {
     catch_at: None,
     catching: false,
     grabbing: false,
+    catch_cat: false,
+    grab_cat: false,
     poller: false,
 });
 
@@ -191,10 +197,22 @@ pub fn show(app: &AppHandle, on: bool, on_top: bool) -> Result<(), AppError> {
     Ok(())
 }
 
-/// 화면 창이 커서가 고양이 위인지 알린다.
-pub fn set_catch(on: bool) -> Result<(), AppError> {
-    STATE.lock()?.catch_at = on.then(Instant::now);
+/// 화면 창이 커서가 고양이·마당 선물 위인지 알린다. `cat` 은 고양이 위일 때.
+pub fn set_catch(on: bool, cat: bool) -> Result<(), AppError> {
+    let mut st = STATE.lock()?;
+    st.catch_at = on.then(Instant::now);
+    st.catch_cat = on && cat;
     Ok(())
+}
+
+/// 버튼 상태로 잡기를 고친다: (잡는 중, 잡은 게 고양이). 누른 순간 받는 중이었으면 잡기 시작이고, 무엇을
+/// 잡았는지는 그때 정한다 — 선물을 끌다 고양이 위를 지나가도 선물 끌기다.
+fn grab_step(down: bool, catching: bool, grabbing: bool, grab_cat: bool, catch_cat: bool) -> (bool, bool) {
+    match (down, grabbing) {
+        (false, _) => (false, false),
+        (true, true) => (true, grab_cat),
+        (true, false) => (catching, catching && catch_cat),
+    }
 }
 
 /// 화면 창이 처음 뜰 때 판 크기와 바닥을 가져간다. 아직 모르면 None(곧 `neko-screen-layout` 이 온다).
@@ -336,16 +354,16 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
         *sent = cursor;
         let _ = app.emit_to(LABEL, "neko-screen-cursor", cursor);
     }
-    if !p.down {
-        st.grabbing = false;
-    } else if st.catching {
-        st.grabbing = true;
-    }
-    let other = if cursor.is_some() { None } else { st.screens.iter().find(|s| inside(s.rect, p.mouse)).copied() };
-    if let (true, Some(to)) = (st.grabbing, other) {
+    (st.grabbing, st.grab_cat) = grab_step(p.down, st.catching, st.grabbing, st.grab_cat, st.catch_cat);
+    let mut other = if cursor.is_some() { None } else { st.screens.iter().find(|s| inside(s.rect, p.mouse)).copied() };
+    if let (true, true, Some(to)) = (st.grabbing, st.grab_cat, other) {
         drop(st);
         move_to(app, &win, to, drag_shift(cur.rect, to.rect));
         return;
+    }
+    // 마당 선물을 끄는 중: 선물은 이 화면 끝에서 멈추고, 고양이도 커서를 따라 건너가지 않는다
+    if st.grabbing {
+        other = None;
     }
     st.away = match (other, st.away) {
         (Some(to), Some((t, since))) if t.rect == to.rect => Some((t, since)),
@@ -646,6 +664,19 @@ mod tests {
         assert!(!wants_clicks(false, true, false, false, false));
         // 잡고 끄는 중 → 알림이 없고 화면 밖이어도 놓을 때까지 받는다
         assert!(wants_clicks(true, false, false, true, true));
+    }
+
+    #[test]
+    fn only_a_grabbed_cat_drags_the_window() {
+        // 고양이 위에서 눌렀다: 고양이 잡기
+        assert_eq!(grab_step(true, true, false, false, true), (true, true));
+        // 선물 위에서 눌렀다: 잡기지만 고양이는 아니다. 끄는 길에 고양이 위를 지나가도 그대로다
+        assert_eq!(grab_step(true, true, false, false, false), (true, false));
+        assert_eq!(grab_step(true, true, true, false, true), (true, false));
+        // 받는 중이 아닐 때 눌렀다(다른 앱 클릭): 잡기 아님
+        assert_eq!(grab_step(true, false, false, false, true), (false, false));
+        // 놓았다
+        assert_eq!(grab_step(false, true, true, true, true), (false, false));
     }
 
     #[test]
