@@ -546,7 +546,7 @@ try {
       const n = window.__neko, c = n.cat, S = n.S, W = n.W;
       n.setGround(600); n.step(60); n.setEdges({ left: true, right: true }); n.act("yarn"); n.step(2);
       const b = c.act.ball; let minX = Infinity, maxX = -Infinity;
-      for (let k = 0; k < 6; k++) { b.vx = (k % 2 ? 900 : -900) * S; for (let i = 0; i < 600; i++) { n.step(1); minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x); } }
+      for (let k = 0; k < 6; k++) { b.x = (k % 2 ? 0.7 : 0.3) * W; b.vx = (k % 2 ? 900 : -900) * S; for (let i = 0; i < 600; i++) { n.step(1); minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x); } }
       return { inside: minX >= 0 && maxX <= W, near: minX < 20 * S || W - maxX < 20 * S, cat: c.x > 0 && c.x < W };
     });
     await p.close();
@@ -628,6 +628,48 @@ try {
     const ok = Object.values(r).every((v) => v.reach <= 50 && v.near !== null && v.near < 110);
     check("뛰다 시작한 활동: 내린 자리에 소품을 다시 펴고 머리는 목에서 50 안", Object.entries(r).map(([k, v]) => `${k} 머리 ${v.reach}·소품 ${v.near}`).join(" · "), ok);
     await p.close();
+  }
+
+  // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
+  //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
+  {
+    const climb = async (q, vp, o = {}) => {
+      const p = await open(q, vp);
+      const r = await p.evaluate((o) => {
+        const n = window.__neko, c = n.cat, S = n.S, H2W = n.debug.H2W;
+        if (o.ground) n.setGround(o.ground);
+        n.step(60);
+        let giftBottom = null;
+        if (o.gift) { // 오를 벽(가까운 쪽)에 큰 선물을 높이 건다
+          const right = c.x > n.W / 2, gx = right ? n.W - 16 * S : 16 * S;
+          n.setDecor([{ id: "w", surface: "wall", u: right ? 1 : 0, v: o.gift, size: "large", shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]); n.step(200); n.draw();
+          for (let y = 0; y < n.floorY; y++) if (n.hitDecor(gx, y)) giftBottom = y;
+        }
+        n.act("climb"); const A = c.act, side = A.side, giftSide = c.x > n.W / 2 ? 1 : -1;
+        if (o.win != null) { const plan = A; const iv = () => { if (plan.T != null && !plan.__set) { plan.__set = true; plan.win = o.win; plan.hold = o.win ? 2.4 : plan.hold; plan.tSlide = plan.tTop + plan.hold; plan.tFall = plan.tSlide + plan.slideT; } }; o.iv = iv; }
+        let top = Infinity, minY = Infinity, ended = false;
+        for (let i = 0; i < 120 * 40; i++) {
+          n.step(1); if (o.iv) o.iv();
+          if (!c.act) { ended = true; break; }
+          top = Math.min(top, ...[[-28, -46], [28, -46]].map(([x, y]) => H2W(x, y)[1])); minY = Math.min(minY, c.y);
+        }
+        return { h: (n.floorY - minY) / S, frac: (n.floorY - top) / n.floorY, topPx: top, S, ended, giftBottom, sameWall: side === giftSide };
+      }, o);
+      await p.close();
+      return r;
+    };
+    const low = await climb("?w=704&h=282&scale=height", { width: 760, height: 1000 });
+    const tall = await climb("?w=1200&h=760&scale=height", { width: 1300, height: 900 });
+    const yard = await climb("?world=1&fixed=0.8", { width: 1400, height: 900 }, { ground: 860 });
+    const win = await climb("?w=1200&h=760&scale=height", { width: 1300, height: 900 }, { win: true });
+    const gift = await climb("?w=1200&h=760&scale=height", { width: 1300, height: 900 }, { gift: 0.8 });    // 높이 건 것: 그 아래까지
+    const block = await climb("?w=1200&h=760&scale=height", { width: 1300, height: 900 }, { gift: 0.45 }); // 낮게 건 것: 반대쪽 벽으로
+    check("벽 타기: 자리 높이에 맞춰 오른다(낮은 방은 그대로, 높은 방 70~85%, 마당은 상한)",
+      `낮은 방 ${low.h.toFixed(0)}단위·천장 여유 ${low.topPx.toFixed(0)}px · 높은 방 ${(tall.frac * 100).toFixed(0)}% · 마당 ${yard.h.toFixed(0)}단위`,
+      low.h >= 115 && low.h <= 125 && low.topPx >= 4 && tall.frac >= 0.68 && tall.frac <= 0.87 && yard.h > 300 && yard.h <= 486 && low.ended && tall.ended && yard.ended);
+    check("벽 타기: 성공하면 두리번거리다 뛰어내리고 끝난다", `끝남 ${win.ended} · 높이 ${win.h.toFixed(0)}`, win.ended && win.h > 150);
+    check("벽 타기: 벽에 건 선물 아래까지만 오르고, 낮게 막혔으면 반대쪽 벽으로", `선물 아래 ${gift.giftBottom?.toFixed(0)}px · 귀 끝 ${gift.topPx.toFixed(0)}px · 같은 벽 ${gift.sameWall} · 낮게 막힘 → 반대쪽 ${!block.sameWall}`,
+      gift.giftBottom != null && gift.sameWall && gift.topPx >= gift.giftBottom && gift.ended && !block.sameWall && block.ended);
   }
 
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다

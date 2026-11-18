@@ -3627,32 +3627,81 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
 
   /* ----- 벽 타기 ----- */
-  // 가까운 벽까지 걸어가 → 뛰어올라 벽에 붙어 발을 허우적이며 조금 오르다 → 주르륵 미끄러져 떨어지고 → 몸을 털고 머쓱
+  // 가까운 벽까지 걸어가 → 뛰어올라 벽에 붙고 → 앞발을 번갈아 짚으며 자리 높이에 맞춰 기어오른다 → 꼭대기에서 허우적이다
+  // 주르륵 미끄러져 떨어지고 몸을 털며 머쓱(높이 오를수록 미끄러짐·머쓱함이 조금 길다). 높이 올랐을 땐 가끔 성공해서
+  // 두리번거리다 뛰어내린다. 오를 높이는 자리 천장의 70~85%(귀 끝 기준), 화면 모드에선 고양이 키의 4~5배까지
+  const CLIMB_LO = 116, CLIMB_HI = 480, CLIMB_EAR = 99, CLIMB_SPEED = 60, CLIMB_STRIDE = 22; // S 단위: 몸 가운데 높이 · 매달렸을 때 귀 끝이 가운데보다 높은 만큼 · 오르는 속도 · 한 번 짚어 오르는 만큼
+  const climbWallX = (side) => (side > 0 ? W - 3 * S : 3 * S);
+  /** 그 벽에서 몸 가운데가 오를 수 있는 가장 높은 곳(바닥에서, S 단위). 벽에 건 선물과 겹치면 그 아래까지 */
+  function climbRoom(side) {
+    const top = floorY / S - CLIMB_EAR - 8; // 귀 끝이 천장에서 8 아래
+    let hi = Math.min(CLIMB_HI, top);
+    const col = [climbWallX(side) - side * 75 * S, climbWallX(side)].sort((p, q) => p - q);
+    for (const d of decor) {
+      if (d.hidden || d.surface !== "wall") continue;
+      const L = decorLayout(d);
+      if (L.x + L.w / 2 < col[0] || L.x - L.w / 2 > col[1]) continue;
+      hi = Math.min(hi, (floorY - L.bottom) / S - CLIMB_EAR - 6); // 귀 끝이 선물 아래 6
+    }
+    return hi;
+  }
+  function climbPlan(A) { // 뛰어오르는 순간 정한다
+    const room = climbRoom(A.side), want = (floorY / S) * rand(0.7, 0.85) - CLIMB_EAR;
+    const yS = floorY - (standH() + 52) * S, h0 = standH() + 52;
+    const h = Math.max(Math.min(h0 + 10, room), Math.min(Math.max(CLIMB_LO, want), room)); // 낮은 방은 지금처럼 조금만
+    const frac = clamp((h - CLIMB_LO) / (CLIMB_HI - CLIMB_LO), 0, 1), dist = Math.max(0, h - h0);
+    A.yG = floorY - h * S; A.yS = dist > 12 ? yS : A.yG; A.frac = frac; // 조금만 오를 땐 바로 그 높이로 뛰어 붙는다
+    A.T = dist > 12 ? dist / CLIMB_SPEED : 0;           // 기어오르는 시간
+    A.N = Math.max(1, Math.round(dist / CLIMB_STRIDE));  // 짚는 횟수
+    A.win = frac > 0.3 && Math.random() < 0.35;         // 높이 올랐을 땐 가끔 성공
+    A.hold = A.win ? 2.4 : 0.6 + 0.4 * frac;            // 꼭대기에서 버티는(두리번거리는) 시간
+    A.slideT = 0.85 + 0.5 * frac; A.slideD = 46 + 0.25 * dist;
+    A.tTop = 0.38 + A.T; A.tSlide = A.tTop + A.hold; A.tFall = A.tSlide + A.slideT;
+  }
   function climbPose(A) {
-    const c = cat, u = A.t - A.t0, wallX = A.side > 0 ? W - 3 * S : 3 * S;
-    const xc = wallX - A.side * (31 * c.bd.by + 7) * S, yTop = floorY - (standH() + 52) * S;
-    let x, y, slide = 0;
-    if (u < 0.38) { const k = smooth(u / 0.38); x = lerp(A.x0, xc, k); y = lerp(A.y0, yTop, k) - Math.sin(Math.PI * k) * 14 * S; }
-    else if (u < 1.25) { x = xc; y = yTop - 10 * S * Math.sin(Math.min(1, ((u - 0.38) / 0.87) * 1.3) * Math.PI * 0.5); }
-    else { slide = (u - 1.25) / 0.85; x = xc; y = yTop - 10 * S + slide * slide * 46 * S; }
-    const scr = Math.sin(u * (slide > 0 ? 34 : 24));
-    const paw = (i) => (L, h) => [wallX - A.side * 1.5 * S, h[1] + (L.front ? -5 : 5) * S + (i % 2 ? scr : -scr) * 5 * S];
+    const c = cat, u = A.t - A.t0, wallX = climbWallX(A.side);
+    const xc = wallX - A.side * (31 * c.bd.by + 7) * S;
+    let x = xc, y, slide = 0, lead = -1, reachK = 0;
+    if (u < 0.38) { const k = smooth(u / 0.38); x = lerp(A.x0, xc, k); y = lerp(A.y0, A.yS, k) - Math.sin(Math.PI * k) * 14 * S; }
+    else if (u < A.tTop) { // 한 걸음씩: 앞발 하나를 위로 뻗어 짚고 몸을 끌어올린다
+      const s = ((u - 0.38) / A.T) * A.N, i = Math.min(A.N - 1, Math.floor(s)), f = s - i;
+      y = lerp(A.yS, A.yG, (i + smooth(f)) / A.N); lead = i % 2; reachK = Math.sin(Math.PI * Math.min(1, f * 1.4));
+    } else if (u < A.tSlide) y = A.yG - 4 * S * Math.sin(Math.min(1, (u - A.tTop) / 0.5) * Math.PI * 0.5); // 꼭대기: 버티기
+    else { slide = (u - A.tSlide) / A.slideT; y = A.yG - 4 * S + slide * slide * A.slideD * S; }
+    const top = u >= A.tTop && u < A.tSlide, scr = top && !A.win ? Math.sin(u * 24) : slide > 0 ? Math.sin(u * 34) : 0;
+    const front = [FAR_FRONT, NEAR_FRONT];
+    const paw = (i) => (L, h) => {
+      let dy = (L.front ? -5 : 5) * S + (i % 2 ? scr : -scr) * 5 * S;
+      if (L.front && lead >= 0) dy -= (front[lead] === i ? 14 : 0) * reachK * S;  // 짚으러 뻗는 앞발
+      else if (!L.front && lead >= 0) dy += (i % 2 === lead ? 4 : 0) * reachK * S; // 미는 뒷발
+      return [wallX - A.side * 1.5 * S, h[1] + dy];
+    };
+    const look = top && A.win // 성공: 두리번(바깥 → 위 → 바깥)
+      ? [wallX - A.side * (120 + 60 * Math.sin((u - A.tTop) * 2.2)) * S, y - (40 + 50 * Math.cos((u - A.tTop) * 1.7)) * S]
+      : [wallX, A.yG - 90 * S];
     return {
       pos: [x, y], tilt: -1.45, feetW: smooth(u / 0.3), feet: { 0: paw(0), 1: paw(1), 2: paw(2), 3: paw(3) },
-      ear: slide > 0 ? 0.45 : -0.12, expr: slide > 0.25 ? "surprised" : "curious", look: [wallX, yTop - 90 * S],
+      ear: slide > 0 ? 0.45 : -0.12, expr: slide > 0.25 ? "surprised" : top && A.win && u > A.tSlide - 0.6 ? "happy" : "curious", look, // 두리번거린 뒤 뿌듯
       tail: { base: 172, curl: -4, hook: 4, sway: 0, flick: null, dyn: { w0: 4, zeta: 0.5, grav: 0.6, inert: 1 } },
     };
   }
   defineActivity("climb", {
     name: "벽 타기", label: "벽 타는 중", roam: true,
-    start(A) { A.side = cat.x > W / 2 ? 1 : -1; A.phase = "approach"; },
+    start(A) { // 가까운 벽. 벽에 건 선물에 막혀 거의 못 오르면 반대쪽 벽으로
+      A.side = cat.x > W / 2 ? 1 : -1; A.phase = "approach";
+      if (climbRoom(A.side) < standH() + 62 && climbRoom(-A.side) > climbRoom(A.side)) A.side = -A.side;
+    },
     step(A) {
       const c = cat;
       if ((A.phase === "leap" || A.phase === "cling") && c.mode === "act") {
         const u = A.t - A.t0;
         if (u > 0.38) A.phase = "cling";
-        if (u > 1.25 && !A.yelp) { A.yelp = true; say("!", c.head.x, c.head.y - 42 * S); }
-        if (u > 2.1) { A.phase = "falling"; c.climbFall = true; c.afterGrab = true; c.vx = -A.side * 110 * S; c.vy = 80 * S; setMode("fall"); }
+        if (A.win && u > A.tSlide) { // 성공: 벽을 차고 바깥으로 뛰어내린다
+          A.phase = "falling"; c.climbFall = true; c.afterGrab = true; c.vx = -A.side * rand(160, 220) * S; c.vy = -150 * S; setMode("fall");
+        } else if (!A.win) {
+          if (u > A.tSlide && !A.yelp) { A.yelp = true; say("!", c.head.x, c.head.y - 42 * S); }
+          if (u > A.tFall) { A.phase = "falling"; c.climbFall = true; c.afterGrab = true; c.vx = -A.side * 110 * S; c.vy = 80 * S; setMode("fall"); }
+        }
       }
     },
     wander(A) {
@@ -3662,13 +3711,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         const goal = A.side > 0 ? W - EDGE * S : EDGE * S;
         if (Math.abs(c.x - goal) > 6 * S) { if (c.modeT > 0.15) walkTo(goal); }
         else if (c.face !== A.side) { c.face = A.side; setMode("idle"); }
-        else if (c.modeT > 0.35) { A.phase = "leap"; A.t0 = A.t; A.x0 = c.x; A.y0 = c.y; setMode("act"); }
-      } else if (A.phase === "falling" && c.mode === "idle") { A.phase = "after"; A.tAfter = A.t; say("머쓱", c.head.x - c.face * 20 * S, c.head.y - 44 * S, null, 1.4); }
-      else if (A.phase === "after" && A.t - A.tAfter > 1.8) endAct();
+        else if (c.modeT > 0.35) { A.phase = "leap"; A.t0 = A.t; A.x0 = c.x; A.y0 = c.y; climbPlan(A); setMode("act"); }
+      } else if (A.phase === "falling" && c.mode === "idle") {
+        A.phase = "after"; A.tAfter = A.t;
+        if (A.win) startTailEp("up", 1.6); else say("머쓱", c.head.x - c.face * 20 * S, c.head.y - 44 * S, null, 1.4);
+      } else if (A.phase === "after" && A.t - A.tAfter > (A.win ? 0.8 : 1.8 + 0.8 * A.frac)) endAct();
     },
     pose: climbPose,
     drawFront(A) { // 머쓱한 땀방울
-      if (A.phase !== "after") return;
+      if (A.phase !== "after" || A.win) return;
       const k = Math.min(1, (A.t - A.tAfter) / 0.25), p = H2W(-24, -14), s = S * k;
       ctx.fillStyle = "#8ec5ec"; ctx.beginPath(); ctx.moveTo(p[0], p[1] - 6 * s);
       ctx.quadraticCurveTo(p[0] + 4 * s, p[1] + 1 * s, p[0], p[1] + 3 * s); ctx.quadraticCurveTo(p[0] - 4 * s, p[1] + 1 * s, p[0], p[1] - 6 * s); ctx.fill();
