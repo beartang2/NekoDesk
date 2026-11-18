@@ -155,6 +155,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   const SIT_TILT = 0.48, SIT_SEAT = 1.3;                 // 앉기: 엉덩이를 내리고 앞을 드는 기울기(라디안) · 엉덩이가 뒷다리 위에 얹히는 높이(뒤꿈치 굵기 배)
   const SCRUFF = [18, -27];  // 목덜미 (몸통 로컬)
   const HEAD_ANCHOR = [34, -31];
+  const HEAD_REACH = 50;  // 활동이 머리를 목 기준점에서 끌 수 있는 거리(S). 평소 가장 큰 건 그릇에 고개 묻기 44 — 소품이 멀어져도 목이 안 늘어나게
   const NECK = [26, -17];    // 목: 몸통 쪽 끝 (몸통 로컬)
   const TAIL_ROOT = [-37, -10]; // 엉덩이 외곽에서 충분히 안쪽: 뿌리 동그라미가 엉덩이 뒤로 튀어나오지 않게
   const WALK = 74, STRIDE = 44, BETA = 0.62, LIFTH = 7.5;
@@ -478,9 +479,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     switch (c.mode) {
       case "idle":
         c.vx = 0;
+        if (c.resume && c.act && !isRoam()) c.resume = false; // 소품을 놓는 활동 중엔 하던 걸음을 잇지 않는다(소품에서 멀어진다)
         if (c.resume && c.modeT > 0.2) { c.resume = false; setMode("walk"); break; }
         if (isRoam()) { if (!c.resume) roam(); break; }
-        if (c.act && c.modeT > 0.25) { setMode("act"); break; }
+        if (c.act && c.modeT > 0.25) {
+          // 뛰는 중·떨어지는 중에 시작해 소품에서 떨어진 곳에 내렸으면 여기서 다시 편다(소품이 고양이 앞에 다시 '뿅').
+          // 안 그러면 머리·발이 멀리 놓인 소품까지 끌려가 목·다리가 늘어났다
+          if (Math.abs(c.x - c.act.x0) > 12 * S) { const k = c.act.key; endAct(false); startAct(k); break; }
+          setMode("act"); break;
+        }
         if (c.pose !== "stand" && c.modeT > 0.25) { setMode(c.pose); break; }
         if (!c.resume && chaseMouse()) break;
         if (wanderOn && !c.resume && c.mood !== "sleepy" && c.modeT > c.wanderT) chooseWander();
@@ -728,7 +735,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const sh = c.legs[NEAR_FRONT].hipW, base = L2W(HEAD_ANCHOR[0], HEAD_ANCHOR[1]);
       anc = [anc[0] + (sh[0] + c.face * 8 * S - base[0]) * sv, anc[1]];
     }
-    if (P && P.head) anc = P.head(anc);
+    c.headAnc0 = anc; // 활동이 옮기기 전 자리(목 기준). 활동이 머리를 끌어도 여기서 HEAD_REACH 까지만
+    if (P && P.head) {
+      const a = P.head(anc), dx = a[0] - anc[0], dy = a[1] - anc[1], d = Math.hypot(dx, dy), lim = HEAD_REACH * S;
+      anc = d > lim ? [anc[0] + (dx / d) * lim, anc[1] + (dy / d) * lim] : a;
+    }
     const vy0 = c.head.vy;
     follow(c.head, anc[0], anc[1], c.headAnc[0], c.headAnc[1], m === "grabbed" ? 760 : 560, m === "grabbed" ? 42 : 30, dt);
     // 목은 늘어나지 않는다: 머리는 제자리에서 조금만(잡혔을 땐 3, 평소 6) 늦게 따라온다.
@@ -2102,9 +2113,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const spec = actOf(key);
     if (!spec) { syncActUI(); return; }
     if (c.side && c.side.key === key) { // 곁들임을 주 활동으로 옮겨 탄다: 소품(헤드폰)이 다시 뜨지 않는다
-      c.act = c.side; c.side = null; emit("side", null);
+      c.act = c.side; c.side = null; c.act.x0 = c.x; emit("side", null);
     } else {
-      const A = (c.act = { key, t: 0, props: [] });
+      const A = (c.act = { key, t: 0, props: [], x0: c.x });
       if (spec.room) { const x = c.x + c.face * spec.room * S; if (x < 24 * S || x > W - 24 * S) c.face = -c.face; }
       if (spec.start) spec.start(A, kitFor(A));
     }
@@ -3976,7 +3987,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       for (const key of ["w", "h", "r", "vx", "vy"]) if (typeof o[key] === "number") o[key] *= k;
     };
     // 활동 상태 A 바로 아래의 소품 객체들(x 를 가진 것). 배열·숫자 칸은 뜻이 제각각이라 건드리지 않는다
-    for (const A of [c.act, c.side]) if (A) for (const v of Object.values(A)) if (v && typeof v === "object" && !Array.isArray(v)) move(v);
+    for (const A of [c.act, c.side]) if (A) {
+      for (const v of Object.values(A)) if (v && typeof v === "object" && !Array.isArray(v)) move(v);
+      if (typeof A.x0 === "number") A.x0 = mx(A.x0); // 시작한 자리도 같이(안 옮기면 화면을 옮긴 뒤 소품을 다시 편다)
+    }
     for (const e of effects) move(e);
     // 고양이 몸에 딸린 점들: 안 옮기면 다리·꼬리·머리가 옛 자리에서 늘어났다가 따라온다(속도는 둔다 — 걸음·흔들림이 이어지게)
     c.head.x = mx(c.head.x); c.head.y = my(c.head.y); c.headAnc = [mx(c.headAnc[0]), my(c.headAnc[1])];

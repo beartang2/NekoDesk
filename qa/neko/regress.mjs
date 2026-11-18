@@ -608,6 +608,28 @@ try {
     await p.close();
   }
 
+  // 9-o) 소품을 놓는 활동을 뛰는 중에 시작해 멀리 내려도 소품을 고양이 앞에 다시 펴고, 머리가 소품까지 끌려가 목이 늘어나지 않는다
+  //      (화면 모드에서 상자 뒤지기 중 고개가 뽑혀 몸이 길게 늘어나 보이던 것). 어떤 활동이든 머리는 목 기준점에서 50 안
+  {
+    const p = await open("?world=1&fixed=0.8", { width: 1200, height: 700 });
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, S = n.S, o = {};
+      n.setGround(600); n.step(120);
+      const reach = () => Math.hypot(c.headAnc[0] - c.headAnc0[0], c.headAnc[1] - c.headAnc0[1]) / S;
+      for (const k of ["dig", "box", "snack", "typing"]) {
+        n.act(null); n.step(240);
+        n.walkTo(c.x + (c.x < n.W / 2 ? 300 : -300) * S); n.step(30); n.jump(); n.step(4); n.act(k);
+        let mx = 0; for (let i = 0; i < 120 * 8; i++) { n.step(1); mx = Math.max(mx, reach()); }
+        const prop = c.act && (c.act.box || c.act.bowl || c.act.lap);
+        o[k] = { reach: +mx.toFixed(0), near: prop ? +(Math.abs(prop.x - c.x) / S).toFixed(0) : null };
+      }
+      return o;
+    });
+    const ok = Object.values(r).every((v) => v.reach <= 50 && v.near !== null && v.near < 110);
+    check("뛰다 시작한 활동: 내린 자리에 소품을 다시 펴고 머리는 목에서 50 안", Object.entries(r).map(([k, v]) => `${k} 머리 ${v.reach}·소품 ${v.near}`).join(" · "), ok);
+    await p.close();
+  }
+
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다
   for (const [w, h] of [[704, 282], [220, 150], [900, 150]]) {
     const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
