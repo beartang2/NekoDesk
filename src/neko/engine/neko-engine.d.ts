@@ -164,9 +164,10 @@ export interface NekoController {
   setGround(y: number | null): void;
   /**
    * 화면 모드 여러 모니터(docs/neko-screen-mode.md 3단계): 세계에 놓인 모든 것(고양이·궤적·잡은 손·나비·소품·효과)을
-   * (dx, dy) 세계 px 만큼 옮긴다. 속도·방향은 그대로. 호스트 순서: shiftWorld → setGround → setEdges
+   * (dx, dy) 세계 px 만큼 옮긴다. 속도·방향은 그대로. 호스트 순서: shiftWorld(dx, dy, 새 바닥) → setEdges.
+   * ground: 새 모니터 바닥. dy 에 바닥 차이가 이미 들어 있어 바닥만 바꾼다(따로 setGround 하면 바닥 차이만큼 한 번 더 옮겨 튄다)
    */
-  shiftWorld(dx: number, dy: number): void;
+  shiftWorld(dx: number, dy: number, ground?: number): void;
   /** 열린 쪽은 벽이 아니다: walkTo·walkOut 으로만 넘어간다(산책·마우스 따라가기는 안 넘음). 기본 둘 다 닫힘. 닫힌 쪽 밖이면 걸어 들어온다 */
   setEdges(e: { left: boolean; right: boolean }): void;
   /** 그쪽을 열고 가장자리 너머(몸이 다 넘어가는 만큼)로 걸어간다. 넘어가는 순간 "edge" */

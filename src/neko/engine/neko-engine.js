@@ -4082,15 +4082,23 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /**
    * 화면 모드 여러 모니터(docs/neko-screen-mode.md 3단계): 창이 다른 모니터로 옮겨 붙어 세계 원점이 바뀌면 호스트가
    * 부른다. 세계에 놓인 모든 것을 (dx, dy) 만큼 옮기고 속도·방향은 둔다 — 걷던 걸음, 떨어지던 속도, 잡고 끌던 손이 이어진다.
+   * ground: 새 모니터의 바닥. dy 에 바닥 차이가 이미 들어 있으니 바닥만 바꾸고 세계는 다시 맞추지 않는다 — 따로 setGround 를
+   * 부르면 rescaleWorld 가 바닥 차이만큼 한 번 더 옮겨 다리·머리·목덜미가 튀었다가 돌아왔다
    */
-  function shiftWorld(dx, dy) {
-    if (!Number.isFinite(dx) || !Number.isFinite(dy) || (!dx && !dy)) return;
+  function shiftWorld(dx, dy, ground) {
+    const moved = Number.isFinite(dx) && Number.isFinite(dy) && (dx || dy);
+    const floor = WORLD && Number.isFinite(ground) && ground !== floorY;
+    if (!moved && !floor) return;
     const c = cat;
-    transformWorld((x) => x + dx, (y) => y + dy, 1);
-    c.x += dx; c.y += dy;
-    mouse.x += dx; mouse.y += dy;
-    if (press) { press.x += dx; press.y += dy; }
-    if (decorDrag) { decorDrag.x += dx; decorDrag.bottom += dy; }
+    if (floor) { GROUND_Y = ground; floorY = ground; }
+    if (moved) {
+      transformWorld((x) => x + dx, (y) => y + dy, 1);
+      c.x += dx; c.y += dy;
+      mouse.x += dx; mouse.y += dy;
+      if (press) { press.x += dx; press.y += dy; }
+      if (decorDrag) { decorDrag.x += dx; decorDrag.bottom += dy; }
+    }
+    if (GROUND.has(c.mode)) c.y = floorY - standH() * S; // 바닥에 선 채로(dy 가 바닥 차이와 달라도)
     for (const j of c.jig) j.init = false;
     c.tailRoot.init = false; // 순간이동한 뿌리를 빠른 움직임으로 읽지 않게
     edgeFired = null;

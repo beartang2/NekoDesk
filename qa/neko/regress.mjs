@@ -407,6 +407,45 @@ try {
     await p.close();
   }
 
+  // 9-h2) 바닥 높이가 다른 모니터로 건너가기(shiftWorld 의 ground): 걸어서 700 → 760 이면 발이 새 바닥에서 안 튀고 머리 높이도
+  //       그대로, 잡고 끌어서 760 → 700 이면 목덜미가 커서 밑에 그대로(바닥 차이를 두 번 옮겨 튀었다가 돌아오던 것)
+  {
+    const p = await browser.newPage({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const walk = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, edges = [];
+      n.on("edge", (s) => edges.push(s));
+      n.setGround(700); n.step(200);
+      n.walkOut("right"); let t = 0; while (!edges.length && t < 120 * 15) { n.step(1); t++; }
+      const head0 = c.head.y - c.y, W = n.W;
+      n.shiftWorld(-W, 60, 760); n.setEdges({ left: false, right: false });
+      const feet = () => Math.max(...c.legs.map((L) => L.foot.y));
+      let worstFoot = feet() - n.floorY, worstHead = 0;
+      for (let i = 0; i < 60; i++) { n.step(1); worstFoot = Math.max(worstFoot, feet() - n.floorY); worstHead = Math.max(worstHead, Math.abs(c.head.y - c.y - head0)); }
+      return { edge: edges.length === 1, floor: n.floorY, worstFoot: +worstFoot.toFixed(1), worstHead: +worstHead.toFixed(1) };
+    });
+    // 잡고 끌기: 진짜 마우스로 잡고, 창이 위로 60 올라간 모니터로 옮겨 붙으면 같은 커서가 창 좌표로 +60
+    const at = await p.evaluate(() => { const n = window.__neko; n.setGround(760); n.step(240); return [n.cat.head.x, n.cat.head.y]; });
+    const cy = at[1] - 120; // 끄는 커서(창 좌표)
+    await p.mouse.move(at[0], at[1]); await p.mouse.down(); await p.mouse.move(at[0] + 10, cy, { steps: 6 });
+    const before = await p.evaluate((cy) => { const n = window.__neko; n.step(120); return { grabbed: n.cat.mode === "grabbed", d: +(n.cat.scruff.y - cy).toFixed(1) }; }, cy);
+    const drag = await p.evaluate((cy) => { const n = window.__neko; n.shiftWorld(0, 60, 700); return { d0: +(n.cat.scruff.y - cy - 60).toFixed(1) }; }, cy);
+    await p.mouse.move(at[0] + 10, cy + 60);
+    const after = await p.evaluate((cy) => {
+      const n = window.__neko; let worst = 0;
+      for (let i = 0; i < 60; i++) { n.step(1); worst = Math.max(worst, Math.abs(n.cat.scruff.y - cy - 60)); }
+      return { worst: +worst.toFixed(1), floor: n.floorY };
+    }, cy);
+    await p.mouse.up();
+    const dragOk = before.grabbed && Math.abs(drag.d0 - before.d) < 2 && after.worst < Math.abs(before.d) + 4 && after.floor === 700;
+    check("여러 모니터: 바닥이 다른 모니터로 걸어 건너가면 발이 새 바닥에서 안 튀고 머리 높이 그대로", JSON.stringify(walk), walk.edge && walk.floor === 760 && walk.worstFoot < 3 && walk.worstHead < 2);
+    check("여러 모니터: 바닥이 다른 모니터로 끌어 건너가면 목덜미가 커서 밑에 그대로", JSON.stringify({ before, drag, after }), dragOk);
+    await p.close();
+  }
+
   // 9-i) 선물 크기(small·medium·large): 같은 모양도 실제 크기대로 다르게 그리고, 큰 것도 고양이 몸보다 작다
   {
     const p = await open(`?w=680&h=240&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
