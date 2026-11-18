@@ -62,7 +62,7 @@ export type Reaction =
 /** 계획을 정한 층(§5.2). 디버그·테스트용이고, 스케줄러는 sleep → 다른 층(깨어남)만 본다 */
 export type NekoLayer =
   | "waiting" | "meal" | "tool" | "think" | "answer" | "result" | "fed"
-  | "play" | "game" | "outside" | "weak" | "hungry" | "bored" | "box" | "ambient" | "sleep" | "base";
+  | "play" | "game" | "outside" | "weak" | "hungry" | "bored" | "box" | "ambient" | "sleep" | "base" | "hidden";
 
 export interface NekoPlan {
   layer: NekoLayer;
@@ -107,6 +107,11 @@ export interface DirectorInput {
   /** 신나서 혼자 노는 중(상자에 쏙·털실·나비) */
   /** 혼자 놀기(신남). kind 는 엔진 활동(없으면 상자) */
   box: { since: number; kind?: NekoActivity } | null;
+  /**
+   * 마당(화면 모드) 고양이를 메뉴로 숨겼다(neko_screen.rs). 보여 주기만 하는 활동은 하지 않는다 — 엔진도 멈춰 있다.
+   * 산책·그림·기억 정리처럼 결과가 남는 일은 감독 밖이라 그대로 돈다
+   */
+  hidden?: boolean;
 }
 
 export interface OutsideState {

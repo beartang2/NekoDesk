@@ -48,8 +48,9 @@ export function NekoScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const decorRef = useRef<HTMLCanvasElement>(null);
   const ctrlRef = useRef<NekoController | null>(null);
-  // 마당 선물을 우클릭하면 그 오른쪽 위에 '정리'(NekoSlot 과 같다). 누르면 메인 창이 선물함으로 치운다
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  // 우클릭 메뉴 버튼 하나. 마당 선물이면 그 오른쪽 위에 '정리'(NekoSlot 과 같다, 누르면 메인 창이 선물함으로 치운다),
+  // 고양이면 누른 자리에 '숨기기'(마당을 숨긴다 — 이 앱이 맨 앞으로 오면 다시 보인다). 다른 데 누르거나 몇 초 뒤 닫힌다
+  const [menu, setMenu] = useState<{ id?: string; x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!menu) return;
@@ -117,6 +118,17 @@ export function NekoScreen() {
     const timer = setInterval(() => { if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
     // 끝을 넘었다 — 커서가 아직 그쪽이면 Rust 가 창을 옮긴다(neko-screen-moved). 그새 돌아왔으면 걸어 들어온다
     const offMenu = ctrl.on("decorMenu", setMenu);
+    // 고양이 우클릭: 엔진은 선물만 메뉴를 띄우고(기본 메뉴를 막음) 고양이엔 안 띄운다. 오른쪽 버튼 누름은 엔진에
+    // 안 넘긴다 — 넘기면 쓰다듬기(탭)·선물 끌기로 샌다. ⌃클릭도 우클릭이다
+    const isRight = (e: MouseEvent) => e.button === 2 || (e.button === 0 && e.ctrlKey);
+    const onRightDown = (e: PointerEvent) => { if (isRight(e)) e.stopPropagation(); };
+    const onContext = (e: MouseEvent) => {
+      if (e.defaultPrevented || !ctrl.hit(e.clientX, e.clientY)) return;
+      e.preventDefault();
+      setMenu({ x: e.clientX, y: e.clientY });
+    };
+    window.addEventListener("pointerdown", onRightDown, true);
+    window.addEventListener("contextmenu", onContext);
     const offEdge = ctrl.on("edge", (side) => {
       void invoke<boolean>("neko_screen_cross", { side })
         .then((moved) => { if (!moved) { outAt = 0; ctrl.setEdges(CLOSED); } })
@@ -174,6 +186,7 @@ export function NekoScreen() {
       listen<number>("neko-screen-scale", ({ payload }) => ctrl.setScale(payload)),
       listen<number>("neko-screen-fps", ({ payload }) => { maxFps = payload; fps(); }),
       listen("neko-screen-ping", () => void emitTo("main", "neko-screen-ready").catch(() => {})),
+      listen("neko-screen-press-out", () => setMenu(null)), // 다른 데를 눌렀다
     ];
     void invoke<Layout | null>("neko_screen_layout").then((l) => { if (l) ctrl.setGround(l.ground); }).catch(() => {});
     // 준비됐다 — 메인 창이 대리를 세우고 감독이 계획을 처음부터 보낸다
@@ -184,6 +197,8 @@ export function NekoScreen() {
       clearTimeout(fallTimer);
       offEdge();
       offMenu();
+      window.removeEventListener("pointerdown", onRightDown, true);
+      window.removeEventListener("contextmenu", onContext);
       offEngine.forEach((off) => off());
       offs.forEach((p) => void p.then((off) => off()).catch(() => {}));
       ctrl.destroy();
@@ -202,9 +217,13 @@ export function NekoScreen() {
           type="button"
           className="neko-screen__tidy"
           style={{ left: menu.x + 2, top: Math.max(2, menu.y - 4) }}
-          onClick={() => { void emitTo("main", "neko-screen-put", menu.id).catch(() => {}); setMenu(null); }}
+          onClick={() => {
+            if (menu.id) void emitTo("main", "neko-screen-put", menu.id).catch(() => {});
+            else void invoke("neko_screen_hide").catch(() => {});
+            setMenu(null);
+          }}
         >
-          정리
+          {menu.id ? "정리" : "숨기기"}
         </button>
       )}
     </>

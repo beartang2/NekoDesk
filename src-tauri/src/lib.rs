@@ -970,6 +970,13 @@ mod commands {
         crate::neko_screen::set_catch(on, cat.unwrap_or(false))
     }
 
+    /// 화면 창 고양이 메뉴 '숨기기': 마당을 숨긴다. 이 앱이 맨 앞으로 오면 다시 보인다.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn neko_screen_hide(app: tauri::AppHandle) -> Result<(), AppError> {
+        crate::neko_screen::hide(&app)
+    }
+
     /// 화면 창: 판 크기와 바닥. 아직 모르면 null.
     #[cfg(target_os = "macos")]
     #[tauri::command]
@@ -1213,6 +1220,13 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
             }
+            // 메인 창이 앞으로 왔다(Dock·⌘Tab·클릭): 고양이 메뉴로 숨긴 마당을 다시 보인다
+            // (unhide 는 main thread 일을 기다리니 여기 main thread 에서 바로 부르면 멈춘다 — 따로 돌린다)
+            #[cfg(target_os = "macos")]
+            ("main", tauri::WindowEvent::Focused(true)) if crate::neko_screen::user_hidden() => {
+                let app = window.app_handle().clone();
+                std::thread::spawn(move || crate::neko_screen::unhide(&app));
+            }
             // 빠른 질문 창은 다른 곳을 누르면 사라진다(Spotlight 처럼).
             ("quick", tauri::WindowEvent::Focused(false)) => {
                 let _ = window.hide();
@@ -1374,6 +1388,8 @@ pub fn run() {
             commands::neko_screen_cross,
             #[cfg(target_os = "macos")]
             commands::neko_screen_reveal,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_hide,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,

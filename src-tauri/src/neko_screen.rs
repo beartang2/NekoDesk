@@ -75,6 +75,10 @@ struct State {
     capture: bool,
     /// 전체화면 영상·발표라 숨김.
     video: bool,
+    /// 사용자가 고양이 메뉴로 숨겼다. 이 앱이 맨 앞으로 오면 다시 보인다(`unhide`). 껐다 켜면 풀린다.
+    user_hidden: bool,
+    /// 숨긴 뒤 마지막으로 본 '맨 앞 앱이 이 앱'. 다른 앱 → 이 앱으로 바뀌는 순간에만 다시 보인다.
+    front_own: Option<bool>,
     /// 잠금·사용자 전환·디스플레이 잠자기·화면 보호기.
     asleep: bool,
     /// 마지막으로 화면 창에 알린 '움직여도 된다'.
@@ -97,6 +101,8 @@ struct State {
     catch_cat: bool,
     /// 잡은 게 고양이다. 고양이를 잡고 끌 때만 창이 다른 모니터로 따라간다.
     grab_cat: bool,
+    /// 클릭을 흘리는 중에 눌렀다(다른 데 누름). 화면 창이 띄운 메뉴를 닫는다(`neko-screen-press-out`).
+    pressed_out: bool,
     poller: bool,
 }
 
@@ -105,6 +111,8 @@ static STATE: Mutex<State> = Mutex::new(State {
     on_top: true,
     capture: false,
     video: false,
+    user_hidden: false,
+    front_own: None,
     asleep: false,
     active: None,
     layout: None,
@@ -117,6 +125,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     grabbing: false,
     catch_cat: false,
     grab_cat: false,
+    pressed_out: false,
     poller: false,
 });
 
@@ -184,6 +193,9 @@ pub fn show(app: &AppHandle, on: bool, on_top: bool) -> Result<(), AppError> {
         st.on = on;
         st.on_top = on_top;
     }
+    if !on {
+        unhide(app); // 다른 자리로 가면 숨김도 푼다
+    }
     if !on && app.get_webview_window(LABEL).is_none() {
         return Ok(()); // 한 번도 안 띄웠으면 만들 것도 없다
     }
@@ -237,7 +249,49 @@ pub fn set_capture(app: &AppHandle, on: bool) -> bool {
 }
 
 fn visible(st: &State) -> bool {
-    st.on && !st.capture && !st.video
+    st.on && !st.capture && !st.video && !st.user_hidden
+}
+
+/// 고양이 메뉴 '숨기기': 마당(고양이·선물)을 숨기고 엔진을 멈춘다. 메인 창 감독에도 알린다(`neko-screen-hidden`).
+pub fn hide(app: &AppHandle) -> Result<(), AppError> {
+    {
+        let mut st = STATE.lock()?;
+        if st.user_hidden {
+            return Ok(());
+        }
+        st.user_hidden = true;
+        st.front_own = None;
+    }
+    let _ = app.emit("neko-screen-hidden", true);
+    sync(app)
+}
+
+/// 고양이 메뉴로 숨겨 둔 중인가.
+pub fn user_hidden() -> bool {
+    STATE.lock().is_ok_and(|st| st.user_hidden)
+}
+
+/// 이 앱이 맨 앞으로 왔다(메인 창 활성화·Dock·⌘Tab): 숨긴 마당을 다시 보인다. main thread 에서 부르지 말 것(sync 가 main thread 를 기다린다).
+pub fn unhide(app: &AppHandle) {
+    match STATE.lock() {
+        Ok(mut st) if st.user_hidden => st.user_hidden = false,
+        _ => return,
+    }
+    let _ = app.emit("neko-screen-hidden", false);
+    let _ = sync(app);
+}
+
+/// 숨긴 동안 폴러가 2초마다: 맨 앞 앱이 다른 앱에서 이 앱으로 바뀌었으면 다시 보인다. 메인 창이 닫힌 채
+/// ⌘Tab 으로 왔을 때처럼 창 포커스가 안 오는 경우를 잡는다.
+fn watch_front(app: &AppHandle) {
+    if !STATE.lock().is_ok_and(|st| st.user_hidden) {
+        return;
+    }
+    let Ok((_, own)) = on_main(app, || unsafe { crate::ambient::macos::frontmost() }) else { return };
+    let was = STATE.lock().ok().and_then(|mut st| st.front_own.replace(own));
+    if own && was == Some(false) {
+        unhide(app);
+    }
 }
 
 fn create(app: &AppHandle) -> Result<(), AppError> {
@@ -327,6 +381,7 @@ fn poll(app: AppHandle) {
         };
         if !active || tick % SLOW_TICKS == 0 {
             survey(&app);
+            watch_front(&app);
         }
         if active {
             follow(&app, &mut sent, &mut away_sent);
@@ -355,6 +410,13 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
         let _ = app.emit_to(LABEL, "neko-screen-cursor", cursor);
     }
     (st.grabbing, st.grab_cat) = grab_step(p.down, st.catching, st.grabbing, st.grab_cat, st.catch_cat);
+    let out = p.down && !st.catching;
+    if out != st.pressed_out {
+        st.pressed_out = out;
+        if out {
+            let _ = app.emit_to(LABEL, "neko-screen-press-out", ());
+        }
+    }
     let mut other = if cursor.is_some() { None } else { st.screens.iter().find(|s| inside(s.rect, p.mouse)).copied() };
     if let (true, true, Some(to)) = (st.grabbing, st.grab_cat, other) {
         drop(st);

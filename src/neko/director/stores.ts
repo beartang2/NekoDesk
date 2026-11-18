@@ -55,6 +55,9 @@ interface NekoAppStore {
   /** 다른 앱 따라 하기(neko/ambient.ts). '앱을 쓰는 중'(lastActiveAt)은 건드리지 않는다 */
   outside: OutsideState;
   setOutside: (o: OutsideState) => void;
+  /** 마당 고양이를 메뉴로 숨겼다(Rust neko-screen-hidden). 이 앱이 맨 앞으로 오면 풀린다 */
+  screenHidden: boolean;
+  setScreenHidden: (on: boolean) => void;
 }
 
 export const useNekoApp = create<NekoAppStore>((set, get) => ({
@@ -65,6 +68,8 @@ export const useNekoApp = create<NekoAppStore>((set, get) => ({
   lastActiveAt: performance.now(),
   pets: 0,
   outside: { typing: false, at: -Infinity, activity: null },
+  screenHidden: false,
+  setScreenHidden: (on) => { if (get().screenHidden !== on) set({ screenHidden: on }); },
   setOutside: (o) => {
     const cur = get().outside;
     if (cur.typing !== o.typing || cur.at !== o.at || cur.activity !== o.activity) set({ outside: o });

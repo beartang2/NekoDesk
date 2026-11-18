@@ -66,7 +66,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       return {
         session: useNekoSessions.getState().get(activeRef.current),
         feeding: app.feeding, fedAt: app.fedAt, playCue: app.playCue, game: app.game,
-        needs: needsRef.current, lastActiveAt: app.lastActiveAt, outside: app.outside, box,
+        needs: needsRef.current, lastActiveAt: app.lastActiveAt, outside: app.outside, box, hidden: app.screenHidden,
       };
     };
     const sch = createScheduler(ctrl, realClock, (now) => deriveNeko(input(), now));

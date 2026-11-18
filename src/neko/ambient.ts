@@ -61,7 +61,8 @@ export function startAmbient(): void {
   const off = () => useNekoApp.getState().setOutside({ ...useNekoApp.getState().outside, typing: false, activity: null });
 
   const tick = async () => {
-    if (!useSettingsStore.getState().nekoFollowApps) { off(); return; }
+    // 마당 고양이를 숨긴 동안도 쉰다(보일 것도 없는데 osascript 를 띄울 일이 없다)
+    if (!useSettingsStore.getState().nekoFollowApps || useNekoApp.getState().screenHidden) { off(); return; }
     const p = await invoke<Probe>("ambient_probe").catch(() => null);
     if (!p) return;
     const now = performance.now();

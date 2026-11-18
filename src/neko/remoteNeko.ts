@@ -112,6 +112,8 @@ export function link(): void {
   addListener("decorMove", (p) => { const { id, ...spot } = p as { id: string } & NekoDecorSpot; useNekoGifts.getState().place(id, spot); });
   addListener("decorPlayed", (p) => { const { id, at } = p as { id: string; at: number }; useNekoGifts.getState().played(id, at); });
   void listen<string>("neko-screen-put", (e) => useNekoGifts.getState().place(e.payload, null)).catch(() => {});
+  // 고양이 메뉴 '숨기기'·다시 보임(Rust). 감독은 숨긴 동안 아무 활동도 안 시킨다
+  void listen<boolean>("neko-screen-hidden", (e) => useNekoApp.getState().setScreenHidden(e.payload)).catch(() => {});
   useNekoStore.subscribe((s, p) => {
     if (s.appearance !== p.appearance) remote?.setAppearance(s.appearance);
     if (s.stage.placement !== p.stage.placement) {

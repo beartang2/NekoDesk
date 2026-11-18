@@ -54,6 +54,9 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
   const out = (p: NekoPlan): DeriveOut => ({ plan: p, recheckAt });
   const s = input.session;
 
+  // 0) 마당 고양이를 숨겼다: 아무것도 안 한다(다시 보이면 그때 상황대로)
+  if (input.hidden) return out(plan("hidden", { pose: "sit" }));
+
   // 1) 기다림: 확인·질문을 기다리는 동안은 무엇보다 먼저(밥 먹다가도)
   if (s.phase === "waiting") {
     return out(plan("waiting", { mood: "curious", pose: "sit", activity: "wait", tailHold: "question", instance: `waiting:${s.since}` }));

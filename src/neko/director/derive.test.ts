@@ -123,6 +123,15 @@ describe("혼자 놀기(신남)", () => {
   });
 });
 
+describe("마당 고양이 숨기기", () => {
+  it("숨긴 동안은 일하는 중이어도·혼자 놀 때도 아무 활동도 안 시킨다", () => {
+    const s = sess([0, { type: "run_start" }], [10, { type: "answering" }]);
+    expect(deriveNeko(input({ session: s, hidden: true }), 1000).plan).toMatchObject({ layer: "hidden", activity: null, wander: false });
+    expect(deriveNeko(input({ box: { since: 0, kind: "yarn" }, hidden: true }), 1000).plan).toMatchObject({ layer: "hidden", activity: null });
+    expect(layer(input({ box: { since: 0, kind: "yarn" } }))).toBe("box");
+  });
+});
+
 describe("다른 앱 따라 하기", () => {
   const away = { lastActiveAt: 0 };
   it("다른 앱에서 키를 치면 졸다가도 같이 타이핑하고, 친 동안은 졸림 시계가 다시 간다", () => {
