@@ -156,6 +156,12 @@ export interface NekoController {
   setEdges(e: { left: boolean; right: boolean }): void;
   /** 그쪽을 열고 가장자리 너머(몸이 다 넘어가는 만큼)로 걸어간다. 넘어가는 순간 "edge" */
   walkOut(side: "left" | "right"): void;
+  /**
+   * 산책 중(화면 모드 마당): 고양이를 감추고 그 자리 바닥에 나무 팻말(발자국·화살표)을 꽂는다. 그동안 고양이는 움직이지
+   * 않고 hit·hitCarry 는 거짓이라 클릭은 뒤로 지나간다(마당 선물은 그대로). false 면 팻말을 거두고 그 자리에서 다시 보인다
+   */
+  setAway(on: boolean): void;
+  readonly away: boolean;
   /** 지금 그리는 영역(세계 좌표). 화면 모드에선 고양이 둘레, 아니면 무대 전체 */
   readonly region: { x: number; y: number; w: number; h: number };
   /** 입에 문다. 같은 id 면 바꾼다. 여럿이면 최대 3장이 겹쳐 보인다 */

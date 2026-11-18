@@ -485,6 +485,32 @@ try {
     await p.close();
   }
 
+  // 9-l) 산책 중 팻말(화면 모드 마당): 고양이 대신 그 자리 바닥에 팻말, 누를 수 없고(클릭 통과), 다 서면 다시 안 그린다.
+  //      돌아오면 팻말이 없어지고 고양이가 그 자리에 다시 보인다
+  {
+    const p = await browser.newPage({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8&decor=1`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), g = cv.getContext("2d");
+      n.setGround(760); n.step(200); n.draw();
+      const x0 = c.x, inked = () => { const d = g.getImageData(0, 0, cv.width, cv.height).data; let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) k++; return k; };
+      n.setAway(true);
+      for (let i = 0; i < 120 * 2; i++) n.step(1);
+      n.draw(); const signInk = inked(), hit = n.hit(x0, c.y), still = c.x === x0;
+      g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height); g.restore();
+      n.step(30); n.draw(); const skipped = inked() === 0; // 다 섰으면 다시 안 그린다
+      n.walkOut("right"); n.step(240); const noWalk = c.x === x0;
+      n.setAway(false); n.step(30); n.draw();
+      return { signInk: signInk > 500, hit, still, skipped, noWalk, back: inked() > 500 && n.hit(c.x, c.y) && Math.abs(c.x - x0) < 1 };
+    });
+    check("산책 중 팻말: 고양이 대신 팻말, 누를 수 없고 움직이지 않으며 다 서면 다시 안 그린다", `팻말 ${r.signInk} · 누르기 ${r.hit} · 그대로 ${r.still} · 다시 안 그림 ${r.skipped} · 걸어 나가기 막힘 ${r.noWalk}`, r.signInk && !r.hit && r.still && r.skipped && r.noWalk);
+    check("산책 중 팻말: 돌아오면 팻말 대신 그 자리에 고양이", `돌아옴 ${r.back}`, r.back);
+    await p.close();
+  }
+
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다
   for (const [w, h] of [[704, 282], [220, 150], [900, 150]]) {
     const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);

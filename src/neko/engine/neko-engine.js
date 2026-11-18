@@ -440,6 +440,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
   /* ---------- 한 스텝 (고정 120Hz) ---------- */
   function step(dt) {
+    if (AWAY) { time += dt; return; } // 산책 중: 고양이는 없다(팻말만)
     const c = cat; time += dt; c.modeT += dt;
     c.nyangT = Math.max(0, c.nyangT - dt); c.petT = Math.max(0, (c.petT || 0) - dt); c.petSulk = Math.max(0, (c.petSulk || 0) - dt);
     c.annoy = Math.max(0, c.annoy - dt * 0.12); // 짜증은 천천히 풀린다
@@ -2337,6 +2338,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
   /** 이 점(무대 px)이 문 물건 위인가 */
   function hitCarry(x, y) {
+    if (AWAY) return null;
     const b = carryBox;
     return b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h ? "bundle" : null;
   }
@@ -3715,6 +3717,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
   function draw() {
     const c = cat;
+    if (AWAY) { drawAway(); return; }
     if (WORLD) placeRegion();
     baseXf();
     if (DESKTOP) ctx.clearRect(RX, RY, RW, RH);
@@ -3740,6 +3743,54 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     drawCarry();
     drawEffects();
     if (showRig) drawRigOverlay();
+  }
+
+  /* ---------- 산책 중 팻말(화면 모드 마당) ----------
+     화면 자리에서 산책 나가면 고양이가 그냥 사라져 산책 간 줄 몰랐다. 그동안 고양이가 있던 바닥에 나무 팻말을 꽂는다
+     (발자국 셋과 가는 쪽 화살표, 네코·소품과 같은 선 없는 그림체). 고양이는 안 그리고 움직이지도 않으며, 누를 수도 없어
+     클릭은 뒤로 지나간다. 돌아오면(setAway(false)) 팻말이 없어지고 그 자리에서 다시 보인다. */
+  let AWAY = null; // { x, t0, drawn }
+  const SIGN = validateShape({ parts: [
+    { t: "rrect", x: 0, y: -13, w: 3.4, h: 26, rad: 1.2, rot: 0, c: "brown.dark" }, // 기둥
+    { t: "rrect", x: 0, y: -21.5, w: 31, h: 17, rad: 2.4, rot: -0.05, c: "brown" }, // 판자
+    { t: "line", w: 0.5, c: "brown.dark", pts: [[-13.5, -26.5], [-4, -27], [13, -27.4]] }, // 나뭇결
+    { t: "line", w: 0.45, c: "brown.dark", pts: [[-13.5, -15.6], [2, -15.9], [13.5, -16.6]] },
+    ...[[-10.5, -18.8], [-4.8, -23.4], [1.2, -18.6]].flatMap(([x, y]) => [ // 발자국 셋(볼록살 하나 + 발가락 넷)
+      { t: "ellipse", x, y, rx: 1.7, ry: 1.4, rot: 0, c: "brown.dark" },
+      { t: "dot", x: x - 1.7, y: y - 1.8, r: 0.62, c: "brown.dark" }, { t: "dot", x: x - 0.6, y: y - 2.5, r: 0.62, c: "brown.dark" },
+      { t: "dot", x: x + 0.6, y: y - 2.5, r: 0.62, c: "brown.dark" }, { t: "dot", x: x + 1.7, y: y - 1.8, r: 0.62, c: "brown.dark" },
+    ]),
+    { t: "line", w: 1.1, c: "green.dark", pts: [[5.6, -21.6], [11.6, -21.9]] }, // 가는 쪽 화살표
+    { t: "poly", round: 0.3, c: "green.dark", pts: [[11, -24.2], [14.2, -21.9], [11, -19.6]] },
+  ] });
+  const SIGN_H = 70; // 팻말 높이(S) — 앉은 고양이 키쯤
+  function setAway(on) {
+    if (on && !AWAY) {
+      AWAY = { x: cat.x, t0: time, drawn: false };
+      press = null; decorDrag = null; canvas.classList.remove("dragging", "can-grab");
+      emit("label", "산책 중");
+    } else if (!on && AWAY) {
+      AWAY = null; decorDirty = true;
+      if (GROUND.has(cat.mode)) startTailEp("up", 2.6); // 다녀왔다: 꼬리를 세워 반긴다
+    }
+  }
+  /** 산책 중 그리기: 팻말이 '뿅' 나오는 동안만 다시 그리고, 다 서면 그대로 둔다(마당 선물은 따로 그대로) */
+  function drawAway() {
+    if (DECOR_CV) drawDecorLayer();
+    const pop = popIn(time - AWAY.t0);
+    if (AWAY.drawn && time - AWAY.t0 > 1.2) return;
+    AWAY.drawn = true;
+    if (WORLD) { RX = Math.round((AWAY.x - RW / 2) * DPR) / DPR; RY = Math.round((floorY - RH * 0.85) * DPR) / DPR; canvas.style.transform = `translate(${RX}px, ${RY}px)`; }
+    baseXf();
+    ctx.clearRect(RX, RY, RW, RH);
+    if (!DECOR_CV) drawDecor();
+    const bd = shapeBounds(SIGN), u = (SIGN_H * S) / bd.h, x = AWAY.x;
+    ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = theme.shadow; // 바닥 그림자
+    ctx.beginPath(); ctx.ellipse(x, floorY + 1 * S, 9 * S, 2.4 * S, 0, 0, TAU); ctx.fill(); ctx.restore();
+    if (pop[0] <= 0.002 || pop[1] <= 0.002) return;
+    ctx.save(); ctx.translate(x, floorY); ctx.scale(pop[0], pop[1]); ctx.translate(-x, -floorY);
+    drawShape(ctx, SIGN, x - ((bd.x0 + bd.x1) / 2) * u, floorY, u, 4 * DPR);
+    ctx.restore();
   }
 
   /* ---------- 크기 · 초기화 ---------- */
@@ -3773,6 +3824,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
     if (W0 > 1 && (S !== S0 || W !== W0 || floorY !== F0)) rescaleWorld(W0, S0, F0);
     decorDirty = true;
+    if (AWAY) AWAY.drawn = false; // 캔버스 크기가 바뀌면 지워지니 팻말을 다시 그린다
     // 화면 모드는 다른 모니터로 건너가는 중일 수 있어 창 폭으로 가두지 않는다(옮기기는 shiftWorld)
     if (!WORLD || !cat.x) cat.x = clamp(cat.x || W * 0.45, 70 * S, W - 70 * S);
     if (GROUND.has(cat.mode)) cat.y = floorY - standH() * S;
@@ -3841,6 +3893,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     for (const j of c.jig) j.init = false;
     c.tailRoot.init = false; // 순간이동한 뿌리를 빠른 움직임으로 읽지 않게
     edgeFired = null; decorDirty = true;
+    if (AWAY) { AWAY.x += dx; AWAY.drawn = false; }
     if (!paused) draw(); // 다시 보이는 첫 프레임부터 새 자리에
   }
 
@@ -3867,10 +3920,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
   }
   function walkOut(side) {
+    if (AWAY) return;
     setEdges({ ...EDGES, [side === "left" ? "left" : "right"]: true });
     walkTo(side === "left" ? -BEYOND * S : W + BEYOND * S);
   }
   function checkEdges() {
+    if (AWAY) return;
     const c = cat, out = c.x < 0 ? "left" : c.x > W ? "right" : null;
     if (!out) { edgeFired = null; return; }
     if (EDGES[out] && edgeFired !== out) { edgeFired = out; emit("edge", out); }
@@ -3886,6 +3941,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
   /* ---------- 입력 ---------- */
   function hitCat(px, py) {
+    if (AWAY) return false; // 산책 중: 팻말은 누를 게 아니다(클릭은 뒤로 지나간다)
     const c = cat;
     if (Math.hypot(px - c.head.x, py - c.head.y) < 38 * S) return true;
     const [lx0, ly0] = rotv(px - c.x, py - c.y, -c.rot);
@@ -4140,6 +4196,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     // 놓아 둔 물건(선물). 자리는 면 + 비율
     // 화면 모드 여러 모니터(docs/neko-screen-mode.md 3단계)
     shiftWorld, setEdges, walkOut,
+    setAway,
+    get away() { return !!AWAY; },
     setDecor,
     get decorCount() { return decor.length; },
     hitDecor,
