@@ -186,7 +186,8 @@ export interface NekoController {
   readonly held: [number, number] | null;
   /**
    * 캣타워(화면 모드): 다른 창들의 윗변(발판)과 옆면(벽), 세계 좌표. 가려진 부분은 빼고 준다. 바뀔 때만.
-   * partial = 창 번호면 그 창 항목만 갈아 끼운다(올라탄 창이 움직이는 동안 30Hz). 빈 목록이면 다 내린다
+   * partial = 창 번호면 그 창 항목만 갈아 끼운다(올라탄 창 30Hz). 빈 목록이면 다 내린다.
+   * 올라탄 창이 움직이면(위치) 따라가지 않고 떨어진다(사용자 결정). 끝 하나만 바뀌면(크기·가림) 그대로
    */
   setPerches(p: {
     tops: { id: string; win: number; x0: number; x1: number; y: number }[];
@@ -197,6 +198,8 @@ export interface NekoController {
   readonly perch: string | null;
   /** 지금 창 탐험(tower)을 할 만한가: 화면 모드에서 바로 갈 수 있는 옆면·윗변이 있거나 이미 창 위. 감독이 고르기 전에 본다 */
   readonly towerOk: boolean;
+  /** 개발 빌드 표시용: 창마다 창 탐험으로 갈 수 있나, 못 가면 까닭(지금 고양이 자리 기준) */
+  towerWhy(): { win: number; why: string; ok: boolean }[];
   /**
    * 타이핑 쉼: 다른 앱에서 타이핑을 잠깐 멈췄을 때. 발은 키 위에 멈추고 글자가 안 늘며 화면을 보고 가끔 천천히 깜빡인다.
    * 타이핑일 때만 듣고(다른 활동은 무시) 활동이 바뀌면 저절로 꺼진다

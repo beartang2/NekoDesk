@@ -3802,30 +3802,50 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      다른 창들을 캣타워처럼: 창 옆면을 타고 올라 윗변에 올라서고(벽 타기 동작 그대로), 윗변에서 다른 창 윗변으로 뛰어 건너고,
      가끔 뛰어내린다. 길 찾기는 단순하게 — 지금 선 바닥(화면 바닥이나 윗변)에서 바로 갈 수 있는 것(닿는 옆면·뛸 수 있는 윗변) 중
      하나를 고르고, 몇 번(3~6) 옮기면 그 자리에서 끝낸다(윗변 위에 남는다). 갈 곳이 없으면 바로 끝낸다. */
-  const TOWER_JUMP_X = 240, TOWER_JUMP_UP = 120, TOWER_JUMP_DOWN = 420, TOWER_STAND = 70, TOWER_CLIMB_MAX = 620;
+  // 뛰어 건너기: 가로·위로·아래로(S). 옆면: 밑에서 설 자리(벽에서), 뛰어 잡을 수 있는 높이(옆면 아래 끝이 바닥에서 이만큼 안), 오를 높이 상한
+  const TOWER_JUMP_X = 240, TOWER_JUMP_UP = 120, TOWER_JUMP_DOWN = 420, TOWER_STAND = 70, TOWER_GRAB = 150, TOWER_CLIMB_MAX = 1600;
   /** 옆면을 다 오르면 올라설 그 창의 윗변(가려져 없으면 null) */
   const topOfWall = (w) => TOPS.find((t) => t.win === w.win && Math.abs(t.y - w.y0) < 4 && w.x >= t.x0 - 3 && w.x <= t.x1 + 3) || null;
-  /** 지금 바닥에서 갈 수 있는 곳들 */
-  function towerMoves() {
+  /**
+   * 지금 바닥에서 갈 수 있는 곳들. why 를 주면 창마다 못 가는 까닭을 적는다(개발 빌드 표시 — towerWhy)
+   * 옆면: 그 창 윗변이 남아 있고(안 가려짐), 설 자리가 지금 바닥 위이고, 옆면 아래 끝이 뛰어 잡을 높이 안, 오를 높이 50~1600
+   */
+  function towerMoves(why) {
     const c = cat, here = c.perch, [lo, hi] = roamSpan(), out = [], leapY = floorY - (standH() + 52) * S;
     const span = (t) => [t.x0 + (PERCH_M + 6) * S, t.x1 - (PERCH_M + 6) * S];
+    const no = (win, r) => { if (why && !why.has(win)) why.set(win, r); };
     for (const t of TOPS) { // 뛰어 건너기·뛰어오르기
       if (here && t.id === here.id) continue;
       const [a, b] = span(t), up = floorY - t.y;
-      if (b <= a || up > TOWER_JUMP_UP * S || -up > TOWER_JUMP_DOWN * S || Math.abs(up) < 16 * S) continue;
+      if (b <= a) { no(t.win, "윗변이 좁다"); continue; }
+      if (up > TOWER_JUMP_UP * S || -up > TOWER_JUMP_DOWN * S || Math.abs(up) < 16 * S) continue;
       const from = clamp((a + b) / 2, lo, hi), land = clamp(from, a, b);
       if (Math.abs(land - from) > TOWER_JUMP_X * S) continue;
       out.push({ kind: "jump", t, from, land, w: here ? 2 : 3 });
     }
     for (const w of WALLS) { // 옆면 타기
       const t = topOfWall(w), side = w.face === "right" ? -1 : 1, stand = w.x - side * TOWER_STAND * S;
-      if (!t || (here && t.id === here.id) || stand < lo - 1 || stand > hi + 1) continue;
+      if (!t) { no(w.win, "윗변이 가려졌다"); continue; }
+      if (here && t.id === here.id) continue;
+      if (stand < lo - 1 || stand > hi + 1) { no(w.win, here ? "지금 창에서 옆면 밑에 설 자리가 없다" : "옆면 밑에 설 자리가 화면 끝이다"); continue; }
       const rise = floorY - t.y;
-      if (w.y1 < leapY + 10 * S || w.y0 > leapY - 40 * S || rise < 90 * S || rise > TOWER_CLIMB_MAX * S) continue;
-      if (t.x1 - t.x0 < 2 * (PERCH_M + 8) * S) continue;
+      if (w.y1 < floorY - TOWER_GRAB * S) { no(w.win, "옆면이 너무 높이 떠 있다(뛰어 못 잡음)"); continue; }
+      if (w.y0 > Math.min(leapY, w.y1 - 12 * S) - 30 * S || rise < 50 * S) { no(w.win, "너무 낮다"); continue; }
+      if (rise > TOWER_CLIMB_MAX * S) { no(w.win, "너무 높다"); continue; }
+      if (t.x1 - t.x0 < 2 * (PERCH_M + 8) * S) { no(w.win, "윗변이 좁다"); continue; }
       out.push({ kind: "climb", w, t, side, stand, w8: 2 });
+      if (why) why.set(w.win, "갈 수 있다");
     }
+    if (why) for (const m of out) if (m.kind === "jump") why.set(m.t.win, "갈 수 있다(뛰어서)");
     return out;
+  }
+  /** 개발 빌드: 창마다 창 탐험으로 갈 수 있나·못 가면 왜 [{ win, why }] */
+  function towerWhy() {
+    const why = new Map();
+    towerMoves(why);
+    for (const t of TOPS) if (!why.has(t.win)) why.set(t.win, "멀다(뛰기엔 멀고 옆면도 없다)");
+    for (const w of WALLS) if (!why.has(w.win)) why.set(w.win, "윗변이 가려졌다");
+    return [...why].map(([win, r]) => ({ win, why: r, ok: r.startsWith("갈 수 있다") }));
   }
   const pickW = (list) => { let s = 0; for (const m of list) s += m.w ?? m.w8 ?? 1; let r = Math.random() * s; for (const m of list) if ((r -= m.w ?? m.w8 ?? 1) <= 0) return m; return list[list.length - 1]; };
   function towerPick(A) {
@@ -3847,9 +3867,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     A.phase = "flying"; setMode("air");
   }
   function towerClimbPlan(A, m) { // 벽 타기와 같은 몸짓, 목표는 그 창 윗변(머리가 윗변 위로 나오게)
-    const c = cat, yS = floorY - (standH() + 52) * S, yG = m.t.y + 30 * S, dist = Math.max(0, (yS - yG) / S);
+    // 옆면 아래 끝이 높으면(떠 있는 창) 그 끝을 뛰어 잡는다. 높은 창은 빨리 오른다(9초 안)
+    const c = cat, yS = Math.min(floorY - (standH() + 52) * S, m.w.y1 - 12 * S), yG = m.t.y + 30 * S, dist = Math.max(0, (yS - yG) / S);
     A.side = m.side; A.wallX = m.w.x; A.t0 = A.t; A.x0 = c.x; A.y0 = c.y; A.yS = yS; A.yG = yG; A.frac = 0.5;
-    A.T = dist / CLIMB_SPEED; A.N = Math.max(1, Math.round(dist / CLIMB_STRIDE)); A.win = true; A.hold = 0;
+    A.T = dist / Math.max(CLIMB_SPEED, dist / 9); A.N = Math.max(1, Math.round(dist / CLIMB_STRIDE)); A.win = true; A.hold = 0;
     A.tTop = 0.38 + A.T; A.tSlide = A.tTop; A.slideT = 1; A.slideD = 0; A.tFall = A.tTop + 1;
     A.top = m.t; A.phase = "leap"; setMode("act");
   }
@@ -3889,6 +3910,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         A.n++; A.phase = "rest"; A.until = A.t + rand(1.5, 4); return;
       }
       if (c.mode !== "idle" && c.mode !== "walk") return;
+      if (A.phase === "leap" || A.phase === "cling" || A.phase === "mount") { A.phase = "rest"; A.until = A.t + 1; return; } // 오르다 떨어졌다(발판이 움직임 등)
       if (A.phase === "rest") { if (A.t > A.until && c.mode === "idle") towerPick(A); return; }
       if (A.phase === "pick") { towerPick(A); return; }
       if (A.phase !== "go" || !A.move) return;
@@ -4278,14 +4300,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
 
   /* ---------- 캣타워: 창 윗변(발판)·옆면(벽) — 화면 모드(docs/neko-screen-mode.md 2단계) ----------
-     호스트가 다른 창들의 윗변·옆면을 세계 좌표로 넘긴다(setPerches, 바뀔 때만·올라탄 창은 움직이는 동안 30Hz). 윗변 위를 걷고
-     앉고 눕는다(floorY 가 그 윗변이 된다 — 소품·그림자·다리가 다 그 위). 창이 움직이면 같이 가고, 없어지거나 빠르게 흔들리면
-     떨어져 아래 윗변이나 화면 바닥에 내린다. 잡았다 놓아도, 뛰었다 내려와도 발 아래 가장 가까운 윗변에 선다. */
+     호스트가 다른 창들의 윗변·옆면을 세계 좌표로 넘긴다(setPerches, 바뀔 때만·올라탄 창은 30Hz). 윗변 위를 걷고
+     앉고 눕는다(floorY 가 그 윗변이 된다 — 소품·그림자·다리가 다 그 위). 올라탄 창이 움직이거나 없어지면(사용자 결정: 따라가지
+     않는다) 떨어져 아래 윗변이나 화면 바닥에 내린다. 잡았다 놓아도, 뛰었다 내려와도 발 아래 가장 가까운 윗변에 선다. */
   let TOPS = [], WALLS = [];
   let skipTop = null; // { id, until }: 흔들려 떨어지거나 뛰어내린 윗변은 잠깐 다시 디디지 않는다(아직 발 밑이어도 내려간다)
   const PERCH_M = 36;      // 윗변 끝에서 몸 가운데까지 띄우는 여백(S): 네 발이 다 올라서게
-  const PERCH_SHAKE = 2;   // 0.6초 안에 방향이 이만큼 바뀌며(빠르게) 흔들리면 떨어진다
-  const PERCH_FLING = 2600; // 이보다 빨리(px/s) 움직이면 못 버틴다
   function perchSpan() {
     const p = cat.perch, m = PERCH_M * S, mid = (p.x0 + p.x1) / 2;
     return p.x1 - p.x0 > 2 * m ? [p.x0 + m, p.x1 - m] : [mid, mid];
@@ -4350,16 +4370,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (!was) return;
     const t = TOPS.find((o) => o.id === was.id);
     if (!t) { dropOff(); return; } // 창이 닫혔거나 가려졌다
-    const at = time, dt = Math.max(1 / 120, at - (was.at ?? at - 1 / 30));
-    const dx0 = t.x0 - was.x0, dx1 = t.x1 - was.x1, dy = t.y - was.y;
-    const dx = Math.abs(dx0 - dx1) < 1 ? dx0 : 0; // 끝 하나만 움직였으면 크기만 바뀐 것
-    const v = Math.hypot(dx, dy) / dt;
-    // 흔들기: 짧은 사이 방향이 자꾸 바뀌면(빠르게) 못 버틴다
-    const dir = Math.sign(dx) || Math.sign(dy), flips = (was.flips || []).filter((q) => at - q < 0.6);
-    if (dir && was.dir && dir !== was.dir && v > 300 * S) flips.push(at);
-    t.at = at; t.dir = dir || was.dir; t.flips = flips;
-    if (v > PERCH_FLING || flips.length >= PERCH_SHAKE) { skipTop = { id: t.id, until: time + 1 }; dropOff(clamp(dx / dt * 0.25, -400 * S, 400 * S)); return; }
-    if (dx || dy) { transformWorld((x) => x + dx, (y) => y + dy, 1); c.x += dx; c.y += dy; for (const j of c.jig) j.init = false; c.tailRoot.init = false; }
+    // 사용자 결정: 올라탄 창을 옮기면 따라가지 않고 떨어진다(잠깐 그 윗변은 안 디뎌 아래 발판·바닥까지). 끝 하나만 움직이면
+    // 크기만 바뀐 것(다른 창이 일부를 가렸거나 창을 늘림)이라 그대로 선다
+    const moved = Math.abs(t.y - was.y) > 0.5 || (Math.abs(t.x0 - was.x0) > 0.5 && Math.abs(t.x1 - was.x1) > 0.5);
+    if (moved) { skipTop = { id: t.id, until: time + 0.6 }; dropOff(); return; }
     c.perch = t; floorY = t.y;
     if (c.x < t.x0 || c.x > t.x1) dropOff(); // 창이 줄어 발 밑이 비었다
   }
@@ -4664,6 +4678,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     setPerches,
     get perch() { return cat.perch ? cat.perch.id : null; },
     get towerOk() { return towerOk(); },
+    towerWhy,
     /** 타이핑 쉼(다른 앱에서 타이핑을 잠깐 멈춤). 타이핑일 때만 듣고, 활동이 바뀌면 저절로 꺼진다 */
     setRest(on) { if (cat.act && cat.act.key === "typing") cat.act.rest = !!on; },
     hit: hitCat,

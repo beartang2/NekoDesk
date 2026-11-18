@@ -863,14 +863,14 @@ try {
       // 윗변 안에서만 걷는다
       n.walkTo(5000); for (let i = 0; i < 120 * 12; i++) n.step(1);
       o.walk = { x: Math.round(c.x), max: Math.round(1000 - 36 * S), still: n.perch };
-      // 창이 움직이면 같이(30Hz, 1초에 오른쪽 120·위 60)
-      const x0 = c.x, y0 = c.y;
-      for (let k = 1; k <= 30; k++) { n.setPerches({ tops: [top(500 - 2 * k, 400 + 4 * k, 1000 + 4 * k)], walls: [], partial: 7 }); n.step(4); }
-      o.follow = { dx: Math.round(c.x - x0), dy: Math.round(c.y - y0), perch: n.perch, feetOnTop: Math.abs(feet() - n.floorY) < 6 };
-      // 빠르게 흔들면 떨어진다
-      let k = 0; for (; k < 30 && n.perch; k++) { n.setPerches({ tops: [top(440, 520 + (k % 2 ? 60 : -60), 1120 + (k % 2 ? 60 : -60))], walls: [], partial: 7 }); n.step(4); }
+      // 창 크기만 바뀌면(끝 하나) 그대로 선다
+      n.setPerches({ tops: [top(500, 400, 1060)], walls: [], partial: 7 }); n.step(30);
+      const resized = n.perch;
+      // 창을 옮기면(사용자 결정) 따라가지 않고 떨어져 바닥에
+      n.setPerches({ tops: [top(500, 404, 1064)], walls: [], partial: 7 }); n.step(2);
+      const fell = n.perch === null;
       for (let i = 0; i < 120 * 3; i++) n.step(1);
-      o.shake = { fellAfter: k, perch: n.perch, onFloor: Math.abs(n.floorY - 830) < 1 && c.mode !== "fall" };
+      o.move = { resized, fell, onFloor: Math.abs(n.floorY - 830) < 1 && c.mode !== "fall" && Math.abs(feet() - 830) < 8 };
       // 창이 사라지면 아래 윗변으로
       n.setPerches({ tops: [top(400, 300, 1100, "1:0", 1), top(650, 300, 1100, "2:0", 2)], walls: [] });
       dropAt(700, 150);
@@ -891,8 +891,8 @@ try {
     });
     check("캣타워: 놓으면 발 아래 창 윗변에 선다, 윗변 끝 안에서만 걷는다", JSON.stringify({ landed: r.landed, walk: r.walk }),
       r.landed.perch === "7:0" && r.landed.floor === 500 && Math.abs(r.landed.feet - 500) < 6 && r.walk.x <= r.walk.max + 1 && r.walk.still === "7:0");
-    check("캣타워: 창이 움직이면 같이 가고, 빠르게 흔들면 떨어져 바닥에", JSON.stringify({ follow: r.follow, shake: r.shake }),
-      r.follow.perch === "7:0" && Math.abs(r.follow.dx - 120) < 2 && Math.abs(r.follow.dy + 60) < 2 && r.follow.feetOnTop && r.shake.fellAfter < 12 && r.shake.perch === null && r.shake.onFloor);
+    check("캣타워: 창 크기만 바뀌면 그대로, 창을 옮기면 따라가지 않고 떨어져 바닥에 착지", JSON.stringify(r.move),
+      r.move.resized === "7:0" && r.move.fell && r.move.onFloor);
     check("캣타워: 올라탄 창이 사라지면 아래 창 윗변에, 공놀이·다른 모니터로 가기는 먼저 뛰어내린다", JSON.stringify({ under: r.under, roam: r.roam, out: r.out }),
       r.under.onHigh === "1:0" && r.under.now === "2:0" && r.roam.hopped && r.roam.act === "yarn" && r.roam.floor === 830 && r.out.up === "3:0" && r.out.down);
     await p.close();
@@ -934,12 +934,27 @@ try {
       n.act("window"); const held = n.activity;
       for (let i = 0; i < 120 * 5 && n.activity !== "window"; i++) n.step(1);
       o.cut = { cling, held, now: n.activity, perch: n.perch };
-      n.act(null);
+      n.act(null); n.step(240);
+      // 떠 있는 창(옆면 아래 끝이 바닥에서 110px — 뛰어 잡는다)·화면만큼 높은 창도 간다. 너무 높이 뜬 창은 까닭을 알려 준다
+      const visit = (pp) => {
+        n.setPerches({ tops: [], walls: [] }); for (let i = 0; i < 120 * 3; i++) n.step(1);
+        n.setPerches(pp); c.x = 300; c.vx = 0; n.step(60);
+        const ok = n.towerOk; n.act("tower"); const seen = new Set();
+        for (let i = 0; i < 120 * 60 && n.activity === "tower"; i++) { n.step(1); if (n.perch) seen.add(n.perch); }
+        n.act(null); n.step(60); return { ok, seen: [...seen] };
+      };
+      const win = (w, x0, x1, y0, y1) => ({ tops: [{ id: w + ":t0", win: w, x0, x1, y: y0 }], walls: [{ id: w + ":l0", win: w, x: x0, y0, y1, face: "left" }, { id: w + ":r0", win: w, x: x1, y0, y1, face: "right" }] });
+      o.floating = visit(win(3, 500, 760, 380, 720));
+      o.tall = visit(win(4, 600, 1100, 80, 830));
+      n.setPerches(win(5, 500, 760, 200, 560)); c.x = 300; n.step(30);
+      o.why = n.towerWhy();
       return o;
     });
     check("창 탐험: 창 옆면을 타고 올라 윗변에 서고 다른 창으로 건너간다(순간이동 없이), 창이 없으면 바로 끝", JSON.stringify(r),
       r.none === null && r.ok && r.run.climbed && r.run.seen.includes("1:t0") && r.run.maxStep < 30 && r.run.end === null);
     check("창 탐험: 오르는 중 다른 활동이 오면 뛰어내려 착지한 뒤 넘긴다", JSON.stringify(r.cut), r.cut.cling && r.cut.held === "tower" && r.cut.now === "window" && r.cut.perch === null);
+    check("창 탐험: 떠 있는 창(옆면 끝을 뛰어 잡음)·화면만큼 높은 창도 오르고, 못 가는 창은 까닭(towerWhy)", JSON.stringify({ floating: r.floating, tall: r.tall, why: r.why }),
+      r.floating.ok && r.floating.seen.includes("3:t0") && r.tall.ok && r.tall.seen.includes("4:t0") && r.why.length === 1 && !r.why[0].ok && /떠 있다/.test(r.why[0].why));
     await p.close();
   }
 
