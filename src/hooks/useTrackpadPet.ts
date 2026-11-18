@@ -31,6 +31,7 @@ export function useTrackpadPet(onRub: () => void) {
   const dirRef = useRef<[number, number]>([0, 0]);
   const turnsRef = useRef<number[]>([]);
   const heldRef = useRef(false);
+  const pressedRef = useRef(false);
 
   /** 몸을 벗어나면 결을 처음부터 센다. */
   const onBodyLeave = useCallback(() => {
@@ -47,9 +48,18 @@ export function useTrackpadPet(onRub: () => void) {
     onBodyLeave();
   }, [onBodyLeave]);
 
+  /**
+   * 버튼을 누른 채 움직이는 동안(선물을 끌어 고양이 위를 지나감 등)도 쓰다듬기가 아니다. 누를 때와 놓을 때 결을
+   * 처음부터 센다 — 놓자마자 끌던 결이 이어져 쓰다듬기로 치지 않게.
+   */
+  const setPressed = useCallback((on: boolean) => {
+    pressedRef.current = on;
+    onBodyLeave();
+  }, [onBodyLeave]);
+
   /** 고양이 몸 위에서 움직였을 때만 부른다(movementX/Y). */
   const onBodyMove = useCallback((dx: number, dy: number) => {
-    if (heldRef.current) return;
+    if (heldRef.current || pressedRef.current) return;
     const now = performance.now();
     const dir = dirRef.current;
     [dx, dy].forEach((d, axis) => {
@@ -71,5 +81,5 @@ export function useTrackpadPet(onRub: () => void) {
     }
   }, []);
 
-  return { onBodyMove, onBodyLeave, setHeld };
+  return { onBodyMove, onBodyLeave, setHeld, setPressed };
 }

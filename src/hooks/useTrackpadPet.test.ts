@@ -57,3 +57,18 @@ describe("useTrackpadPet", () => {
     expect(rub).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("useTrackpadPet — 누른 채 움직임", () => {
+  it("선물을 끌며(버튼 누름) 고양이 위를 비벼도 쓰다듬기가 아니고, 놓으면 결을 처음부터 센다", () => {
+    const rub = vi.fn();
+    const { result } = renderHook(() => useTrackpadPet(rub));
+    result.current.setPressed(true);
+    moves(result.current.onBodyMove, [[10, 0], [-10, 0], [10, 0], [-10, 0], [10, 0]]);
+    expect(rub).not.toHaveBeenCalled();
+    result.current.setPressed(false);
+    moves(result.current.onBodyMove, [[-10, 0]]);
+    expect(rub).not.toHaveBeenCalled(); // 끌던 결이 이어지지 않는다
+    moves(result.current.onBodyMove, [[10, 0], [-10, 0]]);
+    expect(rub).toHaveBeenCalledTimes(1);
+  });
+});

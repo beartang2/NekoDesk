@@ -75,7 +75,8 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
     return () => offs.forEach((off) => off());
   }, [ctrl, active, setHeld]);
   const onMove = useCallback((e: React.MouseEvent) => {
-    if (!ctrl || e.buttons) return; // 누른 채 움직이면 잡기(엔진)
+    if (!ctrl) return;
+    if (e.buttons) { onBodyLeave(); return; } // 누른 채 움직이면 잡기·선물 끌기(엔진) — 쓰다듬기 아님, 놓으면 결을 처음부터
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     if (ctrl.hit(e.clientX - r.left, e.clientY - r.top)) onBodyMove(e.movementX, e.movementY);
     else onBodyLeave();

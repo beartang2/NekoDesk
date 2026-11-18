@@ -57,12 +57,12 @@ export function NekoScreen() {
     const t = setTimeout(() => setMenu(null), MENU_MS);
     return () => clearTimeout(t);
   }, [menu]);
-  const { onBodyMove, onBodyLeave, setHeld } = useTrackpadPet(() => {
+  const { onBodyMove, onBodyLeave, setHeld, setPressed } = useTrackpadPet(() => {
     // 너무 오래 만져 짜증 나면(react 가 false) 놀이 게이지는 오르지 않는다
     if (ctrlRef.current?.react("pet")) toMain({ ev: "pet" });
   });
-  const petRef = useRef({ onBodyMove, onBodyLeave, setHeld });
-  petRef.current = { onBodyMove, onBodyLeave, setHeld };
+  const petRef = useRef({ onBodyMove, onBodyLeave, setHeld, setPressed });
+  petRef.current = { onBodyMove, onBodyLeave, setHeld, setPressed };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -129,6 +129,12 @@ export function NekoScreen() {
     };
     window.addEventListener("pointerdown", onRightDown, true);
     window.addEventListener("contextmenu", onContext);
+    // 누른 채 움직이는 동안은 쓰다듬기가 아니다(선물을 끌어 고양이 위를 비빔). 고양이 잡기는 grab·drop 이 따로 막는다
+    const onPress = () => petRef.current.setPressed(true);
+    const onRelease = () => petRef.current.setPressed(false);
+    window.addEventListener("pointerdown", onPress, true);
+    window.addEventListener("pointerup", onRelease, true);
+    window.addEventListener("pointercancel", onRelease, true);
     const offEdge = ctrl.on("edge", (side) => {
       void invoke<boolean>("neko_screen_cross", { side })
         .then((moved) => { if (!moved) { outAt = 0; ctrl.setEdges(CLOSED); } })
@@ -160,7 +166,8 @@ export function NekoScreen() {
         const prev = cursor;
         cursor = payload;
         check();
-        if (over && prev && payload) petRef.current.onBodyMove(payload[0] - prev[0], payload[1] - prev[1]);
+        // 고양이 몸 위일 때만(마당 선물 위는 아니다). 누른 채(선물 끌기)면 hook 이 거른다
+        if (over === "cat" && prev && payload) petRef.current.onBodyMove(payload[0] - prev[0], payload[1] - prev[1]);
         else petRef.current.onBodyLeave();
       }),
       listen<boolean>("neko-screen-active", ({ payload }) => {
@@ -199,6 +206,9 @@ export function NekoScreen() {
       offMenu();
       window.removeEventListener("pointerdown", onRightDown, true);
       window.removeEventListener("contextmenu", onContext);
+      window.removeEventListener("pointerdown", onPress, true);
+      window.removeEventListener("pointerup", onRelease, true);
+      window.removeEventListener("pointercancel", onRelease, true);
       offEngine.forEach((off) => off());
       offs.forEach((p) => void p.then((off) => off()).catch(() => {}));
       ctrl.destroy();
