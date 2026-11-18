@@ -2309,12 +2309,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const prev = new Map(decor.map((d) => [d.id, d]));
     decor = (items || []).filter((d) => d && d.id != null && Number.isFinite(d.u)).map((d) => {
       const o = prev.get(String(d.id)), shape = validateShape(d.shape);
+      const surface = d.surface === "wall" ? "wall" : "floor", u = clamp(d.u, 0, 1), v = clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1);
+      // 호스트가 자리를 바꿨다(굴러가는 중에 사용자가 선물 창에서 끌어 놓음 등): 사용자 자리가 이긴다 — 굴러가던 자리를 버린다
+      const keep = o && o.surface === surface && o.u === u && (surface === "floor" || o.v === v);
       return {
-        id: String(d.id), surface: d.surface === "wall" ? "wall" : "floor", u: clamp(d.u, 0, 1), v: clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1),
+        id: String(d.id), surface, u, v,
         shape, play: PLAYS.has(d.play) ? d.play : defaultPlay(shape), k: sizeK(d.size),
         // 새로 놓인 것만 '뿅'. 화면 모드는 안 한다 — 선물 창이 멈춘 그림으로 그린다(모니터를 건너가도 다 뿅 하지 않게)
         t0: o ? o.t0 : WORLD ? -1e9 : time, box: null, showTo: o ? o.showTo : 0,
-        px: o ? o.px : null, rot: o ? o.rot : 0, wob: o ? o.wob : new Spring(0), hidden: o ? o.hidden : false, front: o ? o.front : false,
+        px: keep ? o.px : null, vx: keep ? o.vx : 0, rot: o ? o.rot : 0, wob: o ? o.wob : new Spring(0), hidden: o ? o.hidden : false, front: o ? o.front : false,
         // 마지막으로 놀아 준 때(호스트가 decorPlayed 를 저장해 돌려준다). 없으면 한 번도 안 논 것
         lastPlayed: Number.isFinite(d.lastPlayed) ? d.lastPlayed : o ? o.lastPlayed : null,
       };

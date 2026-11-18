@@ -485,6 +485,16 @@ try {
       if (released >= 0) { n.step(12); n.draw(); graceDrawn = engineHit(); } // 0.1초 뒤: 엔진이 아직 그린다
       n.act(null); n.step(60); n.draw(); // 0.6초 뒤: 엔진은 안 그리고 선물 창이 새 자리에
       const after = { engine: engineHit(), win: inked() > 100, last: heldEv[heldEv.length - 1] };
+      // 굴러가는 중에 사용자가 선물 창에서 끌어 놓음(호스트가 자리를 바꿔 다시 넣음): 굴러가던 자리를 버리고 사용자 자리에 둔다
+      const moves = []; n.on("decorMove", (e) => moves.push(e.u));
+      n.setDecor([{ id: "u", surface: "floor", u: 0.45, play: "roll", shape }]); n.step(10);
+      n.act("giftplay");
+      let rolling = false;
+      for (let i = 0; i < 120 * 30 && !rolling; i++) { n.step(1); rolling = c.act && c.act.stage === "rolling"; }
+      moves.length = 0;
+      n.setDecor([{ id: "u", surface: "floor", u: 0.9, play: "roll", shape }]);
+      n.act(null); n.step(30);
+      const userWins = { rolling, overwritten: moves.some((u) => u !== 0.9) };
       // 물고 옮기다 목록에서 빠짐(다른 모니터로 건너감 등): 잡은 목록과 입에서 빠진다
       n.setDecor([{ id: "m", surface: "floor", u: 0.45, play: "carry", shape }]); n.step(10);
       n.act("giftplay");
@@ -493,13 +503,14 @@ try {
       n.setDecor([]); n.step(2);
       const gone = { carried, mouth: n.carried().length, last: heldEv[heldEv.length - 1] };
       n.act(null);
-      return { still, heldFrames, swapOk, released: released >= 0, graceDrawn, after, gone };
+      return { still, heldFrames, swapOk, released: released >= 0, graceDrawn, after, gone, userWins };
     });
     check("마당 선물: 가만있는 건 선물 창만 그린다(엔진은 안 그리고 안 누른다)", JSON.stringify(r.still), r.still.win && !r.still.engine && r.still.ev === 0);
     check("마당 선물: 굴리는 동안 엔진이 잡고(decorHeld) 그리며 선물 창은 뺀다, 놓으면 0.3초쯤 더 그리고 넘긴다",
       `잡음 ${r.heldFrames}프레임 · 바꿔 그림 ${r.swapOk} · 놓음 ${r.released} · 잠깐 더 ${r.graceDrawn} · 뒤 ${JSON.stringify(r.after)}`,
       r.heldFrames > 30 && r.swapOk && r.released && r.graceDrawn === true && !r.after.engine && r.after.win && r.after.last === "");
     check("마당 선물: 물고 있던 게 목록에서 빠지면 잡은 목록·입에서도 빠진다", JSON.stringify(r.gone), r.gone.carried && r.gone.mouth === 0 && r.gone.last === "");
+    check("마당 선물: 굴러가는 중에 사용자가 옮겨 놓으면 사용자 자리가 이긴다", JSON.stringify(r.userWins), r.userWins.rolling && !r.userWins.overwritten);
     await p.close();
   }
 
