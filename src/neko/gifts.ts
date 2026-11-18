@@ -11,8 +11,9 @@ import type { NekoDecorSpot, NekoGiftPlay, NekoGiftSize } from "./engine/neko-en
  */
 
 const KEY = "neko_gifts";
-/** 선물함 칸을 무대로 끌 때의 데이터 종류(HTML 끌어 놓기) */
-export const GIFT_DND = "application/x-neko-gift";
+/** 선물함 칸을 무대에 놓을 때 무대(.neko-slot__stage)에 보내는 이벤트. detail = GiftDrop */
+export const GIFT_DROP = "neko-gift-drop";
+export type GiftDrop = { id: string; x: number; y: number };
 export const MAX_GIFTS = 100;
 export const PLAYS: NekoGiftPlay[] = ["roll", "bat", "sniff", "sit_on", "carry"];
 export const GIFT_SIZES: NekoGiftSize[] = ["small", "medium", "large"];

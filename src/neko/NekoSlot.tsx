@@ -3,7 +3,7 @@ import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { ensureNeko, nekoCanvas, useNekoController } from "./nekoHost";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { NekoAway } from "./NekoAway";
-import { GIFT_DND, useNekoGifts } from "./gifts";
+import { GIFT_DROP, useNekoGifts, type GiftDrop } from "./gifts";
 import "./NekoSlot.css";
 
 /**
@@ -63,19 +63,20 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
     else onBodyLeave();
   }, [ctrl, onBodyMove, onBodyLeave]);
 
-  // 선물함 칸을 끌어다 놓으면 그 자리(바닥 가까이면 바닥, 높이면 벽)에 놓는다
-  const onGiftOver = useCallback((e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes(GIFT_DND)) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  }, []);
-  const onGiftDrop = useCallback((e: React.DragEvent) => {
-    const id = e.dataTransfer.getData(GIFT_DND), gift = useNekoGifts.getState().gifts.find((g) => g.id === id);
-    if (!ctrl || !gift) return;
-    e.preventDefault();
-    const r = e.currentTarget.getBoundingClientRect();
-    useNekoGifts.getState().place(id, ctrl.decorSpotAt(e.clientX - r.left, e.clientY - r.top, gift.shape, gift.size));
-  }, [ctrl]);
+  // 선물함 칸을 끌어다 놓으면(NekoGiftBox 가 GIFT_DROP 을 보낸다) 그 자리(바닥 가까이면 바닥, 높이면 벽)에 놓는다
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el || !ctrl || !active || away) return;
+    const onDrop = (e: Event) => {
+      const { id, x, y } = (e as CustomEvent<GiftDrop>).detail;
+      const gift = useNekoGifts.getState().gifts.find((g) => g.id === id);
+      if (!gift) return;
+      const r = el.getBoundingClientRect();
+      useNekoGifts.getState().place(id, ctrl.decorSpotAt(x - r.left, y - r.top, gift.shape, gift.size));
+    };
+    el.addEventListener(GIFT_DROP, onDrop);
+    return () => el.removeEventListener(GIFT_DROP, onDrop);
+  }, [ctrl, active, away]);
 
   // 높이 손잡이: 위쪽 가장자리를 끌면 그만큼 키가 바뀐다(손을 뗄 때 저장)
   const onHandleDown = useCallback((e: React.PointerEvent) => {
@@ -114,8 +115,6 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
           className="neko-slot__stage"
           onMouseMove={onMove}
           onMouseLeave={onBodyLeave}
-          onDragOver={onGiftOver}
-          onDrop={onGiftDrop}
         />
       )}
       {decorMenu && !away && (

@@ -38,6 +38,9 @@
   background: var(--bg-surface);
   text-align: center;
   min-width: 0;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
 }
 /* 무대에 놓인 것: 오른쪽 위 작은 점만 */
 .neko-gifts__item--placed::after {
@@ -70,6 +73,20 @@
 }
 .neko-gifts-modal h2 .neko-gifts__count {
   font-size: 13px;
+}
+
+/* 끄는 동안 손가락을 따라가는 선물 그림(dragGift) */
+.neko-gifts__ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+  filter: drop-shadow(0 4px 8px oklch(0 0 0 / 0.35));
+}
+.neko-gift-dragging,
+.neko-gift-dragging * {
+  cursor: grabbing !important;
 }
 
 /* 선물 칸을 끄는 동안: 선물함 창과 메뉴 창 덮개를 비켜서 뒤의 네코 자리에 놓을 수 있게 */

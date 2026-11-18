@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { drawShape, shapeBounds, type GiftShape } from "./engine/gift-shape";
-import { GIFT_DND, useNekoGifts } from "./gifts";
+import { GIFT_DROP, useNekoGifts, type GiftDrop } from "./gifts";
 import "./NekoCustomizeModal.css";
 import "./NekoGiftBox.css";
 
@@ -19,6 +19,57 @@ function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: number }) {
     drawShape(ctx, shape, size / 2 - ((b.x0 + b.x1) / 2) * u, size / 2 + (b.h * u) / 2, u, 3 * dpr);
   }, [shape, size, dpr]);
   return <canvas ref={ref} width={size * dpr} height={size * dpr} style={{ width: size, height: size }} aria-hidden />;
+}
+
+/**
+ * 선물 칸 끌기. HTML 끌어 놓기(draggable)는 WebKit 에서 무대에 잘 안 놓이고 끄는 그림에 둘레 글자가 잘려 묻어나서
+ * 포인터로 직접 끈다: 그림만 복사해 손가락을 따라가게 하고, 놓은 자리 밑에 무대가 있으면 GIFT_DROP 을 보낸다.
+ * 끄는 동안 body 의 neko-gift-dragging 이 선물함 창과 설정 덮개를 흐리게 비킨다(NekoGiftBox.css).
+ */
+function dragGift(e: React.PointerEvent<HTMLElement>, id: string) {
+  if (e.button !== 0 || (e.target as Element).closest("button")) return;
+  const cell = e.currentTarget, src = cell.querySelector("canvas");
+  if (!src) return;
+  e.preventDefault(); // 글자 선택 막기
+  cell.setPointerCapture(e.pointerId);
+  const sx = e.clientX, sy = e.clientY, half = src.clientWidth / 2;
+  let ghost: HTMLCanvasElement | null = null, over: Element | null = null;
+  const stageAt = (x: number, y: number) =>
+    document.elementsFromPoint(x, y).map((el) => el.closest(".neko-slot__stage")).find(Boolean) ?? null;
+
+  const move = (ev: PointerEvent) => {
+    if (!ghost) {
+      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return; // 누르기만 한 건 끌기가 아니다
+      ghost = document.createElement("canvas");
+      ghost.width = src.width;
+      ghost.height = src.height;
+      ghost.getContext("2d")!.drawImage(src, 0, 0);
+      ghost.className = "neko-gifts__ghost";
+      ghost.style.width = ghost.style.height = `${half * 2}px`;
+      document.body.appendChild(ghost);
+      document.body.classList.add("neko-gift-dragging");
+    }
+    ghost.style.transform = `translate(${ev.clientX - half}px, ${ev.clientY - half}px)`;
+    const s = stageAt(ev.clientX, ev.clientY);
+    if (s !== over) {
+      over?.classList.remove("is-gift-over");
+      s?.classList.add("is-gift-over");
+      over = s;
+    }
+  };
+  const end = (ev: PointerEvent) => {
+    cell.removeEventListener("pointermove", move);
+    cell.removeEventListener("pointerup", end);
+    cell.removeEventListener("pointercancel", end);
+    if (!ghost) return;
+    ghost.remove();
+    document.body.classList.remove("neko-gift-dragging");
+    over?.classList.remove("is-gift-over");
+    if (ev.type === "pointerup" && over) over.dispatchEvent(new CustomEvent<GiftDrop>(GIFT_DROP, { detail: { id, x: ev.clientX, y: ev.clientY } }));
+  };
+  cell.addEventListener("pointermove", move);
+  cell.addEventListener("pointerup", end);
+  cell.addEventListener("pointercancel", end);
 }
 
 const DAY = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric" });
@@ -71,17 +122,7 @@ function NekoGiftModal({ onClose }: { onClose: () => void }) {
                 key={g.id}
                 className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`}
                 title={`${g.body || g.title}\n${DAY.format(new Date(g.at))}에 받음${g.placed ? " · 무대에 놓여 있어" : ""}`}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData(GIFT_DND, g.id);
-                  e.dataTransfer.effectAllowed = "move";
-                  const cv = e.currentTarget.querySelector("canvas");
-                  if (cv) e.dataTransfer.setDragImage(cv, cv.clientWidth / 2, cv.clientHeight / 2);
-                  // 선물함 창과 설정 덮개가 네코 자리를 가린다: 끄는 동안 둘 다 비켜 놓을 수 있게.
-                  // dragstart 안에서 바로 바꾸면 끌기가 취소되는 엔진이 있어 다음 틱에
-                  setTimeout(() => document.body.classList.add("neko-gift-dragging"));
-                }}
-                onDragEnd={() => document.body.classList.remove("neko-gift-dragging")}
+                onPointerDown={(e) => dragGift(e, g.id)}
               >
                 <GiftThumb shape={g.shape} size={64} />
                 <span className="neko-gifts__title">{g.title}</span>
