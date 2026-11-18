@@ -27,6 +27,8 @@ mod glow;
 #[cfg(target_os = "macos")]
 mod neko_screen;
 #[cfg(target_os = "macos")]
+mod neko_perch;
+#[cfg(target_os = "macos")]
 mod ambient;
 mod shelf;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
@@ -977,6 +979,20 @@ mod commands {
         crate::neko_screen::set_boxes(window.label(), boxes)
     }
 
+    /// 화면 창: 고양이 자리(창 좌표, 크게 움직였을 때만)와 올라탄 창 번호(캣타워 — 그 창만 30Hz 로 따라 읽는다).
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_cat(at: Option<[f64; 2]>, perch: Option<u32>) -> Result<(), AppError> {
+        crate::neko_screen::set_cat(at, perch)
+    }
+
+    /// 화면 창이 처음 뜰 때: 지금 발판·벽(캣타워). 아직 없으면 null.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_perches() -> Option<crate::neko_perch::Perches> {
+        crate::neko_screen::perches_now()
+    }
+
     /// 화면 창: 잡힌 고양이 목덜미 자리(창 좌표, 놓으면 null). 끌어 건너갈 때 창은 고양이가 다른 모니터에 들어갈 때 옮긴다.
     #[cfg(target_os = "macos")]
     #[tauri::command]
@@ -1426,6 +1442,10 @@ pub fn run() {
             commands::neko_decor_boxes,
             #[cfg(target_os = "macos")]
             commands::neko_screen_held,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_cat,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_perches,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,

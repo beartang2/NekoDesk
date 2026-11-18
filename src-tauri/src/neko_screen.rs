@@ -23,6 +23,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::capture::on_main;
 use crate::error::AppError;
+use crate::neko_perch::{perches, Perches, Win};
 
 const LABEL: &str = "neko-screen";
 /// 커서를 읽는 간격(초당 30번). capture.rs 의 FOLLOW_EVERY 와 같다.
@@ -38,6 +39,11 @@ const CATCH_TTL: Duration = Duration::from_millis(250);
 const AWAY_AFTER: Duration = Duration::from_secs(3);
 /// 창을 옮기며 숨긴 뒤 화면 창이 다시 보이라고 하지 않아도 이만큼 지나면 보인다.
 const REVEAL_AFTER: Duration = Duration::from_millis(500);
+/// 캣타워(neko_perch.rs): 고양이가 창 근처면 이 간격으로 창 목록을 다시 읽는다(한 번 ≈ 2ms). 멀면 PERCH_FAR.
+const PERCH_NEAR: Duration = Duration::from_millis(500);
+const PERCH_FAR: Duration = Duration::from_secs(2);
+/// 고양이(화면 창이 알린 자리)가 창에서 이만큼(pt) 안이면 '근처'
+const NEAR_PT: f64 = 300.0;
 
 /// 화면 창이 처음과 바뀔 때 받는 판 크기와 바닥(엔진 세계 좌표).
 #[derive(Serialize, Clone, Copy, Debug, PartialEq)]
@@ -166,6 +172,14 @@ struct State {
     elsewhere: Option<Elsewhere>,
     /// 마지막으로 메인 창에 알린 모니터 목록.
     screens_sent: Option<Screens>,
+    /// 캣타워: 마지막으로 읽은 보통 창들(앞에서부터)과 그때.
+    wins: Vec<Win>,
+    perch_at: Option<Instant>,
+    /// 마지막으로 화면 창에 보낸 발판·벽(올라탄 창 갱신을 합친 것).
+    perches_sent: Option<Perches>,
+    /// 화면 창이 알린 고양이 자리(창 좌표)와 올라탄 창 번호. 올라탄 창은 30Hz 로 따라 읽는다.
+    cat_at: Option<[f64; 2]>,
+    perch_win: Option<u32>,
     poller: bool,
 }
 
@@ -195,6 +209,11 @@ static STATE: Mutex<State> = Mutex::new(State {
     decor_grab: None,
     elsewhere: None,
     screens_sent: None,
+    wins: Vec::new(),
+    perch_at: None,
+    perches_sent: None,
+    cat_at: None,
+    perch_win: None,
     poller: false,
 });
 
@@ -286,6 +305,9 @@ pub fn show(app: &AppHandle, on: bool, on_top: bool) -> Result<(), AppError> {
     {
         let mut st = STATE.lock()?;
         st.on = on;
+        if st.on_top != on_top {
+            st.perch_at = None; // '항상 위'를 끄면 발판을 비우고, 켜면 바로 다시 읽는다
+        }
         st.on_top = on_top;
     }
     if !on {
@@ -310,6 +332,21 @@ pub fn set_catch(on: bool, cat: bool) -> Result<(), AppError> {
     st.catch_at = on.then(Instant::now);
     st.catch_cat = on && cat;
     Ok(())
+}
+
+/// 화면 창: 고양이 자리(창 좌표, 크게 움직였을 때만)와 올라탄 창 번호(엔진 perch 의 창).
+pub fn set_cat(at: Option<[f64; 2]>, perch: Option<u32>) -> Result<(), AppError> {
+    let mut st = STATE.lock()?;
+    if at.is_some() {
+        st.cat_at = at;
+    }
+    st.perch_win = perch;
+    Ok(())
+}
+
+/// 화면 창이 처음 뜰 때 지금 발판·벽을 가져간다.
+pub fn perches_now() -> Option<Perches> {
+    STATE.lock().ok()?.perches_sent.clone()
 }
 
 /// 화면 창: 잡힌 고양이 목덜미 자리(창 좌표). 놓으면 None. 창을 옮기는 중(다시 보이기 전)에 온 건 옛 창 좌표라 버린다.
@@ -563,6 +600,7 @@ fn poll(app: AppHandle) {
         }
         if active {
             follow(&app, &mut sent, &mut away_sent);
+            perch_tick(&app);
         } else {
             sent = None;
         }
@@ -668,6 +706,78 @@ fn press_out(app: &AppHandle, took: Option<&str>) {
     }
 }
 
+/// 캣타워: 창 목록을 읽어 발판·벽을 화면 창에 보낸다(바뀔 때만). 고양이가 창 근처면 0.5초, 멀면 2초마다 다 읽고, 그
+/// 사이엔 올라탄 창만 매 틱 읽어 움직였으면 그 창 것만(partial) 보낸다. '항상 위'가 꺼져 있으면(고양이가 창 아래) 비운다.
+fn perch_tick(app: &AppHandle) {
+    let Ok(st) = STATE.lock() else { return };
+    let Some(cur) = pick(&st.screens, st.at) else { return };
+    let ground = cur.layout.ground;
+    if !st.on_top {
+        let empty = Perches::default();
+        drop(st);
+        send_perches(app, empty, true);
+        return;
+    }
+    let near = st.cat_at.map_or(true, |c| {
+        let g = [cur.rect[0] + c[0], cur.rect[1] + c[1]];
+        st.wins.iter().any(|w| {
+            let [x, y, ww, h] = w.rect;
+            g[0] > x - NEAR_PT && g[0] < x + ww + NEAR_PT && g[1] > y - NEAR_PT && g[1] < y + h + NEAR_PT
+        })
+    });
+    let every = if near { PERCH_NEAR } else { PERCH_FAR };
+    let (due, perch_win) = (st.perch_at.map_or(true, |t| t.elapsed() >= every), st.perch_win);
+    drop(st);
+    if due {
+        let own = std::process::id() as i32;
+        let wins: Vec<Win> = unsafe { crate::capture::macos::windows() }
+            .into_iter()
+            .map(|t| Win { id: t.id, rect: [t.rect.x, t.rect.y, t.rect.w, t.rect.h], perch: t.pid != own })
+            .collect();
+        let p = perches(&wins, cur.rect, ground, None);
+        if let Ok(mut st) = STATE.lock() {
+            st.wins = wins;
+            st.perch_at = Some(Instant::now());
+        }
+        send_perches(app, p, true);
+        return;
+    }
+    // 올라탄 창: 그 창만 매 틱(30Hz) — 사용자가 창을 끌면 고양이가 같이 간다. 닫혔으면 다음 틱에 다 읽는다
+    let Some(win) = perch_win else { return };
+    let rect = unsafe { crate::neko_perch::macos::window_rect(win) };
+    let Ok(mut st) = STATE.lock() else { return };
+    let Some(rect) = rect else {
+        st.perch_at = None;
+        return;
+    };
+    let Some(w) = st.wins.iter_mut().find(|w| w.id == win) else { return };
+    if w.rect == rect {
+        return;
+    }
+    w.rect = rect;
+    let p = perches(&st.wins, cur.rect, ground, Some(win));
+    if let Some(sent) = st.perches_sent.as_mut() {
+        sent.tops.retain(|t| t.win != win);
+        sent.walls.retain(|t| t.win != win);
+        sent.tops.extend(p.tops.iter().cloned());
+        sent.walls.extend(p.walls.iter().cloned());
+    }
+    drop(st);
+    send_perches(app, p, false);
+}
+
+/// 발판·벽을 화면 창에(`neko-screen-perches`). 전체(full)는 지난번과 같으면 안 보낸다.
+fn send_perches(app: &AppHandle, p: Perches, full: bool) {
+    if full {
+        let Ok(mut st) = STATE.lock() else { return };
+        if st.perches_sent.as_ref() == Some(&p) {
+            return;
+        }
+        st.perches_sent = Some(p.clone());
+    }
+    let _ = app.emit_to(LABEL, "neko-screen-perches", p);
+}
+
 /// 창을 `to` 모니터로 옮기고(숨긴 채) 화면 창에 세계를 옮기라고 알린다.
 fn move_to(app: &AppHandle, win: &tauri::WebviewWindow, to: Screen, shift: [f64; 2]) {
     let Ok(ns) = win.ns_window() else { return };
@@ -681,6 +791,8 @@ fn move_to(app: &AppHandle, win: &tauri::WebviewWindow, to: Screen, shift: [f64;
         st.away = None;
         st.held = None;
         st.hidden_at = Some(Instant::now());
+        st.perch_at = None; // 새 모니터 좌표로 다시
+        st.perch_win = None;
     }
     let _ = app.emit_to(LABEL, "neko-screen-moved", Moved { layout: to.layout, shift });
     // 고양이가 떠난 모니터엔 선물 창을, 온 모니터의 선물 창은 숨긴다(메인 창이 neko-screens 로 선물을 다시 나눈다)
