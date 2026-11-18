@@ -31,15 +31,16 @@ function Paw({ x, y, r, i }: { x: number; y: number; r: number; i: number }) {
   );
 }
 
-export function NekoAway() {
+/** music: 음악을 듣다 나갔다 — 걸어가는 네코가 헤드폰을 낀다 */
+export function NekoAway({ music = false }: { music?: boolean }) {
   const appearance = useNekoStore((s) => s.appearance);
   const caption = `${josa(useSettingsStore(nekoNameOf), "은/는")} 지금 산책 중!`;
   const [cat, setCat] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    nekoSnapshot(appearance).then((u) => { if (alive) setCat(u); }).catch(() => {});
+    nekoSnapshot(appearance, { music }).then((u) => { if (alive) setCat(u); }).catch(() => {});
     return () => { alive = false; };
-  }, [appearance]);
+  }, [appearance, music]);
 
   return (
     <div className="neko-away" role="img" aria-label={caption}>

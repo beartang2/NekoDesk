@@ -14,6 +14,8 @@ import { useNekoStore } from "./nekoStore";
  */
 
 const CACHE_PREFIX = "neko_portrait:";
+/** 헤드폰을 낀 그림(음악을 듣다 산책 나감). 따로 두어 서로 지우지 않게 */
+const MUSIC_PREFIX = "neko_portrait_music:";
 /** 그릴 때 무대 크기(css px). 이 높이로 고양이 크기가 정해진다(scaleMode "height"). */
 const STAGE = { w: 240, h: 200 };
 /** 첫 프레임들이 그려질 시간. 자세는 바꾸지 않는다 — 앉는 동작 중간이 찍히면 어정쩡하다. */
@@ -21,21 +23,21 @@ const SETTLE_MS = 300;
 
 const memo = new Map<string, Promise<string>>();
 
-function keyOf(a: NekoAppearance): string {
-  return CACHE_PREFIX + JSON.stringify(a);
+function keyOf(a: NekoAppearance, music = false): string {
+  return (music ? MUSIC_PREFIX : CACHE_PREFIX) + JSON.stringify(a);
 }
 
 /** 엔진으로 서 있는 네코를 그려, 몸과 발밑 그림자만 남게 잘라 PNG data URL 로 돌려준다. */
-export function nekoSnapshot(a: NekoAppearance): Promise<string> {
-  const key = keyOf(a);
+export function nekoSnapshot(a: NekoAppearance, o: { music?: boolean } = {}): Promise<string> {
+  const music = !!o.music, prefix = music ? MUSIC_PREFIX : CACHE_PREFIX, key = keyOf(a, music);
   const hit = memo.get(key);
   if (hit) return hit;
   let stored: string | null = null;
   try { stored = localStorage.getItem(key); } catch { /* 저장소를 못 쓰면 매번 그린다 */ }
-  const job = stored ? Promise.resolve(stored) : draw(a).then((url) => {
+  const job = stored ? Promise.resolve(stored) : draw(a, music).then((url) => {
     try {
       // 외형을 바꿀 때마다 쌓이지 않게 옛 그림은 지운다
-      for (const k of Object.keys(localStorage)) if (k.startsWith(CACHE_PREFIX) && k !== key) localStorage.removeItem(k);
+      for (const k of Object.keys(localStorage)) if (k.startsWith(prefix) && k !== key) localStorage.removeItem(k);
       localStorage.setItem(key, url);
     } catch { /* 가득 찼으면 메모리에만 */ }
     return url;
@@ -45,14 +47,15 @@ export function nekoSnapshot(a: NekoAppearance): Promise<string> {
   return job;
 }
 
-async function draw(a: NekoAppearance): Promise<string> {
+async function draw(a: NekoAppearance, music = false): Promise<string> {
   // 엔진은 캔버스의 화면 크기로 무대를 잡는다 — 화면 밖에 붙여 크기를 준다.
   const cv = document.createElement("canvas");
   Object.assign(cv.style, { position: "fixed", left: "-10000px", top: "0", width: `${STAGE.w}px`, height: `${STAGE.h}px`, pointerEvents: "none" });
   document.body.appendChild(cv);
-  const neko = createNeko(cv, { transparent: true, scaleMode: "height", wander: false, maxDpr: 2, appearance: a });
+  const neko = createNeko(cv, { transparent: true, scaleMode: "height", wander: false, maxDpr: 2, appearance: a, still: true });
   try {
-    await new Promise((r) => setTimeout(r, SETTLE_MS));
+    if (music) neko.mix("music"); // 헤드폰을 낀 채(뿅 하고 씌워지는 동안 더 기다린다)
+    await new Promise((r) => setTimeout(r, music ? SETTLE_MS + 500 : SETTLE_MS));
     // 창이 가려져 있으면 엔진이 그리지 않는다(document.hidden) — 한 번이라도 그려질 때까지 조금 더 기다린다.
     for (let i = 0; i < 30; i++) {
       neko.pause();

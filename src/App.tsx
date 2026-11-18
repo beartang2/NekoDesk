@@ -1706,7 +1706,7 @@ export default function App() {
   const [walk, setWalk] = useState<Walk | null>(null);
   const [away, setAway] = useState(false);
   // 모니터 화면 자리면 화면 창을 띄운다(산책 중엔 숨긴다)
-  useNekoScreen(away);
+  useNekoScreen(away, !!walk?.music);
   const brainRef = useRef<WalkBrain | null>(null);
   // 쉬는지는 네코 감독의 '앱을 쓰는 중'(useNekoApp.lastActiveAt: 입력·클릭·스크롤·밥·놀이)으로 본다.
   // 감독이 재우는 때(SLEEPY_MS)부터 졸고, 다시 쓰면 서둘러 온다. 구독으로 봐서 App 은 졸기 시작·깰 때만 다시 그린다.
@@ -1798,7 +1798,7 @@ export default function App() {
     if (useNekoApp.getState().lastActiveAt !== asked) return "위치·길을 찾는 사이 사용자가 돌아옴";
     const route = legs ?? fallbackLegs();
     const dwell = route.slice(1).map(() => (2 + Math.random() * 3) * 60_000);
-    const w: Walk = { home, onMap: !!legs, places: legs ? stops : found, path: buildPath(route, Date.now(), WALK_MS, dwell) };
+    const w: Walk = { home, onMap: !!legs, places: legs ? stops : found, path: buildPath(route, Date.now(), WALK_MS, dwell), ...(before.music ? { music: true as const } : {}) };
     saveWalk(w);
     setAway(true);
     brainRef.current = startWalkBrain({ places: w.places, here: home, before });

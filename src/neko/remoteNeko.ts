@@ -143,7 +143,7 @@ export function link(): void {
     void emitTo(SCREEN_LABEL, "neko-screen-scale", screenScale).catch(() => {});
     void emitTo(SCREEN_LABEL, "neko-screen-fps", screenFps).catch(() => {});
     pushDecor(); // 마당에 놓인 선물(이 모니터 것)
-    remote.setAway(awayNow); // 산책 중이면 팻말
+    remote.setAway(awayNow, { music: awayMusic }); // 산책 중이면 팻말(음악을 듣다 나갔으면 음표)
     notify(); // useNekoController 가 대리를 주고, 감독이 새 스케줄러로 계획을 처음부터 다시 그린다
   }).catch(() => {});
   // 마당 선물: 바뀌면 다시 넘기고, 화면 창에서 끌어 옮기거나 갖고 놀거나 '정리'를 누르면 선물함에 적는다
@@ -178,9 +178,10 @@ export function link(): void {
 const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 /** 지금 산책 중인가. 화면 창이 새로 준비되면(다른 자리에서 돌아옴 등) 그때도 팻말 상태를 맞춰 준다 */
 let awayNow = false;
+let awayMusic = false;
 
 /** App 에서: 자리·산책·'항상 위'·크기에 맞춰 화면 창을 띄우거나 숨긴다 */
-export function useNekoScreen(away: boolean): void {
+export function useNekoScreen(away: boolean, music = false): void {
   const placement = useNekoStore((s) => s.stage.placement);
   const onTop = useNekoStore((s) => s.stage.screenOnTop);
   const scale = useNekoStore((s) => s.stage.screenScale);
@@ -188,7 +189,7 @@ export function useNekoScreen(away: boolean): void {
   // 산책 중에도 화면 창은 둔다: 고양이 대신 마당에 팻말이 선다(엔진 setAway). 팻말은 누를 수 없어 클릭은 지나간다
   const on = IS_MAC && placement === "screen";
   const shown = useRef(false);
-  useEffect(() => { awayNow = away; getRemoteNeko()?.setAway(away); }, [away]);
+  useEffect(() => { awayNow = away; awayMusic = music; getRemoteNeko()?.setAway(away, { music }); }, [away, music]);
 
   useEffect(() => { if (IS_MAC) link(); }, []);
   useEffect(() => {

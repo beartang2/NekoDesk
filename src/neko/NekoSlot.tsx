@@ -119,11 +119,11 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
       ) : away ? (
         placement === "dock" ? (
           <div className="neko-slot__walk">
-            <div className="neko-slot__away"><NekoAway /></div>
+            <div className="neko-slot__away"><NekoAway music={!!walk?.music} /></div>
             <WalkMap className="neko-slot__map" walk={walk} isDark={isDark} />
           </div>
         ) : (
-          <WalkMap className="neko-slot__map neko-slot__map--fill" walk={walk} isDark={isDark} fallback={<NekoAway />} />
+          <WalkMap className="neko-slot__map neko-slot__map--fill" walk={walk} isDark={isDark} fallback={<NekoAway music={!!walk?.music} />} />
         )
       ) : (
         <div

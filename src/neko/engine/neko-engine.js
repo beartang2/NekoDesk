@@ -32,6 +32,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   // 화면 모드(docs/neko-screen-mode.md §2·§9): 세계는 창 전체, 캔버스는 고양이 둘레만 덮고 고양이를 따라간다.
   // 앱 안의 네코(사이드바·채팅 바 아래)는 이 옵션 없이 예전 그대로다.
   const WORLD = !!options.world;
+  const STILL = !!options.still; // 정지 그림을 찍는 엔진: 떠다니는 음표를 안 띄운다(잘라 낼 때 그림에 섞인다)
   const DESKTOP = WORLD || options.transparent !== false;
   // 크기: "height" 면 무대 높이로(앱 패널), "stage" 면 시안 공식(폭·높이 중 작은 쪽)
   const SCALE_MODE = options.scaleMode || "height";
@@ -2573,6 +2574,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
   /* ----- 음악 듣기 ----- */
   function spawnNote() {
+    if (STILL) return;
     const c = cat, side = Math.random() < 0.5 ? -1 : 1;
     effects.push({ kind: "note", x: c.head.x + side * 26 * S, y: c.head.y - 18 * S, vx: side * 6 * S, vy: -24 * S, t: 0, life: 2.2, ph: Math.random() * 6, two: Math.random() < 0.45 });
   }
@@ -3934,9 +3936,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     { t: "poly", round: 0.3, c: "green.dark", pts: [[11, -24.2], [14.2, -21.9], [11, -19.6]] },
   ] });
   const SIGN_H = 70; // 팻말 높이(S) — 앉은 고양이 키쯤
-  function setAway(on) {
+  function setAway(on, o = {}) {
+    if (on && AWAY && !!o.music !== AWAY.music) { AWAY.music = !!o.music; AWAY.drawn = false; } // 음표만 바뀜: 다시 한 번 그린다
     if (on && !AWAY) {
-      AWAY = { x: cat.x, t0: time, drawn: false };
+      AWAY = { x: cat.x, t0: time, drawn: false, music: !!o.music };
       press = null; decorDrag = null; canvas.classList.remove("dragging", "can-grab");
       emit("label", "산책 중");
     } else if (!on && AWAY) {
@@ -3960,6 +3963,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (pop[0] <= 0.002 || pop[1] <= 0.002) return;
     ctx.save(); ctx.translate(x, floorY); ctx.scale(pop[0], pop[1]); ctx.translate(-x, -floorY);
     drawShape(ctx, SIGN, x - ((bd.x0 + bd.x1) / 2) * u, floorY, u, 4 * DPR);
+    if (AWAY.music) { // 음악을 듣다 나갔다: 팻말 위에 음표 하나
+      const s = S * 1.1, nx = x + 13 * S, ny = floorY - (SIGN_H - 12) * S; // 판자 오른쪽 위에 걸터앉게
+      ctx.fillStyle = ctx.strokeStyle = theme.accent; ctx.lineWidth = 1.6 * s; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.ellipse(nx, ny, 3 * s, 2.3 * s, -0.4, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(nx + 2.6 * s, ny - 0.5 * s); ctx.lineTo(nx + 2.6 * s, ny - 12 * s); ctx.quadraticCurveTo(nx + 7 * s, ny - 10 * s, nx + 6 * s, ny - 5 * s); ctx.stroke();
+    }
     ctx.restore();
   }
 

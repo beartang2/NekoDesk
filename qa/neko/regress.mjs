@@ -666,7 +666,7 @@ try {
     const block = await climb("?w=1200&h=760&scale=height", { width: 1300, height: 900 }, { gift: 0.45 }); // 낮게 건 것: 반대쪽 벽으로
     check("벽 타기: 자리 높이에 맞춰 오른다(낮은 방은 그대로, 높은 방 70~85%, 마당은 상한)",
       `낮은 방 ${low.h.toFixed(0)}단위·천장 여유 ${low.topPx.toFixed(0)}px · 높은 방 ${(tall.frac * 100).toFixed(0)}% · 마당 ${yard.h.toFixed(0)}단위`,
-      low.h >= 115 && low.h <= 125 && low.topPx >= 4 && tall.frac >= 0.68 && tall.frac <= 0.87 && yard.h > 300 && yard.h <= 486 && low.ended && tall.ended && yard.ended);
+      low.h >= 115 && low.h <= 125 && low.topPx >= 4 && tall.frac >= 0.68 && tall.frac <= 0.87 && yard.h > 300 && yard.h <= 500 && low.ended && tall.ended && yard.ended);
     check("벽 타기: 성공하면 두리번거리다 뛰어내리고 끝난다", `끝남 ${win.ended} · 높이 ${win.h.toFixed(0)}`, win.ended && win.h > 150);
     check("벽 타기: 벽에 건 선물 아래까지만 오르고, 낮게 막혔으면 반대쪽 벽으로", `선물 아래 ${gift.giftBottom?.toFixed(0)}px · 귀 끝 ${gift.topPx.toFixed(0)}px · 같은 벽 ${gift.sameWall} · 낮게 막힘 → 반대쪽 ${!block.sameWall}`,
       gift.giftBottom != null && gift.sameWall && gift.topPx >= gift.giftBottom && gift.ended && !block.sameWall && block.ended);

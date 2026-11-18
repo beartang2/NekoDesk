@@ -129,7 +129,7 @@ export function WalkMap({ walk, isDark, fallback, className = "" }: { walk: Walk
           )}
           {visible && (
             <div className="walk-map__neko" style={{ left: neko[0], top: neko[1] }}>
-              <NekoWalker size={24} walking={stepping} facingLeft={facingLeft} />
+              <NekoWalker size={24} walking={stepping} facingLeft={facingLeft} music={!!walk?.music} />
             </div>
           )}
           {live && <span className="walk-map__dist">{Math.round(Math.hypot(...at))}m</span>}
