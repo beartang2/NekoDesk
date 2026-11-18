@@ -222,6 +222,17 @@ describe("스케줄러 규칙", () => {
     } finally { ONE_SHOT_LEN.climb = len; }
   });
 
+  it("창 탐험은 엔진이 끝내면(창 위에서 끝·떨어짐) 같은 혼자 놀기 안에서 다시 시키지 않는다 — 갈 곳이 없어 바로 끝나도 되풀이하지 않는다", () => {
+    const w = world();
+    w.set(0, { box: { since: 0, kind: "tower" } });
+    w.to(3);
+    w.ctrl.finish(); // 엔진이 끝냄
+    w.to(5);
+    w.ctrl.finish(); // (이미 끝남) 다시 시켰다면 또 끝난다
+    w.to(10);
+    expect(w.ctrl.seen("act:")).toEqual(["0.0 act:tower"]);
+  });
+
   it("한 번짜리 상한은 활동마다(엔진 maxMs + 3초) — 엔진이 끝을 못 알려도 그때 넘긴다", () => {
     const len = ONE_SHOT_LEN.climb;
     ONE_SHOT_LEN.climb = 600_000;

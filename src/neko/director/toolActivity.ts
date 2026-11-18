@@ -9,7 +9,8 @@ import type { ToolCue } from "./types";
  */
 
 /** 엔진이 스스로 끝내는 활동 */
-export const ONE_SHOT: ReadonlySet<NekoActivity> = new Set(["stamp", "snack", "stretch", "climb", "erase"]);
+// 창 탐험(tower)도 엔진이 스스로 끝낸다(몇 번 옮기고 창 위에서, 갈 곳이 없으면 바로) — 끝나면 같은 일에서 다시 시키지 않는다
+export const ONE_SHOT: ReadonlySet<NekoActivity> = new Set(["stamp", "snack", "stretch", "climb", "erase", "tower"]);
 
 /** 결과 판정에서 '무언가를 바꾼' 도구. registry 의 changes 표시로 본다(MCP 는 모르니 아니라고 본다) */
 export function writesSomething(name: string): boolean {
