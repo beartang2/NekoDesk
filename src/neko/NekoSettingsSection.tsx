@@ -54,7 +54,7 @@ export function NekoSettingsSection() {
         <>
           <SwitchRow label="항상 위에 두기" checked={onTop} onChange={(v) => setScreen({ screenOnTop: v })} />
           <p className="settings-section__desc">끄면 모든 창 아래로 내려가 바탕화면에서만 보여. 화면 공유나 녹화할 때 꺼 둬.</p>
-          <label className="ui-switch-row">
+          <div className="ui-switch-row">
             <span>크기</span>
             <input
               type="range"
@@ -66,7 +66,7 @@ export function NekoSettingsSection() {
               style={{ "--fill": `${((scale - SCREEN_SCALE.min) / (SCREEN_SCALE.max - SCREEN_SCALE.min)) * 100}%` } as React.CSSProperties}
               aria-label={`화면 속 ${name} 크기`}
             />
-          </label>
+          </div>
           <div className="ui-switch-row">
             <span>프레임</span>
             <Segmented value={fps === 30 ? "30" : "60"} onChange={(v) => setScreen({ screenFps: v === "30" ? 30 : 60 })} options={FPS_OPTIONS} />
