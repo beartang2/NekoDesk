@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AlertDialog } from "radix-ui";
 import { Trash2 } from "lucide-react";
 import { drawShape, onShapeImage, shapeBounds, type GiftShape } from "./engine/gift-shape";
-import { PLACE_NAME, fits, smallestPlace, useNekoGifts, type NekoGift } from "./gifts";
+import { PLACE_NAME, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { GiftLab } from "./GiftLab";
 import { josa } from "../lib/hangul";
@@ -31,22 +31,57 @@ export function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: numbe
 
 const DAY = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric" });
 
-/** 지금 장소에 놓을 수 있는 크기 안내 */
-const RULE: Record<NekoPlacement, string> = {
-  sidebar: "방엔 작은 것만 들어가.",
-  dock: "거실엔 작은 것과 중간 것까지 들어가.",
-  screen: "마당엔 뭐든 놓을 수 있어.",
-};
-
-/** 칸 버튼: 여기 놓였으면 치우기, 다른 장소에 놓였으면 여기로(안 맞으면 치우기), 안 놓였으면 놓기(안 맞으면 어디부터인지) */
-function action(g: NekoGift, here: NekoPlacement): { label: string; run: (() => void) | null } {
+/** 칸 버튼: 여기 놓였으면 치우기, 다른 장소에 놓였으면 여기로, 안 놓였으면 놓기(액자는 걸기). 크기로 자리를 막지 않는다 */
+function action(g: NekoGift, here: NekoPlacement): { label: string; run: () => void } {
   const { place } = useNekoGifts.getState();
-  const ok = fits(g.size, here);
-  if (g.placed?.at === here || (g.placed && !ok)) return { label: "치우기", run: () => place(g.id, null) };
-  if (g.placed) return { label: "여기로", run: () => place(g.id, "auto", here) };
-  if (ok) return { label: g.frame ? "걸기" : "놓기", run: () => place(g.id, "auto", here) };
-  const min = smallestPlace(g.size);
-  return { label: `${PLACE_NAME[min]}${min === "screen" ? "에만" : "부터"}`, run: null };
+  if (g.placed?.at === here) return { label: "치우기", run: () => place(g.id, null) };
+  return { label: g.placed ? "여기로" : g.frame ? "걸기" : "놓기", run: () => place(g.id, "auto", here) };
+}
+
+/** 배율 슬라이더 끝: 로그 눈금 2^-2 ~ 2^2 = 0.25 ~ 4배. 가운데가 1배라 작은 쪽·큰 쪽 모두 같은 만큼 세밀하다 */
+const LOG2_MAX = 2;
+const fmtScale = (s: number) => `×${+s.toFixed(s >= 1 ? 1 : 2)}`;
+
+/**
+ * 놓인 선물 크기(gifts resize). 끄는 동안엔 프레임마다 한 번만 메모리만 바꿔 무대가 바로 따라오고(windowSync),
+ * 놓을 때 한 번 저장한다 — 동기화 기록이 쏟아지지 않게. 그 자리 상한에 걸리면 위에 작게 알린다(어림이라 몇 % 다를 수 있다)
+ */
+function GiftScale({ g, at }: { g: NekoGift; at: NekoPlacement }) {
+  const [drag, setDrag] = useState<number | null>(null);
+  const last = useRef(1), raf = useRef(0), dirty = useRef(false);
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  const s = drag ?? g.scale ?? 1, t = Math.log2(s);
+  const resize = (v: number, save: boolean) => useNekoGifts.getState().resize(g.id, v, save);
+  const live = (v: number) => {
+    last.current = v; dirty.current = true; setDrag(v);
+    if (!raf.current) raf.current = requestAnimationFrame(() => { raf.current = 0; resize(last.current, false); });
+  };
+  const commit = (v = last.current) => {
+    cancelAnimationFrame(raf.current); raf.current = 0;
+    dirty.current = false; setDrag(null);
+    resize(v, true);
+  };
+  return (
+    <div className="neko-gifts__scale">
+      {scaleCapped({ ...g, scale: s }, at) && <span className="neko-gifts__cap">{PLACE_NAME[at]}에선 이보다 크게 안 보여</span>}
+      <div className="neko-gifts__scale-row">
+        <span>{fmtScale(s)}</span>
+        {s !== 1 && <button type="button" className="neko-gifts__reset" onClick={() => commit(1)}>원래 크기</button>}
+      </div>
+      <input
+        type="range"
+        min={-LOG2_MAX}
+        max={LOG2_MAX}
+        step={0.05}
+        value={t}
+        onPointerDown={() => window.addEventListener("pointerup", () => { if (dirty.current) commit(); }, { once: true })}
+        onKeyUp={() => { if (dirty.current) commit(); }}
+        onChange={(e) => live(Math.round(2 ** Number(e.target.value) * 100) / 100)}
+        style={{ "--fill": `${((t + LOG2_MAX) / (2 * LOG2_MAX)) * 100}%` } as CSSProperties}
+        aria-label={`${g.title} 크기`}
+      />
+    </div>
+  );
 }
 
 /**
@@ -86,16 +121,16 @@ export function NekoGiftPanel() {
       <div className="neko-cz__body">
         {import.meta.env.DEV && <GiftLab />}
         <p className="settings-section__desc">
-          선물 {gifts.length}개. 지금 네코는 {PLACE_NAME[here]}에 있어. {RULE[here]} 놓기를 누르면 {PLACE_NAME[here]} 바닥에 놓여.
+          선물 {gifts.length}개. 지금 네코는 {PLACE_NAME[here]}에 있어. 놓기를 누르면 {PLACE_NAME[here]} 바닥에 놓이고, 놓인 선물은 칸에서 크기를 바꿀 수 있어.
           {here !== "screen" && " 무대에선 끌어 옮기고(높이 두면 벽에 걸려), 우클릭하면 치울 수 있어."}
         </p>
         <ul className="neko-gifts__grid">
           {[...gifts].reverse().map((g) => {
-            const ok = fits(g.size, here), act = action(g, here);
+            const act = action(g, here);
             return (
               <li
                 key={g.id}
-                className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}${ok ? "" : " neko-gifts__item--off"}`}
+                className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`}
                 title={`${g.body || g.title}\n${DAY.format(new Date(g.at))}에 받음${g.placed ? ` · ${PLACE_NAME[g.placed.at]}에 놓여 있어` : ""}`}
               >
                 <button type="button" className="neko-gifts__drop" aria-label={`${g.title} 버리기`} title="버리기" onClick={() => setDrop(g)}>
@@ -103,7 +138,8 @@ export function NekoGiftPanel() {
                 </button>
                 <GiftThumb shape={g.shape} size={64} />
                 <span className="neko-gifts__title">{g.title}</span>
-                <button type="button" className="settings-btn neko-gifts__btn" disabled={!act.run} onClick={act.run ?? undefined}>
+                {g.placed && <GiftScale g={g} at={g.placed.at} />}
+                <button type="button" className="settings-btn neko-gifts__btn" onClick={act.run}>
                   {act.label}
                 </button>
               </li>

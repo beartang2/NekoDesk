@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { drawShape, onShapeImage, shapeBounds } from "./engine/gift-shape";
+import { drawShape, onShapeImage } from "./engine/gift-shape";
+import { decorDims, decorK } from "./engine/decor-draw";
 import { decorItems, useNekoGifts } from "./gifts";
 import { useSettingsStore } from "../stores/settingsStore";
 import { setTimeZone } from "../lib/time";
@@ -114,9 +115,6 @@ function WeatherFrame({ w }: { w: WeatherNow }) {
   );
 }
 
-const DECOR_SIZE = 32; // neko-engine 의 DECOR_SIZE(한 변, S 단위)
-const SIZE_K: Record<string, number> = { small: 0.6, medium: 1, large: 1.45 };
-
 /**
  * 네코가 다른 자리(거실·마당)에 가 있을 때 방에 놓인 선물. 엔진의 decorAt·drawDecorItem 과 같은 자리·크기로
  * 정지 그림만 그린다(뿅·흔들림 없이). 엔진의 자리 계산이 바뀌면 여기도 맞춘다.
@@ -138,8 +136,8 @@ export function RoomGifts({ isDark }: { isDark: boolean }) {
     g.clearRect(0, 0, w, h);
     const { floorY, S } = stageMetrics(w, h), m = 16 * S;
     for (const d of decorItems(gifts, "sidebar")) {
-      const bd = shapeBounds(d.shape), u = (DECOR_SIZE * (SIZE_K[d.size ?? ""] ?? 1) * S) / Math.max(bd.w, bd.h);
-      const iw = bd.w * u, ih = bd.h * u;
+      // 크기 × 사용자 배율, 방 상한까지 — 엔진·선물 창과 같은 식(decor-draw)
+      const { bd, u, w: iw, h: ih } = decorDims(d.shape, decorK(d.shape, d.size, d.scale, "sidebar", { floorY, S }).k, S);
       const x = m + d.u * Math.max(0, w - 2 * m);
       const wall = d.surface === "wall";
       const bottom = wall ? floorY - (d.v ?? 0.5) * Math.max(1, floorY - ih - 10 * S) : floorY;
