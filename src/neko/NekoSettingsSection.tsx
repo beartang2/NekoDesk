@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Segmented, SwitchRow, type Option } from "../components/ui";
-import { NekoCustomizeModal } from "./NekoCustomizeModal";
 import { NekoGiftBox } from "./NekoGiftBox";
+import { NekoNeedsDev } from "./NekoNeedsDev";
 import { SCREEN_SCALE, useNekoStore, type NekoPlacement } from "./nekoStore";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { josa } from "../lib/hangul";
@@ -35,8 +35,9 @@ export function NekoSettingsSection() {
   const scale = useNekoStore((s) => s.stage.screenScale);
   const fps = useNekoStore((s) => s.stage.screenFps);
   const setScreen = useNekoStore((s) => s.setScreen);
-  const [open, setOpen] = useState(false);
   const name = useSettingsStore(nekoNameOf);
+  const follow = useSettingsStore((s) => s.nekoFollowApps);
+  const setFollow = useSettingsStore((s) => s.setNekoFollowApps);
 
   return (
     <section className="settings-section neko-settings">
@@ -45,7 +46,7 @@ export function NekoSettingsSection() {
       <div className="neko-settings__summary">
         <i className="cat-skin-swatch" style={{ background: coatSwatch(a) }} />
         <span className="neko-settings__summary-text">{summarizeAppearance(a)}</span>
-        <button type="button" className="settings-btn" onClick={() => setOpen(true)}>네코 꾸미기</button>
+        <button type="button" className="settings-btn" onClick={() => void invoke("panel_open", { kind: "neko-customize" }).catch(() => {})}>네코 꾸미기</button>
       </div>
 
       <Segmented value={placement} onChange={setPlacement} options={PLACES} />
@@ -75,9 +76,20 @@ export function NekoSettingsSection() {
         </>
       )}
 
+      {IS_MAC && (
+        <>
+          <SwitchRow label="다른 앱 따라 하기" checked={follow} onChange={setFollow} />
+          <p className="settings-section__desc">
+            다른 앱에서 키를 치면 {name}도 같이 타이핑하고, 맨 앞 앱에 맞춰 그림을 그리거나 창밖을 보거나 책을 읽어.
+            음악 앱이 재생 중이면 하던 걸 하면서 헤드폰을 써(처음 한 번 macOS 가 음악 앱 제어를 허락할지 물어). 무슨 키를 쳤는지는 안 봐.
+          </p>
+        </>
+      )}
+
       <NekoGiftBox />
 
-      {open && <NekoCustomizeModal onClose={() => setOpen(false)} />}
+      {import.meta.env.DEV && <NekoNeedsDev />}
+
     </section>
   );
 }

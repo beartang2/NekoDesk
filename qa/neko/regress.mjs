@@ -29,10 +29,10 @@ async function open(query = "", viewport = { width: 760, height: 1000 }, dpr = 1
   return p;
 }
 const pick = (p, id) => p.click(`label:has(#${id})`);
-const ACTS = ["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb", "think", "wait", "meal", "hungry", "dig", "calendar", "erase"];
+const ACTS = ["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb", "think", "wait", "meal", "hungry", "dig", "calendar", "erase", "gaze"];
 
 try {
-  // 1) 활동 21개를 12초씩 + 빠르게 바꾸기 + 밖에서 활동 더하기: 값이 깨지지 않는가
+  // 1) 활동 전부를 12초씩 + 빠르게 바꾸기 + 밖에서 활동 더하기: 값이 깨지지 않는가
   {
     const p = await open();
     const r = await p.evaluate((ACTS) => {
@@ -45,7 +45,7 @@ try {
       n.act("wave"); n.step(240); n.draw();
       return { bad, finite: ok(), act: n.activity };
     }, ACTS);
-    check("활동 21개·빠른 전환·외부 활동: 값 유한", r.bad.length ? r.bad.join(",") : "모두 정상", r.bad.length === 0 && r.finite && r.act === "wave");
+    check(`활동 ${ACTS.length}개·빠른 전환·외부 활동: 값 유한`, r.bad.length ? r.bad.join(",") : "모두 정상", r.bad.length === 0 && r.finite && r.act === "wave");
     await p.close();
   }
 
@@ -483,6 +483,208 @@ try {
     check("마당 선물 캔버스: 멀리 놓인 선물까지 감싸 그리고 누를 수 있다", `감쌈 ${r.span} · 그림 ${r.inked} · 누르기 ${r.farHit} · 가만있으면 그대로 ${r.still}`, r.span && r.inked && r.farHit && r.still);
     check("마당 선물 캔버스: 그 캔버스를 눌러 끌어 옮기고 우클릭하면 엔진에 닿는다", `끌기·우클릭 ${r.viaCanvas}`, r.viaCanvas);
     await p.close();
+  }
+
+  // 9-l) 산책 중 팻말(화면 모드 마당): 고양이 대신 그 자리 바닥에 팻말, 누를 수 없고(클릭 통과), 다 서면 다시 안 그린다.
+  //      돌아오면 팻말이 없어지고 고양이가 그 자리에 다시 보인다
+  {
+    const p = await browser.newPage({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8&decor=1`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), g = cv.getContext("2d");
+      n.setGround(760); n.step(200); n.draw();
+      const x0 = c.x, inked = () => { const d = g.getImageData(0, 0, cv.width, cv.height).data; let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) k++; return k; };
+      n.setAway(true);
+      for (let i = 0; i < 120 * 2; i++) n.step(1);
+      n.draw(); const signInk = inked(), hit = n.hit(x0, c.y), still = c.x === x0;
+      g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height); g.restore();
+      n.step(30); n.draw(); const skipped = inked() === 0; // 다 섰으면 다시 안 그린다
+      n.walkOut("right"); n.step(240); const noWalk = c.x === x0;
+      n.setAway(false); n.step(30); n.draw();
+      return { signInk: signInk > 500, hit, still, skipped, noWalk, back: inked() > 500 && n.hit(c.x, c.y) && Math.abs(c.x - x0) < 1 };
+    });
+    check("산책 중 팻말: 고양이 대신 팻말, 누를 수 없고 움직이지 않으며 다 서면 다시 안 그린다", `팻말 ${r.signInk} · 누르기 ${r.hit} · 그대로 ${r.still} · 다시 안 그림 ${r.skipped} · 걸어 나가기 막힘 ${r.noWalk}`, r.signInk && !r.hit && r.still && r.skipped && r.noWalk);
+    check("산책 중 팻말: 돌아오면 팻말 대신 그 자리에 고양이", `돌아옴 ${r.back}`, r.back);
+    await p.close();
+  }
+
+  // 9-m) 털실: 공은 자리의 실제 끝까지 굴러가 튕긴다(안쪽 '투명 벽' 없음). 끝에 붙은 공은 앞발을 뻗어 끌어내서,
+  //      구석에서 헛발질만 되풀이하지 않는다. 좁은 자리도 공이 움직이고, 화면 모드에선 열린 가장자리로도 공이 안 나간다
+  {
+    const yarn = async (q, vp, start) => {
+      const p = await open(q, vp);
+      const r = await p.evaluate((start) => {
+        const n = window.__neko, c = n.cat, S = n.S, W = n.W;
+        n.step(60); n.act("yarn"); n.step(2);
+        const A = c.act, b = A.ball;
+        if (start.x === "L") b.x = 15 * S; else if (start.x === "R") b.x = W - 15 * S; else if (start.x != null) b.x = start.x * W;
+        if (start.vx) b.vx = start.vx * S;
+        let minX = Infinity, maxX = -Infinity, swipes = 0, kicks = 0, pulls = 0, sw = A.swipe, vx = b.vx;
+        for (let i = 0; i < 120 * start.sec; i++) {
+          n.step(1);
+          if (sw < 0 && A.swipe >= 0) swipes++;
+          if (Math.abs(b.vx - vx) > 50 * S && Math.abs(vx) < 60 * S) { kicks++; if (Math.sign(b.vx) !== c.face) pulls++; }
+          sw = A.swipe; vx = b.vx; minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x);
+        }
+        return { minEdge: minX / S, maxEdge: (W - maxX) / S, swipes, kicks, pulls, span: (maxX - minX) / S, out: (start.x === "L" ? maxX : W - minX) / S };
+      }, start);
+      await p.close();
+      return r;
+    };
+    const wide = await yarn("", { width: 760, height: 1000 }, { x: 0.5, vx: -700, sec: 4 });
+    check("털실: 공이 자리의 실제 끝까지 굴러간다(투명 벽 없음)", `끝까지 ${wide.minEdge.toFixed(0)}단위(예전 150)`, wide.minEdge < 20);
+    const L = await yarn("", { width: 760, height: 1000 }, { x: "L", sec: 25 }), R = await yarn("", { width: 760, height: 1000 }, { x: "R", sec: 25 });
+    const ok = (r) => r.pulls > 0 && r.out > 160 && r.swipes - r.kicks <= 1; // 끝에서 160단위 넘게 끌어냈다
+    check("털실: 끝에 붙은 공은 앞발을 뻗어 끌어내고, 헛발질을 되풀이하지 않는다", `왼쪽 끌어냄 ${L.pulls}·찬 ${L.kicks}/${L.swipes}·멀리 ${L.out.toFixed(0)} · 오른쪽 끌어냄 ${R.pulls}·찬 ${R.kicks}/${R.swipes}·멀리 ${R.out.toFixed(0)}`, ok(L) && ok(R));
+    const narrow = await yarn("?w=220&h=200&scale=height", { width: 760, height: 1000 }, { sec: 25 });
+    check("털실: 좁은 자리(220×200)도 공이 움직이고 헛발질을 되풀이하지 않는다", `찬 ${narrow.kicks}/${narrow.swipes} · 움직인 폭 ${narrow.span.toFixed(0)}단위`, narrow.kicks >= 5 && narrow.swipes - narrow.kicks <= 1);
+    const p = await open("?world=1&fixed=0.8", { width: 1200, height: 700 });
+    const w = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, S = n.S, W = n.W;
+      n.setGround(600); n.step(60); n.setEdges({ left: true, right: true }); n.act("yarn"); n.step(2);
+      const b = c.act.ball; let minX = Infinity, maxX = -Infinity;
+      for (let k = 0; k < 6; k++) { b.x = (k % 2 ? 0.7 : 0.3) * W; b.vx = (k % 2 ? 900 : -900) * S; for (let i = 0; i < 600; i++) { n.step(1); minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x); } }
+      return { inside: minX >= 0 && maxX <= W, near: minX < 20 * S || W - maxX < 20 * S, cat: c.x > 0 && c.x < W };
+    });
+    await p.close();
+    check("털실: 화면 모드 열린 가장자리로도 공이 나가지 않는다(화면 끝에서 튕김)", `안 ${w.inside} · 끝까지 ${w.near} · 고양이 화면 안 ${w.cat}`, w.inside && w.near && w.cat);
+  }
+
+  // 9-n) 활동 겹치기(docs/neko-activity-mix.md 1부): 선언이 엔진 활동과 맞고, 음악은 모든 활동·기본 상태 위에 얹히며
+  //      헤드폰을 낀 채 돌아다니고, 졸 때는 낀 채·누워 자면 벗는다. 주 활동이 끝나도 남고, 잡혀도 이어진다
+  {
+    const p = await open();
+    const r = await p.evaluate(async () => {
+      const { MIX, POSE_PART } = await import("/src/neko/engine/activity-mix.js");
+      const n = window.__neko, c = n.cat, o = {};
+      const acts = n.activities.filter((k) => k !== "wave"), decl = Object.keys(MIX).filter((k) => !k.startsWith("base:"));
+      o.declMissing = acts.filter((k) => !MIX[k]); o.declExtra = decl.filter((k) => !acts.includes(k));
+      const ok = () => [c.x, c.y, c.head.x, c.head.y, ...c.tail.map((t) => t.x)].every(Number.isFinite);
+      const keys = new Set(), labels = new Set(); n.on("label", (l) => labels.add(l));
+      o.bad = []; o.lost = [];
+      n.step(60);
+      for (const k of acts.filter((k) => k !== "music")) {
+        n.act(k); n.step(30);
+        if (!n.mix("music")) o.lost.push(k + ":거절");
+        for (let s = 0; s < 120 * 12; s++) { n.step(1); if (c.actP) Object.keys(c.actP).forEach((x) => keys.add(x)); if (s % 6 === 0) n.draw(); if (!ok()) { o.bad.push(k); break; } }
+        if (n.side !== "music") o.lost.push(k);
+        n.act(null); n.mix(null); n.step(120);
+      }
+      o.unknownKeys = [...keys].filter((x) => x !== "add" && !POSE_PART[x]);
+      o.label = [...labels].some((l) => l.startsWith("음악 들으며 "));
+      // 헤드폰 낀 채 돌아다니기: 걷는 동안 음표는 앉아 있을 때보다 적다
+      const notes = (sec, f) => { let k = 0, prev = c.side.noteT; for (let i = 0; i < 120 * sec; i++) { n.step(1); f && f(i); if (c.side.noteT > prev) k++; prev = c.side.noteT; } return k; };
+      n.setPose("sit"); n.step(120); n.mix("music"); n.step(60);
+      const sitNotes = notes(20);
+      n.setPose("stand"); n.step(60);
+      let walked = 0; const walkNotes = notes(20, (i) => { if (i % 240 === 0) n.walkTo(c.x < n.W / 2 ? n.W * 0.8 : n.W * 0.2); if (c.mode === "walk") walked++; });
+      o.walk = { side: n.side, walked: walked / 120, sitNotes, walkNotes, label: [...labels].includes("음악 들으며 걷는 중") };
+      n.setPose("loaf"); n.step(240); o.loaf = n.side;
+      n.setPose("lie"); n.step(240); o.lie = n.side; o.lieRetry = n.mix("music");
+      n.setPose("stand"); n.step(120); n.mix("music"); n.step(60);
+      n.act("typing"); n.step(240); n.act(null); n.step(60); o.afterMain = [n.activity, n.side];
+      n.act("music"); n.step(5); o.ride = [n.activity, n.side, c.act.t > 1];
+      n.act(null); n.step(60); n.mix("music"); n.step(60);
+      o.reject = n.mix("typing");
+      return o;
+    });
+    check("겹치기: 선언(MIX)이 엔진 활동과 같고, pose 키가 부위 표 안에 있다", `빠짐 ${r.declMissing.join(",") || "없음"} · 남음 ${r.declExtra.join(",") || "없음"} · 모르는 키 ${r.unknownKeys.join(",") || "없음"}`, !r.declMissing.length && !r.declExtra.length && !r.unknownKeys.length);
+    check("겹치기: 음악은 모든 활동 위에 12초씩 얹혀도 값 유한·헤드폰 유지·상태 글자", `깨짐 ${r.bad.join(",") || "없음"} · 빠짐 ${r.lost.join(",") || "없음"} · 글자 ${r.label}`, !r.bad.length && !r.lost.length && r.label);
+    check("겹치기: 헤드폰 낀 채 돌아다니고 걷는 동안은 음표가 적다", `걸음 ${r.walk.walked.toFixed(1)}초 · 곁들임 ${r.walk.side} · 음표 앉아 ${r.walk.sitNotes}·걸어 ${r.walk.walkNotes} · "음악 들으며 걷는 중" ${r.walk.label}`, r.walk.side === "music" && r.walk.walked > 5 && r.walk.walkNotes < r.walk.sitNotes && r.walk.label);
+    check("겹치기: 식빵으로 졸 땐 낀 채, 누워 자면 벗고 다시 못 씀", `식빵 ${r.loaf} · 누움 ${r.lie} · 다시 ${r.lieRetry}`, r.loaf === "music" && r.lie === null && r.lieRetry === false);
+    check("겹치기: 주 활동이 끝나도 남고, act(음악)이면 옮겨 타며, 곁들임 아닌 건 거절", `끝난 뒤 ${r.afterMain.join("/")} · 옮겨 탐 ${r.ride.join("/")} · 거절 ${!r.reject}`, r.afterMain[0] === null && r.afterMain[1] === "music" && r.ride[0] === "music" && r.ride[1] === null && r.ride[2] && !r.reject);
+    // 잡혀도 음악은 이어진다(목덜미를 잡고 위로)
+    const box = await p.locator("#stage").boundingBox();
+    const h = await p.evaluate(() => [window.__neko.cat.head.x, window.__neko.cat.head.y, window.__neko.side]);
+    await p.mouse.move(box.x + h[0], box.y + h[1]); await p.mouse.down(); await p.mouse.move(box.x + h[0] + 8, box.y + h[1] - 60, { steps: 4 });
+    const mid = await p.evaluate(() => { window.__neko.step(30); return [window.__neko.cat.mode === "grabbed", window.__neko.side]; });
+    await p.mouse.up();
+    const after = await p.evaluate(() => { window.__neko.step(240); return window.__neko.side; });
+    const g = { grabbed: mid[0], side: mid[1], before: h[2], after };
+    // 2단계 엔진: 쳐다보기는 사용자 쪽을 보며 가끔 천천히 눈을 감았다 뜨고, setChase(false) 면 커서를 따라오지 않는다
+    const gz = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat; n.act(null); n.mix(null); n.step(240);
+      n.act("gaze"); let lidMax = 0, lidMin = 1;
+      for (let i = 0; i < 120 * 11; i++) { n.step(1); if (c.actP && c.actP.lid != null) { lidMax = Math.max(lidMax, c.actP.lid); lidMin = Math.min(lidMin, c.actP.lid); } }
+      n.act(null); n.step(120);
+      const cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), x0 = c.x;
+      n.setChase(false);
+      for (let i = 0; i < 20; i++) { cv.dispatchEvent(new PointerEvent("pointermove", { clientX: R.left + (x0 > n.W / 2 ? 30 : n.W - 30), clientY: R.top + n.floorY - 20, bubbles: true })); n.step(12); }
+      const stayed = Math.abs(c.x - x0) < 4 * n.S;
+      n.setChase(true);
+      for (let i = 0; i < 40; i++) { cv.dispatchEvent(new PointerEvent("pointermove", { clientX: R.left + (x0 > n.W / 2 ? 30 : n.W - 30), clientY: R.top + n.floorY - 20, bubbles: true })); n.step(12); }
+      return { blink: lidMax > 0.8 && lidMin < 0.05, stayed, chased: Math.abs(c.x - x0) > 40 * n.S };
+    });
+    check("쳐다보기·따라오기 스위치: 천천히 눈을 감았다 뜨고, setChase(false) 면 커서를 안 따라온다", `눈 깜빡 ${gz.blink} · 끔 제자리 ${gz.stayed} · 켬 따라옴 ${gz.chased}`, gz.blink && gz.stayed && gz.chased);
+    check("겹치기: 잡혀도 음악은 이어진다", `잡힘 ${g.grabbed} · 곁들임 ${g.before}→${g.side}→${g.after}`, g.grabbed && g.before === "music" && g.side === "music" && g.after === "music");
+    await p.close();
+  }
+
+  // 9-o) 소품을 놓는 활동을 뛰는 중에 시작해 멀리 내려도 소품을 고양이 앞에 다시 펴고, 머리가 소품까지 끌려가 목이 늘어나지 않는다
+  //      (화면 모드에서 상자 뒤지기 중 고개가 뽑혀 몸이 길게 늘어나 보이던 것). 어떤 활동이든 머리는 목 기준점에서 50 안
+  {
+    const p = await open("?world=1&fixed=0.8", { width: 1200, height: 700 });
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, S = n.S, o = {};
+      n.setGround(600); n.step(120);
+      const reach = () => Math.hypot(c.headAnc[0] - c.headAnc0[0], c.headAnc[1] - c.headAnc0[1]) / S;
+      for (const k of ["dig", "box", "snack", "typing"]) {
+        n.act(null); n.step(240);
+        n.walkTo(c.x + (c.x < n.W / 2 ? 300 : -300) * S); n.step(30); n.jump(); n.step(4); n.act(k);
+        let mx = 0; for (let i = 0; i < 120 * 8; i++) { n.step(1); mx = Math.max(mx, reach()); }
+        const prop = c.act && (c.act.box || c.act.bowl || c.act.lap);
+        o[k] = { reach: +mx.toFixed(0), near: prop ? +(Math.abs(prop.x - c.x) / S).toFixed(0) : null };
+      }
+      return o;
+    });
+    const ok = Object.values(r).every((v) => v.reach <= 50 && v.near !== null && v.near < 110);
+    check("뛰다 시작한 활동: 내린 자리에 소품을 다시 펴고 머리는 목에서 50 안", Object.entries(r).map(([k, v]) => `${k} 머리 ${v.reach}·소품 ${v.near}`).join(" · "), ok);
+    await p.close();
+  }
+
+  // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
+  //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
+  {
+    const climb = async (q, vp, o = {}) => {
+      const p = await open(q, vp);
+      const r = await p.evaluate((o) => {
+        const n = window.__neko, c = n.cat, S = n.S, H2W = n.debug.H2W;
+        if (o.ground) n.setGround(o.ground);
+        n.step(60);
+        let giftBottom = null;
+        if (o.gift) { // 오를 벽(가까운 쪽)에 큰 선물을 높이 건다
+          const right = c.x > n.W / 2, gx = right ? n.W - 16 * S : 16 * S;
+          n.setDecor([{ id: "w", surface: "wall", u: right ? 1 : 0, v: o.gift, size: "large", shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]); n.step(200); n.draw();
+          for (let y = 0; y < n.floorY; y++) if (n.hitDecor(gx, y)) giftBottom = y;
+        }
+        n.act("climb"); const A = c.act, side = A.side, giftSide = c.x > n.W / 2 ? 1 : -1;
+        if (o.win != null) { const plan = A; const iv = () => { if (plan.T != null && !plan.__set) { plan.__set = true; plan.win = o.win; plan.hold = o.win ? 2.4 : plan.hold; plan.tSlide = plan.tTop + plan.hold; plan.tFall = plan.tSlide + plan.slideT; } }; o.iv = iv; }
+        let top = Infinity, minY = Infinity, ended = false;
+        for (let i = 0; i < 120 * 40; i++) {
+          n.step(1); if (o.iv) o.iv();
+          if (!c.act) { ended = true; break; }
+          top = Math.min(top, ...[[-28, -46], [28, -46]].map(([x, y]) => H2W(x, y)[1])); minY = Math.min(minY, c.y);
+        }
+        return { h: (n.floorY - minY) / S, frac: (n.floorY - top) / n.floorY, topPx: top, S, ended, giftBottom, sameWall: side === giftSide };
+      }, o);
+      await p.close();
+      return r;
+    };
+    const low = await climb("?w=704&h=282&scale=height", { width: 760, height: 1000 });
+    const tall = await climb("?w=1200&h=760&scale=height", { width: 1300, height: 900 });
+    const yard = await climb("?world=1&fixed=0.8", { width: 1400, height: 900 }, { ground: 860 });
+    const win = await climb("?w=1200&h=760&scale=height", { width: 1300, height: 900 }, { win: true });
+    const gift = await climb("?w=1200&h=760&scale=height", { width: 1300, height: 900 }, { gift: 0.8 });    // 높이 건 것: 그 아래까지
+    const block = await climb("?w=1200&h=760&scale=height", { width: 1300, height: 900 }, { gift: 0.45 }); // 낮게 건 것: 반대쪽 벽으로
+    check("벽 타기: 자리 높이에 맞춰 오른다(낮은 방은 그대로, 높은 방 70~85%, 마당은 상한)",
+      `낮은 방 ${low.h.toFixed(0)}단위·천장 여유 ${low.topPx.toFixed(0)}px · 높은 방 ${(tall.frac * 100).toFixed(0)}% · 마당 ${yard.h.toFixed(0)}단위`,
+      low.h >= 115 && low.h <= 125 && low.topPx >= 4 && tall.frac >= 0.68 && tall.frac <= 0.87 && yard.h > 300 && yard.h <= 500 && low.ended && tall.ended && yard.ended);
+    check("벽 타기: 성공하면 두리번거리다 뛰어내리고 끝난다", `끝남 ${win.ended} · 높이 ${win.h.toFixed(0)}`, win.ended && win.h > 150);
+    check("벽 타기: 벽에 건 선물 아래까지만 오르고, 낮게 막혔으면 반대쪽 벽으로", `선물 아래 ${gift.giftBottom?.toFixed(0)}px · 귀 끝 ${gift.topPx.toFixed(0)}px · 같은 벽 ${gift.sameWall} · 낮게 막힘 → 반대쪽 ${!block.sameWall}`,
+      gift.giftBottom != null && gift.sameWall && gift.topPx >= gift.giftBottom && gift.ended && !block.sameWall && block.ended);
   }
 
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다

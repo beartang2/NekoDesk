@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import { Check, Eye, Feather, Palette, Sparkles, Waves, X, type LucideIcon } from "lucide-react";
+import { Check, Eye, Feather, Palette, Sparkles, Waves, type LucideIcon } from "lucide-react";
 import { createNeko, type NekoAppearance, type NekoController, type NekoPattern, type NekoPose } from "./engine/neko-engine";
 import { useNekoStore } from "./nekoStore";
 import { CatGlyph, EyeGlyph, FurGlyph, PatternGlyph, PoseGlyph } from "./NekoGlyph";
@@ -84,7 +83,8 @@ function Field({ legend, hint, children }: { legend: string; hint?: string; chil
   );
 }
 
-export function NekoCustomizeModal({ onClose }: { onClose: () => void }) {
+/** 네코 꾸미기. 설정에서 따로 뜨는 창(panel_open "neko-customize")을 채운다 — 제목은 창 틀에, 완료·Esc 는 창을 닫는다 */
+export function NekoCustomize({ onClose }: { onClose: () => void }) {
   const a = useNekoStore((s) => s.appearance);
   const setAppearance = useNekoStore((s) => s.setAppearance);
   const reroll = useNekoStore((s) => s.reroll);
@@ -109,11 +109,6 @@ export function NekoCustomizeModal({ onClose }: { onClose: () => void }) {
   useEffect(() => { preview?.setPose(pose); }, [preview, pose]);
   useEffect(() => { setHex(a.color); }, [a.color]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
 
   const cat = (patch: Partial<NekoAppearance>) => <CatGlyph className="neko-cz__glyph" shape={{ ...a, ...patch }} />;
   const set = <K extends keyof NekoAppearance>(k: K) => (v: NekoAppearance[K]) => setAppearance({ [k]: v } as Partial<NekoAppearance>);
@@ -128,163 +123,156 @@ export function NekoCustomizeModal({ onClose }: { onClose: () => void }) {
     else setHex(a.color);
   };
 
-  return createPortal(
-    <div className="neko-cz__backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="neko-cz" role="dialog" aria-modal="true" aria-labelledby="neko-cz-title">
-        <header className="neko-cz__header">
-          <h2 id="neko-cz-title">네코 꾸미기</h2>
-          <button type="button" className="neko-cz__close" onClick={onClose} aria-label="닫기"><X size={14} /></button>
-        </header>
+  return (
+    <div className="neko-cz neko-cz--window">
 
-        <div className="neko-cz__body">
-          <section className="neko-cz__stage-card" aria-label="미리보기">
-            <canvas
-              ref={canvasRef}
-              className="neko-cz__stage"
-              tabIndex={0}
-              role="img"
-              aria-label="미리보기 고양이. 누르면 쓰다듬고, 빠르게 두 번 누르면 뛰어오르고, 누른 채로 끌면 목덜미를 잡아요."
-            />
-            <div className="neko-cz__stage-bar">
-              <Chips name="미리보기 자세" opts={POSES} value={pose} onPick={setPose} glyph={(k) => <PoseGlyph className="neko-cz__glyph neko-cz__glyph--sm" pose={k} ear={a.ear} />} />
-              <button type="button" className="neko-cz__btn" onClick={() => preview?.jump()}>점프</button>
-            </div>
-            <p className="neko-cz__stage-hint">
-              <span><b>누르기</b> 쓰다듬기</span><span><b>두 번 누르기</b> 점프</span><span><b>누른 채로 끌기</b> 목덜미 잡기</span>
-              <span>자세는 미리보기에만 써요</span>
-            </p>
-          </section>
+      <div className="neko-cz__body">
+        <section className="neko-cz__stage-card" aria-label="미리보기">
+          <canvas
+            ref={canvasRef}
+            className="neko-cz__stage"
+            tabIndex={0}
+            role="img"
+            aria-label="미리보기 고양이. 누르면 쓰다듬고, 빠르게 두 번 누르면 뛰어오르고, 누른 채로 끌면 목덜미를 잡아요."
+          />
+          <div className="neko-cz__stage-bar">
+            <Chips name="미리보기 자세" opts={POSES} value={pose} onPick={setPose} glyph={(k) => <PoseGlyph className="neko-cz__glyph neko-cz__glyph--sm" pose={k} ear={a.ear} />} />
+            <button type="button" className="neko-cz__btn" onClick={() => preview?.jump()}>점프</button>
+          </div>
+          <p className="neko-cz__stage-hint">
+            <span><b>누르기</b> 쓰다듬기</span><span><b>두 번 누르기</b> 점프</span><span><b>누른 채로 끌기</b> 목덜미 잡기</span>
+            <span>자세는 미리보기에만 써요</span>
+          </p>
+        </section>
 
-          <section className="neko-cz__controls">
-            {/* 단계 표시: 눌러서 오갈 수 있다 */}
-            <ol className="neko-cz__steps" aria-label="꾸미기 단계">
-              {STEPS.map((st, i) => (
-                <li key={st.key}>
-                  <button
-                    type="button"
-                    className={`neko-cz__step${i === step ? " is-current" : ""}${i < step ? " is-done" : ""}`}
-                    aria-current={i === step ? "step" : undefined}
-                    onClick={() => setStep(i)}
-                  >
-                    <span className="neko-cz__step-no" aria-hidden="true">
-                      {i < step ? <Check size={12} strokeWidth={3} /> : st.icon ? <st.icon size={12} strokeWidth={2.2} /> : <CatGlyph className="neko-cz__step-cat" shape={a} />}
-                    </span>
-                    <span className="neko-cz__step-name">{st.title}</span>
-                  </button>
-                </li>
-              ))}
-            </ol>
+        <section className="neko-cz__controls">
+          {/* 단계 표시: 눌러서 오갈 수 있다 */}
+          <ol className="neko-cz__steps" aria-label="꾸미기 단계">
+            {STEPS.map((st, i) => (
+              <li key={st.key}>
+                <button
+                  type="button"
+                  className={`neko-cz__step${i === step ? " is-current" : ""}${i < step ? " is-done" : ""}`}
+                  aria-current={i === step ? "step" : undefined}
+                  onClick={() => setStep(i)}
+                >
+                  <span className="neko-cz__step-no" aria-hidden="true">
+                    {i < step ? <Check size={12} strokeWidth={3} /> : st.icon ? <st.icon size={12} strokeWidth={2.2} /> : <CatGlyph className="neko-cz__step-cat" shape={a} />}
+                  </span>
+                  <span className="neko-cz__step-name">{st.title}</span>
+                </button>
+              </li>
+            ))}
+          </ol>
 
-            <div className="neko-cz__panel" key={STEPS[step].key}>
-              <h3 className="neko-cz__panel-title">{STEPS[step].title}</h3>
-              <p className="neko-cz__panel-desc">{STEPS[step].desc}</p>
+          <div className="neko-cz__panel" key={STEPS[step].key}>
+            <h3 className="neko-cz__panel-title">{STEPS[step].title}</h3>
+            <p className="neko-cz__panel-desc">{STEPS[step].desc}</p>
 
-              {STEPS[step].key === "coat" && (
-                <>
-                  <div className="neko-cz__chips" role="radiogroup" aria-label="털 색">
-                    {COATS.map((o) => (
-                      <button key={o.key} type="button" role="radio" aria-checked={a.coat === o.key}
-                        className="neko-cz__chip neko-cz__chip--swatch" onClick={() => setAppearance({ coat: o.key })}>
-                        <i className="neko-cz__swatch" style={{ background: o.swatch }} />{o.name}
-                      </button>
-                    ))}
-                    {/* 직접 고르기: 시스템 색 고르기 창(RGB)을 연다 */}
-                    <label className={`neko-cz__chip neko-cz__chip--swatch neko-cz__chip--picker${a.coat === "custom" ? " is-selected" : ""}`}>
-                      <input
-                        type="color"
-                        value={a.color}
-                        onChange={(e) => setAppearance({ coat: "custom", color: e.target.value })}
-                        aria-label="털 색 직접 고르기(RGB)"
-                      />
-                      <i className="neko-cz__swatch neko-cz__swatch--rainbow" style={{ background: a.coat === "custom" ? a.color : undefined }} />
-                      직접 고르기
-                    </label>
-                  </div>
-                  {a.coat === "custom" && (
-                    <div className="neko-cz__hexrow">
-                      <span>RGB</span>
-                      <input
-                        className="neko-cz__hex"
-                        value={hex}
-                        onChange={(e) => setHex(e.target.value)}
-                        onBlur={(e) => applyHex(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") applyHex((e.target as HTMLInputElement).value); }}
-                        spellCheck={false}
-                        aria-label="털 색 RGB 값(#rrggbb)"
-                      />
-                      <span className="neko-cz__rgb">{[1, 3, 5].map((i) => parseInt(a.color.slice(i, i + 2), 16)).join(" · ")}</span>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {STEPS[step].key === "pattern" && (
-                <div className="neko-cz__chips" role="group" aria-label="무늬">
-                  {PATTERNS.map((p) => (
-                    <button key={p.key} type="button" aria-pressed={a.patterns.includes(p.key)} className="neko-cz__chip neko-cz__chip--swatch" onClick={() => togglePattern(p.key)}>
-                      <PatternGlyph className="neko-cz__swatch-glyph" pattern={p.key} base={coatSwatch(a)} />
-                      {p.name}
+            {STEPS[step].key === "coat" && (
+              <>
+                <div className="neko-cz__chips" role="radiogroup" aria-label="털 색">
+                  {COATS.map((o) => (
+                    <button key={o.key} type="button" role="radio" aria-checked={a.coat === o.key}
+                      className="neko-cz__chip neko-cz__chip--swatch" onClick={() => setAppearance({ coat: o.key })}>
+                      <i className="neko-cz__swatch" style={{ background: o.swatch }} />{o.name}
                     </button>
                   ))}
-                  <button type="button" className="neko-cz__btn" onClick={reroll}>무늬 다시 뽑기</button>
+                  {/* 직접 고르기: 시스템 색 고르기 창(RGB)을 연다 */}
+                  <label className={`neko-cz__chip neko-cz__chip--swatch neko-cz__chip--picker${a.coat === "custom" ? " is-selected" : ""}`}>
+                    <input
+                      type="color"
+                      value={a.color}
+                      onChange={(e) => setAppearance({ coat: "custom", color: e.target.value })}
+                      aria-label="털 색 직접 고르기(RGB)"
+                    />
+                    <i className="neko-cz__swatch neko-cz__swatch--rainbow" style={{ background: a.coat === "custom" ? a.color : undefined }} />
+                    직접 고르기
+                  </label>
                 </div>
-              )}
-
-              {STEPS[step].key === "eye" && <Chips name="눈 색" opts={EYES} value={a.eye} onPick={set("eye")} glyph={(k) => <EyeGlyph className="neko-cz__glyph neko-cz__glyph--eye" color={EYES.find((e) => e.key === k)!.swatch!} />} />}
-
-              {STEPS[step].key === "body" && (
-                <div className="neko-cz__pickers">
-                  <Field legend="체형"><Chips name="체형" opts={BUILDS} value={a.build} onPick={set("build")} tile glyph={(k) => cat({ build: k })} /></Field>
-                  <Field legend="다리 길이"><Chips name="다리 길이" opts={LEGS} value={a.legs} onPick={set("legs")} tile glyph={(k) => cat({ legs: k })} /></Field>
-                </div>
-              )}
-
-              {STEPS[step].key === "fur" && (
-                <div className="neko-cz__pickers">
-                  <Field legend="털 길이"><Chips name="털 길이" opts={FURS} value={a.fur} onPick={set("fur")} tile glyph={(k) => <FurGlyph className="neko-cz__glyph" fur={k} />} /></Field>
-                  <Field legend="귀"><Chips name="귀" opts={EARS} value={a.ear} onPick={set("ear")} tile glyph={(k) => cat({ ear: k })} /></Field>
-                  <Field legend="꼬리"><Chips name="꼬리" opts={TAILS} value={a.tail} onPick={set("tail")} tile glyph={(k) => cat({ tail: k })} /></Field>
-                </div>
-              )}
-
-              {STEPS[step].key === "finish" && (
-                <>
-                  <div className="neko-cz__tune">
-                    <label htmlFor="neko-cz-soft">말랑함</label>
-                    <span className="neko-cz__range">
-                      <span aria-hidden="true">단단</span>
-                      {/* 손을 떼면 미리보기를 콕 눌러 지금 말랑함을 바로 보여 준다 */}
-                      <input id="neko-cz-soft" type="range" min={0} max={100} value={Math.round(a.soft * 100)}
-                        style={{ "--fill": `${a.soft * 100}%` } as React.CSSProperties}
-                        onChange={(e) => setAppearance({ soft: Number(e.target.value) / 100 })}
-                        onPointerUp={() => preview?.boing(1)}
-                        onKeyUp={(e) => { if (e.key.startsWith("Arrow") || e.key === "Home" || e.key === "End") preview?.boing(1); }} />
-                      <span aria-hidden="true">말랑</span>
-                    </span>
-                    <output htmlFor="neko-cz-soft">{Math.round(a.soft * 100)}</output>
-                    <button type="button" className="neko-cz__btn" onClick={() => preview?.boing(1)}>콕 눌러 보기</button>
+                {a.coat === "custom" && (
+                  <div className="neko-cz__hexrow">
+                    <span>RGB</span>
+                    <input
+                      className="neko-cz__hex"
+                      value={hex}
+                      onChange={(e) => setHex(e.target.value)}
+                      onBlur={(e) => applyHex(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") applyHex((e.target as HTMLInputElement).value); }}
+                      spellCheck={false}
+                      aria-label="털 색 RGB 값(#rrggbb)"
+                    />
+                    <span className="neko-cz__rgb">{[1, 3, 5].map((i) => parseInt(a.color.slice(i, i + 2), 16)).join(" · ")}</span>
                   </div>
-                  <p className="neko-cz__summary">
-                    <i className="neko-cz__swatch" style={{ background: coatSwatch(a) }} />
-                    {summarizeAppearance(a)}
-                  </p>
-                </>
-              )}
-            </div>
-          </section>
-        </div>
+                )}
+              </>
+            )}
 
-        <footer className="neko-cz__footer">
-          <button type="button" className="neko-cz__btn" onClick={() => setAppearance(initial.current)}>처음대로</button>
-          <span className="neko-cz__footer-gap" />
-          <span className="neko-cz__progress" aria-live="polite">{step + 1} / {STEPS.length}</span>
-          <button type="button" className="neko-cz__btn" onClick={() => setStep((v) => Math.max(0, v - 1))} disabled={step === 0}>이전</button>
-          {last
-            ? <button type="button" className="neko-cz__btn neko-cz__btn--primary" onClick={onClose}>완료</button>
-            : <button type="button" className="neko-cz__btn neko-cz__btn--primary" onClick={() => setStep((v) => v + 1)}>다음</button>}
-        </footer>
+            {STEPS[step].key === "pattern" && (
+              <div className="neko-cz__chips" role="group" aria-label="무늬">
+                {PATTERNS.map((p) => (
+                  <button key={p.key} type="button" aria-pressed={a.patterns.includes(p.key)} className="neko-cz__chip neko-cz__chip--swatch" onClick={() => togglePattern(p.key)}>
+                    <PatternGlyph className="neko-cz__swatch-glyph" pattern={p.key} base={coatSwatch(a)} />
+                    {p.name}
+                  </button>
+                ))}
+                <button type="button" className="neko-cz__btn" onClick={reroll}>무늬 다시 뽑기</button>
+              </div>
+            )}
+
+            {STEPS[step].key === "eye" && <Chips name="눈 색" opts={EYES} value={a.eye} onPick={set("eye")} glyph={(k) => <EyeGlyph className="neko-cz__glyph neko-cz__glyph--eye" color={EYES.find((e) => e.key === k)!.swatch!} />} />}
+
+            {STEPS[step].key === "body" && (
+              <div className="neko-cz__pickers">
+                <Field legend="체형"><Chips name="체형" opts={BUILDS} value={a.build} onPick={set("build")} tile glyph={(k) => cat({ build: k })} /></Field>
+                <Field legend="다리 길이"><Chips name="다리 길이" opts={LEGS} value={a.legs} onPick={set("legs")} tile glyph={(k) => cat({ legs: k })} /></Field>
+              </div>
+            )}
+
+            {STEPS[step].key === "fur" && (
+              <div className="neko-cz__pickers">
+                <Field legend="털 길이"><Chips name="털 길이" opts={FURS} value={a.fur} onPick={set("fur")} tile glyph={(k) => <FurGlyph className="neko-cz__glyph" fur={k} />} /></Field>
+                <Field legend="귀"><Chips name="귀" opts={EARS} value={a.ear} onPick={set("ear")} tile glyph={(k) => cat({ ear: k })} /></Field>
+                <Field legend="꼬리"><Chips name="꼬리" opts={TAILS} value={a.tail} onPick={set("tail")} tile glyph={(k) => cat({ tail: k })} /></Field>
+              </div>
+            )}
+
+            {STEPS[step].key === "finish" && (
+              <>
+                <div className="neko-cz__tune">
+                  <label htmlFor="neko-cz-soft">말랑함</label>
+                  <span className="neko-cz__range">
+                    <span aria-hidden="true">단단</span>
+                    {/* 손을 떼면 미리보기를 콕 눌러 지금 말랑함을 바로 보여 준다 */}
+                    <input id="neko-cz-soft" type="range" min={0} max={100} value={Math.round(a.soft * 100)}
+                      style={{ "--fill": `${a.soft * 100}%` } as React.CSSProperties}
+                      onChange={(e) => setAppearance({ soft: Number(e.target.value) / 100 })}
+                      onPointerUp={() => preview?.boing(1)}
+                      onKeyUp={(e) => { if (e.key.startsWith("Arrow") || e.key === "Home" || e.key === "End") preview?.boing(1); }} />
+                    <span aria-hidden="true">말랑</span>
+                  </span>
+                  <output htmlFor="neko-cz-soft">{Math.round(a.soft * 100)}</output>
+                  <button type="button" className="neko-cz__btn" onClick={() => preview?.boing(1)}>콕 눌러 보기</button>
+                </div>
+                <p className="neko-cz__summary">
+                  <i className="neko-cz__swatch" style={{ background: coatSwatch(a) }} />
+                  {summarizeAppearance(a)}
+                </p>
+              </>
+            )}
+          </div>
+        </section>
       </div>
-    </div>,
-    document.body,
+
+      <footer className="neko-cz__footer">
+        <button type="button" className="neko-cz__btn" onClick={() => setAppearance(initial.current)}>처음대로</button>
+        <span className="neko-cz__footer-gap" />
+        <span className="neko-cz__progress" aria-live="polite">{step + 1} / {STEPS.length}</span>
+        <button type="button" className="neko-cz__btn" onClick={() => setStep((v) => Math.max(0, v - 1))} disabled={step === 0}>이전</button>
+        {last
+          ? <button type="button" className="neko-cz__btn neko-cz__btn--primary" onClick={onClose}>완료</button>
+          : <button type="button" className="neko-cz__btn neko-cz__btn--primary" onClick={() => setStep((v) => v + 1)}>다음</button>}
+      </footer>
+    </div>
   );
 }

@@ -26,6 +26,8 @@ export interface Walk {
   /** 다녀왔다. 지우지 않고 남겨 다음 산책까지의 간격과 선물 핀에 쓴다. */
   done?: boolean;
   pin?: MapPlace;
+  /** 음악을 듣다 나갔다: 헤드폰을 낀 채 걷는다(지도 위 네코·산책 중 그림·마당 팻말 음표) */
+  music?: true;
 }
 
 export const WALK_MS = 30 * 60_000;

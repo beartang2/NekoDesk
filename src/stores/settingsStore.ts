@@ -62,6 +62,7 @@ const K = {
   autoCompact: "nekodesk_auto_compact",
   sessionRetention: "nekodesk_session_retention",
   memoryTidy: "nekodesk_memory_tidy",
+  nekoFollowApps: "nekodesk_neko_follow_apps",
 } as const;
 
 /** 오래된 대화를 지우는 기준(일). 0 이면 끔 */
@@ -133,6 +134,8 @@ interface SettingsStore {
   sessionRetention: SessionRetention;
   /** 네코가 졸 때 하루 한 번 겹치는 기억을 합친다(neko/memoryTidy.ts). Claude 프로필일 때만 돈다 */
   memoryTidy: boolean;
+  /** 다른 앱 따라 하기: 다른 앱에서 키를 치면 같이 타이핑, 맨 앞 앱·음악에 맞춘 활동(neko/ambient.ts) */
+  nekoFollowApps: boolean;
   /** auto 모드에서 서버가 `tools` 를 거부해 json 으로 내려앉았다. 영속화하지 않는다. */
   nativeToolsDegraded: boolean;
   setLlmUrl: (url: string) => void;
@@ -148,6 +151,7 @@ interface SettingsStore {
   setAutoCompact: (on: boolean) => void;
   setSessionRetention: (days: SessionRetention) => void;
   setMemoryTidy: (on: boolean) => void;
+  setNekoFollowApps: (on: boolean) => void;
   setNativeToolsDegraded: (v: boolean) => void;
 }
 
@@ -166,6 +170,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   autoCompact: localStorage.getItem(K.autoCompact) !== "off",
   sessionRetention: loadSessionRetention(),
   memoryTidy: localStorage.getItem(K.memoryTidy) !== "off",
+  nekoFollowApps: localStorage.getItem(K.nekoFollowApps) !== "off",
   nativeToolsDegraded: false,
 
   setLlmUrl: (url) => {
@@ -222,6 +227,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setMemoryTidy: (on) => {
     localStorage.setItem(K.memoryTidy, on ? "on" : "off");
     set({ memoryTidy: on });
+  },
+  setNekoFollowApps: (on) => {
+    localStorage.setItem(K.nekoFollowApps, on ? "on" : "off");
+    set({ nekoFollowApps: on });
   },
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));

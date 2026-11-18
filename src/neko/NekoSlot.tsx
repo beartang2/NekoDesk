@@ -3,7 +3,11 @@ import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { ensureNeko, nekoCanvas, useNekoController } from "./nekoHost";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { NekoAway } from "./NekoAway";
-import { GIFT_DROP, useNekoGifts, type GiftDrop } from "./gifts";
+import { RoomGifts } from "./NekoRoom";
+import { Map as MapIcon } from "lucide-react";
+import { LastWalkModal, WalkMap } from "../components/WalkMap";
+import type { Walk } from "../lib/walk";
+import { useNekoGifts } from "./gifts";
 import "./NekoSlot.css";
 
 /**
@@ -12,12 +16,20 @@ import "./NekoSlot.css";
  * 위쪽 가장자리를 끌어서 높이를 바꾼다(고양이 크기가 높이를 따라간다).
  * 산책 중(away)엔 자리(높이)는 그대로 두고 고양이 대신 산책 나간 장면(NekoAway)을 그린다. 엔진은 멈춘다.
  */
-export function NekoSlot({ placement, onRubPet, away = false }: { placement: NekoPlacement; onRubPet: () => void; away?: boolean }) {
+export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDark = false }: {
+  placement: NekoPlacement;
+  onRubPet: () => void;
+  away?: boolean;
+  /** 산책 기록(App). 산책 중엔 지도를, 다녀온 뒤엔 지난 산책 지도 버튼을 띄운다 */
+  walk?: Walk | null;
+  isDark?: boolean;
+}) {
   const active = useNekoStore((s) => s.stage.placement === placement);
   const height = useNekoStore((s) => (placement === "sidebar" ? s.stage.sidebarH : s.stage.dockH));
   const setStageHeight = useNekoStore((s) => s.setStageHeight);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const ctrl = useNekoController();
+  const [lastWalkOpen, setLastWalkOpen] = useState(false);
 
   // 이 자리가 고른 자리면 캔버스를 데려온다
   useLayoutEffect(() => {
@@ -55,29 +67,20 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
     if (ctrl && !ctrl.react("pet")) return;
     onRubPet();
   }, [ctrl, onRubPet]);
-  const { onBodyMove, onBodyLeave } = useTrackpadPet(rub);
+  const { onBodyMove, onBodyLeave, setHeld } = useTrackpadPet(rub);
+  // 잡고 흔드는 건 쓰다듬기가 아니다
+  useEffect(() => {
+    if (!ctrl || !active) return;
+    const offs = [ctrl.on("grab", () => setHeld(true)), ctrl.on("drop", () => setHeld(false))];
+    return () => offs.forEach((off) => off());
+  }, [ctrl, active, setHeld]);
   const onMove = useCallback((e: React.MouseEvent) => {
-    if (!ctrl || e.buttons) return; // 누른 채 움직이면 잡기(엔진)
+    if (!ctrl) return;
+    if (e.buttons) { onBodyLeave(); return; } // 누른 채 움직이면 잡기·선물 끌기(엔진) — 쓰다듬기 아님, 놓으면 결을 처음부터
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     if (ctrl.hit(e.clientX - r.left, e.clientY - r.top)) onBodyMove(e.movementX, e.movementY);
     else onBodyLeave();
   }, [ctrl, onBodyMove, onBodyLeave]);
-
-  // 선물함 칸을 끌어다 놓으면(NekoGiftBox 가 GIFT_DROP 을 보낸다) 이 장소의 그 자리(바닥 가까이면 바닥, 높이면 벽)에 놓는다.
-  // 다른 장소에 놓여 있던 것이면 이리로 옮긴다. 이 장소에 안 맞는 크기면 place 가 무시한다
-  useEffect(() => {
-    const el = stageRef.current;
-    if (!el || !ctrl || !active || away) return;
-    const onDrop = (e: Event) => {
-      const { id, x, y } = (e as CustomEvent<GiftDrop>).detail;
-      const gift = useNekoGifts.getState().gifts.find((g) => g.id === id);
-      if (!gift) return;
-      const r = el.getBoundingClientRect();
-      useNekoGifts.getState().place(id, ctrl.decorSpotAt(x - r.left, y - r.top, gift.shape, gift.size), placement);
-    };
-    el.addEventListener(GIFT_DROP, onDrop);
-    return () => el.removeEventListener(GIFT_DROP, onDrop);
-  }, [ctrl, active, away, placement]);
 
   // 높이 손잡이: 위쪽 가장자리를 끌면 그만큼 키가 바뀐다(손을 뗄 때 저장)
   const onHandleDown = useCallback((e: React.PointerEvent) => {
@@ -97,7 +100,8 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
     el.addEventListener("pointercancel", up);
   }, [height, placement, setStageHeight]);
 
-  if (!active) return null;
+  // 사이드바 방은 네코가 거실·마당에 가 있어도 같은 높이로 남는다(빈 방: 배경·방에 놓인 선물만). 거실 자리는 그때 없앤다
+  if (!active && placement !== "sidebar") return null;
   return (
     <div className={`neko-slot neko-slot--${placement}`} style={{ height }}>
       <div
@@ -108,8 +112,19 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
         aria-label="끌어서 고양이 자리 높이 조절"
         title="끌어서 높이 조절"
       />
-      {away ? (
-        <NekoAway />
+      {/* 산책 중: 채팅 바 아래(가로로 김)는 '산책 중' 그림과 지도를 나란히, 사이드바 방(좁음)은 지도만.
+          지도를 못 받으면(개발 빌드 등) 방에선 '산책 중' 그림으로 대신한다 */}
+      {!active ? (
+        <RoomGifts isDark={isDark} />
+      ) : away ? (
+        placement === "dock" ? (
+          <div className="neko-slot__walk">
+            <div className="neko-slot__away"><NekoAway music={!!walk?.music} /></div>
+            <WalkMap className="neko-slot__map" walk={walk} isDark={isDark} />
+          </div>
+        ) : (
+          <WalkMap className="neko-slot__map neko-slot__map--fill" walk={walk} isDark={isDark} fallback={<NekoAway music={!!walk?.music} />} />
+        )
       ) : (
         <div
           ref={stageRef}
@@ -118,7 +133,13 @@ export function NekoSlot({ placement, onRubPet, away = false }: { placement: Nek
           onMouseLeave={onBodyLeave}
         />
       )}
-      {decorMenu && !away && (
+      {active && !away && walk && (
+        <button type="button" className="neko-slot__map-btn" onClick={() => setLastWalkOpen(true)} title="지난 산책 지도" aria-label="지난 산책 지도">
+          <MapIcon size={13} strokeWidth={2} />
+        </button>
+      )}
+      {lastWalkOpen && walk && <LastWalkModal walk={walk} isDark={isDark} onClose={() => setLastWalkOpen(false)} />}
+      {decorMenu && active && !away && (
         <button
           type="button"
           className="neko-slot__tidy"

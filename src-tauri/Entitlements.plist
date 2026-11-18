@@ -6,5 +6,9 @@
 	     있어야 한다 — 없으면 locationd 가 권한 창도 안 띄우고, 허용해 줘도 위치를 안 준다. -->
 	<key>com.apple.security.personal-information.location</key>
 	<true/>
+	<!-- 다른 앱 따라 하기(ambient.rs): 음악 앱에 재생 상태를 묻는다. hardened runtime 에선 이게 없으면
+	     자동화 권한 창 없이 Apple Events 가 막힌다 -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
 </dict>
 </plist>

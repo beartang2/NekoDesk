@@ -48,20 +48,21 @@ export function NekoScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const decorRef = useRef<HTMLCanvasElement>(null);
   const ctrlRef = useRef<NekoController | null>(null);
-  // 마당 선물을 우클릭하면 그 오른쪽 위에 '정리'(NekoSlot 과 같다). 누르면 메인 창이 선물함으로 치운다
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  // 우클릭 메뉴 버튼 하나. 마당 선물이면 그 오른쪽 위에 '정리'(NekoSlot 과 같다, 누르면 메인 창이 선물함으로 치운다),
+  // 고양이면 누른 자리에 '숨기기'(마당을 숨긴다 — 이 앱이 맨 앞으로 오면 다시 보인다). 다른 데 누르거나 몇 초 뒤 닫힌다
+  const [menu, setMenu] = useState<{ id?: string; x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!menu) return;
     const t = setTimeout(() => setMenu(null), MENU_MS);
     return () => clearTimeout(t);
   }, [menu]);
-  const { onBodyMove, onBodyLeave } = useTrackpadPet(() => {
+  const { onBodyMove, onBodyLeave, setHeld, setPressed } = useTrackpadPet(() => {
     // 너무 오래 만져 짜증 나면(react 가 false) 놀이 게이지는 오르지 않는다
     if (ctrlRef.current?.react("pet")) toMain({ ev: "pet" });
   });
-  const petRef = useRef({ onBodyMove, onBodyLeave });
-  petRef.current = { onBodyMove, onBodyLeave };
+  const petRef = useRef({ onBodyMove, onBodyLeave, setHeld, setPressed });
+  petRef.current = { onBodyMove, onBodyLeave, setHeld, setPressed };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -86,7 +87,7 @@ export function NekoScreen() {
 
     // 커서 → 고양이 위인지
     let cursor: [number, number] | null = null;
-    let over = false;
+    let over: "cat" | "other" | null = null;
     let sentAt = 0;
     let active = true;
     // 고양이·마당 선물·'정리' 버튼 위면 클릭을 받는다
@@ -94,13 +95,15 @@ export function NekoScreen() {
       const r = menuRef.current?.getBoundingClientRect();
       return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     };
+    // 고양이 위인지도 같이 알린다 — 잡고 다른 모니터로 끌 때 창이 따라가는 건 고양이뿐이다(선물은 이 화면 끝에서 멈춘다)
     const check = () => {
       const now = performance.now();
-      const o = active && !!cursor && (ctrl.hit(cursor[0], cursor[1]) || ctrl.hitDecor(cursor[0], cursor[1]) !== null || overMenu(cursor[0], cursor[1]));
+      const [x, y] = cursor ?? [0, 0];
+      const o = !active || !cursor ? null : ctrl.hit(x, y) ? "cat" : ctrl.hitDecor(x, y) !== null || overMenu(x, y) ? "other" : null;
       if (o === over && !(o && now - sentAt > CATCH_EVERY_MS)) return;
       over = o;
       sentAt = now;
-      void invoke("neko_screen_catch", { on: o }).catch(() => {});
+      void invoke("neko_screen_catch", { on: o !== null, cat: o === "cat" }).catch(() => {});
     };
     // 커서가 있는 다른 모니터 쪽. 한가하면(잡혀 있지 않고 활동이 없으면) 그쪽 끝 너머로 걸어간다
     let away: Side | null = null;
@@ -115,6 +118,26 @@ export function NekoScreen() {
     const timer = setInterval(() => { if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
     // 끝을 넘었다 — 커서가 아직 그쪽이면 Rust 가 창을 옮긴다(neko-screen-moved). 그새 돌아왔으면 걸어 들어온다
     const offMenu = ctrl.on("decorMenu", setMenu);
+    // 고양이 우클릭: 엔진은 선물만 메뉴를 띄우고(기본 메뉴를 막음) 고양이엔 안 띄운다. 오른쪽 버튼 누름은 엔진에
+    // 안 넘긴다 — 넘기면 쓰다듬기(탭)·선물 끌기로 샌다. ⌃클릭도 우클릭이다
+    const isRight = (e: MouseEvent) => e.button === 2 || (e.button === 0 && e.ctrlKey);
+    const onRightDown = (e: PointerEvent) => { if (isRight(e)) e.stopPropagation(); };
+    const onContext = (e: MouseEvent) => {
+      if (e.defaultPrevented || !ctrl.hit(e.clientX, e.clientY)) return;
+      e.preventDefault();
+      setMenu({ x: e.clientX, y: e.clientY });
+    };
+    window.addEventListener("pointerdown", onRightDown, true);
+    window.addEventListener("contextmenu", onContext);
+    // 누른 채 움직이는 동안은 쓰다듬기가 아니다(선물을 끌어 고양이 위를 비빔). 고양이 잡기는 grab·drop 이 따로 막는다
+    // 끌던 선물이 다른 모니터 위에 있나(Rust neko-screen-elsewhere). 놓을 때 엔진의 decorMove(이 화면 끝 자리) 대신
+    // 그 모니터로 옮긴다. 새로 누를 때 지운다
+    let elsewhere: { screen: string; x: number; y: number } | null = null;
+    const onPress = () => { elsewhere = null; petRef.current.setPressed(true); };
+    const onRelease = () => petRef.current.setPressed(false);
+    window.addEventListener("pointerdown", onPress, true);
+    window.addEventListener("pointerup", onRelease, true);
+    window.addEventListener("pointercancel", onRelease, true);
     const offEdge = ctrl.on("edge", (side) => {
       void invoke<boolean>("neko_screen_cross", { side })
         .then((moved) => { if (!moved) { outAt = 0; ctrl.setEdges(CLOSED); } })
@@ -123,12 +146,18 @@ export function NekoScreen() {
 
     const offEngine = FORWARD.map((ev) =>
       ctrl.on(ev, (payload: unknown) => {
-        if (ev === "grab") { held = true; clearTimeout(fallTimer); fps(); }
-        if (ev === "drop") fallTimer = setTimeout(() => { held = false; fps(); }, FALL_MS);
+        // 잡고 흔드는 건 쓰다듬기가 아니다: 잡힌 동안과 떨어지는 동안(held)은 결을 세지 않는다
+        if (ev === "grab") { held = true; petRef.current.setHeld(true); clearTimeout(fallTimer); fps(); }
+        if (ev === "drop") fallTimer = setTimeout(() => { held = false; petRef.current.setHeld(false); fps(); }, FALL_MS);
         if (ev === "error") {
           // 엔진이 멈췄다: 클릭을 막은 채 굳지 않게 숨는다
           void invoke("neko_screen_catch", { on: false }).catch(() => {});
           void getCurrentWindow().hide().catch(() => {});
+        }
+        if (ev === "decorMove" && elsewhere) {
+          void emitTo("main", "neko-screen-put-on", { id: (payload as { id: string }).id, ...elsewhere }).catch(() => {});
+          elsewhere = null;
+          return;
         }
         toMain({ ev, payload: ev === "error" ? String(payload) : payload });
       }),
@@ -145,7 +174,8 @@ export function NekoScreen() {
         const prev = cursor;
         cursor = payload;
         check();
-        if (over && prev && payload) petRef.current.onBodyMove(payload[0] - prev[0], payload[1] - prev[1]);
+        // 고양이 몸 위일 때만(마당 선물 위는 아니다). 누른 채(선물 끌기)면 hook 이 거른다
+        if (over === "cat" && prev && payload) petRef.current.onBodyMove(payload[0] - prev[0], payload[1] - prev[1]);
         else petRef.current.onBodyLeave();
       }),
       listen<boolean>("neko-screen-active", ({ payload }) => {
@@ -171,6 +201,8 @@ export function NekoScreen() {
       listen<number>("neko-screen-scale", ({ payload }) => ctrl.setScale(payload)),
       listen<number>("neko-screen-fps", ({ payload }) => { maxFps = payload; fps(); }),
       listen("neko-screen-ping", () => void emitTo("main", "neko-screen-ready").catch(() => {})),
+      listen("neko-screen-press-out", () => setMenu(null)), // 다른 데를 눌렀다
+      listen<{ screen: string; x: number; y: number } | null>("neko-screen-elsewhere", ({ payload }) => { elsewhere = payload; }),
     ];
     void invoke<Layout | null>("neko_screen_layout").then((l) => { if (l) ctrl.setGround(l.ground); }).catch(() => {});
     // 준비됐다 — 메인 창이 대리를 세우고 감독이 계획을 처음부터 보낸다
@@ -181,6 +213,11 @@ export function NekoScreen() {
       clearTimeout(fallTimer);
       offEdge();
       offMenu();
+      window.removeEventListener("pointerdown", onRightDown, true);
+      window.removeEventListener("contextmenu", onContext);
+      window.removeEventListener("pointerdown", onPress, true);
+      window.removeEventListener("pointerup", onRelease, true);
+      window.removeEventListener("pointercancel", onRelease, true);
       offEngine.forEach((off) => off());
       offs.forEach((p) => void p.then((off) => off()).catch(() => {}));
       ctrl.destroy();
@@ -199,9 +236,13 @@ export function NekoScreen() {
           type="button"
           className="neko-screen__tidy"
           style={{ left: menu.x + 2, top: Math.max(2, menu.y - 4) }}
-          onClick={() => { void emitTo("main", "neko-screen-put", menu.id).catch(() => {}); setMenu(null); }}
+          onClick={() => {
+            if (menu.id) void emitTo("main", "neko-screen-put", menu.id).catch(() => {});
+            else void invoke("neko_screen_hide").catch(() => {});
+            setMenu(null);
+          }}
         >
-          정리
+          {menu.id ? "정리" : "숨기기"}
         </button>
       )}
     </>

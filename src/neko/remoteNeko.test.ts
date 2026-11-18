@@ -26,6 +26,9 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     expect(neko.react("pet")).toBe(true);
     expect(neko.drop()).toEqual([]);
     expect(neko.hit(1, 2)).toBe(false);
+    // 화면 창 엔진이 활동을 끝내면(한 번짜리 끝·잡힘) 바로잡는다 — 그래야 스케줄러가 다시 시킬 수 있다
+    dispatchEvt({ ev: "activity", payload: null });
+    expect(neko.activity).toBeNull();
     // await 해도 thenable 로 오인되지 않는다
     expect((neko as unknown as { then?: unknown }).then).toBeUndefined();
   });
@@ -45,6 +48,17 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     expect(got).toEqual(["box"]);
   });
 
+  it("곁들임: mix 는 보내면서 바꿔 두고, 화면 창의 side 이벤트로 바로잡는다", () => {
+    const sent: NekoCmd[] = [];
+    const r = createRemoteNeko((c) => sent.push(c));
+    expect(r.side).toBeNull();
+    expect(r.mix("music")).toBe(true);
+    expect(r.side).toBe("music");
+    expect(sent[sent.length - 1]).toEqual({ m: "mix", args: ["music"] });
+    dispatchEvt({ ev: "side", payload: null }); // 화면 창이 거절함(누워 자는 중)
+    expect(r.side).toBeNull();
+  });
+
   it("다른 자리에 갔다 화면으로 돌아오면 준비 신호를 다시 받아 대리를 세우고 외형을 넘긴다", () => {
     const ready = () => tauri.handlers.get("neko-screen-ready")?.({ payload: undefined });
     const sentNow = () => tauri.sent.splice(0).map(([, ev, p]) => (ev === "neko-cmd" ? (p as NekoCmd).m : ev));
@@ -53,7 +67,7 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     expect(sentNow()).toEqual(["neko-screen-ping"]);
     ready();
     expect(getRemoteNeko()).not.toBeNull();
-    expect(sentNow()).toEqual(["setAppearance", "neko-screen-scale", "neko-screen-fps", "setDecor"]);
+    expect(sentNow()).toEqual(["setAppearance", "neko-screen-scale", "neko-screen-fps", "setDecor", "setAway"]); // 산책 중이면 팻말
 
     useNekoStore.getState().setPlacement("sidebar");
     expect(getRemoteNeko()).toBeNull();
@@ -61,7 +75,7 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     expect(sentNow()).toEqual(["neko-screen-ping"]); // 숨겨 둔 화면 창에 다시 달라고 한다
     ready();
     expect(getRemoteNeko()).not.toBeNull();
-    expect(sentNow()).toEqual(["setAppearance", "neko-screen-scale", "neko-screen-fps", "setDecor"]);
+    expect(sentNow()).toEqual(["setAppearance", "neko-screen-scale", "neko-screen-fps", "setDecor", "setAway"]);
 
     useNekoStore.getState().setAppearance({ soft: 0.3 });
     expect(tauri.sent[tauri.sent.length - 1]?.[2]).toMatchObject({ m: "setAppearance", args: [expect.objectContaining({ soft: 0.3 })] });

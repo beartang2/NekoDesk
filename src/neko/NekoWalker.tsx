@@ -11,6 +11,8 @@ import { NekoPortrait } from "./NekoPortrait";
  */
 
 const CACHE_PREFIX = "neko_walk:";
+/** 헤드폰을 낀 걸음(음악을 듣다 산책 나감). 따로 두어 서로 지우지 않게 */
+const MUSIC_PREFIX = "neko_walk_music:";
 const FRAMES = 8;
 /** 찍는 간격 = 지도에서 돌리는 간격 */
 const FRAME_MS = 90;
@@ -18,15 +20,15 @@ const STAGE = { w: 640, h: 200 };
 
 const memo = new Map<string, Promise<string[]>>();
 
-export function nekoWalkFrames(a: NekoAppearance): Promise<string[]> {
-  const key = CACHE_PREFIX + JSON.stringify(a);
+export function nekoWalkFrames(a: NekoAppearance, music = false): Promise<string[]> {
+  const prefix = music ? MUSIC_PREFIX : CACHE_PREFIX, key = prefix + JSON.stringify(a);
   const hit = memo.get(key);
   if (hit) return hit;
   let stored: string[] | null = null;
   try { stored = JSON.parse(localStorage.getItem(key) ?? "null"); } catch { /* 저장소를 못 쓰면 매번 찍는다 */ }
-  const job = stored?.length ? Promise.resolve(stored) : shoot(a).then((frames) => {
+  const job = stored?.length ? Promise.resolve(stored) : shoot(a, music).then((frames) => {
     try {
-      for (const k of Object.keys(localStorage)) if (k.startsWith(CACHE_PREFIX) && k !== key) localStorage.removeItem(k);
+      for (const k of Object.keys(localStorage)) if (k.startsWith(prefix) && k !== key) localStorage.removeItem(k);
       localStorage.setItem(key, JSON.stringify(frames));
     } catch { /* 가득 찼으면 메모리에만 */ }
     return frames;
@@ -38,12 +40,13 @@ export function nekoWalkFrames(a: NekoAppearance): Promise<string[]> {
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function shoot(a: NekoAppearance): Promise<string[]> {
+async function shoot(a: NekoAppearance, music: boolean): Promise<string[]> {
   const cv = document.createElement("canvas");
   Object.assign(cv.style, { position: "fixed", left: "-10000px", top: "0", width: `${STAGE.w}px`, height: `${STAGE.h}px`, pointerEvents: "none" });
   document.body.appendChild(cv);
-  const neko = createNeko(cv, { transparent: true, scaleMode: "height", wander: false, maxDpr: 2, appearance: a });
+  const neko = createNeko(cv, { transparent: true, scaleMode: "height", wander: false, maxDpr: 2, appearance: a, still: true });
   try {
+    if (music) { neko.mix("music"); await wait(500); } // 헤드폰이 다 씌워질 때까지
     await wait(200);
     neko.walkTo(STAGE.w - 40); // 오른쪽으로 길게 — 찍는 동안 다 가지 않게
     await wait(350); // 걸음이 붙을 때까지
@@ -94,7 +97,7 @@ function opaqueBox({ data, width: w, height: h }: ImageData): [number, number, n
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 /** walking 이면 걸음 프레임을 돌린다. facingLeft 면 좌우를 뒤집는다(그림은 오른쪽을 본다). */
-export function NekoWalker({ size, walking, facingLeft }: { size: number; walking: boolean; facingLeft: boolean }) {
+export function NekoWalker({ size, walking, facingLeft, music = false }: { size: number; walking: boolean; facingLeft: boolean; music?: boolean }) {
   const appearance = useNekoStore((s) => s.appearance);
   const [frames, setFrames] = useState<string[] | null>(null);
   const [i, setI] = useState(0);
@@ -103,9 +106,9 @@ export function NekoWalker({ size, walking, facingLeft }: { size: number; walkin
   useEffect(() => {
     if (!animate) return;
     let alive = true;
-    nekoWalkFrames(appearance).then((f) => { if (alive) setFrames(f); }).catch(() => {});
+    nekoWalkFrames(appearance, music).then((f) => { if (alive) setFrames(f); }).catch(() => {});
     return () => { alive = false; };
-  }, [appearance, animate]);
+  }, [appearance, animate, music]);
 
   useEffect(() => {
     if (!animate || !frames) return;

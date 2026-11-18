@@ -1,6 +1,11 @@
 import { useEffect, useRef } from "react";
+import type { NekoActivity } from "./engine/neko-engine";
+import { ONE_SHOT } from "./director/toolActivity";
+import { maybeDraw } from "../agent/neko-drawing";
 import { appEvents } from "../lib/events";
-import { deriveNeko } from "./director/derive";
+import { DEEP_SLEEP_MS, deriveNeko, SLEEPY_MS } from "./director/derive";
+import { CHASE_BELOW, pickByNeeds } from "./director/needs";
+import { useNekoNeeds } from "./director/needsStore";
 import { createScheduler, realClock, type Scheduler } from "./director/scheduler";
 import { onNekoSignal, useNekoApp, useNekoSessions } from "./director/stores";
 import type { DirectorInput } from "./director/types";
@@ -15,11 +20,18 @@ import { useNekoController } from "./nekoHost";
  * - 계획은 deriveNeko, 적용은 스케줄러
  */
 
-/** 신남: 놀이 ≥ 80 이고 쉬는 중이면 30~120초 뒤 혼자 논다(상자에 쏙·털실·나비). 60초 지나거나 3번 쓰다듬으면 그만 */
-const BOX_PLAY_MIN = 80;
-const BOX_AFTER_MS = [30_000, 120_000] as const;
-const BOX_STAY_MS = 60_000;
+/**
+ * 신남: 놀이 ≥ 40 이고 쉬는 중이면 45초~2분 뒤 혼자 논다. 한 번 고르면 2~4분(한 번짜리는 20초) 이어 하거나 3번
+ * 쓰다듬으면 그만 — 금방금방 바꾸면 산만해 보인다. 무엇을 할지는 숨은 게이지 점수에 비례한 확률로(director/needs.ts,
+ * docs/neko-activity-mix.md 2부). 방금 한 것은 안 고르고, 놓아 둔 선물이 있으면 선물 놀이도 고른다.
+ */
+const BOX_PLAY_MIN = 40;
+const BOX_AFTER_MS = [45_000, 120_000] as const;
+const BOX_STAY_MS = [120_000, 240_000] as const;
+const BOX_STAY_ONE_SHOT_MS = 20_000;
 const BOX_EXIT_PETS = 3;
+/** 숨은 게이지 갱신 간격 */
+const NEEDS_TICK_MS = 60_000;
 /** 키 입력·클릭·스크롤을 '앱을 쓰는 중'으로 세는 간격 */
 const ACTIVE_THROTTLE_MS = 3000;
 
@@ -49,6 +61,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
   useEffect(() => {
     if (!ctrl) return;
     let box: DirectorInput["box"] = null;
+    let lastSolo: NekoActivity | null = null;
     let boxPetBase = 0;
     let boxTimer: ReturnType<typeof setTimeout> | null = null;
     let boxExitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -58,7 +71,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       return {
         session: useNekoSessions.getState().get(activeRef.current),
         feeding: app.feeding, fedAt: app.fedAt, playCue: app.playCue, game: app.game,
-        needs: needsRef.current, lastActiveAt: app.lastActiveAt, box,
+        needs: needsRef.current, lastActiveAt: app.lastActiveAt, outside: app.outside, box, hidden: app.screenHidden,
       };
     };
     const sch = createScheduler(ctrl, realClock, (now) => deriveNeko(input(), now));
@@ -84,12 +97,15 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
         const wait = BOX_AFTER_MS[0] + Math.random() * (BOX_AFTER_MS[1] - BOX_AFTER_MS[0]);
         boxTimer = setTimeout(() => {
           boxTimer = null;
-          // 놓아 둔 선물이 있으면 그걸 갖고 노는 것도 고른다(docs/neko-gifts.md §5). 다른 것보다 조금 자주
-          const gifts = (ctrl as { decorCount?: number }).decorCount ? (["giftplay", "giftplay"] as const) : [];
-          const kinds = ["box", "yarn", "butterfly", ...gifts] as const;
-          box = { since: performance.now(), kind: kinds[Math.floor(Math.random() * kinds.length)] };
+          // 놓아 둔 선물이 있으면 그걸 갖고 노는 것도 고른다(docs/neko-gifts.md §5)
+          const kind = pickByNeeds(useNekoNeeds.getState().needs, { last: lastSolo, hasGifts: !!(ctrl as { decorCount?: number }).decorCount });
+          lastSolo = kind;
+          box = { since: performance.now(), kind };
+          // 그리기면 정말 그린다(하루 두 장, Claude 일 때만). 다 그려 액자를 선물함에 넣으면 꼬리 세우기
+          if (kind === "draw") void maybeDraw().then((title) => { if (title) sch.react([{ type: "react", kind: "proud" }]); });
           boxPetBase = useNekoApp.getState().pets;
-          boxExitTimer = setTimeout(leaveBox, BOX_STAY_MS);
+          const stay = ONE_SHOT.has(kind) ? BOX_STAY_ONE_SHOT_MS : BOX_STAY_MS[0] + Math.random() * (BOX_STAY_MS[1] - BOX_STAY_MS[0]);
+          boxExitTimer = setTimeout(leaveBox, stay);
           sch.update();
         }, wait);
       }
@@ -103,6 +119,8 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       }),
       useNekoApp.subscribe((s, p) => {
         if (p.feeding && !s.feeding) sch.react([{ type: "react", kind: "cheer", gate: "result" }]); // 다 먹었다
+        if (s.fedAt !== null && s.fedAt !== p.fedAt) useNekoNeeds.getState().fed(); // 먹고 나면 조금 꼬질
+        if (s.pets > p.pets) useNekoNeeds.getState().petted(); // 탭·문지르기 모두 App handlePet → notePet
         if (s.game && s.game !== p.game) { // 같은 감정이 다시 와도(연달아 맞힘, 산책에서 돌아옴) 반응한다
           const r = emotionPlan(s.game.emotion).react;
           if (r) sch.react([{ type: "react", kind: r }]);
@@ -111,6 +129,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
         sch.update();
       }),
       onNekoSignal((id, reactions, signal) => {
+        if (signal.type === "run_start") useNekoNeeds.getState().messaged(); // 사용자가 보냈다 → 애정
         if (id === activeRef.current) {
           if (reactions.length) sch.react(reactions);
           return;
@@ -152,8 +171,33 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
 
     syncBox();
     sch.update();
+    // ── 숨은 게이지(docs/neko-activity-mix.md §2.6·§2.7) ──
+    void useNekoNeeds.getState().load();
+    // 한 번짜리(간식·기지개·벽 타기)는 끝날 때 채움을 한 번에. 이어지는 활동은 1분 틱이 나눠 넣는다
+    let shown: NekoActivity | null = ctrl.activity;
+    offs.push(ctrl.on("activity", (a) => {
+      if (shown && shown !== a && ONE_SHOT.has(shown)) useNekoNeeds.getState().oneShotDone(shown);
+      shown = a;
+    }));
+    const needsTimer = setInterval(() => {
+      const app = useNekoApp.getState();
+      const idleFor = performance.now() - Math.max(app.lastActiveAt, app.outside.at);
+      const how = idleFor >= DEEP_SLEEP_MS ? "sleeping" : idleFor >= SLEEPY_MS ? "dozing" : "awake";
+      const doing = [ctrl.activity, ctrl.side].filter((k) => k && !ONE_SHOT.has(k));
+      useNekoNeeds.getState().tick(NEEDS_TICK_MS, how, doing);
+    }, NEEDS_TICK_MS);
+    // 커서 따라오기는 애정이 낮을 때만(사용자 확정)
+    let chase: boolean | null = null;
+    const syncChase = () => {
+      const on = useNekoNeeds.getState().needs.affection < CHASE_BELOW;
+      if (on !== chase) { chase = on; ctrl.setChase(on); }
+    };
+    syncChase();
+    offs.push(useNekoNeeds.subscribe(syncChase));
+
     return () => {
       offs.forEach((f) => f());
+      clearInterval(needsTimer);
       winEvents.forEach((e) => window.removeEventListener(e, onActive, { capture: true }));
       if (boxTimer) clearTimeout(boxTimer);
       if (boxExitTimer) clearTimeout(boxExitTimer);

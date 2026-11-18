@@ -62,7 +62,7 @@ export type Reaction =
 /** 계획을 정한 층(§5.2). 디버그·테스트용이고, 스케줄러는 sleep → 다른 층(깨어남)만 본다 */
 export type NekoLayer =
   | "waiting" | "meal" | "tool" | "think" | "answer" | "result" | "fed"
-  | "play" | "game" | "weak" | "hungry" | "bored" | "box" | "sleep" | "base";
+  | "play" | "game" | "outside" | "weak" | "hungry" | "bored" | "box" | "ambient" | "sleep" | "base" | "hidden";
 
 export interface NekoPlan {
   layer: NekoLayer;
@@ -81,6 +81,8 @@ export interface NekoPlan {
   tailHold: NekoTailSign | null;
   /** 산책 허용 */
   wander: boolean;
+  /** 곁들임(docs/neko-activity-mix.md §1.13): 주 활동(없으면 기본 상태) 위에 얹을 활동. 1단계는 음악이 나올 때 music 만 */
+  side: NekoActivity | null;
 }
 
 /** deriveNeko 의 입력(§5.1) */
@@ -99,6 +101,26 @@ export interface DirectorInput {
   needs: { hunger: number; play: number };
   /** 사용자가 마지막으로 앱을 쓴 시각 */
   lastActiveAt: number;
+  /**
+   * 다른 앱 따라 하기(neko/ambient.ts). typing: 지금 다른 앱에서 키를 치는 중, at: 마지막으로 친 시각(졸림 시계는
+   * 이것도 본다 — 다른 앱에서 일하는 동안은 안 존다), activity: 맨 앞 앱·음악으로 고른 활동
+   */
+  outside: OutsideState;
   /** 신나서 혼자 노는 중(상자에 쏙·털실·나비) */
-  box: { since: number; kind?: "box" | "yarn" | "butterfly" | "giftplay" } | null;
+  /** 혼자 놀기(신남). kind 는 엔진 활동(없으면 상자) */
+  box: { since: number; kind?: NekoActivity } | null;
+  /**
+   * 마당(화면 모드) 고양이를 메뉴로 숨겼다(neko_screen.rs). 보여 주기만 하는 활동은 하지 않는다 — 엔진도 멈춰 있다.
+   * 산책·그림·기억 정리처럼 결과가 남는 일은 감독 밖이라 그대로 돈다
+   */
+  hidden?: boolean;
+}
+
+export interface OutsideState {
+  typing: boolean;
+  at: number;
+  /** 맨 앞 앱으로 고른 활동(음악은 여기 안 넣는다 — music 으로 곁들인다) */
+  activity: NekoActivity | null;
+  /** 음악 앱이 재생 중 */
+  music: boolean;
 }

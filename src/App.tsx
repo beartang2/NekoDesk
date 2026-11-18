@@ -16,8 +16,10 @@ import { PlanChecklist } from "./components/PlanChecklist";
 import { ChatEmptyState } from "./components/ChatEmptyState";
 import { NekoBootCat } from "./neko/NekoPortrait";
 import { NekoSlot } from "./neko/NekoSlot";
+import { RoomBackdrop } from "./neko/NekoRoom";
 import { useNekoDirector } from "./neko/useNekoDirector";
 import { useNekoApp } from "./neko/director/stores";
+import { useNekoNeeds } from "./neko/director/needsStore";
 import { SLEEPY_MS } from "./neko/director/derive";
 import { useNekoStore } from "./neko/nekoStore";
 import { CatStatusPanel } from "./components/CatStatusPanel";
@@ -38,9 +40,10 @@ import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { isClaudeActive, nekoNameOf, useSettingsStore } from "./stores/settingsStore";
 import { budgetBlockReason } from "./stores/claudeBudget";
-import { startWalkBrain, type WalkBrain } from "./agent/walk";
+import { startWalkBrain, type WalkBefore, type WalkBrain } from "./agent/walk";
+import { useNekoController } from "./neko/nekoHost";
 import { buildPath, EXTRA_WAIT_MS, fallbackLegs, hurryHome, nextWalkAt, pickPlaces, routineName, positionAt, toLatLon, toMeters, walkEnd, walkStart, WALK_MS, type Pt, type Walk } from "./lib/walk";
-import { hereOnce } from "./components/MapCard";
+import { hereOnce } from "./components/WalkMap";
 import { DEFAULT_SIDEBAR_W, useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
@@ -76,7 +79,7 @@ import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl, save
 import { listen } from "@tauri-apps/api/event";
 import { useNekoScreen } from "./neko/remoteNeko";
 import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
-import { clock, parseDbTime, setTimeZone } from "./lib/time";
+import { clock, parseDbTime } from "./lib/time";
 
 import "./App.css";
 
@@ -259,48 +262,6 @@ function BootSplash() {
   );
 }
 
-interface WeatherNow {
-  place: string;
-  label: string;
-  emoji: string;
-  temp: number;
-  /** IANA 시간대("Asia/Seoul"). 앱의 시각 표시가 이걸 따른다(lib/time). */
-  timezone: string;
-}
-
-const WEATHER_STALE_MS = 30 * 60 * 1000;
-
-/** 고양이 왼쪽 위의 지금 날씨. 30분 지나면 다시 본다. 못 가져오면 조용히 숨는다. */
-function WeatherBadge() {
-  const location = useSettingsStore((s) => s.weatherLocation.trim());
-  const [now, setNow] = useState<WeatherNow | null>(null);
-
-  useEffect(() => {
-    setNow(null);
-    if (!location) { setTimeZone(undefined); return; }
-    let alive = true;
-    let fetchedAt = 0;
-    const load = () => {
-      fetchedAt = Date.now();
-      invoke<WeatherNow>("weather_now", { location })
-        .then((w) => { if (alive) { setNow(w); setTimeZone(w.timezone); } })
-        .catch(() => {});
-    };
-    load();
-    // 30분짜리 타이머는 잠자는 동안 멈춰서, 밤새 자고 깨도 30분을 더 기다린다.
-    // 1분마다 벽시계로 오래됐는지만 본다 — 깨고 1분 안에 새로 받는다.
-    const t = setInterval(() => { if (Date.now() - fetchedAt > WEATHER_STALE_MS) load(); }, 60 * 1000);
-    return () => { alive = false; clearInterval(t); };
-  }, [location]);
-
-  if (!now) return null;
-  return (
-    <span className="cat-panel__weather" title={`${now.place} ${now.label} ${Math.round(now.temp)}°C`}>
-      {now.emoji}
-    </span>
-  );
-}
-
 function Sidebar({
   onNew,
   onDelete,
@@ -312,10 +273,14 @@ function Sidebar({
   gameSpeech,
   gameMode,
   away,
+  walk,
+  isDark,
 }: {
   onNew: () => void;
   onDelete: (id: string) => void;
   away: boolean;
+  walk: Walk | null;
+  isDark: boolean;
   rpg: {
     dayCount: number;
     hunger: number;
@@ -378,15 +343,17 @@ function Sidebar({
 
       {gameSpeech && <GameSpeechBubble text={gameSpeech} />}
 
-      <div className="cat-panel" style={{ position: "relative" }}>
-        {/* 창가에 든 햇빛. reactbits 의 SideRays 를 WebGL 없이 기울인 그라데이션으로. */}
-        <div className="cat-panel__sun" aria-hidden="true" />
-        <WeatherBadge />
-        <div className="cat-panel__ctx">
-          <Counter value={contextTokens} /> / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}
+      <div className="cat-panel">
+        {/* 네코 방: 배경(벽·바닥·날씨 액자) 위에 창가 햇빛, 그 위에 네코 자리. 네코가 다른 자리로 가도 빈 방으로 남는다 */}
+        <div className="cat-room">
+          <RoomBackdrop />
+          {/* 창가에 든 햇빛. reactbits 의 SideRays 를 WebGL 없이 기울인 그라데이션으로. 방 안에만 든다 */}
+          <div className="cat-panel__sun" aria-hidden="true" />
+          <NekoSlot placement="sidebar" onRubPet={rpg.onPet} away={away} walk={walk} isDark={isDark} />
         </div>
-        <NekoSlot placement="sidebar" onRubPet={rpg.onPet} away={away} />
+        {/* 방 아래 얇은 띠: DAY·컨텍스트, 밥·놀이 게이지(누르면 밥 주기·놀아주기) */}
         <CatStatusPanel
+          ctx={<><Counter value={contextTokens} /> / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}</>}
           dayCount={rpg.dayCount}
           hunger={rpg.hunger}
           play={rpg.play}
@@ -1740,7 +1707,7 @@ export default function App() {
   const [walk, setWalk] = useState<Walk | null>(null);
   const [away, setAway] = useState(false);
   // 모니터 화면 자리면 화면 창을 띄운다(산책 중엔 숨긴다)
-  useNekoScreen(away);
+  useNekoScreen(away, !!walk?.music);
   const brainRef = useRef<WalkBrain | null>(null);
   // 쉬는지는 네코 감독의 '앱을 쓰는 중'(useNekoApp.lastActiveAt: 입력·클릭·스크롤·밥·놀이)으로 본다.
   // 감독이 재우는 때(SLEEPY_MS)부터 졸고, 다시 쓰면 서둘러 온다. 구독으로 봐서 App 은 졸기 시작·깰 때만 다시 그린다.
@@ -1784,6 +1751,17 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
+  // 산책이 출발 전 네코 상태를 가지고 나간다(walk.ts WalkBefore). 졸 땐 활동이 없으니 마지막으로 한 활동을 기억해 둔다
+  const nekoCtrl = useNekoController();
+  const lastActRef = useRef<string | null>(null);
+  useEffect(() => nekoCtrl?.on("activity", (a) => { if (a) lastActRef.current = a; }), [nekoCtrl]);
+  const beforeWalk = async (): Promise<WalkBefore> => {
+    const music = useNekoApp.getState().outside.music || nekoCtrl?.side === "music" || nekoCtrl?.activity === "music";
+    // 곡 제목은 느낌 한 줄로만 바뀌어 쓰인다(검색·보고엔 안 들어간다). osascript 를 띄우니 출발할 때 한 번만
+    const track = music ? await invoke<{ title: string; artist: string } | null>("ambient_track").catch(() => null) : null;
+    return { activity: nekoCtrl?.activity ?? lastActRef.current, music, track, sleepy: idle, hunger: displayHunger, play: rpgState.play, at: Date.now() };
+  };
+
   // 나갔으면 "출발", 아니면 왜 안 나갔는지 — nekoWalk() 가 콘솔에 그대로 보여 준다.
   const departRef = useRef(async (): Promise<string> => "");
   departRef.current = async () => {
@@ -1806,6 +1784,7 @@ export default function App() {
         : `다음 산책까지 ${Math.ceil((plan.at - Date.now()) / 60_000)}분`;
     }
     const asked = useNekoApp.getState().lastActiveAt;
+    const before = await beforeWalk(); // 나가기 전 상태(위치를 묻는 사이 바뀌지 않게 먼저)
     const home = await hereOnce();
     const found = home ? await mapApi.places({ lat: home.lat, lon: home.lon, radiusM: 800 }).catch(() => []) : [];
     const stops = home ? pickPlaces(home, found) : [];
@@ -1820,10 +1799,10 @@ export default function App() {
     if (useNekoApp.getState().lastActiveAt !== asked) return "위치·길을 찾는 사이 사용자가 돌아옴";
     const route = legs ?? fallbackLegs();
     const dwell = route.slice(1).map(() => (2 + Math.random() * 3) * 60_000);
-    const w: Walk = { home, onMap: !!legs, places: legs ? stops : found, path: buildPath(route, Date.now(), WALK_MS, dwell) };
+    const w: Walk = { home, onMap: !!legs, places: legs ? stops : found, path: buildPath(route, Date.now(), WALK_MS, dwell), ...(before.music ? { music: true as const } : {}) };
     saveWalk(w);
     setAway(true);
-    brainRef.current = startWalkBrain({ places: w.places, here: home });
+    brainRef.current = startWalkBrain({ places: w.places, here: home, before });
     return legs ? "출발" : "출발(지도 없이 대체 경로)";
   };
 
@@ -1875,6 +1854,7 @@ export default function App() {
     const id = window.setTimeout(async () => {
       arrivingRef.current = w;
       setAway(false);
+      useNekoNeeds.getState().walked(); // 숨은 게이지: 호기심 가득, 조금 꼬질·지침
       const brain = brainRef.current ?? startWalkBrain({ places: w.places, here: w.home });
       brainRef.current = null;
       const report = await brain.result;
@@ -1957,7 +1937,7 @@ export default function App() {
     });
   }, []);
 
-  // ── ⌘K 커맨드 팔레트 ───────────────────────────────────────────────────────
+  // ── ⌘K 커맨드 팔레트 · ⌘N 새 대화 · ⌘, 설정 ─────────────────────────────────
   const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1969,6 +1949,10 @@ export default function App() {
       } else if (k === "n") {
         e.preventDefault();
         handleNew();
+      } else if (e.key === ",") {
+        // ⌘, : 설정(macOS 앱 관례). 열려 있으면 닫는다
+        e.preventDefault();
+        setMenuOpen((v) => !v);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -2077,6 +2061,8 @@ export default function App() {
         modelContextLength={modelContextLength}
         gameMode={game.phase !== "idle" ? game : null}
         away={away}
+        walk={walk}
+        isDark={isDark}
       />
       </ErrorBoundary>
 
@@ -2180,14 +2166,12 @@ export default function App() {
         <RightPanel
           onResizeStart={rightPanelVisible ? (e) => startDrag("right", e) : undefined}
           isResizing={isDragging === "right"}
-          walk={walk}
-          isDark={isDark}
         />
       </ErrorBoundary>
 
       {/* '채팅 바 아래' 네코 자리: 창 맨 아래 한 줄, 사이드바부터 오른쪽 패널 끝까지(.app 셋째 줄).
           채팅 칸 안(.chat-dock)에 두면 대화 폭만큼만 생겼다. --dock-h 는 이제 입력창만 잰다. */}
-      <NekoSlot placement="dock" onRubPet={handlePet} away={away} />
+      <NekoSlot placement="dock" onRubPet={handlePet} away={away} walk={walk} isDark={isDark} />
     </div>
   );
 }

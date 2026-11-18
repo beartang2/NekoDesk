@@ -44,6 +44,7 @@
 <fieldset><legend>기분</legend><div class="chips" id="moods"></div></fieldset>
 <fieldset><legend>꼬리 언어</legend><div class="chips" id="tailsigns"></div></fieldset>
 <fieldset><legend>활동</legend><div class="chips" id="acts"></div></fieldset>
+<fieldset><legend>곁들임</legend><div class="chips" id="sides"></div></fieldset>
 
 <script type="module">
 import { createNeko } from "/src/neko/engine/neko-engine.js";
@@ -100,8 +101,9 @@ chips("poses", "pose", [["stand", "서기"], ["sit", "앉기"], ["loaf", "식빵
 chips("moods", "mood", [["idle", "기본"], ["happy", "행복"], ["sleepy", "졸림"], ["curious", "궁금"]], "idle", (v) => neko.setMood(v));
 chips("tailsigns", "tsign", [["auto", "자동"], ...["level", "up", "question", "quiver", "sway", "down", "puff", "angry", "thump"].map((k) => [k, k])], "auto",
   (v) => { neko.cat.tailForce = v === "auto" ? null : v; });
-chips("acts", "act", [["none", "없음"], ...["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb", "think", "wait", "meal", "hungry", "dig", "calendar", "erase"].map((k) => [k, k])], "none",
+chips("acts", "act", [["none", "없음"], ...["draw", "music", "butterfly", "snack", "stretch", "typing", "reading", "stamp", "groom", "knead", "yarn", "box", "window", "climb", "think", "wait", "meal", "hungry", "dig", "calendar", "erase", "gaze"].map((k) => [k, k])], "none",
   (v) => neko.act(v === "none" ? null : v));
+chips("sides", "side", [["none", "없음"], ["music", "음악"]], "none", (v) => neko.mix(v === "none" ? null : v));
 document.getElementById("jump").onclick = () => neko.jump();
 let wander = true;
 document.getElementById("wander").onclick = (e) => { wander = !wander; neko.setWander(wander); e.target.textContent = wander ? "산책 끄기" : "산책 켜기"; };

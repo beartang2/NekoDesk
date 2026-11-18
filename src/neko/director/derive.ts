@@ -1,5 +1,8 @@
 import { emotionPlan } from "../emotionMap";
 import { resultLook } from "./session";
+import { ONE_SHOT } from "./toolActivity";
+import { baseOf, MIX, mixable } from "../engine/activity-mix";
+import type { NekoActivity } from "../engine/neko-engine";
 import type { DirectorInput, NekoLayer, NekoPlan } from "./types";
 
 /**
@@ -21,10 +24,13 @@ export const RESULT_LINGER_MS = 600;
 export const SLEEPY_MS = 5 * 60_000;
 export const DEEP_SLEEP_MS = 6 * 60_000;
 
+/** 돌아다니며 하는 활동(선언의 stance 가 move: 털실·나비·선물·벽 타기) */
+const ROAMING: ReadonlySet<string> = new Set(Object.entries(MIX).filter(([, d]) => d.stance === "move").map(([k]) => k));
+
 function plan(layer: NekoLayer, p: Partial<NekoPlan> = {}): NekoPlan {
   return {
     layer, mood: "idle", pose: "stand", activity: null, oneShot: false, repeat: false, dwell: false,
-    instance: layer, tailHold: null, wander: false, ...p,
+    instance: layer, tailHold: null, wander: false, side: null, ...p,
   };
 }
 
@@ -36,8 +42,15 @@ export interface DeriveOut {
 export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
   let recheckAt: number | null = null;
   const at = (t: number) => { if (t > now && (recheckAt === null || t < recheckAt)) recheckAt = t; };
-  const out = (p: NekoPlan): DeriveOut => ({ plan: p, recheckAt });
+  // 음악이 나오면 마지막에 곁들인다: 주 활동(없으면 기본 상태) 위에 얹을 수 있을 때만(누워 자기·세수 등은 안 된다)
+  const music = input.outside.music && !input.hidden;
+  const withSide = (p: NekoPlan): NekoPlan =>
+    music && mixable(p.activity ?? baseOf(p.pose), "music").ok ? { ...p, side: "music" } : p;
+  const out = (p: NekoPlan): DeriveOut => ({ plan: withSide(p), recheckAt });
   const s = input.session;
+
+  // 0) 마당 고양이를 숨겼다: 아무것도 안 한다(다시 보이면 그때 상황대로)
+  if (input.hidden) return out(plan("hidden", { pose: "sit" }));
 
   // 1) 기다림: 확인·질문을 기다리는 동안은 무엇보다 먼저(밥 먹다가도)
   if (s.phase === "waiting") {
@@ -98,14 +111,19 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
     return out(plan("game", { mood: e.mood, pose: e.pose, activity: e.act, instance: `game:${input.game.emotion}` }));
   }
 
-  // 6) 졸림: 사용자가 한동안 앱을 안 쓰면(배고프거나 심심해도 결국은 잔다)
-  const idleFor = now - input.lastActiveAt;
+  // 5-1) 다른 앱에서 키를 치는 중: 같이 타이핑(졸고 있었어도 — 사용자가 일하는 중이다)
+  const out_ = input.outside;
+  if (out_.typing) return out(plan("outside", { activity: "typing", dwell: true, instance: "outside:typing" }));
+
+  // 6) 졸림: 사용자가 한동안 앱도 안 쓰고 다른 앱에서 키도 안 치면(배고프거나 심심해도 결국은 잔다)
+  const last = Math.max(input.lastActiveAt, out_.at);
+  const idleFor = now - last;
   if (idleFor >= DEEP_SLEEP_MS) return out(plan("sleep", { mood: "sleepy", pose: "lie" }));
   if (idleFor >= SLEEPY_MS) {
-    at(input.lastActiveAt + DEEP_SLEEP_MS);
+    at(last + DEEP_SLEEP_MS);
     return out(plan("sleep", { mood: "sleepy", pose: "loaf" }));
   }
-  at(input.lastActiveAt + SLEEPY_MS);
+  at(last + SLEEPY_MS);
 
   // 7) 배고픔·심심(표 5.4): 배고픔 낮음은 힘없음(눈은 뜸), 놀이 낮음은 심심 — 졸림과 나눈다
   const { hunger, play } = input.needs;
@@ -116,7 +134,14 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
   // 8) 신남: 혼자 논다(상자에 쏙·털실·나비 중 하나)
   if (input.box) {
     const k = input.box.kind ?? "box";
-    return out(plan("box", { activity: k, instance: `box:${input.box.since}`, wander: k !== "box" }));
+    // 돌아다니는 놀이(털실·나비·선물)만 산책을 켠다. 한 번짜리(간식·기지개·벽 타기)는 한 번 하고 그친다
+    return out(plan("box", { activity: k, instance: `box:${input.box.since}`, wander: ROAMING.has(k), oneShot: ONE_SHOT.has(k) }));
+  }
+
+  // 8-1) 다른 앱 따라 하기: 맨 앞 앱에 맞춘 활동(그림 앱이면 그리기, 브라우저면 창밖…). 음악은 곁들임(withSide)
+  if (out_.activity) {
+    const k = out_.activity;
+    return out(plan("ambient", { activity: k, dwell: true, wander: ROAMING.has(k), instance: `ambient:${k}` }));
   }
 
   // 9) 기본: 서서 산책

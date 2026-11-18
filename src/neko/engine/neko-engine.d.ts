@@ -54,7 +54,9 @@ export type NekoActivity =
   // P3: 감독이 에이전트 단계·앱 상황에 맞춰 고른다
   | "think" | "wait" | "meal" | "hungry" | "dig" | "calendar" | "erase"
   // 놓아 둔 선물 갖고 놀기(docs/neko-gifts.md §5)
-  | "giftplay";
+  | "giftplay"
+  // 쳐다보기: 애정이 낮을 때(docs/neko-activity-mix.md §2.3)
+  | "gaze";
 
 /** 선물 노는 방식. 없으면 엔진이 모양으로 짐작한다 */
 export type NekoGiftPlay = "roll" | "bat" | "sniff" | "sit_on" | "carry"
@@ -74,6 +76,8 @@ export interface NekoEvents {
   drop: void;
   /** 활동이 바뀌었을 때(끝나면 null) */
   activity: NekoActivity | null;
+  /** 곁들임이 바뀌었을 때(끝나거나 거절되면 null). 주 활동·기본 상태와 안 맞게 되면 엔진이 스스로 끝낸다 */
+  side: NekoActivity | null;
   /** 상태 이름(접근성 라벨 등) */
   label: string;
   error: unknown;
@@ -113,6 +117,8 @@ export interface NekoOptions {
   dark?: boolean;
   /** 산책(무작위로 걷기·점프). 기본 true */
   wander?: boolean;
+  /** 정지 그림을 찍는 엔진(지도 위 네코·초상): 떠다니는 음표를 안 띄운다 */
+  still?: boolean;
   appearance?: Partial<NekoAppearance>;
 }
 
@@ -127,6 +133,15 @@ export interface NekoController {
   /** 활동 시작(같은 활동이면 이어 감). null 이면 끝냄 */
   act(key: NekoActivity | null): void;
   readonly activity: NekoActivity | null;
+  /**
+   * 곁들임(docs/neko-activity-mix.md): 주 활동 위에, 주 활동이 없으면 기본 상태(서기·걷기·앉기·식빵) 위에 얹는다.
+   * 지금 도는 것과 안 맞으면(activity-mix.js 의 mixable) 거절하고 false. null 이면 끝냄.
+   * 주 활동이 끝나도 곁들임은 남는다. act(지금 곁들임) 이면 곁들임이 주 활동으로 옮겨 탄다(소품이 다시 안 뜬다)
+   */
+  mix(key: NekoActivity | null): boolean;
+  /** 쉬는 동안 커서 따라오기(기본 켬). 2단계 감독은 애정이 낮을 때만 켠다 */
+  setChase(on: boolean): void;
+  readonly side: NekoActivity | null;
   /** 꼬리 언어를 잠깐(초) */
   tail(sign: NekoTailSign, sec?: number): void;
   /** "pet" 은 기분 좋게 받으면 true, 너무 만져 짜증 났으면 false(웃지 않고 피함). 나머지는 true */
@@ -156,6 +171,12 @@ export interface NekoController {
   setEdges(e: { left: boolean; right: boolean }): void;
   /** 그쪽을 열고 가장자리 너머(몸이 다 넘어가는 만큼)로 걸어간다. 넘어가는 순간 "edge" */
   walkOut(side: "left" | "right"): void;
+  /**
+   * 산책 중(화면 모드 마당): 고양이를 감추고 그 자리 바닥에 나무 팻말(발자국·화살표)을 꽂는다. 그동안 고양이는 움직이지
+   * 않고 hit·hitCarry 는 거짓이라 클릭은 뒤로 지나간다(마당 선물은 그대로). false 면 팻말을 거두고 그 자리에서 다시 보인다
+   */
+  setAway(on: boolean, o?: { music?: boolean }): void;
+  readonly away: boolean;
   /** 지금 그리는 영역(세계 좌표). 화면 모드에선 고양이 둘레, 아니면 무대 전체 */
   readonly region: { x: number; y: number; w: number; h: number };
   /** 입에 문다. 같은 id 면 바꾼다. 여럿이면 최대 3장이 겹쳐 보인다 */

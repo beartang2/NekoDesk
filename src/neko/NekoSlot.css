@@ -17,12 +17,6 @@
   position: absolute;
   inset: 0;
 }
-/* 선물함 칸을 끌고 이 위에 왔을 때: 여기 놓인다는 표시 */
-.neko-slot__stage.is-gift-over {
-  outline: 2px dashed color-mix(in oklab, var(--accent) 70%, transparent);
-  outline-offset: -4px;
-  border-radius: 10px;
-}
 .neko-canvas {
   display: block;
   width: 100%;
@@ -66,3 +60,48 @@
   transform: translateY(-100%);
 }
 .neko-slot__tidy:hover { border-color: var(--accent); }
+
+/* 산책 중(채팅 바 아래): 왼쪽 '산책 중' 그림, 오른쪽 정사각형 지도 */
+.neko-slot__walk {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+}
+.neko-slot__away {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.neko-slot--dock .neko-slot__map {
+  flex: none;
+  height: 100%;
+  aspect-ratio: 1;
+}
+/* 산책 중(사이드바 방): 지도가 자리를 채운다 */
+.neko-slot .neko-slot__map--fill {
+  position: absolute;
+  inset: 6px;
+}
+
+/* 다녀온 뒤 남는 지난 산책 지도 버튼. 오른쪽 위(왼쪽 위는 방의 날씨 액자) */
+.neko-slot__map-btn {
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-secondary);
+  background: color-mix(in oklab, var(--bg-surface) 80%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity var(--dur-micro, 0.12s), color var(--dur-micro, 0.12s);
+}
+.neko-slot__map-btn:hover { opacity: 1; color: var(--accent); }
