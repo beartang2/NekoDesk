@@ -13,6 +13,8 @@ import type { NekoPlacement } from "./nekoStore";
 
 const KEY = "neko_gifts";
 export const MAX_GIFTS = 100;
+/** 액자를 걸 높이(벽 v 비율) */
+const FRAME_V = 0.6;
 /** 큰 물건 전용(scratch·lean·hide)도 넣는다 — 엔진이 크기에 안 맞는 놀이는 바꿔 논다 */
 export const PLAYS: NekoGiftPlay[] = ["roll", "bat", "sniff", "sit_on", "carry", "scratch", "lean", "hide"];
 export const GIFT_SIZES: NekoGiftSize[] = ["small", "medium", "large"];
@@ -42,6 +44,8 @@ export interface NekoGift {
   /** 실제 물건 크기(무대·입에서 그리는 크기). 없으면 medium. 선물함 칸에선 칸에 맞춘다 */
   size?: NekoGiftSize;
   placed?: GiftPlacement;
+  /** 네코가 그린 그림 액자(agent/neko-drawing.ts). '놓기'(auto)는 바닥 대신 벽에 건다 */
+  frame?: true;
   /** 네코가 마지막으로 갖고 논 때(epoch ms, 엔진 decorPlayed). 오래 안 논 것부터 논다 */
   lastPlayed?: number;
 }
@@ -122,7 +126,7 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
     const size = GIFT_SIZES.includes(g.size as NekoGiftSize) ? (g.size as NekoGiftSize) : undefined;
     const gift: NekoGift = {
       id: g.id ?? crypto.randomUUID(), at: g.at ?? new Date().toISOString(), title: g.title, body: g.body, shape: validateShape(g.shape),
-      ...(play ? { play } : {}), ...(size ? { size } : {}), ...(g.placed ? { placed: g.placed } : {}),
+      ...(play ? { play } : {}), ...(size ? { size } : {}), ...(g.placed ? { placed: g.placed } : {}), ...(g.frame ? { frame: true as const } : {}),
     };
     const gifts = capGifts([...get().gifts, gift]);
     set({ gifts });
@@ -135,8 +139,10 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
     if (spot !== null) {
       const where = at ?? gift.placed?.at;
       if (!where || !fits(gift.size, where)) return;
-      const us = get().gifts.filter((g) => g.id !== id && g.placed?.at === where && g.placed.surface === "floor").map((g) => g.placed!.u);
-      const s = spot === "auto" ? { surface: "floor" as const, u: freeSpot(us) } : spot;
+      // 빈 자리는 같은 장소 같은 면(액자는 벽, 나머지는 바닥)끼리 센다
+      const face = gift.frame ? "wall" : "floor";
+      const us = get().gifts.filter((g) => g.id !== id && g.placed?.at === where && g.placed.surface === face).map((g) => g.placed!.u);
+      const s: NekoDecorSpot = spot !== "auto" ? spot : gift.frame ? { surface: "wall", u: freeSpot(us), v: FRAME_V } : { surface: "floor", u: freeSpot(us) };
       placed = s.surface === "wall" ? { surface: "wall", u: s.u, v: s.v, at: where } : { surface: "floor", u: s.u, at: where };
     }
     const gifts = get().gifts.map((g) => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { NekoActivity } from "./engine/neko-engine";
 import { ONE_SHOT } from "./director/toolActivity";
+import { maybeDraw } from "../agent/neko-drawing";
 import { appEvents } from "../lib/events";
 import { deriveNeko, pickSolo } from "./director/derive";
 import { createScheduler, realClock, type Scheduler } from "./director/scheduler";
@@ -95,6 +96,8 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
           const kind = pickSolo(lastSolo, !!(ctrl as { decorCount?: number }).decorCount);
           lastSolo = kind;
           box = { since: performance.now(), kind };
+          // 그리기면 정말 그린다(하루 두 장, Claude 일 때만). 다 그려 액자를 선물함에 넣으면 꼬리 세우기
+          if (kind === "draw") void maybeDraw().then((title) => { if (title) sch.react([{ type: "react", kind: "proud" }]); });
           boxPetBase = useNekoApp.getState().pets;
           const stay = ONE_SHOT.has(kind) ? BOX_STAY_ONE_SHOT_MS : BOX_STAY_MS[0] + Math.random() * (BOX_STAY_MS[1] - BOX_STAY_MS[0]);
           boxExitTimer = setTimeout(leaveBox, stay);

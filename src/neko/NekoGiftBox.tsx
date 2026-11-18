@@ -37,7 +37,7 @@ function action(g: NekoGift, here: NekoPlacement): { label: string; run: (() => 
   const ok = fits(g.size, here);
   if (g.placed?.at === here || (g.placed && !ok)) return { label: "치우기", run: () => place(g.id, null) };
   if (g.placed) return { label: "여기로", run: () => place(g.id, "auto", here) };
-  if (ok) return { label: "놓기", run: () => place(g.id, "auto", here) };
+  if (ok) return { label: g.frame ? "걸기" : "놓기", run: () => place(g.id, "auto", here) };
   const min = smallestPlace(g.size);
   return { label: `${PLACE_NAME[min]}${min === "screen" ? "에만" : "부터"}`, run: null };
 }

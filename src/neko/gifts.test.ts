@@ -137,3 +137,21 @@ describe("선물 놀이 기록·장소별 엔진 목록", () => {
     expect(decorItems(gifts, "dock")).toEqual([]);
   });
 });
+
+describe("액자", () => {
+  it("'걸기'(auto)는 벽에, 같은 장소 벽에 건 것끼리 빈 자리를 찾는다", () => {
+    const s = useNekoGifts.getState();
+    s.add({ id: "p1", title: "튤립", body: "", shape: dot, size: "small", frame: true });
+    s.add({ id: "p2", title: "우산", body: "", shape: dot, size: "small", frame: true });
+    s.add({ id: "toy", title: "공", body: "", shape: dot, size: "small" });
+    useNekoGifts.getState().place("p1", "auto", "sidebar");
+    useNekoGifts.getState().place("toy", "auto", "sidebar");
+    useNekoGifts.getState().place("p2", "auto", "sidebar");
+    const [p1, p2, toy] = useNekoGifts.getState().gifts;
+    expect(p1.frame).toBe(true);
+    expect(p1.placed).toEqual({ surface: "wall", u: 0.35, v: 0.6, at: "sidebar" });
+    expect(toy.placed).toEqual({ surface: "floor", u: 0.35, at: "sidebar" }); // 바닥은 따로 센다
+    expect(p2.placed).toMatchObject({ surface: "wall", u: 1 });
+  });
+});
+
