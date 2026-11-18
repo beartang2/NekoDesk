@@ -25,6 +25,15 @@
   transform: translateY(-100%);
 }
 .neko-screen__tidy:hover { border-color: var(--accent); }
+/* 개발 빌드 캣타워 표시(NekoScreen): 발판·벽·창마다 빠진 까닭. 클릭은 막지 않는다 */
+.neko-screen__perch-debug {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  font-family: ui-monospace, monospace;
+}
 .neko-screen__canvas.can-grab { cursor: grab; }
 .neko-screen__canvas.dragging { cursor: grabbing; }
 

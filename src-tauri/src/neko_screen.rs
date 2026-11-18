@@ -23,7 +23,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::capture::on_main;
 use crate::error::AppError;
-use crate::neko_perch::{perches, Perches, Win};
+use crate::neko_perch::{explain, perches, Perches, Win};
 
 const LABEL: &str = "neko-screen";
 /// 커서를 읽는 간격(초당 30번). capture.rs 의 FOLLOW_EVERY 와 같다.
@@ -44,6 +44,8 @@ const PERCH_NEAR: Duration = Duration::from_millis(500);
 const PERCH_FAR: Duration = Duration::from_secs(2);
 /// 고양이(화면 창이 알린 자리)가 창에서 이만큼(pt) 안이면 '근처'
 const NEAR_PT: f64 = 300.0;
+/// 올라탄 창이 움직였는지 이 간격으로 본다(움직이면 엔진이 고양이를 떨어뜨린다 — 따라가지 않는다, 사용자)
+const PERCH_WATCH: Duration = Duration::from_millis(100);
 
 /// 화면 창이 처음과 바뀔 때 받는 판 크기와 바닥(엔진 세계 좌표).
 #[derive(Serialize, Clone, Copy, Debug, PartialEq)]
@@ -180,6 +182,10 @@ struct State {
     /// 화면 창이 알린 고양이 자리(창 좌표)와 올라탄 창 번호. 올라탄 창은 30Hz 로 따라 읽는다.
     cat_at: Option<[f64; 2]>,
     perch_win: Option<u32>,
+    /// 올라탄 창을 마지막으로 본 때.
+    perch_watch_at: Option<Instant>,
+    /// 개발 빌드: 마지막으로 보낸 창마다 까닭 표시.
+    perch_debug: Option<Vec<PerchDebug>>,
     poller: bool,
 }
 
@@ -214,6 +220,8 @@ static STATE: Mutex<State> = Mutex::new(State {
     perches_sent: None,
     cat_at: None,
     perch_win: None,
+    perch_watch_at: None,
+    perch_debug: None,
     poller: false,
 });
 
@@ -706,8 +714,19 @@ fn press_out(app: &AppHandle, took: Option<&str>) {
     }
 }
 
+/// 개발 빌드 표시(`neko-screen-perch-debug`): 창마다 자리(화면 창 좌표)·앱 이름·층·발판이 없는 까닭.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+struct PerchDebug {
+    win: u32,
+    owner: String,
+    layer: i32,
+    rect: [f64; 4],
+    why: Option<&'static str>,
+}
+
 /// 캣타워: 창 목록을 읽어 발판·벽을 화면 창에 보낸다(바뀔 때만). 고양이가 창 근처면 0.5초, 멀면 2초마다 다 읽고, 그
-/// 사이엔 올라탄 창만 매 틱 읽어 움직였으면 그 창 것만(partial) 보낸다. '항상 위'가 꺼져 있으면(고양이가 창 아래) 비운다.
+/// 사이엔 올라탄 창만 0.1초마다 읽어 움직였으면 그 창 것만(partial) 보낸다 — 엔진은 고양이를 떨어뜨린다. '항상 위'가
+/// 꺼져 있으면(고양이가 창 아래) 비운다.
 fn perch_tick(app: &AppHandle) {
     let Ok(st) = STATE.lock() else { return };
     let Some(cur) = pick(&st.screens, st.at) else { return };
@@ -729,23 +748,40 @@ fn perch_tick(app: &AppHandle) {
     let (due, perch_win) = (st.perch_at.map_or(true, |t| t.elapsed() >= every), st.perch_win);
     drop(st);
     if due {
-        let own = std::process::id() as i32;
-        let wins: Vec<Win> = unsafe { crate::capture::macos::windows() }
-            .into_iter()
-            .map(|t| Win { id: t.id, rect: [t.rect.x, t.rect.y, t.rect.w, t.rect.h], perch: t.pid != own })
-            .collect();
-        let p = perches(&wins, cur.rect, ground, None);
+        let listed = unsafe { crate::neko_perch::macos::windows() };
+        let wins: Vec<Win> = listed.iter().map(|l| Win { id: l.id, rect: l.rect, perch: true }).collect();
+        let (p, why) = explain(&wins, cur.rect, ground, None);
+        let debug = cfg!(debug_assertions).then(|| {
+            let [ox, oy, ..] = cur.rect;
+            listed
+                .iter()
+                .zip(why)
+                .map(|(l, why)| PerchDebug { win: l.id, owner: l.owner.clone(), layer: l.layer, rect: [l.rect[0] - ox, l.rect[1] - oy, l.rect[2], l.rect[3]], why })
+                .collect::<Vec<_>>()
+        });
+        let mut debug_new = None;
         if let Ok(mut st) = STATE.lock() {
             st.wins = wins;
             st.perch_at = Some(Instant::now());
+            if debug.is_some() && st.perch_debug != debug {
+                st.perch_debug = debug.clone();
+                debug_new = debug;
+            }
+        }
+        if let Some(d) = debug_new {
+            let _ = app.emit_to(LABEL, "neko-screen-perch-debug", d);
         }
         send_perches(app, p, true);
         return;
     }
-    // 올라탄 창: 그 창만 매 틱(30Hz) — 사용자가 창을 끌면 고양이가 같이 간다. 닫혔으면 다음 틱에 다 읽는다
+    // 올라탄 창: 그 창만 0.1초마다 — 움직였으면 그 창 것만 보낸다(엔진이 떨어뜨린다). 닫혔으면 다음 틱에 다 읽는다
     let Some(win) = perch_win else { return };
+    if STATE.lock().is_ok_and(|st| st.perch_watch_at.is_some_and(|t| t.elapsed() < PERCH_WATCH)) {
+        return;
+    }
     let rect = unsafe { crate::neko_perch::macos::window_rect(win) };
     let Ok(mut st) = STATE.lock() else { return };
+    st.perch_watch_at = Some(Instant::now());
     let Some(rect) = rect else {
         st.perch_at = None;
         return;

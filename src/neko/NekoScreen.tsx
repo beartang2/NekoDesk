@@ -24,6 +24,8 @@ interface Layout { w: number; h: number; ground: number }
 type Side = "left" | "right";
 interface Moved { layout: Layout; shift: [number, number] }
 type Perches = Parameters<NekoController["setPerches"]>[0];
+/** 개발 빌드 캣타워 표시: 창마다 자리·앱·층·발판이 없는 까닭(Rust neko-screen-perch-debug) */
+interface PerchDebug { win: number; owner: string; layer: number; rect: [number, number, number, number]; why: string | null }
 
 /** 잡고 끄는 동안은 설정과 상관없이 60. 졸 때는 설정의 절반 */
 const HELD_FPS = 60;
@@ -55,6 +57,8 @@ export function NekoScreen() {
   // 고양이면 누른 자리에 '숨기기'(마당을 숨긴다 — 이 앱이 맨 앞으로 오면 다시 보인다). 다른 데 누르거나 몇 초 뒤 닫힌다
   const [menu, setMenu] = useState<{ id?: string; x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
+  // 개발 빌드: 발판(초록)·벽(파랑)·창마다 빠진 까닭을 화면에 그린다
+  const [debug, setDebug] = useState<{ wins: PerchDebug[]; p: Perches } | null>(null);
   useEffect(() => {
     if (!menu) return;
     const t = setTimeout(() => setMenu(null), MENU_MS);
@@ -232,7 +236,14 @@ export function NekoScreen() {
         requestAnimationFrame(() => void invoke("neko_screen_reveal").catch(() => {}));
       }),
       // 캣타워 발판·벽(Rust, 바뀔 때만. partial 이면 그 창 것만)
-      me.listen<Perches>("neko-screen-perches", ({ payload }) => ctrl.setPerches(payload)),
+      me.listen<Perches>("neko-screen-perches", ({ payload }) => {
+        ctrl.setPerches(payload);
+        if (import.meta.env.DEV) setDebug((d) => {
+          const keep = <T extends { win: number }>(a: T[], b: T[]) => (payload.partial === undefined ? b : [...a.filter((o) => o.win !== payload.partial), ...b]);
+          return { wins: d?.wins ?? [], p: { tops: keep(d?.p.tops ?? [], payload.tops), walls: keep(d?.p.walls ?? [], payload.walls) } };
+        });
+      }),
+      ...(import.meta.env.DEV ? [me.listen<PerchDebug[]>("neko-screen-perch-debug", ({ payload }) => setDebug((d) => ({ wins: payload, p: d?.p ?? { tops: [], walls: [] } })))] : []),
       me.listen<number>("neko-screen-scale", ({ payload }) => ctrl.setScale(payload)),
       me.listen<number>("neko-screen-fps", ({ payload }) => { maxFps = payload; fps(); }),
       me.listen("neko-screen-ping", () => { towerSent = null; void emitTo("main", "neko-screen-ready").catch(() => {}); }),
@@ -263,6 +274,18 @@ export function NekoScreen() {
 
   return (
     <>
+      {import.meta.env.DEV && debug && (
+        <svg className="neko-screen__perch-debug" aria-hidden="true">
+          {debug.wins.map((w) => (
+            <g key={w.win}>
+              <rect x={w.rect[0]} y={w.rect[1]} width={w.rect[2]} height={w.rect[3]} fill="none" stroke={w.why ? "#e5484d" : "#8b8d98"} strokeDasharray="6 4" />
+              <text x={w.rect[0] + 4} y={w.rect[1] + 14} fill={w.why ? "#e5484d" : "#8b8d98"} fontSize="11">{`${w.owner} #${w.win} L${w.layer}${w.why ? ` — ${w.why}` : ""}`}</text>
+            </g>
+          ))}
+          {debug.p.tops.map((t) => <line key={t.id} x1={t.x0} x2={t.x1} y1={t.y} y2={t.y} stroke="#30a46c" strokeWidth="3" />)}
+          {debug.p.walls.map((w) => <line key={w.id} x1={w.x} x2={w.x} y1={w.y0} y2={w.y1} stroke="#0090ff" strokeWidth="3" />)}
+        </svg>
+      )}
       <canvas ref={canvasRef} className="neko-screen__canvas" tabIndex={-1} aria-hidden="true" />
       {menu && (
         <button
