@@ -191,8 +191,8 @@ export function NekoScreen() {
       }),
       // 창이 다른 모니터로 옮겨졌다(숨긴 채). 세계를 옮기면 엔진이 바로 한 번 그린다 — 다음 프레임에 보인다
       me.listen<Moved>("neko-screen-moved", ({ payload: { layout, shift } }) => {
-        ctrl.shiftWorld(shift[0], shift[1]);
-        ctrl.setGround(layout.ground);
+        // 새 바닥은 shiftWorld 에 같이 — setGround 를 따로 부르면 dy 에 든 바닥 차이만큼 세계를 한 번 더 옮겨 움찔·튀었다
+        ctrl.shiftWorld(shift[0], shift[1], layout.ground);
         ctrl.setEdges(CLOSED);
         away = null;
         outAt = 0;
