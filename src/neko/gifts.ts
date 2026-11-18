@@ -25,12 +25,7 @@ export const GIFT_SIZES: NekoGiftSize[] = ["small", "medium", "large"];
 
 /** 장소 = 네코 자리. 사이드바는 방, 채팅 바 아래는 거실, 모니터 화면은 마당 */
 export const PLACE_NAME: Record<NekoPlacement, string> = { sidebar: "방", dock: "거실", screen: "마당" };
-/**
- * 크기로 자리를 막지 않는다(사용자 확정, 0.1.16) — 어디든 놓고, 너무 크면 그 자리 상한(decor-draw capPx)으로 그린다.
- * fits·smallestPlace 는 선물함이 걷어 낼 때까지 남겨 둔 것(늘 된다)
- */
-export const fits = (_size: NekoGiftSize | undefined, _at: NekoPlacement): boolean => true;
-export const smallestPlace = (_size?: NekoGiftSize): NekoPlacement => "sidebar";
+/** 크기로 자리를 막지 않는다(사용자 확정, 0.1.16) — 어디든 놓고, 너무 크면 그 자리 상한(decor-draw capPx)으로 그린다 */
 /** 장소가 생기기 전에 놓인 것(예전 데이터): 그때 규칙대로 그 크기가 들어가던 가장 작은 장소로 */
 const legacyPlace = (size?: NekoGiftSize): NekoPlacement => (size === "small" ? "sidebar" : size === "large" ? "screen" : "dock");
 

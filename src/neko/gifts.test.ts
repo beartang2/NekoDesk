@@ -9,7 +9,7 @@ vi.mock("../api/tauri", () => ({
   },
 }));
 
-import { capGifts, fits, freeSpot, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
+import { capGifts, freeSpot, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
 
 const gift = (id: string, placed?: number): NekoGift => ({
   id, at: "", title: id, body: "", shape: { v: 1, parts: [{ t: "circle", x: 0, y: -4, r: 4, c: "red" }] },
@@ -95,7 +95,6 @@ describe("선물함", () => {
     s.add({ id: "big", title: "big", body: "", shape: dot, size: "large" });
     useNekoGifts.getState().place("big", "auto", "sidebar");
     expect(useNekoGifts.getState().gifts[0].placed?.at).toBe("sidebar");
-    expect(fits("large", "sidebar")).toBe(true);
     useNekoGifts.getState().resize("big", 4, true);
     const g = useNekoGifts.getState().gifts[0];
     expect(g.scale).toBe(4);
