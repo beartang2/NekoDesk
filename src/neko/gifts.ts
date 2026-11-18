@@ -12,9 +12,6 @@ import type { NekoPlacement } from "./nekoStore";
  */
 
 const KEY = "neko_gifts";
-/** 선물함 칸을 무대에 놓을 때 무대(.neko-slot__stage)에 보내는 이벤트. detail = GiftDrop */
-export const GIFT_DROP = "neko-gift-drop";
-export type GiftDrop = { id: string; x: number; y: number };
 export const MAX_GIFTS = 100;
 /** 큰 물건 전용(scratch·lean·hide)도 넣는다 — 엔진이 크기에 안 맞는 놀이는 바꿔 논다 */
 export const PLAYS: NekoGiftPlay[] = ["roll", "bat", "sniff", "sit_on", "carry", "scratch", "lean", "hide"];

@@ -38,9 +38,7 @@
   background: var(--bg-surface);
   text-align: center;
   min-width: 0;
-  cursor: grab;
   user-select: none;
-  touch-action: none;
 }
 /* 지금 장소엔 너무 큰 것: 흐리게, 끌 수 없음(버튼이 어디부터인지 알려 준다) */
 .neko-gifts__item--off {
@@ -74,37 +72,6 @@
   font-size: 11px;
   padding: 2px 6px;
 }
-
-/* 선물함 창: 꾸미기 창(neko-cz) 틀에 폭만 좁게 */
-.neko-cz.neko-gifts-modal {
-  width: min(560px, 100%);
-}
-.neko-gifts-modal h2 .neko-gifts__count {
-  font-size: 13px;
-}
-
-/* 끄는 동안 손가락을 따라가는 선물 그림(dragGift) */
-.neko-gifts__ghost {
-  position: fixed;
-  left: 0;
-  top: 0;
-  z-index: 1000;
-  pointer-events: none;
-  filter: drop-shadow(0 4px 8px oklch(0 0 0 / 0.35));
-}
-.neko-gift-dragging,
-.neko-gift-dragging * {
-  cursor: grabbing !important;
-}
-
-/* 선물 칸을 끄는 동안: 선물함 창과 메뉴 창 덮개를 흐려 뒤의 네코 자리가 보이게. 무대는 elementsFromPoint 로
-   덮개 아래에서도 찾으니 pointer-events 는 그대로 둔다 — 끄는 칸의 조상이 none 이 되면 WebKit 이 포인터 캡처를 놓쳐 끌기가 멈췄다 */
-.neko-gift-dragging .neko-gifts-layer,
-.neko-gift-dragging .menu-backdrop {
-  opacity: 0.2;
-  transition: opacity 0.15s;
-}
-
 
 /* 선물 그림 시험(개발 빌드) */
 .gift-lab {

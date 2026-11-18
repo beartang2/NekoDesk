@@ -7,7 +7,7 @@ import { RoomGifts } from "./NekoRoom";
 import { Map as MapIcon } from "lucide-react";
 import { LastWalkModal, WalkMap } from "../components/WalkMap";
 import type { Walk } from "../lib/walk";
-import { GIFT_DROP, useNekoGifts, type GiftDrop } from "./gifts";
+import { useNekoGifts } from "./gifts";
 import "./NekoSlot.css";
 
 /**
@@ -80,22 +80,6 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
     if (ctrl.hit(e.clientX - r.left, e.clientY - r.top)) onBodyMove(e.movementX, e.movementY);
     else onBodyLeave();
   }, [ctrl, onBodyMove, onBodyLeave]);
-
-  // 선물함 칸을 끌어다 놓으면(NekoGiftBox 가 GIFT_DROP 을 보낸다) 이 장소의 그 자리(바닥 가까이면 바닥, 높이면 벽)에 놓는다.
-  // 다른 장소에 놓여 있던 것이면 이리로 옮긴다. 이 장소에 안 맞는 크기면 place 가 무시한다
-  useEffect(() => {
-    const el = stageRef.current;
-    if (!el || !ctrl || !active || away) return;
-    const onDrop = (e: Event) => {
-      const { id, x, y } = (e as CustomEvent<GiftDrop>).detail;
-      const gift = useNekoGifts.getState().gifts.find((g) => g.id === id);
-      if (!gift) return;
-      const r = el.getBoundingClientRect();
-      useNekoGifts.getState().place(id, ctrl.decorSpotAt(x - r.left, y - r.top, gift.shape, gift.size), placement);
-    };
-    el.addEventListener(GIFT_DROP, onDrop);
-    return () => el.removeEventListener(GIFT_DROP, onDrop);
-  }, [ctrl, active, away, placement]);
 
   // 높이 손잡이: 위쪽 가장자리를 끌면 그만큼 키가 바뀐다(손을 뗄 때 저장)
   const onHandleDown = useCallback((e: React.PointerEvent) => {

@@ -17,12 +17,6 @@
   position: absolute;
   inset: 0;
 }
-/* 선물함 칸을 끌고 이 위에 왔을 때: 여기 놓인다는 표시 */
-.neko-slot__stage.is-gift-over {
-  outline: 2px dashed color-mix(in oklab, var(--accent) 70%, transparent);
-  outline-offset: -4px;
-  border-radius: 10px;
-}
 .neko-canvas {
   display: block;
   width: 100%;

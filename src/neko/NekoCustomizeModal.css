@@ -23,6 +23,21 @@
   overflow: hidden;
   animation: neko-cz-in var(--dur-sheet, 0.2s) var(--ease-sheet, ease-out);
 }
+/* 따로 뜬 창(꾸미기·선물함)을 채울 때: 창 틀이 제목·그림자를 맡는다 */
+.neko-cz--window {
+  width: 100%;
+  height: 100vh;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+.neko-cz--window > .neko-cz__body {
+  flex: 1;
+  min-height: 0;
+  align-content: start; /* 창이 길어도 줄 사이가 벌어지지 않게 */
+}
 @keyframes neko-cz-in {
   from { opacity: 0; transform: translateY(10px) scale(0.98); }
   to   { opacity: 1; transform: none; }

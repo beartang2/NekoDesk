@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Segmented, SwitchRow, type Option } from "../components/ui";
-import { NekoCustomizeModal } from "./NekoCustomizeModal";
 import { NekoGiftBox } from "./NekoGiftBox";
 import { SCREEN_SCALE, useNekoStore, type NekoPlacement } from "./nekoStore";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
@@ -35,7 +34,6 @@ export function NekoSettingsSection() {
   const scale = useNekoStore((s) => s.stage.screenScale);
   const fps = useNekoStore((s) => s.stage.screenFps);
   const setScreen = useNekoStore((s) => s.setScreen);
-  const [open, setOpen] = useState(false);
   const name = useSettingsStore(nekoNameOf);
 
   return (
@@ -45,7 +43,7 @@ export function NekoSettingsSection() {
       <div className="neko-settings__summary">
         <i className="cat-skin-swatch" style={{ background: coatSwatch(a) }} />
         <span className="neko-settings__summary-text">{summarizeAppearance(a)}</span>
-        <button type="button" className="settings-btn" onClick={() => setOpen(true)}>네코 꾸미기</button>
+        <button type="button" className="settings-btn" onClick={() => void invoke("panel_open", { kind: "neko-customize" }).catch(() => {})}>네코 꾸미기</button>
       </div>
 
       <Segmented value={placement} onChange={setPlacement} options={PLACES} />
@@ -77,7 +75,6 @@ export function NekoSettingsSection() {
 
       <NekoGiftBox />
 
-      {open && <NekoCustomizeModal onClose={() => setOpen(false)} />}
     </section>
   );
 }
