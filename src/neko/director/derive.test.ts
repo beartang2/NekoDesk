@@ -107,7 +107,7 @@ describe("계획: 층과 우선순위(설계 §5.2)", () => {
 
 describe("혼자 놀기(신남)", () => {
   it("고를 거리는 넓고, 방금 한 건 다시 안 고르고, 선물이 있으면 선물도", () => {
-    expect(SOLO).toEqual(expect.arrayContaining(["draw", "music", "reading", "groom", "knead", "window", "stretch", "snack", "climb"]));
+    expect(SOLO).toEqual(expect.arrayContaining(["draw", "music", "reading", "groom", "knead", "window", "stretch", "snack", "climb", "dig"]));
     for (let i = 0; i < 20; i++) expect(pickSolo("yarn", false, i / 20)).not.toBe("yarn");
     const picks = new Set(Array.from({ length: 40 }, (_, i) => pickSolo(null, true, i / 40)));
     expect(picks.has("giftplay")).toBe(true);

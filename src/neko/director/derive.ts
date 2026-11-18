@@ -29,6 +29,7 @@ const ROAMING: ReadonlySet<string> = new Set(["yarn", "butterfly", "giftplay", "
 /** 혼자 놀 거리(신남). 일하는 활동(타이핑·발도장·달력…)은 뺀다 */
 export const SOLO: readonly NekoActivity[] = [
   "box", "yarn", "butterfly", "draw", "music", "reading", "groom", "knead", "window", "stretch", "snack", "climb",
+  "dig", // 상자 뒤지기(사용자 2026-11-18). 파일 도구 활동이지만 혼자서도 뒤진다
 ];
 
 /** 혼자 놀 거리 하나. 놓아 둔 선물이 있으면 그것도 조금 자주. 방금 한 것은 뺀다 */
