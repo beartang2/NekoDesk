@@ -102,4 +102,22 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     expect(useNekoGifts.getState().gifts.find((g) => g.id === "a")?.placed).toMatchObject({ at: "screen", screen: "B", u: 0.5 });
     expect(items()).toEqual({ "neko-decor-A": ["b"], "neko-decor-B": ["a", "c"] });
   });
+
+  it("선물함에서 마당에 새로 놓으면(모니터 모름) 고양이가 있는 모니터로 적는다. 이미 마당에 있던 건 그대로", () => {
+    const gift = (id: string, placed?: GiftPlacement) => ({ id, at: "", title: id, body: "", shape: validateShape(null), ...(placed ? { placed } : {}) });
+    const scr = { main: "A", cat: "B", screens: ["A", "B"].map((id) => ({ id, layout: { w: 800, h: 600, ground: 560 }, decor: `neko-decor-${id}` })) };
+    tauri.handlers.get("neko-screens")?.({ payload: scr });
+    // 막 불러온 것(예전에 놓아 모니터가 없음)은 건드리지 않는다
+    useNekoGifts.setState({ gifts: [gift("old", { surface: "floor", u: 0.2, at: "screen" }), gift("new")] });
+    expect(useNekoGifts.getState().gifts[0].placed?.screen).toBeUndefined();
+    tauri.sent.splice(0);
+    useNekoGifts.getState().place("new", "auto", "screen"); // 선물함 창이 부르는 꼴(모니터 없음)
+    useNekoGifts.getState().place("old", { surface: "floor", u: 0.6 }); // 마당 안에서 옮김
+    const by = (id: string) => useNekoGifts.getState().gifts.find((g) => g.id === id)?.placed;
+    expect(by("new")).toMatchObject({ at: "screen", screen: "B" });
+    expect(by("old")).toMatchObject({ at: "screen", u: 0.6 });
+    expect(by("old")?.screen).toBeUndefined();
+    const last = tauri.sent.filter(([to, ev]) => to === "neko-decor-B" && ev === "neko-decor-items").pop();
+    expect((last?.[2] as { items: { id: string }[] }).items.map((d) => d.id)).toContain("new");
+  });
 });

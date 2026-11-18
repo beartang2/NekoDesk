@@ -4,7 +4,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import type { NekoActivity, NekoController, NekoDecorSpot, NekoEvents } from "./engine/neko-engine";
 import { useNekoApp } from "./director/stores";
 import { useNekoStore } from "./nekoStore";
-import { decorItems, useNekoGifts, type ScreenPick } from "./gifts";
+import { decorItems, useNekoGifts, type NekoGift, type ScreenPick } from "./gifts";
 import { decorDims, sizeK, spotOf } from "./engine/decor-draw";
 import { validateShape } from "./engine/gift-shape";
 
@@ -157,7 +157,16 @@ export function link(): void {
   }).catch(() => {});
   // 마당 선물: 바뀌면 다시 넘기고, 화면 창에서 끌어 옮기거나 갖고 놀거나 '정리'를 누르면 선물함에 적는다
   void useNekoGifts.getState().load();
-  useNekoGifts.subscribe((s, p) => { if (s.gifts !== p.gifts) pushDecor(); });
+  useNekoGifts.subscribe((s, p) => {
+    if (s.gifts === p.gifts) return;
+    // 선물함 '놓기·걸기·여기로'는 모니터를 모른다(다른 창): 마당에 새로 놓인 것은 고양이가 있는 모니터로 — 주 모니터로
+    // 가면 고양이가 다른 모니터에 있을 때 사용자가 못 본다. 이미 마당에 있던 것(예전에 놓아 모니터가 없는 것)·막 불러온 것은 그대로
+    const cat = screens?.cat;
+    const moved = (g: NekoGift) => { const was = p.gifts.find((o) => o.id === g.id); return !!was && was.placed?.at !== "screen"; };
+    const fresh = cat ? s.gifts.filter((g) => g.placed?.at === "screen" && !g.placed.screen && moved(g)) : [];
+    if (fresh.length) { for (const g of fresh) useNekoGifts.getState().place(g.id, "auto", "screen", cat!); return; } // 다시 불려 그때 넘긴다
+    pushDecor();
+  });
   // 모니터 목록·고양이가 건너감·선물 창이 새로 뜸: 다시 나눈다
   void listen<Screens>("neko-screens", (e) => {
     if (e.payload.cat !== screens?.cat) held = new Set();
