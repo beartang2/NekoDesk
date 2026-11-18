@@ -986,6 +986,13 @@ mod commands {
         crate::neko_screen::set_cat(at, perch)
     }
 
+    /// 개발 빌드 '개발자' 칸: 캣타워 표시 켜기·끄기(배포 빌드에선 늘 꺼짐).
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_perch_debug(app: tauri::AppHandle, on: bool) -> Result<(), AppError> {
+        crate::neko_screen::set_perch_debug(&app, on)
+    }
+
     /// 화면 창이 처음 뜰 때: 지금 발판·벽(캣타워). 아직 없으면 null.
     #[cfg(target_os = "macos")]
     #[tauri::command]
@@ -1446,6 +1453,8 @@ pub fn run() {
             commands::neko_screen_cat,
             #[cfg(target_os = "macos")]
             commands::neko_screen_perches,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_perch_debug,
             commands::mcp_stdio_start,
             commands::mcp_stdio_rpc,
             commands::mcp_stdio_stop,

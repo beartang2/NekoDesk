@@ -24,8 +24,9 @@ interface Layout { w: number; h: number; ground: number }
 type Side = "left" | "right";
 interface Moved { layout: Layout; shift: [number, number] }
 type Perches = Parameters<NekoController["setPerches"]>[0];
-/** 개발 빌드 캣타워 표시: 창마다 자리·앱·층·발판이 없는 까닭(Rust neko-screen-perch-debug) */
+/** 개발 빌드 캣타워 표시(설정 › 개발자, 기본 꺼짐): 창마다 자리·앱·층·발판이 없는 까닭과 그때 발판·벽(Rust neko-screen-perch-debug) */
 interface PerchDebug { win: number; owner: string; layer: number; rect: [number, number, number, number]; why: string | null }
+interface PerchDebugFrame { wins: PerchDebug[]; perches: Perches }
 
 /** 잡고 끄는 동안은 설정과 상관없이 60. 졸 때는 설정의 절반 */
 const HELD_FPS = 60;
@@ -57,8 +58,9 @@ export function NekoScreen() {
   // 고양이면 누른 자리에 '숨기기'(마당을 숨긴다 — 이 앱이 맨 앞으로 오면 다시 보인다). 다른 데 누르거나 몇 초 뒤 닫힌다
   const [menu, setMenu] = useState<{ id?: string; x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
-  // 개발 빌드: 발판(초록)·벽(파랑)·창마다 빠진 까닭을 화면에 그린다
+  // 개발 빌드 캣타워 표시(켰을 때만): 발판(초록)·벽(파랑)·창마다 빠진 까닭을 화면에 그린다
   const [debug, setDebug] = useState<{ wins: PerchDebug[]; p: Perches } | null>(null);
+  const debugOn = useRef(false);
   // 엔진이 본 창마다 창 탐험 가능 여부(지금 고양이 자리 기준, 0.5초마다)
   const [towerWhy, setTowerWhy] = useState<Map<number, { why: string; ok: boolean }>>(new Map());
   useEffect(() => {
@@ -153,7 +155,9 @@ export function NekoScreen() {
       void emitTo("main", "neko-screen-tower", ok).catch(() => {});
     };
     const timer = setInterval(() => { reportHeld(); reportCat(); reportTower(); if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
-    const whyTimer = import.meta.env.DEV ? setInterval(() => setTowerWhy(new Map(ctrl.towerWhy().map((w) => [w.win, w] as const))), 500) : undefined;
+    const whyTimer = import.meta.env.DEV
+      ? setInterval(() => { if (debugOn.current) setTowerWhy(new Map(ctrl.towerWhy().map((w) => [w.win, w] as const))); }, 500)
+      : undefined;
     // 끝을 넘었다 — 커서가 아직 그쪽이면 Rust 가 창을 옮긴다(neko-screen-moved). 그새 돌아왔으면 걸어 들어온다
     const offMenu = ctrl.on("decorMenu", setMenu);
     // 고양이 우클릭: 엔진은 선물만 메뉴를 띄우고(기본 메뉴를 막음) 고양이엔 안 띄운다. 오른쪽 버튼 누름은 엔진에
@@ -241,12 +245,19 @@ export function NekoScreen() {
       // 캣타워 발판·벽(Rust, 바뀔 때만. partial 이면 그 창 것만)
       me.listen<Perches>("neko-screen-perches", ({ payload }) => {
         ctrl.setPerches(payload);
-        if (import.meta.env.DEV) setDebug((d) => {
+        if (import.meta.env.DEV && debugOn.current) setDebug((d) => {
+          if (!d) return d;
           const keep = <T extends { win: number }>(a: T[], b: T[]) => (payload.partial === undefined ? b : [...a.filter((o) => o.win !== payload.partial), ...b]);
-          return { wins: d?.wins ?? [], p: { tops: keep(d?.p.tops ?? [], payload.tops), walls: keep(d?.p.walls ?? [], payload.walls) } };
+          return { wins: d.wins, p: { tops: keep(d.p.tops, payload.tops), walls: keep(d.p.walls, payload.walls) } };
         });
       }),
-      ...(import.meta.env.DEV ? [me.listen<PerchDebug[]>("neko-screen-perch-debug", ({ payload }) => setDebug((d) => ({ wins: payload, p: d?.p ?? { tops: [], walls: [] } })))] : []),
+      ...(import.meta.env.DEV
+        ? [me.listen<PerchDebugFrame | null>("neko-screen-perch-debug", ({ payload }) => {
+          debugOn.current = !!payload;
+          setDebug(payload ? { wins: payload.wins, p: payload.perches } : null);
+          if (!payload) setTowerWhy(new Map());
+        })]
+        : []),
       me.listen<number>("neko-screen-scale", ({ payload }) => ctrl.setScale(payload)),
       me.listen<number>("neko-screen-fps", ({ payload }) => { maxFps = payload; fps(); }),
       me.listen("neko-screen-ping", () => { towerSent = null; void emitTo("main", "neko-screen-ready").catch(() => {}); }),

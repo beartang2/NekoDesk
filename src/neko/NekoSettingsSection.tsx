@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { Segmented, SwitchRow, type Option } from "../components/ui";
 import { NekoGiftBox } from "./NekoGiftBox";
-import { NekoNeedsDev } from "./NekoNeedsDev";
 import { SCREEN_SCALE, useNekoStore, type NekoPlacement } from "./nekoStore";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { josa } from "../lib/hangul";
@@ -75,8 +74,6 @@ export function NekoSettingsSection() {
       )}
 
       <NekoGiftBox />
-
-      {import.meta.env.DEV && <NekoNeedsDev />}
 
     </section>
   );

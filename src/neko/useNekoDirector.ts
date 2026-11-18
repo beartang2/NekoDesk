@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { NekoActivity } from "./engine/neko-engine";
 import { ONE_SHOT } from "./director/toolActivity";
+import { useDevTools } from "./devTools";
 import { maybeDraw } from "../agent/neko-drawing";
 import { appEvents } from "../lib/events";
 import { DEEP_SLEEP_MS, deriveNeko, SLEEPY_MS } from "./director/derive";
@@ -160,16 +161,8 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
     const winEvents = ["keydown", "pointerdown", "wheel"] as const;
     winEvents.forEach((e) => window.addEventListener(e, onActive, { passive: true, capture: true }));
 
-    if (import.meta.env.DEV) {
-      (window as unknown as { __nekoDirector?: unknown }).__nekoDirector = {
-        signal: (signal: Parameters<ReturnType<typeof useNekoSessions.getState>["dispatch"]>[1], id?: string) =>
-          useNekoSessions.getState().dispatch(id ?? activeRef.current, signal),
-        active: () => activeRef.current,
-        log: () => sch.log(),
-        layer: () => sch.layer,
-        app: useNekoApp,
-      };
-    }
+    // 개발 빌드 '개발자' 칸: 지금 층·적용 기록(콘솔 훅 대신)
+    if (import.meta.env.DEV) useDevTools.setState({ director: { layer: () => sch.layer, log: () => sch.log() } });
 
     syncBox();
     sch.update();
@@ -206,6 +199,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       syncBoxRef.current = () => {};
       sch.dispose();
       schRef.current = null;
+      if (import.meta.env.DEV) useDevTools.setState({ director: null });
     };
   }, [ctrl]);
 

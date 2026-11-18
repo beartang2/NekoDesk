@@ -21,6 +21,7 @@ import {
 import { getStoredAccent, saveAccentHex, setAccentVars } from "../theme-colors";
 import { useThemePref } from "../lib/theme";
 import { NekoSettingsSection } from "../neko/NekoSettingsSection";
+import { NekoDevSection } from "../neko/NekoDevSection";
 import { DEFAULT_NEKO_NAME, nekoNameOf, useSettingsStore, type ImageProvider, type ToolMode } from "../stores/settingsStore";
 import { josa } from "../lib/hangul";
 import { getAllTools, getTool } from "../agent/tool-registry";
@@ -1682,6 +1683,9 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
 
               {/* ── 기억 ──────────────────────────────────────────────── */}
               <MemoriesSection />
+
+              {/* ── 개발자(개발 빌드에서만 — 배포 빌드엔 칸이 없다) ──────── */}
+              {import.meta.env.DEV && <NekoDevSection />}
             </>
           )}
           {tab === "model" && (

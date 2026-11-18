@@ -184,8 +184,10 @@ struct State {
     perch_win: Option<u32>,
     /// 올라탄 창을 마지막으로 본 때.
     perch_watch_at: Option<Instant>,
-    /// 개발 빌드: 마지막으로 보낸 창마다 까닭 표시.
-    perch_debug: Option<Vec<PerchDebug>>,
+    /// 개발 빌드 '개발자' 칸의 캣타워 표시(기본 꺼짐). 꺼져 있으면 까닭을 계산·전송하지 않는다.
+    perch_debug_on: bool,
+    /// 마지막으로 보낸 캣타워 표시.
+    perch_debug: Option<PerchDebugFrame>,
     poller: bool,
 }
 
@@ -221,6 +223,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     cat_at: None,
     perch_win: None,
     perch_watch_at: None,
+    perch_debug_on: false,
     perch_debug: None,
     poller: false,
 });
@@ -349,6 +352,20 @@ pub fn set_cat(at: Option<[f64; 2]>, perch: Option<u32>) -> Result<(), AppError>
         st.cat_at = at;
     }
     st.perch_win = perch;
+    Ok(())
+}
+
+/// 개발 빌드 '개발자' 칸: 캣타워 표시 켜기·끄기. 켜면 바로 다시 읽어 보내고, 끄면 화면 창 표시를 지운다(null).
+pub fn set_perch_debug(app: &AppHandle, on: bool) -> Result<(), AppError> {
+    {
+        let mut st = STATE.lock()?;
+        st.perch_debug_on = on && cfg!(debug_assertions);
+        st.perch_debug = None;
+        st.perch_at = None;
+    }
+    if !on {
+        let _ = app.emit_to(LABEL, "neko-screen-perch-debug", None::<()>);
+    }
     Ok(())
 }
 
@@ -714,7 +731,14 @@ fn press_out(app: &AppHandle, took: Option<&str>) {
     }
 }
 
-/// 개발 빌드 표시(`neko-screen-perch-debug`): 창마다 자리(화면 창 좌표)·앱 이름·층·발판이 없는 까닭.
+/// 개발 빌드 캣타워 표시(`neko-screen-perch-debug`): 창마다 표시와 그때의 발판·벽 전체. 끄면 null.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+struct PerchDebugFrame {
+    wins: Vec<PerchDebug>,
+    perches: Perches,
+}
+
+/// 창 하나: 자리(화면 창 좌표)·앱 이름·층·발판이 없는 까닭.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 struct PerchDebug {
     win: u32,
@@ -751,13 +775,15 @@ fn perch_tick(app: &AppHandle) {
         let listed = unsafe { crate::neko_perch::macos::windows() };
         let wins: Vec<Win> = listed.iter().map(|l| Win { id: l.id, rect: l.rect, perch: true }).collect();
         let (p, why) = explain(&wins, cur.rect, ground, None);
-        let debug = cfg!(debug_assertions).then(|| {
+        let debug_on = cfg!(debug_assertions) && STATE.lock().is_ok_and(|st| st.perch_debug_on);
+        let debug = debug_on.then(|| {
             let [ox, oy, ..] = cur.rect;
-            listed
+            let wins = listed
                 .iter()
                 .zip(why)
                 .map(|(l, why)| PerchDebug { win: l.id, owner: l.owner.clone(), layer: l.layer, rect: [l.rect[0] - ox, l.rect[1] - oy, l.rect[2], l.rect[3]], why })
-                .collect::<Vec<_>>()
+                .collect();
+            PerchDebugFrame { wins, perches: p.clone() }
         });
         let mut debug_new = None;
         if let Ok(mut st) = STATE.lock() {

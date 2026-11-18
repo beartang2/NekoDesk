@@ -79,6 +79,7 @@ import { fetchLoadedModel, summarizeConversation } from "./agent/llm-client";
 import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl, saveProfiles } from "./stores/modelProfiles";
 import { listen } from "@tauri-apps/api/event";
 import { useNekoScreen } from "./neko/remoteNeko";
+import { useDevTools } from "./neko/devTools";
 import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
 import { clock, parseDbTime } from "./lib/time";
 
@@ -1805,7 +1806,7 @@ export default function App() {
     return { activity: nekoCtrl?.activity ?? lastActRef.current, music, track, sleepy: idle, hunger: displayHunger, play: rpgState.play, at: Date.now() };
   };
 
-  // 나갔으면 "출발", 아니면 왜 안 나갔는지 — nekoWalk() 가 콘솔에 그대로 보여 준다.
+  // 나갔으면 "출발", 아니면 왜 안 나갔는지 — 개발 빌드 '개발자' 칸의 '바로 보내기' 옆에 그대로 보여 준다.
   const departRef = useRef(async (): Promise<string> => "");
   departRef.current = async () => {
     const midGame =
@@ -1849,8 +1850,12 @@ export default function App() {
     return legs ? "출발" : "출발(지도 없이 대체 경로)";
   };
 
-  // 개발 빌드에서만: 개발자 도구 콘솔에서 nekoWalk() 로 바로 내보낸다 — 안 그러면 확인에 15–45분 걸린다.
-  if (import.meta.env.DEV) (window as unknown as { nekoWalk: () => Promise<string> }).nekoWalk = () => departRef.current();
+  // 개발 빌드에서만: 설정 › 고양이 › 개발자 '산책 바로 보내기' — 안 그러면 확인에 15–45분 걸린다
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    useDevTools.setState({ walk: () => departRef.current() });
+    return () => useDevTools.setState({ walk: null });
+  }, []);
 
   // 졸고 있으면 정기 산책 시간대(아침 7–9·점심 12–14·저녁 18–20시)엔 바로, 아니면 5–20분 더 조용하고 지난 산책 2시간 뒤 나간다(lib/walk nextWalkAt).
   // 그사이 사용자가 돌아오거나 일을 시키면 취소하고, 다시 졸 때 새로 구한다.
