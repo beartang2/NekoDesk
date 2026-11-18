@@ -1,10 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { NekoActivity } from "./engine/neko-engine";
 import { useNekoApp } from "./director/stores";
-import { useSettingsStore } from "../stores/settingsStore";
 
 /**
- * 다른 앱 따라 하기(설정 › 고양이). 사용자가 다른 앱에서 하는 일을 고양이가 흉내 낸다(src-tauri/src/ambient.rs).
+ * 다른 앱 따라 하기(늘 켜짐, macOS). 사용자가 다른 앱에서 하는 일을 고양이가 흉내 낸다(src-tauri/src/ambient.rs).
  *
  * - 다른 앱에서 키를 치는 중이면 같이 타이핑한다. 그동안은 졸지 않는다(감독 derive 의 outside 층).
  *   키를 멈추면 15초(TYPE_REST_MS)는 타이핑 자세 그대로 손만 쉬며 화면을 본다(엔진 setRest) — 그 안에 다시 치면 이어 친다.
@@ -61,8 +60,8 @@ export function startAmbient(): void {
   const off = () => useNekoApp.getState().setOutside({ ...useNekoApp.getState().outside, typing: false, activity: null, music: false });
 
   const tick = async () => {
-    // 마당 고양이를 숨긴 동안도 쉰다(보일 것도 없는데 osascript 를 띄울 일이 없다)
-    if (!useSettingsStore.getState().nekoFollowApps || useNekoApp.getState().screenHidden) { off(); return; }
+    // 늘 켜져 있다(설정에서 끄는 스위치는 없앴다). 마당 고양이를 숨긴 동안만 쉰다(보일 것도 없는데 osascript 를 띄울 일이 없다)
+    if (useNekoApp.getState().screenHidden) { off(); return; }
     const p = await invoke<Probe>("ambient_probe").catch(() => null);
     if (!p) return;
     const now = performance.now();

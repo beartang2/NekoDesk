@@ -100,7 +100,7 @@ export function NekoGiftBox() {
         <span className="neko-gifts__count">{count}</span>
         {(count > 0 || import.meta.env.DEV) && <button type="button" className="settings-btn neko-gifts__open" onClick={open}>열기</button>}
       </div>
-      {count === 0 && <p className="settings-section__desc">아직 받은 선물이 없어. 네코가 산책에서 주워 오면 여기 쌓여.</p>}
+      {count === 0 && <p className="settings-section__desc">아직 받은 선물이 없어요. 네코가 산책에서 주워 오면 여기에 쌓여요.</p>}
     </div>
   );
 }
