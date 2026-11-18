@@ -105,3 +105,23 @@
   transition: opacity 0.15s;
 }
 
+
+/* 선물 그림 시험(개발 빌드) */
+.gift-lab {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--border);
+}
+.gift-lab__form { display: flex; gap: 6px; }
+.gift-lab__form input { flex: 1; min-width: 0; }
+.gift-lab__row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.gift-lab__fig { margin: 0; font-size: 11px; color: var(--text-muted); }
+.gift-lab__tiles { display: flex; gap: 4px; margin-bottom: 4px; }
+.gift-lab__tile { display: flex; border-radius: 8px; }
+.gift-lab__tile--light { background: #f4f1ea; }
+.gift-lab__tile--dark { background: #1f1d22; }
+.gift-lab__tiles--real { align-items: flex-end; gap: 10px; height: 112px; padding: 0 8px; border-radius: 8px; background: var(--bg-surface); }
+.gift-lab__real { display: flex; flex-direction: column; align-items: center; padding-bottom: 6px; opacity: 0.45; }
+.gift-lab__real.is-picked { opacity: 1; }
+.gift-lab__foot { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.gift-lab__foot > span { flex: 1; margin: 0; }

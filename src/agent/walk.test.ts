@@ -134,15 +134,20 @@ describe("산책 머리", () => {
     const rnd = vi.spyOn(Math, "random").mockReturnValue(0); // 무게 첫 칸 = 주운 것
     subagent.mockResolvedValueOnce("");
     completion.mockResolvedValueOnce(report({
-      learned: [], diary: "d", gift_title: "병뚜껑", gift_body: "반짝여", gift_play: "roll",
-      gift_shape: { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "silver" }, { t: "evil", code: "x" }] },
+      learned: [], diary: "d", gift_title: "병뚜껑", gift_body: "반짝여",
     }));
+    // 그림은 이름이 정해진 뒤 따로 그린다(gift-draw.ts)
+    completion.mockResolvedValueOnce({ text: "", reasoning: "", toolCalls: [{ id: "d", name: "gift_draw", params: {
+      gift_play: "roll",
+      gift_shape: { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "silver" }, { t: "evil", code: "x" }] },
+    } }] });
     const r = await startWalkBrain({ places: [], here: null }).result;
     rnd.mockRestore();
     expect(r.gift?.kind).toBe("trinket");
     expect(r.gift?.shape?.parts).toEqual([{ t: "circle", x: 0, y: -6, r: 6, c: "silver" }]);
     expect(r.content).not.toContain("선물함"); // 일지엔 선물함 안내를 붙이지 않는다
-    expect(useNekoGifts.getState().gifts.map((g) => [g.title, g.play])).toEqual([["병뚜껑", "roll"]]);
+    expect(JSON.stringify(completion.mock.calls[1][0])).toContain("그릴 물건: 병뚜껑");
+    await vi.waitFor(() => expect(useNekoGifts.getState().gifts.map((g) => [g.title, g.play])).toEqual([["병뚜껑", "roll"]]));
   });
 
   it("그린 선물을 그림으로 보여 주고, 고친 모양이 오면 그걸 쓴다", async () => {
@@ -154,14 +159,16 @@ describe("산책 머리", () => {
     subagent.mockResolvedValueOnce("");
     completion.mockResolvedValueOnce(report({
       learned: [], diary: "d", gift_title: "단풍잎", gift_body: "b",
-      gift_shape: { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "red" }] },
     }));
+    completion.mockResolvedValueOnce({ text: "", reasoning: "", toolCalls: [{ id: "d", name: "gift_draw", params: {
+      gift_shape: { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "red" }] },
+    } }] });
     completion.mockResolvedValueOnce({ text: "", reasoning: "", toolCalls: [{ id: "f", name: "gift_shape_fix", params: {
       gift_shape: { parts: [{ t: "poly", round: 0, c: "red", pts: [[0, -20], [8, -6], [-8, -6]] }] },
     } }] });
     const r = await startWalkBrain({ places: [], here: null }).result;
     rnd.mockRestore(); gc.mockRestore(); td.mockRestore();
-    const sent = completion.mock.calls[1][0] as LlmMessage[];
+    const sent = completion.mock.calls[2][0] as LlmMessage[];
     expect(JSON.stringify(sent[1].content)).toContain("data:image/png;base64,AA");
     expect(r.gift?.shape?.parts[0]).toMatchObject({ t: "poly", round: 0 });
   });

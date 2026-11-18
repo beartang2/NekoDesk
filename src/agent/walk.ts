@@ -7,8 +7,9 @@ import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { josa } from "../lib/hangul";
 import { timeZone } from "../lib/time";
 import type { Memory, OpenAiToolSchema, ToolName } from "./types";
-import { GIFT_COLORS, drawShape, shapeBounds, validateShape, type GiftShape } from "../neko/engine/gift-shape";
-import { PLAYS, useNekoGifts } from "../neko/gifts";
+import { validateShape, type GiftShape } from "../neko/engine/gift-shape";
+import { useNekoGifts } from "../neko/gifts";
+import { drawGift, type DrawnGift } from "./gift-draw";
 
 /** 산책에서 가져올 수 있는 선물 종류. */
 export type GiftKind = "trinket" | "place" | "weather" | "link" | "memory" | "drawing" | "game";
@@ -49,8 +50,8 @@ export interface WalkBrain {
 
 // ponytail: base 가 선물 빈도의 손잡이다. 써 보며 고친다.
 const GIFTS: Record<GiftKind, { base: number; label: string; hint: string }> = {
-  trinket: { base: 5, label: "주운 것", hint: "길에서 주운 작은 물건(나뭇잎·병뚜껑 같은 것). 뭘 주웠는지는 네가 정하고 그 모양을 gift_shape 로" },
-  place: { base: 3, label: "가 본 곳", hint: "지나온 곳 하나를 소개하고, 거기서 주운 기념품(나뭇잎·각설탕 같은 것) 모양을 gift_shape 로" },
+  trinket: { base: 5, label: "주운 것", hint: "길에서 주운 작은 물건(나뭇잎·병뚜껑 같은 것). 뭘 주웠는지는 네가 정해. 그림은 선물 이름을 보고 따로 그리니 이름을 또렷하게" },
+  place: { base: 3, label: "가 본 곳", hint: "지나온 곳 하나를 소개하고, 거기서 주운 기념품(나뭇잎·각설탕 같은 것)을 선물 이름으로" },
   weather: { base: 2, label: "날씨 쪽지", hint: "날씨를 보고 사용자에게 남기는 쪽지" },
   link: { base: 2, label: "읽을거리", hint: "알아본 것 중 재밌어서 가져온 읽을거리 링크" },
   memory: { base: 2, label: "떠오른 기억", hint: "사용자에 대해 기억해 둔 게 떠올라 꺼내는 얘기" },
@@ -89,47 +90,6 @@ export function rollGift(weights: Record<GiftKind, number>, random: () => number
 }
 
 /** 구조화 답을 툴 호출로 받는다 — Claude 가 낸 인자는 tool-calls 가 이미 JSON 으로 풀어 준다. */
-/** 선물 모양 스키마. 산책 보고와 그림 점검(SHAPE_FIX_TOOL)이 같이 쓴다. 그림체는 앱이 입히고 모델은 모양만 */
-const GIFT_SHAPE_SCHEMA = {
-  type: "object",
-  description:
-    "선물이 주운 것·장소 기념품일 때만: 그 물건 모양. 32칸(가운데 x=0, 바닥 y=0, 위는 음수, 좌우 ±16). " +
-    "한눈에 그 물건으로 알아보게 — 실루엣을 정확히(뾰족한 데는 poly round 0), 특징은 line 으로(잎맥·꼭지·주름·톱니), " +
-    "같은 색 .dark·.light 로 그늘·무늬. 도형 8~20개, 뒤에 적은 게 위. 입체감·그림자는 앱이 입힌다",
-  properties: {
-    parts: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          t: { type: "string", enum: ["circle", "ellipse", "rrect", "poly", "line", "dot"] },
-          x: { type: "number" }, y: { type: "number" }, r: { type: "number", description: "circle 반지름, dot 크기(0.3~2)" },
-          rx: { type: "number" }, ry: { type: "number" }, w: { type: "number", description: "rrect 폭, line 굵기(0.3~4)" }, h: { type: "number" },
-          rad: { type: "number" }, rot: { type: "number", description: "라디안" },
-          pts: { type: "array", items: { type: "array", items: { type: "number" } }, description: "poly(3~24)·line(2~12) 점 [x,y]" },
-          round: { type: "number", description: "poly 꼭짓점 둥글기. 0 이면 뾰족(기본 1.2)" },
-          c: { type: "string", enum: GIFT_COLORS },
-        },
-        required: ["t", "c"],
-      },
-    },
-  },
-  required: ["parts"],
-};
-
-/**
- * 그린 선물을 모델에게 보여 주고 한 번 고치게 하는 툴(설계 docs/neko-gifts.md §2). 도형 목록만 보고 그리면
- * 무엇인지 모를 그림이 나오기 쉬워서, 실제로 그려진 모습을 보고 "이게 그것으로 보이나"를 한 번 따진다.
- */
-const SHAPE_FIX_TOOL = {
-  type: "function",
-  function: {
-    name: "gift_shape_fix",
-    description: "고친 선물 모양을 낸다",
-    parameters: { type: "object", properties: { gift_shape: GIFT_SHAPE_SCHEMA }, required: ["gift_shape"] },
-  },
-} as OpenAiToolSchema;
-
 const REPORT_TOOL = {
   type: "function",
   function: {
@@ -155,18 +115,6 @@ const REPORT_TOOL = {
         gift_body: { type: "string", description: "선물에 붙이는 한두 문장. 재료에 없는 사실은 지어내지 마" },
         gift_url: { type: "string", description: "선물이 링크면 알아본 것에 나온 URL 그대로" },
         drawing_prompt: { type: "string", description: "선물이 그림일 때만. 그릴 장면을 영어로 자세히" },
-        // 그림체(선·밝은 면·그림자·크기)는 앱이 입힌다. 모델은 모양만 — docs/neko-gifts.md §2
-        gift_shape: GIFT_SHAPE_SCHEMA,
-        gift_size: {
-          type: "string",
-          enum: ["small", "medium", "large"],
-          description: "gift_shape 를 적었을 때: 실제 물건 크기. small 병뚜껑·도토리·단추, medium 단풍잎·조약돌·솔방울, large 나뭇가지·깃털 다발(그래도 고양이보다 작은 것)",
-        },
-        gift_play: {
-          type: "string",
-          enum: PLAYS,
-          description: "gift_shape 를 적었을 때: 네가 그걸로 노는 방식. roll 굴리기(동근 것)·bat 앞발로 톡·sniff 냄새 맡기·sit_on 위에 앉기(납작한 것)·carry 물고 옮기기",
-        },
       },
       required: ["learned", "diary", "gift_title", "gift_body"],
     },
@@ -180,9 +128,6 @@ interface Structured {
   gift_body: string;
   gift_url: string;
   drawing_prompt: string;
-  gift_shape: unknown;
-  gift_play: string;
-  gift_size: string;
 }
 
 /** 산책하며 모은 것. abort 되면 그 순간의 이것으로 보고한다. */
@@ -194,6 +139,9 @@ interface Gathered {
   place?: MapPlace;
   report?: Structured;
   file?: string;
+  /** 주운 것·기념품 그림. 사용자가 돌아와 보고를 서둘러도 끊지 않는다 — 다 그려지면 선물함에 넣는다 */
+  drawing?: Promise<DrawnGift | null>;
+  drawn?: DrawnGift | null;
 }
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -221,9 +169,13 @@ export function startWalkBrain(ctx: { places: MapPlace[]; here: { lat: number; l
   return {
     result: Promise.race([done, aborted]).then(() => {
       const report = compose(g);
-      // 그림으로 그릴 물건이면 선물함에 넣는다(설계 docs/neko-gifts.md §3)
+      // 그림으로 그릴 물건이면 선물함에 넣는다(설계 docs/neko-gifts.md §3). 그림이 아직이면 다 그려진 뒤에
       const gift = report.gift;
-      if (gift?.shape) try { useNekoGifts.getState().add({ title: gift.title, body: gift.body, shape: gift.shape, play: gift.play, size: gift.size }); } catch { /* 선물함이 안 돼도 보고는 한다 */ }
+      if (gift && (g.kind === "trinket" || g.kind === "place") && g.report) {
+        void (g.drawing ?? Promise.resolve(null)).catch(() => null).then((d) => {
+          try { useNekoGifts.getState().add({ title: gift.title, body: gift.body, shape: d?.shape, play: d?.play, size: d?.size }); } catch { /* 선물함이 안 돼도 보고는 한다 */ }
+        });
+      }
       return report;
     }),
     abort: () => ctrl.abort(),
@@ -328,15 +280,12 @@ async function walk(
     gift_body: str(p?.gift_body),
     gift_url: str(p?.gift_url),
     drawing_prompt: str(p?.drawing_prompt),
-    gift_shape: p?.gift_shape,
-    gift_play: str(p?.gift_play),
-    gift_size: str(p?.gift_size),
   };
 
-  // 3-1. 주운 것·기념품 그림: 그려진 모습을 보여 주고 알아보기 어려우면 한 번 고치게 한다
-  if ((g.kind === "trinket" || g.kind === "place") && g.report.gift_shape) {
-    const fixed = await refineShape(g.report.gift_title || GIFTS[g.kind].label, g.report.gift_shape, me, signal);
-    if (fixed) g.report.gift_shape = fixed;
+  // 3-1. 주운 것·기념품 그림: 이름이 정해진 뒤 따로 그린다(gift-draw.ts). signal 을 안 넘긴다 — 서둘러 돌아와도 그림은 마저 그린다
+  if (g.kind === "trinket" || g.kind === "place") {
+    g.drawing = drawGift(g.report.gift_title || GIFTS[g.kind].label, g.report.gift_body);
+    g.drawn = await g.drawing.catch(() => null);
   }
   if (signal.aborted) return;
 
@@ -363,48 +312,6 @@ async function walk(
   if (keep && keep.content.length <= 120) void saveMemory(`산책하다 알게 됨: ${keep.content}`, "neko").catch(() => {});
 }
 
-/** 모양을 실제로 그려 PNG 로. 캔버스를 못 쓰는 곳(테스트 등)이면 null */
-function renderShape(shape: GiftShape, size = 256): string | null {
-  try {
-    const cv = document.createElement("canvas");
-    cv.width = cv.height = size;
-    const ctx = cv.getContext("2d");
-    if (!ctx) return null;
-    ctx.fillStyle = "#f4f1ea"; // 앱 무대와 같은 바탕
-    ctx.fillRect(0, 0, size, size);
-    const b = shapeBounds(shape), u = (size * 0.78) / Math.max(b.w, b.h);
-    drawShape(ctx, shape, size / 2 - ((b.x0 + b.x1) / 2) * u, size / 2 + (b.h * u) / 2, u, 6);
-    return cv.toDataURL("image/png");
-  } catch {
-    return null;
-  }
-}
-
-/** 그린 선물을 보여 주고 알아보기 어려우면 고친 모양을 받는다. 못 하면 null(처음 모양 그대로 쓴다) */
-async function refineShape(title: string, raw: unknown, me: string, signal: AbortSignal): Promise<unknown | null> {
-  const url = renderShape(validateShape(raw));
-  if (!url) return null;
-  const turn = await fetchCompletionMessage(
-    [
-      { role: "system", content: ["너는 산책에서 주워 온 물건을 그린 고양이 네코야. gift_shape_fix 툴로 답해.", section("네 성격과 말투", me)].filter(Boolean).join("\n\n") },
-      {
-        role: "user",
-        content: [
-          { type: "text", text:
-            `네가 '${title}'(으)로 그린 그림이야. 처음 보는 사람이 바로 '${title}'인 걸 알아볼까? ` +
-            "알아보기 어려운 데(실루엣·특징 선·색·비율)를 고쳐 gift_shape 를 다시 내. 이미 잘 알아보이면 그대로 내." },
-          { type: "image_url", image_url: { url } },
-        ],
-      },
-    ],
-    { tools: [SHAPE_FIX_TOOL] },
-    undefined,
-    signal
-  ).catch(() => null);
-  const fixed = turn?.toolCalls.find((c) => c.name === "gift_shape_fix")?.params?.gift_shape;
-  return fixed && typeof fixed === "object" ? fixed : null;
-}
-
 function compose(g: Gathered): WalkReport {
   const r = g.report;
   const gift: WalkGift | null =
@@ -417,7 +324,7 @@ function compose(g: Gathered): WalkReport {
           ...(g.file ? { file: g.file } : {}),
           ...(g.place ? { place: g.place } : {}),
           ...(g.kind === "trinket" || g.kind === "place"
-            ? { shape: validateShape(r.gift_shape), ...(r.gift_play ? { play: r.gift_play } : {}), ...(r.gift_size ? { size: r.gift_size } : {}) }
+            ? { shape: validateShape(g.drawn?.shape), ...(g.drawn?.play ? { play: g.drawn.play } : {}), ...(g.drawn?.size ? { size: g.drawn.size } : {}) }
             : {}),
         }
       : g.material

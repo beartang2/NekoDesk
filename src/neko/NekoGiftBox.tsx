@@ -4,11 +4,12 @@ import { X } from "lucide-react";
 import { drawShape, shapeBounds, type GiftShape } from "./engine/gift-shape";
 import { GIFT_DROP, PLACE_NAME, fits, smallestPlace, useNekoGifts, type GiftDrop, type NekoGift } from "./gifts";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
+import { GiftLab } from "./GiftLab";
 import "./NekoCustomizeModal.css";
 import "./NekoGiftBox.css";
 
 /** 선물 그림. 무대와 같은 그리기 함수(drawShape)라 그림체가 같다. */
-function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: number }) {
+export function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   useEffect(() => {
@@ -108,7 +109,7 @@ export function NekoGiftBox() {
       <div className="neko-gifts__head">
         <span>선물함</span>
         <span className="neko-gifts__count">{count}</span>
-        {count > 0 && <button type="button" className="settings-btn neko-gifts__open" onClick={() => setOpen(true)}>열기</button>}
+        {(count > 0 || import.meta.env.DEV) && <button type="button" className="settings-btn neko-gifts__open" onClick={() => setOpen(true)}>열기</button>}
       </div>
       {count === 0 && <p className="settings-section__desc">아직 받은 선물이 없어. 네코가 산책에서 주워 오면 여기 쌓여.</p>}
       {open && <NekoGiftModal onClose={() => setOpen(false)} />}
@@ -135,6 +136,7 @@ function NekoGiftModal({ onClose }: { onClose: () => void }) {
           <button type="button" className="neko-cz__close" onClick={onClose} aria-label="닫기"><X size={14} /></button>
         </header>
         <div className="neko-cz__body">
+          {import.meta.env.DEV && <GiftLab />}
           <p className="settings-section__desc">
             지금 네코는 {PLACE_NAME[here]}에 있어. {RULE[here]}{" "}
             {here === "screen" ? "놓기를 누르면 마당 바닥에 놓여." : "칸을 네코 자리로 끌어다 놓아. 높이 두면 벽에 걸리고, 놓인 걸 우클릭하면 치울 수 있어."}
