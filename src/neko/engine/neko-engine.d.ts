@@ -57,7 +57,9 @@ export type NekoActivity =
   | "giftplay";
 
 /** 선물 노는 방식. 없으면 엔진이 모양으로 짐작한다 */
-export type NekoGiftPlay = "roll" | "bat" | "sniff" | "sit_on" | "carry";
+export type NekoGiftPlay = "roll" | "bat" | "sniff" | "sit_on" | "carry"
+  // 큰 물건 전용(작거나 중간 크기면 냄새 맡기로): 발톱 긁기 · 기대어 자기 · 뒤에 숨기. 큰 걸 물고 옮기기·굴리기는 이 중 하나로
+  | "scratch" | "lean" | "hide";
 export type NekoTailSign =
   | "level" | "up" | "question" | "quiver" | "sway" | "down" | "puff" | "angry" | "thump";
 export type NekoReaction = "pet" | "nyang" | "startle" | "greet" | "cheer" | "proud" | "sulk" | "down";
@@ -81,6 +83,8 @@ export interface NekoEvents {
   carryPress: { x: number; y: number; pointerId: number };
   /** 화면 모드: 열린 가장자리(setEdges·walkOut)에서 고양이 가운데가 세계 밖으로 나간 순간 한 번 */
   edge: "left" | "right";
+  /** 놓아 둔 물건 하나와 한 판 놀았음(at = Date.now()). 호스트가 저장해 setDecor 의 lastPlayed 로 돌려주면 껐다 켜도 오래 안 논 것부터 */
+  decorPlayed: { id: string; at: number };
   /** 놓아 둔 물건을 끌어 옮김 */
   decorMove: { id: string } & NekoDecorSpot;
   /** 놓아 둔 물건을 우클릭함: (x, y) = 그 물건 오른쪽 위(무대 px). 호스트가 거기에 '정리' 버튼을 띄운다 */
@@ -98,6 +102,11 @@ export interface NekoOptions {
   world?: boolean;
   /** 크기 고정(0.35~1.4). 없으면 무대 크기로 정한다 */
   scale?: number;
+  /**
+   * 화면 모드(world) 전용: 놓아 둔 선물을 그릴 캔버스. 호스트가 고양이 캔버스 밑에 position: fixed; left: 0; top: 0 으로 깐다.
+   * 엔진이 놓인 선물을 감싸는 칸으로 크기·자리(style.transform)를 맞추고, 선물이 바뀌거나 움직일 때만 다시 그린다. 없으면 선물을 안 그린다
+   */
+  decorCanvas?: HTMLCanvasElement;
   /** 기본 "height": 무대 높이로 크기를 정한다 */
   scaleMode?: "height" | "stage";
   maxDpr?: number;
@@ -158,7 +167,7 @@ export interface NekoController {
    * 무대에 놓아 둔 물건(선물). 바닥: u = 양끝 여백을 뺀 무대 폭 비율 0~1. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율 0~1.
    * 새로 놓인 것만 '뿅' 하고 나온다. 잡고 끌면 decorMove, 우클릭하면 decorMenu(저장·버튼은 호스트)
    */
-  setDecor(items: ({ id: string; shape: unknown; play?: NekoGiftPlay; size?: NekoGiftSize } & NekoDecorSpot)[]): void;
+  setDecor(items: ({ id: string; shape: unknown; play?: NekoGiftPlay; size?: NekoGiftSize; lastPlayed?: number } & NekoDecorSpot)[]): void;
   /** 놓아 둔 물건 수(감독이 '선물 갖고 놀기'를 고를지 볼 때) */
   readonly decorCount: number;
   /** 이 점(무대 px)이 놓아 둔 물건 위면 그 id */

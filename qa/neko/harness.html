@@ -11,7 +11,7 @@
         ?scale=height  앱 패널처럼 높이로 크기(기본 stage = 시안 공식)
         ?transparent=1 배경 없이(앱처럼)
         ?dark=1
-        ?world=1&fixed=0.8  화면 모드(세계 = 창 전체, 캔버스는 고양이 둘레만) · 크기 고정
+        ?world=1&fixed=0.8  화면 모드(세계 = 창 전체, 캔버스는 고양이 둘레만) · 크기 고정 · &decor=1 선물 캔버스
 -->
 <style>
   body { margin: 0; padding: 16px; font: 13px system-ui, sans-serif; background: #f6f4f1; color: #25222b; }
@@ -52,6 +52,9 @@ const q = new URLSearchParams(location.search);
 const stage = document.getElementById("stage");
 // ?world=1: 화면 모드(세계 = 창 전체, 캔버스는 고양이 둘레만 따라감). &fixed=0.8 로 크기 고정
 const world = q.get("world") === "1";
+// &decor=1: 화면 모드 선물 캔버스(고양이 캔버스 밑)
+const decorCv = document.createElement("canvas");
+if (world && q.get("decor") === "1") { decorCv.id = "decor"; Object.assign(decorCv.style, { position: "fixed", left: "0", top: "0", outline: "1px dashed #08f8" }); document.body.insertBefore(decorCv, stage); }
 if (world) Object.assign(stage.style, { position: "fixed", left: "0", top: "0", outline: "1px dashed #f008" });
 else {
   stage.style.width = (q.get("w") || 680) + "px";
@@ -67,6 +70,7 @@ const neko = createNeko(stage, {
   dark,
   world,
   ...(q.get("fixed") ? { scale: Number(q.get("fixed")) } : {}),
+  ...(world && q.get("decor") === "1" ? { decorCanvas: decorCv } : {}),
 });
 neko.on("label", (t) => { document.getElementById("state").textContent = t; });
 neko.on("activity", (k) => { const el = document.getElementById(`act-${k || "none"}`); if (el) el.checked = true; });

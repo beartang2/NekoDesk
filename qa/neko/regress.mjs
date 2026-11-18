@@ -422,6 +422,60 @@ try {
     await p.close();
   }
 
+  // 9-j) 선물 놀이 순서·큰 물건 놀이(docs/neko-gifts.md §5): 놓인 건 오래 안 논 것부터 돌아가며 하나도 빠짐없이,
+  //      큰 걸 물고 옮기기·굴리기는 큰 물건 놀이(발톱 긁기·기대어 자기·뒤에 숨기)로, 작은 데 큰 물건 놀이는 냄새로
+  {
+    const p = await open(`?w=900&h=260&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] }, played = [];
+      n.setWander(false); n.on("decorPlayed", (e) => played.push(e.id));
+      n.setDecor(["a", "b", "c"].map((id, i) => ({ id, surface: "floor", u: 0.15 + i * 0.35, play: "sniff", shape })));
+      n.act("giftplay");
+      for (let i = 0; i < 120 * 40 && played.length < 4; i++) n.step(1);
+      const rotation = played.slice(0, 3).sort().join(""), plays = {};
+      n.act(null); n.step(30);
+      for (const [size, play] of [["large", "carry"], ["large", "roll"], ["large", "lean"], ["large", "hide"], ["large", "scratch"], ["small", "scratch"]]) {
+        n.setDecor([{ id: size + play, surface: "floor", u: 0.3, size, play, shape }]);
+        n.act("giftplay"); n.step(1); const chosen = c.act && c.act.play;
+        let acted = 0, done = 0; const off = n.on("decorPlayed", () => done++);
+        for (let i = 0; i < 120 * 20 && !done; i++) { n.step(1); if (c.mode === "act") acted++; if (i % 12 === 0) n.draw(); }
+        off(); n.act(null); n.step(30);
+        plays[size + "/" + play] = { chosen, acted: acted > 20, done };
+      }
+      return { rotation, played, plays };
+    });
+    const big = ["scratch", "lean", "hide"], P = r.plays;
+    check("선물 놀이 순서: 놓인 셋을 하나도 빠짐없이 돌아가며 논다(decorPlayed)", `${r.played.join("→")}`, r.rotation === "abc");
+    check("큰 물건: 물고 옮기기·굴리기는 큰 물건 놀이로, 큰 물건 놀이 셋은 실제로 논다, 작은 데선 냄새로",
+      Object.entries(P).map(([k, v]) => `${k}→${v.chosen}${v.acted ? "" : "(안 함)"}`).join(" · "),
+      big.includes(P["large/carry"].chosen) && big.includes(P["large/roll"].chosen) && big.every((b) => P["large/" + b].chosen === b && P["large/" + b].acted && P["large/" + b].done === 1) && P["small/scratch"].chosen === "sniff");
+    await p.close();
+  }
+
+  // 9-k) 마당(화면 모드)의 선물 캔버스: 고양이에서 멀리 놓인 선물도 그리고 누를 수 있다. 자리 기준은 세계 폭·바닥
+  {
+    const p = await browser.newPage({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8&decor=1`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, cv = document.getElementById("decor"), shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      n.setGround(760); n.step(60); n.cat.x = 700; n.step(60);
+      n.setDecor([{ id: "l", surface: "floor", u: 0.02, shape }, { id: "r", surface: "floor", u: 0.98, shape }]);
+      n.step(200); n.draw();
+      const m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(cv.style.transform), x0 = m ? +m[1] : NaN, w = parseFloat(cv.style.width);
+      const inked = (() => { const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data; let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) k++; return k; })();
+      const farHit = n.hitDecor(16 * 0.8 + 0.02 * (n.W - 32 * 0.8), 760 - 6) === "l" && n.hitDecor(16 * 0.8 + 0.98 * (n.W - 32 * 0.8), 760 - 6) === "r";
+      const span = x0 < 40 && x0 + w > n.W - 40;
+      // 움직임이 없으면 다시 안 그린다(같은 그림): 몇 프레임 지나도 캔버스 크기·자리 그대로
+      const before = cv.style.transform; n.step(120); n.draw(); const still = cv.style.transform === before;
+      return { span, inked: inked > 100, farHit, still, mainW: document.getElementById("stage").width };
+    });
+    check("마당 선물 캔버스: 멀리 놓인 선물까지 감싸 그리고 누를 수 있다", `감쌈 ${r.span} · 그림 ${r.inked} · 누르기 ${r.farHit} · 가만있으면 그대로 ${r.still}`, r.span && r.inked && r.farHit && r.still);
+    await p.close();
+  }
+
   // 9-b) 점프: 말랑함이 커도(뛸 때 몸이 더 늘어남) 귀 끝이 낮은 무대 천장에 닿지 않는다
   for (const [w, h] of [[704, 282], [220, 150], [900, 150]]) {
     const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
