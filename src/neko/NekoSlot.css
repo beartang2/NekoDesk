@@ -91,12 +91,12 @@
   inset: 6px;
 }
 
-/* 다녀온 뒤 남는 지난 산책 지도 버튼. 사이드바는 컨텍스트 숫자 아래, 채팅 바 아래는 오른쪽 위 */
+/* 다녀온 뒤 남는 지난 산책 지도 버튼. 오른쪽 위(왼쪽 위는 방의 날씨 액자) */
 .neko-slot__map-btn {
   position: absolute;
   z-index: 3;
-  top: 22px;
-  right: 6px;
+  top: 8px;
+  right: 8px;
   display: grid;
   place-items: center;
   width: 24px;
@@ -110,5 +110,4 @@
   opacity: 0.75;
   transition: opacity var(--dur-micro, 0.12s), color var(--dur-micro, 0.12s);
 }
-.neko-slot--dock .neko-slot__map-btn { top: 6px; right: 8px; }
 .neko-slot__map-btn:hover { opacity: 1; color: var(--accent); }

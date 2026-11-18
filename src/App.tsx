@@ -16,6 +16,7 @@ import { PlanChecklist } from "./components/PlanChecklist";
 import { ChatEmptyState } from "./components/ChatEmptyState";
 import { NekoBootCat } from "./neko/NekoPortrait";
 import { NekoSlot } from "./neko/NekoSlot";
+import { RoomBackdrop } from "./neko/NekoRoom";
 import { useNekoDirector } from "./neko/useNekoDirector";
 import { useNekoApp } from "./neko/director/stores";
 import { SLEEPY_MS } from "./neko/director/derive";
@@ -76,7 +77,7 @@ import { activateProfile, isClaudeProfile, loadProfiles, probe, profileUrl, save
 import { listen } from "@tauri-apps/api/event";
 import { useNekoScreen } from "./neko/remoteNeko";
 import { buildQuickPrompt, QUICK_ASK_EVENT, type QuickAskPayload } from "./lib/quick-ask";
-import { clock, parseDbTime, setTimeZone } from "./lib/time";
+import { clock, parseDbTime } from "./lib/time";
 
 import "./App.css";
 
@@ -259,48 +260,6 @@ function BootSplash() {
   );
 }
 
-interface WeatherNow {
-  place: string;
-  label: string;
-  emoji: string;
-  temp: number;
-  /** IANA 시간대("Asia/Seoul"). 앱의 시각 표시가 이걸 따른다(lib/time). */
-  timezone: string;
-}
-
-const WEATHER_STALE_MS = 30 * 60 * 1000;
-
-/** 고양이 왼쪽 위의 지금 날씨. 30분 지나면 다시 본다. 못 가져오면 조용히 숨는다. */
-function WeatherBadge() {
-  const location = useSettingsStore((s) => s.weatherLocation.trim());
-  const [now, setNow] = useState<WeatherNow | null>(null);
-
-  useEffect(() => {
-    setNow(null);
-    if (!location) { setTimeZone(undefined); return; }
-    let alive = true;
-    let fetchedAt = 0;
-    const load = () => {
-      fetchedAt = Date.now();
-      invoke<WeatherNow>("weather_now", { location })
-        .then((w) => { if (alive) { setNow(w); setTimeZone(w.timezone); } })
-        .catch(() => {});
-    };
-    load();
-    // 30분짜리 타이머는 잠자는 동안 멈춰서, 밤새 자고 깨도 30분을 더 기다린다.
-    // 1분마다 벽시계로 오래됐는지만 본다 — 깨고 1분 안에 새로 받는다.
-    const t = setInterval(() => { if (Date.now() - fetchedAt > WEATHER_STALE_MS) load(); }, 60 * 1000);
-    return () => { alive = false; clearInterval(t); };
-  }, [location]);
-
-  if (!now) return null;
-  return (
-    <span className="cat-panel__weather" title={`${now.place} ${now.label} ${Math.round(now.temp)}°C`}>
-      {now.emoji}
-    </span>
-  );
-}
-
 function Sidebar({
   onNew,
   onDelete,
@@ -382,15 +341,17 @@ function Sidebar({
 
       {gameSpeech && <GameSpeechBubble text={gameSpeech} />}
 
-      <div className="cat-panel" style={{ position: "relative" }}>
-        {/* 창가에 든 햇빛. reactbits 의 SideRays 를 WebGL 없이 기울인 그라데이션으로. */}
-        <div className="cat-panel__sun" aria-hidden="true" />
-        <WeatherBadge />
-        <div className="cat-panel__ctx">
-          <Counter value={contextTokens} /> / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}
+      <div className="cat-panel">
+        {/* 네코 방: 배경(벽·바닥·날씨 액자) 위에 창가 햇빛, 그 위에 네코 자리. 네코가 다른 자리로 가도 빈 방으로 남는다 */}
+        <div className="cat-room">
+          <RoomBackdrop />
+          {/* 창가에 든 햇빛. reactbits 의 SideRays 를 WebGL 없이 기울인 그라데이션으로. 방 안에만 든다 */}
+          <div className="cat-panel__sun" aria-hidden="true" />
+          <NekoSlot placement="sidebar" onRubPet={rpg.onPet} away={away} walk={walk} isDark={isDark} />
         </div>
-        <NekoSlot placement="sidebar" onRubPet={rpg.onPet} away={away} walk={walk} isDark={isDark} />
+        {/* 방 아래 얇은 띠: DAY·컨텍스트, 밥·놀이 게이지(누르면 밥 주기·놀아주기) */}
         <CatStatusPanel
+          ctx={<><Counter value={contextTokens} /> / {modelContextLength != null ? modelContextLength.toLocaleString() : "--"}</>}
           dayCount={rpg.dayCount}
           hunger={rpg.hunger}
           play={rpg.play}

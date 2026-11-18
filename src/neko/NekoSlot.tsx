@@ -3,6 +3,7 @@ import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { ensureNeko, nekoCanvas, useNekoController } from "./nekoHost";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { NekoAway } from "./NekoAway";
+import { RoomGifts } from "./NekoRoom";
 import { Map as MapIcon } from "lucide-react";
 import { LastWalkModal, WalkMap } from "../components/WalkMap";
 import type { Walk } from "../lib/walk";
@@ -114,7 +115,8 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
     el.addEventListener("pointercancel", up);
   }, [height, placement, setStageHeight]);
 
-  if (!active) return null;
+  // 사이드바 방은 네코가 거실·마당에 가 있어도 같은 높이로 남는다(빈 방: 배경·방에 놓인 선물만). 거실 자리는 그때 없앤다
+  if (!active && placement !== "sidebar") return null;
   return (
     <div className={`neko-slot neko-slot--${placement}`} style={{ height }}>
       <div
@@ -127,7 +129,9 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
       />
       {/* 산책 중: 채팅 바 아래(가로로 김)는 '산책 중' 그림과 지도를 나란히, 사이드바 방(좁음)은 지도만.
           지도를 못 받으면(개발 빌드 등) 방에선 '산책 중' 그림으로 대신한다 */}
-      {away ? (
+      {!active ? (
+        <RoomGifts isDark={isDark} />
+      ) : away ? (
         placement === "dock" ? (
           <div className="neko-slot__walk">
             <div className="neko-slot__away"><NekoAway /></div>
@@ -144,13 +148,13 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
           onMouseLeave={onBodyLeave}
         />
       )}
-      {!away && walk && (
+      {active && !away && walk && (
         <button type="button" className="neko-slot__map-btn" onClick={() => setLastWalkOpen(true)} title="지난 산책 지도" aria-label="지난 산책 지도">
           <MapIcon size={13} strokeWidth={2} />
         </button>
       )}
       {lastWalkOpen && walk && <LastWalkModal walk={walk} isDark={isDark} onClose={() => setLastWalkOpen(false)} />}
-      {decorMenu && !away && (
+      {decorMenu && active && !away && (
         <button
           type="button"
           className="neko-slot__tidy"
