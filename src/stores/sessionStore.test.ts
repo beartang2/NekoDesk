@@ -63,9 +63,10 @@ describe("세션 목록 DB", () => {
     expect(db.deleted).toEqual([]); // 받은 목록을 다시 지우러 가지 않는다
   });
 
-  it("setSessions 는 새 세션·바뀐 제목을 적고 빠진 세션을 지운다", () => {
+  it("setSessions 는 새 세션·바뀐 제목만 적고, 목록에서 빠졌다고 DB 에서 지우지 않는다", () => {
+    // 낡은 목록으로 덮어도(다른 기기에서 온 old 를 모름) old 가 지움으로 올라가지 않는다
     useSessionStore.getState().setSessions((prev) => [{ id: "new", title: "새", date: "" }, { ...prev[0], title: "고친 제목" }]);
     expect(db.put.sort()).toEqual(["new", "open"]);
-    expect(db.deleted).toEqual(["old"]);
+    expect(db.deleted).toEqual([]);
   });
 });

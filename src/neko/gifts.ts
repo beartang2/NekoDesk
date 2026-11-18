@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { settingsApi } from "../api/tauri";
+import { giftsApi, settingsApi } from "../api/tauri";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
 import type { NekoDecorSpot, NekoGiftPlay, NekoGiftSize } from "./engine/neko-engine";
 import type { NekoPlacement } from "./nekoStore";
@@ -7,7 +7,8 @@ import type { NekoPlacement } from "./nekoStore";
 /**
  * 선물함: 네코가 산책에서 주워 온 물건(설계 docs/neko-gifts.md §3·§4).
  *
- * settings DB 키 하나에 JSON 배열로 둔다 — 많아야 100개라 테이블을 따로 만들 일이 아니다. 놓인 자리는 장소
+ * settings DB 키 하나에 JSON 배열로 둔다 — 많아야 100개라 테이블을 따로 만들 일이 아니다. 저장은 선물 하나씩
+ * (giftsApi)이고 백엔드가 배열에 합친다 — 다른 기기에서 막 온 선물을 이 창이 못 본 채 덮지 않게(docs/neko-sync.md). 놓인 자리는 장소
  * (방·거실·마당 = 네코 자리) + 그 무대 안의 면과 비율(u: 무대 폭 비율)이다. 장소마다 놓을 수 있는 크기가 다르다.
  */
 
@@ -124,9 +125,7 @@ function parseGifts(raw: string | null): NekoGift[] {
   }
 }
 
-function persist(gifts: NekoGift[]) {
-  void settingsApi.set(KEY, JSON.stringify(gifts)).catch(() => {});
-}
+const quiet = (p: Promise<unknown>) => void p.catch(() => {});
 
 export const useNekoGifts = create<GiftStore>((set, get) => ({
   gifts: [],
@@ -149,9 +148,13 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
       id: g.id ?? crypto.randomUUID(), at: g.at ?? new Date().toISOString(), title: g.title, body: g.body, shape: validateShape(g.shape),
       ...(play ? { play } : {}), ...(size ? { size } : {}), ...(g.placed ? { placed: g.placed } : {}), ...(g.frame ? { frame: true as const } : {}),
     };
-    const gifts = capGifts([...get().gifts, gift]);
+    const all = [...get().gifts, gift];
+    const gifts = capGifts(all);
     set({ gifts });
-    persist(gifts);
+    quiet(giftsApi.add(gift));
+    // 넘쳐서 빠진 것(놓이지 않은 오래된 것)
+    const dropped = all.filter((g) => !gifts.includes(g)).map((g) => g.id);
+    if (dropped.length) quiet(giftsApi.remove(dropped));
   },
   place(id, spot, at, screen) {
     const gift = get().gifts.find((g) => g.id === id);
@@ -175,17 +178,17 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
       return { ...g, placed };
     });
     set({ gifts });
-    persist(gifts);
+    quiet(giftsApi.patch(id, { placed }));
   },
   remove(id) {
     const gifts = get().gifts.filter((g) => g.id !== id);
     set({ gifts });
-    persist(gifts);
+    quiet(giftsApi.remove([id]));
   },
   played(id, at) {
     if (!get().gifts.some((g) => g.id === id)) return;
     const gifts = get().gifts.map((g) => (g.id === id ? { ...g, lastPlayed: at } : g));
     set({ gifts });
-    persist(gifts);
+    quiet(giftsApi.patch(id, { lastPlayed: at }));
   },
 }));

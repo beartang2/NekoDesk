@@ -252,6 +252,18 @@ export const sessionApi = {
   compact: (id: string, summary: string) => invoke<void>("session_compact", { id, summary }),
 };
 
+/**
+ * 선물함은 선물 하나씩 바꾼다 — 백엔드가 DB 안에서 지금 배열에 합친다. 배열을 통째로 저장하면 동기화가 막 넣은
+ * 선물을 화면이 못 본 채 덮어, 그 선물이 다른 기기에서도 지워졌다.
+ */
+export const giftsApi = {
+  /** 새 선물(같은 id 면 바꾼다) */
+  add: (gift: object) => invoke<void>("gift_add", { gift }),
+  /** 있는 선물의 칸만 바꾼다. null 이면 그 칸을 뺀다. 없으면(다른 기기에서 지움) 아무것도 안 하고 false */
+  patch: (id: string, patch: object) => invoke<boolean>("gift_patch", { id, patch }),
+  remove: (ids: string[]) => invoke<void>("gift_remove", { ids }),
+};
+
 /** 기기 간 동기화(설정 › 동기화). 열쇠·토큰은 백엔드 키체인에만 있다 */
 export interface SyncStatus {
   enabled: boolean;

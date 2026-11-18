@@ -13,7 +13,9 @@ import { conversationApi, sessionApi, type SessionRow } from "../api/tauri";
  *
  * 동기화(docs/neko-sync.md §2.6): 목록·수동 요약의 원본은 DB sessions 표다. localStorage 는 켤 때 바로 그리는
  * 캐시로 남고, hydrateSessions 가 DB 값으로 덮는다(처음 한 번은 localStorage 를 DB 로 옮긴다).
- * setSessions 는 앞뒤를 견줘 새로 생기거나 제목이 바뀐 세션은 DB 에 적고, 빠진 세션은 지운다 — 호출부는 그대로다.
+ * setSessions 는 앞뒤를 견줘 새로 생기거나 제목이 바뀐 세션만 DB 에 적는다 — 호출부는 그대로다. 목록에서 빠졌다고
+ * 지우지 않는다: 낡은 목록(다른 기기에서 막 온 세션을 모르는)으로 덮으면 그 세션이 사용자가 지운 것으로 올라가
+ * 모든 기기에서 사라진다. DB 에서 지우는 건 사용자가 지울 때(removeSession)와 자동 삭제(백엔드)뿐이다.
  */
 
 export interface Session {
@@ -64,16 +66,17 @@ interface SessionStore {
 
 const COMPACT_KEY = (id: string) => `nekodesk_compact_${id}`;
 
-/** 앞뒤 목록을 견줘 DB 에 적는다. 실패해도 화면은 그대로 — 다음 hydrate 때 맞는다 */
+/** 새 세션·바뀐 제목을 DB 에 적는다. 실패해도 화면은 그대로 — 다음 hydrate 때 맞는다 */
 function persistDiff(prev: Session[], next: Session[]) {
   const before = new Map(prev.map((s) => [s.id, s]));
-  const after = new Set(next.map((s) => s.id));
   for (const s of next) {
     const p = before.get(s.id);
     if (!p || p.title !== s.title) void sessionApi.put(s.id, s.title, s.createdAt ?? Date.now()).catch(() => {});
   }
-  for (const p of prev) if (!after.has(p.id)) void sessionApi.delete(p.id).catch(() => {});
 }
+
+/** 사용자가 지운 세션: 메시지·요약과 함께 DB 에서 지운다(다른 기기에서도 지워진다). 목록에서 빼는 건 부른 쪽이 */
+export const removeSession = (id: string) => sessionApi.delete(id);
 
 const initial = restore();
 

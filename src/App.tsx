@@ -37,7 +37,7 @@ import { maskHome } from "./lib/home";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi, mapApi, SYNC_CHANGED, type SyncChanged } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
-import { useSessionStore, makeSession, type Session } from "./stores/sessionStore";
+import { removeSession, useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { isClaudeActive, nekoNameOf, useSettingsStore } from "./stores/settingsStore";
 import { budgetBlockReason } from "./stores/claudeBudget";
 import { startWalkBrain, type WalkBefore, type WalkBrain } from "./agent/walk";
@@ -1561,8 +1561,8 @@ export default function App() {
 
   // ── Delete session ────────────────────────────────────────────────────────
   function handleDelete(id: string) {
-    // Remove from DB, loaded cache, and compact summary
-    conversationApi.delete(id).catch(() => {});
+    // DB 에서 지운다(메시지·요약까지, 다른 기기에서도). 목록에서 빼는 것만으론 DB 를 안 지운다
+    removeSession(id).catch(() => {});
     loadedSessionsRef.current.delete(id);
     localStorage.removeItem(`nekodesk_compact_${id}`);
 

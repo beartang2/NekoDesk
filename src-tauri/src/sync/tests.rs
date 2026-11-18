@@ -293,6 +293,30 @@ fn a_message_whose_body_names_another_session_is_refused() {
 }
 
 #[test]
+fn a_gift_received_just_before_the_screen_saves_is_kept() {
+    let (a, b) = (db(), db());
+    settings::set(&a, GIFTS, r#"[{"id":"g1","title":"솔방울"},{"id":"g2","title":"조약돌"}]"#).unwrap();
+    apply_all(&b, "B", &push_all(&a, "A"));
+    // A 에서 새 선물 g3 이 온다. B 의 화면은 아직 g1·g2 만 알고, 그 낡은 상태에서 놀고·옮기고·새 선물을 넣고·지운다
+    settings::set(&a, GIFTS, r#"[{"id":"g1","title":"솔방울"},{"id":"g2","title":"조약돌"},{"id":"g3","title":"도토리"}]"#).unwrap();
+    apply_all(&b, "B", &push_all(&a, "A"));
+    gift_patch(&b, "g1", &serde_json::json!({ "lastPlayed": 7, "placed": { "at": "dock", "surface": "floor", "u": 0.5 } })).unwrap();
+    gift_add(&b, &serde_json::json!({ "id": "g4", "title": "B 가 주운 것" })).unwrap();
+    gift_remove(&b, &["g2".to_string()]).unwrap();
+    let ids: Vec<String> = load_gifts(&b).unwrap().iter().map(|g| g["id"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(ids, ["g1", "g3", "g4"], "받은 g3 이 남는다");
+    let up = push_all(&b, "B");
+    let tombs: Vec<&str> = up.iter().filter(|r| r.deleted == 1).map(|r| r.id.as_str()).collect();
+    assert_eq!(tombs, ["g2"], "화면에서 뺀 것만 지움으로 올라간다");
+    assert!(!up.iter().any(|r| r.id == "g3"), "받은 선물은 다시 안 올린다");
+    // 다른 기기에서 지운 선물을 낡은 화면이 갖고 놀아도 되살아나지 않는다
+    assert!(!gift_patch(&b, "g2", &serde_json::json!({ "lastPlayed": 9 })).unwrap());
+    // null 은 칸을 뺀다(선물함으로 치우기)
+    gift_patch(&b, "g1", &serde_json::json!({ "placed": null })).unwrap();
+    assert!(load_gifts(&b).unwrap()[0].get("placed").is_none());
+}
+
+#[test]
 fn big_messages_drop_image_bodies() {
     let c = db();
     let big = format!("data:image/png;base64,{}", "A".repeat(800_000));

@@ -274,8 +274,57 @@ fn apply_gift(conn: &Connection, r: &Record, plain: Option<&str>) -> AppResult<O
             }
         }
     }
-    crate::db::settings::set(conn, GIFTS, &Value::Array(gifts).to_string())?;
+    save_gifts(conn, gifts)?;
     Ok(sig)
+}
+
+// ── 화면의 선물함 바꾸기 ─────────────────────────────────────────────────────
+// 화면은 배열을 통째로 저장하지 않고 선물 하나씩 보낸다. DB 안(잠금 아래)에서 지금 배열에 합치므로, 동기화가 막
+// 넣은 선물을 화면이 아직 못 본 채 저장해도 그 선물이 덮이거나 지움으로 올라가지 않는다. 지움으로 올라가는 건
+// 화면이 이름(id)으로 뺀 것뿐이다.
+
+fn save_gifts(conn: &Connection, gifts: Vec<Value>) -> AppResult<()> {
+    crate::db::settings::set(conn, GIFTS, &Value::Array(gifts).to_string())
+}
+
+fn gift_id(g: &Value) -> Option<&str> {
+    g.get("id").and_then(Value::as_str)
+}
+
+/// 새 선물(같은 id 가 있으면 바꾼다)
+pub fn gift_add(conn: &Connection, gift: &Value) -> AppResult<()> {
+    let id = gift_id(gift).filter(|_| gift.is_object()).ok_or("선물에 id 가 없어")?;
+    let mut gifts = load_gifts(conn)?;
+    match gifts.iter().position(|g| gift_id(g) == Some(id)) {
+        Some(i) => gifts[i] = gift.clone(),
+        None => gifts.push(gift.clone()),
+    }
+    save_gifts(conn, gifts)
+}
+
+/// 있는 선물의 칸만 바꾼다(null 이면 그 칸을 뺀다). 없으면(다른 기기에서 지웠다) 아무것도 안 한다 — 되살리지 않는다
+pub fn gift_patch(conn: &Connection, id: &str, patch: &Value) -> AppResult<bool> {
+    let fields = patch.as_object().ok_or("바꿀 칸이 이상해")?;
+    let mut gifts = load_gifts(conn)?;
+    let Some(g) = gifts.iter_mut().find(|g| gift_id(g) == Some(id)).and_then(Value::as_object_mut) else { return Ok(false) };
+    for (k, v) in fields {
+        if k == "id" {
+            continue;
+        }
+        if v.is_null() {
+            g.remove(k);
+        } else {
+            g.insert(k.clone(), v.clone());
+        }
+    }
+    save_gifts(conn, gifts)?;
+    Ok(true)
+}
+
+pub fn gift_remove(conn: &Connection, ids: &[String]) -> AppResult<()> {
+    let mut gifts = load_gifts(conn)?;
+    gifts.retain(|g| !gift_id(g).is_some_and(|id| ids.iter().any(|x| x == id)));
+    save_gifts(conn, gifts)
 }
 
 // ── 모으기 ───────────────────────────────────────────────────────────────────

@@ -289,6 +289,29 @@ pub fn session_compact(db: State<'_, DbState>, id: String, summary: String) -> R
     Ok(())
 }
 
+// ── 선물함(화면의 neko/gifts.ts): 하나씩 바꾼다 ──────────────────────────────
+
+#[tauri::command(async)]
+pub fn gift_add(db: State<'_, DbState>, gift: Value) -> Result<(), AppError> {
+    super::gift_add(&*db.0.lock()?, &gift)?;
+    kick();
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn gift_patch(db: State<'_, DbState>, id: String, patch: Value) -> Result<bool, AppError> {
+    let hit = super::gift_patch(&*db.0.lock()?, &id, &patch)?;
+    kick();
+    Ok(hit)
+}
+
+#[tauri::command(async)]
+pub fn gift_remove(db: State<'_, DbState>, ids: Vec<String>) -> Result<(), AppError> {
+    super::gift_remove(&*db.0.lock()?, &ids)?;
+    kick();
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
