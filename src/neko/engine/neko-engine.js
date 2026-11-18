@@ -3722,6 +3722,22 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       tail: { base: 172, curl: -4, hook: 4, sway: 0, flick: null, dyn: { w0: 4, zeta: 0.5, grav: 0.6, inert: 1 } },
     };
   }
+  function climbDrop(A, vx, vy) {
+    const c = cat;
+    A.phase = "falling"; c.climbFall = true; c.afterGrab = true; c.vx = vx; c.vy = vy; setMode("fall");
+  }
+  /**
+   * 벽 타는 중에 다른 활동(또는 그만)이 오면: 벽에서 그냥 사라지듯 바닥에 붙지 않게, 벽에 붙어 있으면 바로 벽을 차고
+   * 뛰어내려 착지를 마친 뒤 넘긴다. 그동안 activity 는 아직 climb 이고, 같은 다음 활동이 또 와도 그대로다.
+   * 걸어가는 중·착지한 뒤라면 바로 넘긴다(false)
+   */
+  function climbHold(A, next) {
+    if (A.phase !== "leap" && A.phase !== "cling" && A.phase !== "falling") return false;
+    A.leave = true; A.next = next;
+    if (A.phase !== "falling" && cat.mode === "act") climbDrop(A, -A.side * rand(110, 150) * S, -60 * S);
+    return true;
+  }
+  function climbLeave(A) { if (A.next) startAct(A.next); else endAct(); }
   defineActivity("climb", {
     name: "벽 타기", label: "벽 타는 중", roam: true,
     start(A) { // 가까운 벽. 벽에 건 선물에 막혀 거의 못 오르면 반대쪽 벽으로
@@ -3733,11 +3749,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       if ((A.phase === "leap" || A.phase === "cling") && c.mode === "act") {
         const u = A.t - A.t0;
         if (u > 0.38) A.phase = "cling";
-        if (A.win && u > A.tSlide) { // 성공: 벽을 차고 바깥으로 뛰어내린다
-          A.phase = "falling"; c.climbFall = true; c.afterGrab = true; c.vx = -A.side * rand(160, 220) * S; c.vy = -150 * S; setMode("fall");
-        } else if (!A.win) {
+        if (A.win && u > A.tSlide) climbDrop(A, -A.side * rand(160, 220) * S, -150 * S); // 성공: 벽을 차고 바깥으로 뛰어내린다
+        else if (!A.win) {
           if (u > A.tSlide && !A.yelp) { A.yelp = true; say("!", c.head.x, c.head.y - 42 * S); }
-          if (u > A.tFall) { A.phase = "falling"; c.climbFall = true; c.afterGrab = true; c.vx = -A.side * 110 * S; c.vy = 80 * S; setMode("fall"); }
+          if (u > A.tFall) climbDrop(A, -A.side * 110 * S, 80 * S);
         }
       }
     },
@@ -3750,6 +3765,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         else if (c.face !== A.side) { c.face = A.side; setMode("idle"); }
         else if (c.modeT > 0.35) { A.phase = "leap"; A.t0 = A.t; A.x0 = c.x; A.y0 = c.y; climbPlan(A); setMode("act"); }
       } else if (A.phase === "falling" && c.mode === "idle") {
+        if (A.leave) { climbLeave(A); return; } // 끊겼다: 내려왔으니 이제 다음 활동으로(머쓱·꼬리는 건너뛴다)
         A.phase = "after"; A.tAfter = A.t;
         if (A.win) startTailEp("up", 1.6); else say("머쓱", c.head.x - c.face * 20 * S, c.head.y - 44 * S, null, 1.4);
       } else if (A.phase === "after" && A.t - A.tAfter > (A.win ? 0.8 : 1.8 + 0.8 * A.frac)) endAct();
@@ -4377,7 +4393,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       cat.pose = p; // 지금 보고 있는 방향 그대로 앉거나 눕는다
       if (p !== "stand" && cat.mode === "walk") { cat.vx = 0; cat.speed = 0; setMode("idle"); }
     },
-    act(key) { if (!key || key === "none") endAct(); else if (!cat.act || cat.act.key !== key) startAct(key); },
+    act(key) {
+      const next = !key || key === "none" ? null : key, A = cat.act;
+      if (A && A.key === next) return;
+      if (A && A.key === "climb" && climbHold(A, next)) return; // 벽·공중: 내려와 착지한 뒤 넘긴다
+      if (!next) endAct(); else startAct(next);
+    },
     get activity() { return cat.act ? cat.act.key : null; },
     /** 곁들임(활동 겹치기): 지금 도는 것(주 활동, 없으면 기본 상태)과 안 되면 거절하고 false */
     mix(key) { if (!key || key === "none") { endSide(); return true; } return startSide(key); },

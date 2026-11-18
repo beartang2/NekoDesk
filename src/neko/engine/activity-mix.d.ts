@@ -25,6 +25,8 @@ export interface NekoMixDecl {
   fills?: NekoFills;
   /** 2단계: 혼자 놀기 후보(giftplay 는 놓인 선물이 있을 때만 — 감독이 본다) */
   solo?: boolean;
+  /** 한 번짜리: 시작해서 끝날 때까지 가장 긴 시간(ms). 스케줄러가 이것 + 여유만큼 기다린다 */
+  maxMs?: number;
 }
 export interface NekoFills { energy: number; curiosity: number; clean: number; affection: number }
 

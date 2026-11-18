@@ -28,6 +28,12 @@ const act = (hold, stance, slots = "", more = {}) => ({ hold: words(hold), ride:
  */
 const fill = (energy = 0, curiosity = 0, clean = 0, affection = 0) => ({ energy, curiosity, clean, affection });
 const solo = (f) => ({ fills: f, solo: true });
+/**
+ * 한 번짜리(도장·간식·기지개·지우개·벽 타기)를 시작해서 끝날(activity null) 때까지 가장 긴 시간(ms). 스케줄러가 이것 + 여유만큼
+ * 기다린 뒤 다음 계획을 보낸다(없으면 12초). QA 하네스로 잰 최댓값을 조금 올렸다. 벽 타기는 벽까지 걷는 시간이 화면 폭을 따라
+ * 길어진다(방 9초, 마당 1440 모니터 25초·2560 모니터 34초) — 넘겨서 끊겨도 엔진이 착지까지 마치고 넘긴다
+ */
+const maxMs = (ms) => ({ maxMs: ms });
 
 export const MIX = {
   draw: act("body paws head tail", "sit", "floor", solo(fill(-5, 10))),
@@ -42,11 +48,11 @@ export const MIX = {
     ...solo(fill(8, 5)),
   },
   butterfly: act("body move paws head tail", "move", "air", solo(fill(-25, 10))),
-  snack: act("body head mouth", "stand", "floor", solo(fill(5, 0, -10))),
-  stretch: act("body paws head tail", "stand", "", solo(fill(10))),
+  snack: act("body head mouth", "stand", "floor", { ...solo(fill(5, 0, -10)), ...maxMs(9500) }),
+  stretch: act("body paws head tail", "stand", "", { ...solo(fill(10)), ...maxMs(3500) }),
   typing: act("body paws head tail", "sit", "floor", { fills: fill(-3) }),
   reading: act("body paws head tail", "sit", "floor", solo(fill(5, 20))),
-  stamp: act("body paws head tail", "sit", "floor", { fills: fill(-2) }),
+  stamp: act("body paws head tail", "sit", "floor", { fills: fill(-2), ...maxMs(5000) }),
   groom: act("body paws head mouth tail", "sit", "", solo(fill(3, 0, 35))),
   knead: act("body paws head tail", "stand", "floor", solo(fill(10, 0, 0, 8))),
   yarn: act("body move paws head tail", "move", "floor", solo(fill(-20, 5))),
@@ -59,8 +65,8 @@ export const MIX = {
   hungry: act("body paws head tail", "sit", "floor"),
   dig: act("body paws head tail", "stand", "floor", solo(fill(-5, 20))), // 혼자 후보(사용자 확정)
   calendar: act("body paws head tail", "sit", "floor"),
-  erase: act("body paws head tail", "sit", "floor", { fills: fill(-2) }),
-  climb: act("body move paws head tail", "move", "wall", solo(fill(-30, 10))),
+  erase: act("body paws head tail", "sit", "floor", { fills: fill(-2), ...maxMs(4500) }),
+  climb: act("body move paws head tail", "move", "wall", { ...solo(fill(-30, 10)), ...maxMs(35000) }),
   // 쳐다보기: 애정이 낮을 때(사용자 확정). 앉아서 사용자 쪽을 보며 천천히 눈을 깜빡인다
   gaze: act("body head tail", "sit", "", solo(fill(0, 0, 0, 8))),
   // 기본 상태: 활동이 없을 때 고양이가 하는 일. 잡힘·점프 같은 잠깐 상태는 서기로 본다

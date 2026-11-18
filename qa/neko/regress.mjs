@@ -797,6 +797,43 @@ try {
     await p.close();
   }
 
+  // 9-s) 벽 타는 중에 다른 활동이 오면(스케줄러 상한·승인 대기 등) 벽에서 사라지듯 내려오지 않고 뛰어내려 착지한 뒤 넘긴다.
+  //      그동안 activity 는 climb, 같은 다음 활동이 또 와도 그대로. 걸어가는 중이면 바로 넘긴다. 한 번짜리는 maxMs 를 적었다
+  {
+    const p = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(async () => {
+      const { MIX } = await import("/src/neko/engine/activity-mix.js");
+      const n = window.__neko, c = n.cat, o = {};
+      n.setGround(830); n.step(120);
+      const run = (next) => {
+        n.act(null); n.step(240); c.x = n.W * 0.85; c.vx = 0; n.step(30);
+        n.act("climb");
+        for (let i = 0; i < 120 * 40 && !(c.act && c.act.phase === "cling" && c.y < n.floorY - 260 * n.S); i++) n.step(1);
+        const high = c.act && c.act.phase === "cling", y0 = c.y;
+        n.act(next); const still = n.activity === "climb"; n.act(next);
+        let jump = 0, prev = c.y, f = 0, during = true;
+        while (n.activity === "climb" && f < 120 * 10) { n.step(1); f++; jump = Math.max(jump, Math.abs(c.y - prev)); prev = c.y; if (n.activity === "climb" && c.mode === "idle" && f > 30) during = false; }
+        return { high, still, after: n.activity, landed: Math.abs(c.y - (n.floorY - 0)) > 0 && c.mode !== "fall", sec: +(f / 120).toFixed(2), maxStep: +jump.toFixed(1), from: Math.round(n.floorY - y0) };
+      };
+      o.toWindow = run("window");
+      o.toNull = run(null);
+      // 걸어가는 중이면 바로
+      n.act(null); n.step(240); c.x = n.W * 0.5; n.step(30); n.act("climb"); n.step(60); const walking = c.act.phase === "approach"; n.act("window");
+      o.approach = { walking, now: n.activity };
+      n.act(null);
+      o.maxMs = ["stamp", "snack", "stretch", "erase", "climb"].map((k) => MIX[k].maxMs);
+      return o;
+    });
+    const ok = (x, next) => x.high && x.still && x.after === next && x.maxStep < 40 && x.sec > 0.3;
+    check("벽 타는 중 끊기면: 뛰어내려 착지한 뒤 넘긴다(그동안 climb, 한 프레임에 크게 안 튐), 걸어가는 중이면 바로", JSON.stringify(r),
+      ok(r.toWindow, "window") && ok(r.toNull, null) && r.approach.walking && r.approach.now === "window" && r.maxMs.every((v) => v > 0));
+    await p.close();
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {
