@@ -946,6 +946,7 @@ try {
       const win = (w, x0, x1, y0, y1) => ({ tops: [{ id: w + ":t0", win: w, x0, x1, y: y0 }], walls: [{ id: w + ":l0", win: w, x: x0, y0, y1, face: "left" }, { id: w + ":r0", win: w, x: x1, y0, y1, face: "right" }] });
       o.floating = visit(win(3, 500, 760, 380, 720));
       o.tall = visit(win(4, 600, 1100, 80, 830));
+      o.sticky = visit(win(6, 520, 573, 700, 748)); // 스티키 메모(53×48): 몸보다 짧아도 가운데에 올라앉는다
       n.setPerches(win(5, 500, 760, 200, 560)); c.x = 300; n.step(30);
       o.why = n.towerWhy();
       return o;
@@ -953,8 +954,8 @@ try {
     check("창 탐험: 창 옆면을 타고 올라 윗변에 서고 다른 창으로 건너간다(순간이동 없이), 창이 없으면 바로 끝", JSON.stringify(r),
       r.none === null && r.ok && r.run.climbed && r.run.seen.includes("1:t0") && r.run.maxStep < 30 && r.run.end === null);
     check("창 탐험: 오르는 중 다른 활동이 오면 뛰어내려 착지한 뒤 넘긴다", JSON.stringify(r.cut), r.cut.cling && r.cut.held === "tower" && r.cut.now === "window" && r.cut.perch === null);
-    check("창 탐험: 떠 있는 창(옆면 끝을 뛰어 잡음)·화면만큼 높은 창도 오르고, 못 가는 창은 까닭(towerWhy)", JSON.stringify({ floating: r.floating, tall: r.tall, why: r.why }),
-      r.floating.ok && r.floating.seen.includes("3:t0") && r.tall.ok && r.tall.seen.includes("4:t0") && r.why.length === 1 && !r.why[0].ok && /떠 있다/.test(r.why[0].why));
+    check("창 탐험: 떠 있는 창(옆면 끝을 뛰어 잡음)·화면만큼 높은 창도 오르고, 못 가는 창은 까닭(towerWhy)", JSON.stringify({ floating: r.floating, tall: r.tall, sticky: r.sticky, why: r.why }),
+      r.floating.ok && r.floating.seen.includes("3:t0") && r.tall.ok && r.tall.seen.includes("4:t0") && r.sticky.seen.includes("6:t0") && r.why.length === 1 && !r.why[0].ok && /떠 있다/.test(r.why[0].why));
     await p.close();
   }
 

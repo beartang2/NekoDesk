@@ -3804,6 +3804,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      하나를 고르고, 몇 번(3~6) 옮기면 그 자리에서 끝낸다(윗변 위에 남는다). 갈 곳이 없으면 바로 끝낸다. */
   // 뛰어 건너기: 가로·위로·아래로(S). 옆면: 밑에서 설 자리(벽에서), 뛰어 잡을 수 있는 높이(옆면 아래 끝이 바닥에서 이만큼 안), 오를 높이 상한
   const TOWER_JUMP_X = 240, TOWER_JUMP_UP = 120, TOWER_JUMP_DOWN = 420, TOWER_STAND = 70, TOWER_GRAB = 150, TOWER_CLIMB_MAX = 1600;
+  const TOWER_MIN_TOP = 44; // 이보다 좁은 윗변엔 안 올라간다(네 발이 못 선다). 몸보다 짧으면 가운데에 앉는다
   /** 옆면을 다 오르면 올라설 그 창의 윗변(가려져 없으면 null) */
   const topOfWall = (w) => TOPS.find((t) => t.win === w.win && Math.abs(t.y - w.y0) < 4 && w.x >= t.x0 - 3 && w.x <= t.x1 + 3) || null;
   /**
@@ -3812,12 +3813,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
    */
   function towerMoves(why) {
     const c = cat, here = c.perch, [lo, hi] = roamSpan(), out = [], leapY = floorY - (standH() + 52) * S;
-    const span = (t) => [t.x0 + (PERCH_M + 6) * S, t.x1 - (PERCH_M + 6) * S];
+    // 설 자리: 넓으면 끝에서 띄우고, 좁으면(스티키 메모처럼 몸보다 짧은 창) 가운데에만 — 거기 앉아 있는다
+    const span = (t) => { const m = (PERCH_M + 6) * S, mid = (t.x0 + t.x1) / 2; return t.x1 - t.x0 > 2 * m ? [t.x0 + m, t.x1 - m] : [mid, mid]; };
     const no = (win, r) => { if (why && !why.has(win)) why.set(win, r); };
     for (const t of TOPS) { // 뛰어 건너기·뛰어오르기
       if (here && t.id === here.id) continue;
       const [a, b] = span(t), up = floorY - t.y;
-      if (b <= a) { no(t.win, "윗변이 좁다"); continue; }
+      if (t.x1 - t.x0 < TOWER_MIN_TOP * S) { no(t.win, "윗변이 좁다"); continue; }
       if (up > TOWER_JUMP_UP * S || -up > TOWER_JUMP_DOWN * S || Math.abs(up) < 16 * S) continue;
       const from = clamp((a + b) / 2, lo, hi), land = clamp(from, a, b);
       if (Math.abs(land - from) > TOWER_JUMP_X * S) continue;
@@ -3832,7 +3834,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       if (w.y1 < floorY - TOWER_GRAB * S) { no(w.win, "옆면이 너무 높이 떠 있다(뛰어 못 잡음)"); continue; }
       if (w.y0 > Math.min(leapY, w.y1 - 12 * S) - 30 * S || rise < 50 * S) { no(w.win, "너무 낮다"); continue; }
       if (rise > TOWER_CLIMB_MAX * S) { no(w.win, "너무 높다"); continue; }
-      if (t.x1 - t.x0 < 2 * (PERCH_M + 8) * S) { no(w.win, "윗변이 좁다"); continue; }
+      if (t.x1 - t.x0 < TOWER_MIN_TOP * S) { no(w.win, "윗변이 좁다"); continue; }
       out.push({ kind: "climb", w, t, side, stand, w8: 2 });
       if (why) why.set(w.win, "갈 수 있다");
     }
@@ -3895,7 +3897,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
           const t = TOPS.find((o) => o.id === A.top.id);
           if (!t) { A.phase = "falling"; climbDrop(A, -A.side * 110 * S, 40 * S); return; } // 그새 창이 사라졌다
           const xc = A.wallX - A.side * (31 * c.bd.by + 7) * S;
-          A.mFrom = [xc, A.yG]; A.mTo = [clamp(A.wallX + A.side * (PERCH_M + 8) * S, t.x0 + PERCH_M * S, t.x1 - PERCH_M * S), t.y - standH() * S];
+          const narrow = t.x1 - t.x0 <= 2 * PERCH_M * S, mx = narrow ? (t.x0 + t.x1) / 2 : clamp(A.wallX + A.side * (PERCH_M + 8) * S, t.x0 + PERCH_M * S, t.x1 - PERCH_M * S);
+          A.mFrom = [xc, A.yG]; A.mTo = [mx, t.y - standH() * S];
           A.phase = "mount"; A.tm = A.t; c.perch = t; floorY = t.y;
         }
       } else if (A.phase === "mount" && c.mode === "act" && A.t - A.tm > 0.5) {
