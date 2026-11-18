@@ -1005,6 +1005,13 @@ mod commands {
         crate::ambient::music(&app)
     }
 
+    /// 지금 듣는 곡 제목·가수(재생 중인 첫 음악 앱). 재생 중이 아니거나 권한이 없으면 null.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn ambient_track(app: tauri::AppHandle) -> Result<Option<crate::ambient::Track>, AppError> {
+        crate::ambient::track(&app)
+    }
+
     /// 화면 창: 고양이가 그쪽 끝을 넘어갔다 — 커서가 있는 모니터로 창을 옮긴다. 안 옮겼으면 false.
     #[cfg(target_os = "macos")]
     #[tauri::command(async)]
@@ -1391,6 +1398,8 @@ pub fn run() {
             commands::ambient_probe,
             #[cfg(target_os = "macos")]
             commands::ambient_music,
+            #[cfg(target_os = "macos")]
+            commands::ambient_track,
             #[cfg(target_os = "macos")]
             commands::neko_screen_cross,
             #[cfg(target_os = "macos")]

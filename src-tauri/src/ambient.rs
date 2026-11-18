@@ -37,6 +37,33 @@ pub fn music(app: &AppHandle) -> Result<bool, AppError> {
     Ok(running.iter().any(|id| playing(id)))
 }
 
+/// 지금 듣는 곡(산책이 출발 전 상태를 가지고 나갈 때 한 번, walk). 재생 중인 첫 음악 앱 기준.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Track {
+    pub title: String,
+    pub artist: String,
+}
+
+/// 재생 중인 음악 앱의 곡 제목·가수. 재생 중이 아니거나 권한이 없으면 None. 같은 앱 자동화 권한이라 새 권한 창은 없다.
+pub fn track(app: &AppHandle) -> Result<Option<Track>, AppError> {
+    let running = on_main(app, || unsafe { macos::running(&MUSIC_APPS) })?;
+    Ok(running.iter().filter(|id| playing(id)).find_map(|id| current_track(id)))
+}
+
+fn current_track(bundle: &str) -> Option<Track> {
+    let script = format!("tell application id \"{bundle}\" to (name of current track) & linefeed & (artist of current track)");
+    let out = std::process::Command::new("/usr/bin/osascript").args(["-e", &script]).output().ok()?;
+    out.status.success().then(|| parse_track(&String::from_utf8_lossy(&out.stdout))).flatten()
+}
+
+/// osascript 답("제목\n가수\n") → 곡. 제목이 비면 None
+fn parse_track(answer: &str) -> Option<Track> {
+    let mut lines = answer.trim_end_matches(['\n', '\r']).splitn(2, '\n');
+    let title = lines.next()?.trim().to_string();
+    let artist = lines.next().unwrap_or("").trim().to_string();
+    (!title.is_empty()).then_some(Track { title, artist })
+}
+
 fn playing(bundle: &str) -> bool {
     let script = format!("tell application id \"{bundle}\" to (player state as string)");
     std::process::Command::new("/usr/bin/osascript")
@@ -108,6 +135,14 @@ pub(crate) mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_track_answers() {
+        assert_eq!(parse_track("밤편지\n아이유\n"), Some(Track { title: "밤편지".into(), artist: "아이유".into() }));
+        assert_eq!(parse_track("Intro\n\n"), Some(Track { title: "Intro".into(), artist: String::new() }));
+        assert_eq!(parse_track("\n"), None);
+        assert_eq!(parse_track(""), None);
+    }
 
     #[test]
     fn reads_player_state_answers() {
