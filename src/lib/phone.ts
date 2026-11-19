@@ -75,7 +75,7 @@ export function bindPanels(get: () => Panels): () => void {
  * 끝에서 미는 손짓: 장이 손가락을 따라 움직이고, 손을 뗄 때 정해진다(절반 못 미쳐도 빠르게 밀면 넘어간다).
  *   왼쪽 끝 → 오른쪽: 설정이 열려 있으면 설정을 닫고, 아니면 대화 목록을 연다.
  *   오른쪽 끝(또는 대화 목록 옆 가림막) → 왼쪽: 대화 목록이 열려 있으면 닫고, 아니면 설정을 연다.
- * 그리는 건 CSS 변수로 한다(App.css): --drawer-x·--scrim(대화 목록), --sheet-x(설정). 끄는 동안은 html 에
+ * 그리는 건 CSS 변수로 한다(App.css): --drawer-x·--scrim(대화 목록), --sheet-x·--sheet-p(설정). 뒤 화면은 열린 만큼 흐려진다. 끄는 동안은 html 에
  * drag-drawer / drag-sheet 를 붙여 전환을 끄고, 놓으면 떼어 남은 거리를 전환이 마저 간다.
  */
 function watchEdgeDrags(root: HTMLElement): void {
@@ -88,7 +88,10 @@ function watchEdgeDrags(root: HTMLElement): void {
     if (d.kind === "drawer") {
       root.style.setProperty("--drawer-x", `${d.open - d.w}px`);
       root.style.setProperty("--scrim", String(d.open / d.w));
-    } else root.style.setProperty("--sheet-x", `${d.w - d.open}px`);
+    } else {
+      root.style.setProperty("--sheet-x", `${d.w - d.open}px`);
+      root.style.setProperty("--sheet-p", String(d.open / d.w));
+    }
   };
 
   document.addEventListener("touchstart", (e) => {
@@ -103,7 +106,9 @@ function watchEdgeDrags(root: HTMLElement): void {
       ? (p.sheetOpen ? { kind: "sheet" as const, opening: false } : !p.drawerOpen ? { kind: "drawer" as const, opening: true } : null)
       : (p.drawerOpen ? { kind: "drawer" as const, opening: false } : !p.sheetOpen ? { kind: "sheet" as const, opening: true } : null);
     if (!pick) return;
-    const w = pick.kind === "drawer" ? (document.querySelector<HTMLElement>(".sidebar")?.offsetWidth ?? 0) : window.innerWidth;
+    // 대화 목록은 넘침 여유(--over)만큼 화면 왼쪽 밖으로 늘어나 있다 — 보이는 폭은 오른쪽 끝 자리다
+    const side_ = document.querySelector<HTMLElement>(".sidebar");
+    const w = pick.kind === "drawer" ? (side_ ? side_.offsetWidth + side_.offsetLeft : 0) : window.innerWidth;
     if (!w) return;
     drag = { ...pick, dir: side === "left" ? 1 : -1, w, x0: t.clientX, y0: t.clientY, locked: false, open: pick.opening ? 0 : w, lastX: t.clientX, lastT: e.timeStamp, v: 0 };
   }, { passive: true, capture: true });
@@ -148,14 +153,16 @@ function watchEdgeDrags(root: HTMLElement): void {
     if (open) { // 남은 거리를 전환이 간다
       root.classList.remove("drag-sheet");
       root.style.setProperty("--sheet-x", "0px");
+      root.style.setProperty("--sheet-p", "1");
       p?.setSheet(true);
-      cleanup = window.setTimeout(() => root.style.removeProperty("--sheet-x"), 350);
+      cleanup = window.setTimeout(() => { root.style.removeProperty("--sheet-x"); root.style.removeProperty("--sheet-p"); }, 350);
     } else { // 닫힘: 지금 자리에서 나가는 애니메이션(MenuModal.css menu-slide-out 의 --menu-from). 다 나갈 때까지 자리를 붙들어 둔다
       root.style.setProperty("--menu-from", `${d.w - d.open}px`);
       p?.setSheet(false);
       cleanup = window.setTimeout(() => {
         root.classList.remove("drag-sheet");
         root.style.removeProperty("--sheet-x");
+        root.style.removeProperty("--sheet-p");
         root.style.removeProperty("--menu-from");
       }, 400);
     }
