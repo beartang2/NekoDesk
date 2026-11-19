@@ -3,6 +3,7 @@ import { conversationApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { notifyIfAway, toNotificationBody } from "../lib/notify";
 import { useMessageStore } from "../stores/messageStore";
+import { useSessionStore } from "../stores/sessionStore";
 import { runAgentLoop, runTextTask } from "../agent/agent-loop";
 import type {
   AgentStep,
@@ -763,7 +764,9 @@ export function useAgentPool() {
                 notice: event.notice,
                 model,
               }))
-              .catch(() => {});
+              .catch(() => {})
+              // 적은 뒤에 — 읽은 때가 답보다 앞서면 다시 켰을 때 본 답에 점이 붙는다
+              .finally(() => useSessionStore.getState().replied(sessionId));
             appEvents.emit("agentDone");
             void notifyIfAway(nekoNameOf(useSettingsStore.getState()), toNotificationBody(clean));
             void autoCompact(sessionId);
@@ -775,7 +778,8 @@ export function useAgentPool() {
             saved = true;
             conversationApi
               .save(sessionId, "assistant", `연결 실패: ${event.message}`, undefined, serializeMeta({ steps: finalSteps, model }))
-              .catch(() => {});
+              .catch(() => {})
+              .finally(() => useSessionStore.getState().replied(sessionId));
             signal(sessionId, { type: "loop_error" });
             setRunning(sessionId, false);
             setPendingConfirm(null);

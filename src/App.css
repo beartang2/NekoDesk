@@ -451,6 +451,19 @@ html, body, #root {
   color: var(--text-muted);
 }
 
+/* 보고 있지 않을 때 답이 온 대화: 포인트색 작은 점 + 제목을 한 단계 밝게. 열면 사라진다 */
+.session-item--unread .session-item__title {
+  color: var(--text-primary);
+}
+
+.session-item__unread {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
 .session-item__delete {
   opacity: 0;
   background: none;

@@ -239,13 +239,16 @@ export const conversationApi = {
 };
 
 /** 세션 목록(대화 탭)과 수동 요약. 예전엔 localStorage 에만 있어 다른 기기로 못 갔다(docs/neko-sync.md §2.6) */
-export interface SessionRow { id: string; title: string; created_at: number; summary: string | null }
+/** unread: 마지막으로 연 뒤 온 답이 있다(session_list 만 채운다) */
+export interface SessionRow { id: string; title: string; created_at: number; summary: string | null; unread?: boolean }
 export const sessionApi = {
   list: () => invoke<SessionRow[]>("session_list"),
   /** 없으면 만들고 있으면 제목만 바꾼다 */
   put: (id: string, title: string, createdAt: number) => invoke<void>("session_put", { id, title, createdAt }),
   /** 처음 한 번 localStorage 목록을 옮긴다. 이미 있는 세션은 그대로 */
   import: (sessions: SessionRow[]) => invoke<void>("session_import", { sessions }),
+  /** at(ms)까지 읽었다 — 이 기기에만 남는다 */
+  read: (id: string, at = Date.now()) => invoke<void>("session_read", { id, at }),
   /** 사용자가 지운 세션(메시지까지) */
   delete: (id: string) => invoke<void>("session_delete", { id }),
   /** 수동 요약: 요약을 적고 그 세션 메시지를 지운다 */

@@ -322,10 +322,11 @@ function Sidebar({
         {sessions.map((s) => (
           <div
             key={s.id}
-            className={`session-item ${s.id === activeId ? "session-item--active" : ""}`}
+            className={`session-item ${s.id === activeId ? "session-item--active" : ""} ${s.unread ? "session-item--unread" : ""}`}
             onClick={() => onSelect(s.id)}
           >
             <span className="session-item__title">{s.title}</span>
+            {s.unread && <span className="session-item__unread" role="img" aria-label="새 답" title="새 답" />}
             <span className="session-item__date">{s.date}</span>
             <button
               className="session-item__delete"

@@ -700,12 +700,31 @@ pub struct SessionRow {
     pub title: String,
     pub created_at: i64,
     pub summary: Option<String>,
+    /// 마지막으로 연 뒤에 온 답이 있다(읽기 전용 — 옮길 때는 무시)
+    #[serde(default)]
+    pub unread: bool,
 }
 
 pub fn session_list(conn: &Connection) -> AppResult<Vec<SessionRow>> {
-    let mut stmt = conn.prepare("SELECT id, title, created_at, summary FROM sessions ORDER BY created_at DESC, id")?;
-    let rows = stmt.query_map([], |r| Ok(SessionRow { id: r.get(0)?, title: r.get(1)?, created_at: r.get(2)?, summary: r.get(3)? }))?;
+    // 메시지 시각은 초 단위 글('YYYY-MM-DD HH:MM:SS', UTC)이라 초를 내려 ms 로 견준다
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.title, s.created_at, s.summary,
+                COALESCE(CAST(strftime('%s', m.last) AS INTEGER) * 1000 > COALESCE(s.read_at, 0), 0)
+         FROM sessions s
+         LEFT JOIN (SELECT session_id, MAX(created_at) AS last FROM conversation_messages
+                    WHERE role = 'assistant' GROUP BY session_id) m ON m.session_id = s.id
+         ORDER BY s.created_at DESC, s.id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(SessionRow { id: r.get(0)?, title: r.get(1)?, created_at: r.get(2)?, summary: r.get(3)?, unread: r.get(4)? })
+    })?;
     Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// 세션을 at(ms)까지 읽었다. 이 기기에만 남는다(동기화 안 함)
+pub fn session_read(conn: &Connection, id: &str, at: i64) -> AppResult<()> {
+    conn.execute("UPDATE sessions SET read_at = MAX(COALESCE(read_at, 0), ?2) WHERE id = ?1", params![id, at])?;
+    Ok(())
 }
 
 /// 없으면 만들고, 있으면 제목만 바꾼다(요약은 session_compact 로)
@@ -721,8 +740,9 @@ pub fn session_put(conn: &Connection, id: &str, title: &str, created_at: i64) ->
 pub fn session_import(conn: &Connection, rows: &[SessionRow]) -> AppResult<()> {
     for s in rows {
         conn.execute(
-            "INSERT INTO sessions (id, title, created_at, summary) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (id) DO NOTHING",
-            params![s.id, s.title, s.created_at, s.summary],
+            // 이 기기에 있던 대화라 다 읽은 것으로
+            "INSERT INTO sessions (id, title, created_at, summary, read_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (id) DO NOTHING",
+            params![s.id, s.title, s.created_at, s.summary, now_ms()],
         )?;
     }
     Ok(())

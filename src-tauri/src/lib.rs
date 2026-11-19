@@ -1403,6 +1403,7 @@ pub fn run() {
             sync::run::session_list,
             sync::run::session_put,
             sync::run::session_import,
+            sync::run::session_read,
             sync::run::session_delete,
             sync::run::session_compact,
             sync::run::sync_devices,

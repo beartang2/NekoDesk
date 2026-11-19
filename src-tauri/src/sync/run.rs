@@ -350,6 +350,11 @@ pub fn session_import(db: State<'_, DbState>, sessions: Vec<SessionRow>) -> Resu
 }
 
 #[tauri::command(async)]
+pub fn session_read(db: State<'_, DbState>, id: String, at: i64) -> Result<(), AppError> {
+    super::session_read(&*db.0.lock()?, &id, at)
+}
+
+#[tauri::command(async)]
 pub fn session_delete(db: State<'_, DbState>, id: String) -> Result<(), AppError> {
     super::session_delete(&*db.0.lock()?, &id)?;
     kick();
