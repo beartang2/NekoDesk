@@ -32,6 +32,16 @@ describe("날씨 창문", () => {
     expect(roomWindow("dock", 900, 170)).toEqual(dock[0]);
     expect(roomWindow("screen", 900, 170)).toBeNull();
     expect(roomWindows("screen", 900, 170)).toEqual([]);
+    // 높은 거실(폰 가로 화면): 창이 거실과 같이 커지고, 여전히 왼쪽·오른쪽 1/4 지점에 벽 안에 있다. 높이 240 까지는 전과 같다
+    const tall = roomWindows("dock", 812, 375);
+    expect(tall.map((r) => r.x + r.w / 2)).toEqual([203, 609]);
+    expect(tall[0].h).toBe(Math.round(375 * 0.3));
+    expect(tall[0].h / 375).toBeCloseTo(roomWindows("dock", 1000, 240)[0].h / 240, 2);
+    expect(tall[0].x).toBeGreaterThan(0);
+    expect(tall[0].x + tall[0].w).toBeLessThan(tall[1].x);
+    expect(tall[1].x + tall[1].w).toBeLessThan(812);
+    expect(roomWindows("dock", 1000, 240)[0]).toMatchObject({ h: 72, w: 187 });
+    expect(roomWindows("dock", 375, 120)[0]).toMatchObject({ h: 48 });
     expect(roomWindow("sidebar", 0, 0)).toBeNull();
   });
 });

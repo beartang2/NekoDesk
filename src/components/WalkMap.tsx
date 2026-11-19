@@ -103,8 +103,9 @@ export function WalkMap({ walk, isDark, fallback, className = "" }: { walk: Walk
   const ahead = live ? px(positionAt(live.path, now + 1000)) : neko;
   const stepping = Math.hypot(ahead[0] - neko[0], ahead[1] - neko[1]) > 0.3;
   const facingLeft = stepping && ahead[0] < neko[0];
-  // 걷는 중이면 지금까지 걸은 길, 다녀온 산책이면 길 전체(지도 위일 때만)
-  const trail = live ? walkedAt(live.path, now).map(px) : map && walk?.onMap ? walk.path.map(([x, y]) => px([x, y])) : [];
+  // 걷는 중이면 지금까지 걸은 길, 다녀온 산책이면 길 전체. 지도가 없으면(폰은 지도 그림을 못 받는다 — MapKit 스냅숏이 맥에만
+  // 있다) 걷는 중처럼 동심원 위에 그린다. 지도는 있는데 대체 경로로 걸었으면 건물을 뚫고 다니니 안 그린다
+  const trail = live ? walkedAt(live.path, now).map(px) : walk && (!map || walk.onMap) ? walk.path.map(([x, y]) => px([x, y])) : [];
   const stops = map && center && walk?.onMap && !walk.done ? walk.places.map((p) => ({ name: p.name, at: px(toMeters(center, p.lat, p.lon)) })) : [];
   const ring = Math.max(size.w, size.h) / 8;
   const fallbackOn = !map && fallback;

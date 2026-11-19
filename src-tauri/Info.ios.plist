@@ -3,6 +3,8 @@
 <plist version="1.0">
 <dict>
 	<!-- 맥의 기기 연결 QR(nekodesk://pair?d=…)을 카메라로 찍으면 이 앱이 열린다(sync/run.rs link_opened). -->
+	<key>NSAppleMusicUsageDescription</key>
+	<string>네코에게 노래를 틀어 달라고 하면 음악 보관함에서 곡을 찾아 틀어요.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>맥 화면에 뜬 기기 연결 QR 을 찍으려고 카메라를 써요.</string>
 	<key>CFBundleURLTypes</key>

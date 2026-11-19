@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMe
 import { PhonePanel } from "./neko/PhonePanel";
 import { AlertDialog } from "radix-ui";
 import { PairLinkPrompt } from "./components/PairLink";
-import { bindPanels, drawer, type Panels } from "./lib/phone";
+import { bindPanels, dismissKeyboard, drawer, type Panels } from "./lib/phone";
 import { IS_PHONE } from "./lib/platform";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
@@ -1035,13 +1035,15 @@ function Composer({
         </button>
         {/* 일하는 중에도 쓴 글이 있으면 보내기가 먼저다. 비어 있을 때만 중단을 보인다. */}
         {locked || (isRunning && !value.trim() && files.length === 0) ? (
-          <button className="composer__stop" onClick={onStop}>
+          <button className="composer__stop" onClick={onStop} onPointerDown={keepFocus} onMouseDown={keepFocus}>
             ■ 중단
           </button>
         ) : (
           <button
             className="composer__send"
             onClick={submit}
+            onPointerDown={keepFocus}
+            onMouseDown={keepFocus}
             disabled={!value.trim() && files.length === 0}
             title="보내기"
           >
@@ -1052,6 +1054,12 @@ function Composer({
     </div>
   );
 }
+
+/**
+ * 보내기·중단을 눌러도 입력 칸이 포커스를 잃지 않게 한다. 폰에서는 누르는 순간 입력 칸이 놓여 키보드가 내려가고 화면이
+ * 움직여, 손을 뗄 때 누른 자리에 버튼이 없어 안 보내졌다. 보낸 뒤에도 키보드가 그대로 있어 이어 칠 수 있다.
+ */
+const keepFocus = (e: React.PointerEvent | React.MouseEvent) => e.preventDefault();
 
 // ── Confirm banner ────────────────────────────────────────────────────────────
 
@@ -2023,6 +2031,8 @@ export default function App() {
   // 폰: 대화 목록(사이드바)은 제목을 눌러 여닫는 덮개다. 대화를 고르면 닫힌다.
   useEffect(() => { if (IS_PHONE) drawer.set(false); }, [activeId]);
   // 폰: 왼쪽 끝에서 밀면 대화 목록, 오른쪽 끝에서 밀면 설정. 장이 손가락을 따라 움직이고 놓을 때 정해진다(lib/phone.ts).
+  // 폰: 설정을 열면 키보드를 내린다(키보드가 떠 있으면 설정의 아래쪽이 가리고, 대화 목록 손짓도 막혀 있다)
+  useEffect(() => { if (IS_PHONE && menuOpen) dismissKeyboard(); }, [menuOpen]);
   // 폰: 지우기 전에 묻는 대화(id)
   const [askDelete, setAskDelete] = useState<string | null>(null);
   const panelsRef = useRef<Panels>({ sheetOpen: false, setSheet: setMenuOpen });
