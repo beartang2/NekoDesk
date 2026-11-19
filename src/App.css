@@ -1828,7 +1828,7 @@ html.phone .titlebar__panel-toggle { display: none; }
   cursor: pointer;
 }
 html.phone .titlebar__settings { min-width: 44px; min-height: 44px; }
-html.phone .main { grid-column: 1; grid-row: 3; margin: 0 var(--gutter) var(--gutter); }
+html.phone .main { grid-column: 1; grid-row: 3; margin: 6px var(--gutter) var(--gutter); }
 html.phone .right-panel { display: none; }
 /* 네코 거실: 제목 줄 바로 아래 띠. 키보드가 올라와도 그대로 보인다. 높이 손잡이는 없다 */
 html.phone .neko-slot--dock { grid-row: 2; border-top: 0; border-bottom: 1px solid var(--border); background: none; }
