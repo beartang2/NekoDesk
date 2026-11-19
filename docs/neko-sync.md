@@ -707,7 +707,14 @@ cron 이 10분마다 깬다. 아래가 다 맞을 때만 나간다.
 
 - 준비(한 번): Xcode 에서 `src-tauri/gen/apple/nekodesk.xcodeproj` › Signing & Capabilities › Team 을 고른다(무료 계정은 Personal Team). 팀 ID 를 `src-tauri/gen/apple/.team` 에 적는다(git 제외). `brew install xcodegen libimobiledevice cocoapods`, `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.
 - `scripts/ios-install.sh`: 이 폴더의 코드를 빌드해 연결된 아이폰에 덮어 설치.
-- `scripts/ios-reinstall.sh`: **release 브랜치**의 최신 코드를 따로 둔 작업 폴더에서 빌드해 설치(7일 만료 전에, `--days` 로 남은 날). 맥을 배포한 뒤 다음 재설치 때 폰도 같은 버전이 된다. 손으로 돌린다(launchd 는 아직).
+- `scripts/ios-reinstall.sh`: **release 브랜치**의 최신 코드를 따로 둔 작업 폴더(`NekoDesk-ios-release`)에서 빌드해 설치(7일 만료 전에, `--days` 로 남은 날). 맥을 배포한 뒤 다음 재설치 때 폰도 같은 버전이 된다. 만료가 3일 안이면 Xcode 가 받아 둔 이 앱의 서명 프로파일을 지우고 빌드한다 — 안 끝난 프로파일을 다시 쓰면 만료일이 그대로일 수 있다(**미확인**: 처음 만료가 가까워질 때 확인한다).
+- **자동 재설치**(launchd 사용자 에이전트): `scripts/ios-reinstall-agent.sh install` 이 등록하고 `uninstall` 이 푼다(`status` 로 상태).
+  - 날마다 04:30 에 `ios-reinstall.sh --auto` 를 낮은 우선순위(nice 15)로 돌린다. 맥이 자고 있었으면 깰 때 돈다. 서명이 3일 넘게 남은 날은 아무것도 안 한다 — 실제 빌드는 4일에 한 번쯤.
+  - 다시 설치했거나 못 했으면(폰이 안 보임·빌드 실패) 맥 알림을 띄운다. 못 한 날은 다음 날 또 해 보고 또 알린다.
+  - 등록이 만드는 것(내장 디스크): `~/Library/LaunchAgents/com.nekodesk.ios-reinstall.plist`, `~/Library/Application Support/NekoDesk/ios-reinstall-agent.sh`(PATH 를 적어 둔 실행 파일), `ios-expiry`(만료 시각). 외장 디스크가 빠져 있으면 건너뛰고, 만료가 3일 안일 때만 알린다.
+  - 한 일은 `/Volumes/BREAD/MyProject/GitHub/NekoDesk-ios-reinstall.log`(돌 때마다 덮어쓰고 끝 200줄).
+  - 손으로 풀기: `launchctl bootout gui/$(id -u)/com.nekodesk.ios-reinstall`. 다시 걸기: `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nekodesk.ios-reinstall.plist`.
+  - 폰은 맥과 같은 Wi-Fi 에 있거나 케이블로 연결돼 있어야 하고 잠금이 풀려 있어야 한다.
 - Xcode 27 에서 걸린 것: swift-rs 1.0.9 이상(iOS 교차 빌드), `rustup component add llvm-tools`(없으면 릴리스 링크가 Undefined symbols), 지난 산출물이 남으면 tauri 가 옮기다 실패 — 스크립트가 처리한다.
 - 폰에서 처음: 설정 › 일반 › VPN 및 기기 관리 › 개발자 앱 신뢰.
 
@@ -716,5 +723,5 @@ cron 이 10분마다 깬다. 아래가 다 맞을 때만 나간다.
 - **iOS 27 기기에서는 켜자마자 꺼진다.** 최신 SDK 로 빌드한 앱은 iOS 27 에서 UIScene 방식이어야 하는데, tao 0.35.3 의 그 길에 해제된 객체를 돌려주는 버그가 있어(실기기 릴리스에서 SIGSEGV) `UIApplicationSceneManifest` 를 뺐다. tao 0.36(tauri 2.12)에서 고쳐졌다 — 올린 뒤 `Info.ios.plist` 에 다시 넣는다.
 - 폰에서 네코 꾸미기 창·선물함 열기, 할 일·일정 화면, 링크 열기, 현재 위치, 지도, 그림.
 - 문지르는 쓰다듬기(폰은 탭만).
-- 서버 산책·알림(4단계), launchd 재설치.
+- 서버 산책·알림(4단계).
 - 맥과 폰 버전이 어긋나는 동안: 동기화 기록 형식을 바꿀 때는 옛 버전도 읽게 한다. 연결 코드의 새 칸(`a`)은 옛 버전이 무시한다.
