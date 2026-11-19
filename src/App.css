@@ -1815,6 +1815,9 @@ html.phone .app {
   --soft-dur: 0.46s;
   --over: 28px;
 }
+/* 폰: 입력 칸·스크롤 막대 같은 기본 모양도 테마를 따른다(창의 밝게·어둡게는 phone_theme) */
+html.phone { color-scheme: dark; }
+html.phone.light { color-scheme: light; }
 /* 손가락: 누른 자리의 회색 네모·글자 고르기·길게 눌러 뜨는 메뉴를 끈다 */
 html.phone { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
 html.phone button, html.phone [role="tab"], html.phone .session-item, html.phone .titlebar { -webkit-user-select: none; user-select: none; }

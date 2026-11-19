@@ -271,10 +271,34 @@ fn ios_full_screen(window: &tauri::WebviewWindow) {
         }
         // UIScrollViewContentInsetAdjustmentNever = 2
         let _: () = msg_send![scroll, setContentInsetAdjustmentBehavior: 2isize];
+        // 첫 그림 전·테마가 바뀌는 사이 웹뷰의 흰 바탕이 비치지 않게: 앱이 칠하기 전까지는 iOS 바탕색(어두우면 검정)
+        if let Some(color) = objc2::runtime::AnyClass::get(c"UIColor") {
+            let bg: *mut AnyObject = msg_send![color, systemBackgroundColor];
+            ios_paint(webview.inner() as *mut AnyObject, scroll, bg);
+        }
         let _: () = msg_send![scroll, setBounces: false];
         let _: () = msg_send![scroll, setScrollEnabled: false];
         ios_scroll::lock(scroll);
     });
+}
+
+/// 폰: 웹뷰·그 스크롤 뷰·창의 바탕을 칠한다(웹뷰는 불투명을 꺼야 바탕이 보인다). main thread 전용
+#[cfg(target_os = "ios")]
+unsafe fn ios_paint(view: *mut objc2::runtime::AnyObject, scroll: *mut objc2::runtime::AnyObject, color: *mut objc2::runtime::AnyObject) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    if view.is_null() || color.is_null() {
+        return;
+    }
+    let _: () = msg_send![view, setOpaque: false];
+    let _: () = msg_send![view, setBackgroundColor: color];
+    if !scroll.is_null() {
+        let _: () = msg_send![scroll, setBackgroundColor: color];
+    }
+    let window: *mut AnyObject = msg_send![view, window];
+    if !window.is_null() {
+        let _: () = msg_send![window, setBackgroundColor: color];
+    }
 }
 
 /// 폰: 키보드가 올라올 때 WKWebView 가 입력 칸을 보이려고 문서를 통째로 밀어 올린다. 화면 쪽은 보이는 높이에 맞춰
@@ -1260,6 +1284,44 @@ mod commands {
         Ok(())
     }
 
+    /// 폰: 테마를 창에 건다(style 0 시스템·1 밝게·2 어둡게, UIWindow overrideUserInterfaceStyle) — 상태 막대 글자·키보드·
+    /// 웹뷰의 prefers-color-scheme 가 따라온다. 웹뷰·창 바탕은 앱 바탕색 bg(0–1 RGB)로. iOS 가 어두운지(창에 건 값과 상관없이)를
+    /// 돌려준다. 동기 커맨드라 main thread 에서 돈다.
+    #[cfg(target_os = "ios")]
+    #[tauri::command]
+    pub fn phone_theme(window: tauri::WebviewWindow, style: isize, bg: [f64; 3]) -> Result<bool, AppError> {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyClass, AnyObject};
+        window.with_webview(move |webview| unsafe {
+            let view = webview.inner() as *mut AnyObject;
+            let Some(color_cls) = AnyClass::get(c"UIColor") else { return };
+            let color: *mut AnyObject = msg_send![color_cls, colorWithRed: bg[0], green: bg[1], blue: bg[2], alpha: 1.0f64];
+            let scroll: *mut AnyObject = msg_send![view, scrollView];
+            crate::ios_paint(view, scroll, color);
+            let win: *mut AnyObject = msg_send![view, window];
+            if !win.is_null() {
+                let _: () = msg_send![win, setOverrideUserInterfaceStyle: style];
+            }
+            let controller = webview.view_controller() as *mut AnyObject;
+            if !controller.is_null() {
+                let _: () = msg_send![controller, setNeedsStatusBarAppearanceUpdate];
+            }
+        })?;
+        // UIUserInterfaceStyle: 2 = 어둡게. 화면(UIScreen)의 값은 창에 건 값을 타지 않는다
+        let dark = unsafe {
+            AnyClass::get(c"UIScreen").is_some_and(|cls| {
+                let screen: *mut AnyObject = msg_send![cls, mainScreen];
+                if screen.is_null() {
+                    return false;
+                }
+                let traits: *mut AnyObject = msg_send![screen, traitCollection];
+                let style: isize = if traits.is_null() { 0 } else { msg_send![traits, userInterfaceStyle] };
+                style == 2
+            })
+        };
+        Ok(dark)
+    }
+
     /// 폰: 클립보드의 글(기기 연결 코드 붙여넣기 버튼). 동기 커맨드라 main thread 에서 돈다.
     #[cfg(target_os = "ios")]
     #[tauri::command]
@@ -1824,6 +1886,8 @@ pub fn run() {
             commands::phone_permission_ask,
             #[cfg(target_os = "ios")]
             commands::phone_open_settings,
+            #[cfg(target_os = "ios")]
+            commands::phone_theme,
             #[cfg(target_os = "macos")]
             commands::neko_screen_cross,
             #[cfg(target_os = "macos")]
