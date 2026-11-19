@@ -224,7 +224,7 @@ function watchEdgeDrags(root: HTMLElement): void {
     const target = e.target as Element | null;
     const onScrim = target?.classList?.contains("drawer-scrim");
     // 버튼·입력 칸에서 시작한 건 누르기다. 설정 버튼이 오른쪽 끝에 있어, 누르다 손가락이 조금 밀리면 끌기로 잡혔다
-    if (!onScrim && target?.closest?.("button, a, input, textarea, select, [role='tab']")) return;
+    if (!onScrim && target?.closest?.("button, a, input, textarea, select, [role='tab'], .table-wrapper")) return; // 표는 옆으로 민다(App.css)
     const side = t.clientX <= EDGE ? "left" : t.clientX >= window.innerWidth - EDGE || onScrim ? "right" : null;
     if (!side) return;
     const pick: { kind: Kind; opening: boolean } | null = el(".phone-panel")

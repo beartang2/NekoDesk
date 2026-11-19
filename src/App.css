@@ -1024,6 +1024,28 @@ html, body, #root {
   overflow-x: auto;
   width: 100%;
 }
+/* 폰: 표를 말풍선 폭에 묶지 않는다. 열이 많으면 칸이 글자 한두 개 폭이 돼 한 글자마다 줄이 바뀌었다(사용자).
+   표는 내용만큼(칸은 글자 4.5개 ~ 15개 폭, 넘으면 낱말 단위로 줄바꿈) 넓어지고 말풍선보다 넓으면 표만 옆으로 민다.
+   오른쪽(왼쪽)에 더 있으면 그 끝이 흐려진다: 가장자리 그늘(scroll)을 내용 끝의 덮개(local)가 가린다.
+   표에서 시작한 밀기는 대화 목록 손짓이 받지 않는다(lib/phone.ts). 맥은 그대로 */
+html.phone .message__bubble .table-wrapper {
+  overscroll-behavior-x: contain;
+  background:
+    linear-gradient(to right, var(--bg-surface) 40%, transparent) left center / 28px 100% no-repeat local,
+    linear-gradient(to left, var(--bg-surface) 40%, transparent) right center / 28px 100% no-repeat local,
+    linear-gradient(to right, color-mix(in oklab, var(--text-primary) 16%, transparent), transparent) left center / 14px 100% no-repeat scroll,
+    linear-gradient(to left, color-mix(in oklab, var(--text-primary) 16%, transparent), transparent) right center / 14px 100% no-repeat scroll;
+}
+html.phone .message__bubble table {
+  width: max-content;
+  min-width: 100%;
+}
+html.phone .message__bubble .md-cell {
+  min-width: 4.5em;
+  max-width: 15em;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
 /* 세로선을 다 그으면 표가 감옥처럼 보인다. 가로줄만 남기면 행이 읽힌다. */
 .message__bubble th, .message__bubble td {
   border: none;

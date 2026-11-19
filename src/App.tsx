@@ -407,6 +407,9 @@ const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = 
   table: ({ children }) => (
     <div className="table-wrapper"><table>{children}</table></div>
   ),
+  // 칸 안을 한 겹 감싼다: 폰은 이 겹에 칸의 최소·최대 폭을 준다(표 칸 자체의 max-width 는 브라우저마다 안 먹는다, App.css)
+  th: ({ node: _n, children, ...rest }) => <th {...rest}><div className="md-cell">{children}</div></th>,
+  td: ({ node: _n, children, ...rest }) => <td {...rest}><div className="md-cell">{children}</div></td>,
   a: ({ href, children }) => (
     // Tauri webview 는 <a> 클릭을 자기 창에서 처리해 브라우저를 안 띄운다.
     // 가로채서 기본 브라우저로 연다(http/https 만, Rust 에서 재검증).
