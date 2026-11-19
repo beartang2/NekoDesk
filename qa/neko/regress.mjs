@@ -1008,6 +1008,29 @@ try {
     await p.close();
   }
 
+  // 9-w) 프레임 정책(docs/neko-perf.md §3): 기본 30fps, 졸 때 15, 잡고 끌 때 60, 멈추면 한 프레임도 안 돈다, 상한 0 이면 화면 주사율
+  {
+    const p = await open(`?w=680&h=300&scale=height`, { width: 1000, height: 600 });
+    const rate = (ms) => p.evaluate((ms) => new Promise((ok) => { const n = window.__neko, f0 = n.frames, t0 = performance.now(); setTimeout(() => ok(((n.frames - f0) * 1000) / (performance.now() - t0)), ms); }), ms);
+    await p.evaluate(() => { window.__neko.setWander(false); window.__neko.setMood("idle"); });
+    const awake = await rate(1500);
+    await p.evaluate(() => window.__neko.setMood("sleepy"));
+    const sleepy = await rate(1500);
+    await p.evaluate(() => { window.__neko.setMood("idle"); window.__neko.pause(); });
+    const paused = await rate(800);
+    await p.evaluate(() => { window.__neko.resume(); window.__neko.setMaxFps(0); });
+    const free = await rate(1500);
+    await p.evaluate(() => window.__neko.setMaxFps(30));
+    const box = await p.locator("#stage").boundingBox(), h = await p.evaluate(() => [window.__neko.cat.head.x, window.__neko.cat.head.y]);
+    await p.mouse.move(box.x + h[0], box.y + h[1]); await p.mouse.down(); await p.mouse.move(box.x + h[0] + 10, box.y + h[1] - 40, { steps: 3 });
+    const held = await rate(1000);
+    await p.mouse.up();
+    const r = { awake: Math.round(awake), sleepy: Math.round(sleepy), paused: Math.round(paused), free: Math.round(free), held: Math.round(held) };
+    check("프레임: 기본 30·졸 때 15·잡고 끌 때 60·멈추면 0·상한 0 이면 화면 주사율", JSON.stringify(r),
+      Math.abs(r.awake - 30) <= 4 && Math.abs(r.sleepy - 15) <= 3 && r.paused === 0 && r.free >= 50 && r.held >= 50);
+    await p.close();
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {

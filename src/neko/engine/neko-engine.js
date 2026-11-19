@@ -4610,22 +4610,49 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   wanderOn = options.wander !== false && !reduced.matches;
   for (let i = 0; i < 30; i++) step(1 / 120); // 첫 화면부터 자연스럽게
 
-  let last = performance.now(), acc = 0, raf = 0, paused = false, minFrameMs = 0, lastDraw = 0;
-  const DT = 1 / 120;
+  /* ---------- 프레임 정책(docs/neko-perf.md §3) ----------
+     기본 30fps 상한(maxFps, 0 이면 화면 주사율 그대로). 졸거나 누워 있으면(움직이지 않는 동안) 15, 잡고 끄는 동안은 60.
+     상한이 있으면 rAF 를 매번 돌며 거르지 않고 setTimeout 으로 기다렸다가 rAF 한 번 — 기다리는 동안은 아무 일도 안 한다.
+     멈추거나(pause) 창이 숨으면(hidden) 다음 프레임을 아예 안 건다(예전엔 멈춘 엔진도 rAF 를 계속 돌았다).
+     '바뀐 게 없는 프레임 건너뛰기'는 안 한다: 숨쉬기·눈 깜빡·꼬리가 늘 조금씩 움직여 거를 프레임이 거의 없다 — 대신 졸 때 15 */
+  let last = performance.now(), acc = 0, raf = 0, timer = 0, paused = false, lastDraw = 0, frames = 0;
+  let maxFps = Number.isFinite(options.maxFps) ? Math.max(0, options.maxFps) : 30;
+  const DT = 1 / 120, SLEEP_FPS = 15, HELD_FPS = 60;
+  const BUSY = new Set(["walk", "air", "fall", "crouch", "land", "shake", "grabbed"]);
+  function fpsNow() {
+    const c = cat;
+    if (c.mode === "grabbed" || press) return maxFps ? Math.max(maxFps, HELD_FPS) : 0;
+    if (maxFps && (c.mood === "sleepy" || c.mode === "lie") && !BUSY.has(c.mode)) return Math.min(maxFps, SLEEP_FPS);
+    return maxFps;
+  }
+  function schedule() {
+    if (raf || timer || paused) return;
+    // rAF 는 기다린 뒤 다음 화면 갱신(최대 한 프레임 뒤)에 오니 반 프레임(8ms) 일찍 깬다
+    const fps = fpsNow(), wait = fps > 0 ? 1000 / fps - (performance.now() - lastDraw) - 8 : 0;
+    if (wait > 4) timer = setTimeout(() => { timer = 0; raf = requestAnimationFrame(frame); }, wait);
+    else raf = requestAnimationFrame(frame);
+  }
+  /** 기다리는 중이면 지금 상한으로 다시(잡기 시작·상한 바뀜 — 졸 때 15 로 기다리다 잡혀도 바로 60) */
+  function kick() { if (timer) { clearTimeout(timer); timer = 0; } schedule(); }
   function frame(now) {
-    raf = requestAnimationFrame(frame);
-    if (paused || document.hidden) { last = now; return; }
-    if (minFrameMs && now - lastDraw < minFrameMs - 1) return;
-    lastDraw = now;
+    raf = 0;
+    if (paused) return;
+    if (document.hidden) { last = now; return; } // 다시 보이면 visibilitychange 가 건다
+    lastDraw = performance.now(); frames++; // rAF 시각(now)은 화면 갱신 시각이라 실제보다 이를 수 있다
     acc += Math.min(0.1, (now - last) / 1000); last = now;
     try {
       while (acc >= DT) { step(DT); acc -= DT; }
       draw();
     } catch (err) { // 엔진 예외: 멈추고 알린다(앱 전체를 깨뜨리지 않게)
       paused = true; console.error("[neko]", err); emit("error", err);
+      return;
     }
+    schedule();
   }
-  raf = requestAnimationFrame(frame);
+  const onVisible = () => { if (!document.hidden) { last = performance.now(); schedule(); } };
+  document.addEventListener("visibilitychange", onVisible);
+  canvas.addEventListener("pointerdown", kick, true);
+  schedule();
 
   const on = (ev, fn) => { let s = listeners.get(ev); if (!s) listeners.set(ev, (s = new Set())); s.add(fn); return () => s.delete(fn); };
   return {
@@ -4672,11 +4699,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     setRig(onOff) { showRig = !!onOff; },
     // 환경
     setTheme(t) { if (t && "dark" in t) { themeDark = !!t.dark; readTheme(); } },
-    setMaxFps(fps) { minFrameMs = fps > 0 ? 1000 / fps : 0; },
+    /** 프레임 상한(0 이면 화면 주사율). 졸 때 15·잡힐 때 60 은 엔진이 알아서 */
+    setMaxFps(fps) { maxFps = Number.isFinite(fps) && fps > 0 ? fps : 0; kick(); },
     resize,
-    pause() { paused = true; },
-    resume() { if (paused) { paused = false; last = performance.now(); } },
-    destroy() { cancelAnimationFrame(raf); paused = true; listeners.clear(); ro.disconnect(); window.removeEventListener("resize", resize); dprMq?.removeEventListener("change", onDpr); },
+    pause() { paused = true; cancelAnimationFrame(raf); clearTimeout(timer); raf = 0; timer = 0; },
+    resume() { if (paused) { paused = false; last = performance.now(); schedule(); } },
+    destroy() {
+      cancelAnimationFrame(raf); clearTimeout(timer); raf = 0; timer = 0; paused = true; listeners.clear(); ro.disconnect();
+      window.removeEventListener("resize", resize); dprMq?.removeEventListener("change", onDpr); document.removeEventListener("visibilitychange", onVisible);
+    },
     // 화면 모드(docs/neko-screen-mode.md §9): E2 크기 고정 · E3 바닥
     setScale(v) { FIXED_S = Number.isFinite(v) ? clamp(v, 0.35, 1.4) : null; resize(); },
     setGround(y) { GROUND_Y = Number.isFinite(y) ? y : null; resize(); },
@@ -4726,6 +4757,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     draw, defineActivity,
     get activities() { return [...ACTIVITIES.keys()]; },
     get leftovers() { return leftovers.length; },
+    get frames() { return frames; },
     step: (n) => { for (let i = 0; i < n; i++) step(DT); },
     debug: { bodyWorld, legSamples, tailSamples, L2W, H2W }, // 회귀 검사용(qa/neko)
   };

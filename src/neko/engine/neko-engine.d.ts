@@ -116,6 +116,8 @@ export interface NekoOptions {
   /** 기본 "height": 무대 높이로 크기를 정한다 */
   scaleMode?: "height" | "stage";
   maxDpr?: number;
+  /** 프레임 상한(기본 30, 0 이면 화면 주사율). 졸거나 누워 있을 땐 15, 잡고 끄는 동안 60 은 엔진이 알아서 */
+  maxFps?: number;
   dark?: boolean;
   /** 산책(무작위로 걷기·점프). 기본 true */
   wander?: boolean;
@@ -154,6 +156,7 @@ export interface NekoController {
 
   setTheme(t: { dark: boolean }): void;
   /** 0 이면 제한 없음 */
+  /** 프레임 상한(0 이면 화면 주사율). 졸 때 15·잡힐 때 60 은 엔진이 알아서 바꾼다 — 호스트는 사용자 설정값만 넘긴다 */
   setMaxFps(fps: number): void;
   resize(): void;
   pause(): void;
