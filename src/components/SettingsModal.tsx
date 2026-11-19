@@ -338,14 +338,14 @@ function LlamaConfigFields({
         <label className="gen-param">
           <span className="gen-param__label">Reasoning Budget</span>
           <input className="gen-param__input" type="number" step="64" min="-1"
-            title="생각 토큰 상한 (-1=제한 없음, 0=생각 안 함). 넘으면 생각을 끊고 바로 답한다. 생각이 길게 늘어지면 512 정도로."
+            title="생각에 쓰는 토큰 상한입니다(-1: 제한 없음, 0: 생각 안 함). 생각이 너무 길면 512 정도를 권장합니다."
             value={config.reasoning_budget}
             onChange={(e) => onChange({ reasoning_budget: Number.isNaN(parseInt(e.target.value, 10)) ? -1 : parseInt(e.target.value, 10) })} />
         </label>
         <label className="gen-param">
           <span className="gen-param__label">MTP Draft</span>
           <input className="gen-param__input" type="number" step="1" min="0" max="8"
-            title="Multi-Token Prediction 드래프트 토큰 수 (0=비활성, 1~4 권장). Qwen3-MTP 등 MTP 모델에서 추론 속도 향상."
+            title="미리 예측할 토큰 수입니다(0: 끔, 1~4 권장). MTP 모델에서 답이 빨라집니다."
             value={config.mtp_n_draft}
             onChange={(e) => onChange({ mtp_n_draft: parseInt(e.target.value, 10) || 0 })} />
         </label>
@@ -400,7 +400,7 @@ function ClaudeProfileFields({
         <p className="settings-section__desc">
           {info.hint} · 100만 토큰당 입력 ${info.price.input} / 출력 ${info.price.output}
           {info.price.longThreshold
-            ? ` (프롬프트 ${info.price.longThreshold / 1000}K 초과 요청은 $${info.price.longInput} / $${info.price.longOutput})`
+            ? ` (${info.price.longThreshold / 1000}K 토큰을 넘는 요청은 $${info.price.longInput} / $${info.price.longOutput})`
             : ""}
         </p>
       )}
@@ -415,10 +415,9 @@ function ClaudeProfileFields({
               }))} />
           </div>
           <p className="settings-section__desc">
-            창을 가득 채운 요청 한 번은 입력값만 최대 ${full < 0.01 ? full.toFixed(4) : full.toFixed(3)} 이다. 앞쪽은 캐시로
-            0.1배에 읽힌다.
+            컨텍스트를 가득 채우면 요청 한 번의 입력 비용은 최대 ${full < 0.01 ? full.toFixed(4) : full.toFixed(3)}입니다.
             {info.price.longThreshold && context > info.price.longThreshold
-              ? ` 프롬프트가 ${info.price.longThreshold / 1000}K 를 넘는 요청은 입력·출력 모두 ${info.price.longInput! / info.price.input}배 값이다.`
+              ? ` ${info.price.longThreshold / 1000}K 토큰을 넘는 요청은 입력·출력 모두 ${info.price.longInput! / info.price.input}배 요금입니다.`
               : ""}
           </p>
         </>
@@ -428,8 +427,7 @@ function ClaudeProfileFields({
         <SecretInput secretKey={CLAUDE_KEY} placeholder="sk-ant-…" onSaved={onKeySaved} />
       </div>
       <p className="settings-section__desc">
-        Max 요금제의 월 API 크레딧을 쓰려면 claude.ai 설정 → 결제에서 Console 조직을 연결하고,
-        그 조직에서 만든 키를 넣는다. 같은 조직의 다른 키와 잔액을 나눠 쓴다.
+        Max 요금제의 월 API 크레딧을 쓰려면 claude.ai 설정 → 결제에서 Console 조직을 연결하고 그 조직의 키를 입력합니다.
       </p>
       <ClaudeBudgetFields />
     </>
@@ -770,7 +768,7 @@ function GenParamsSection() {
       <h3 className="settings-section__title">최대 응답 토큰</h3>
       {cap !== null && claude && (
         <p className="settings-section__desc">
-          {claudeLabel(claude)} 는 한 번에 {cap.toLocaleString()} 토큰까지 답할 수 있어요. 그보다 크게는 못 넣어요.
+          {claudeLabel(claude)}의 최대 답변 길이는 {cap.toLocaleString()} 토큰입니다.
         </p>
       )}
       <div className="gen-params-grid">
@@ -818,11 +816,10 @@ function ToolModeSection() {
 
   return (
     <section className="settings-section">
-      <h3 className="settings-section__title">툴 호출 방식</h3>
+      <h3 className="settings-section__title">도구 사용 방식</h3>
       <p className="settings-section__desc">
-        네이티브는 서버의 tool_calls 를 쓴다. 한 턴에 여러 툴을 동시에 부를 수 있고
-        프롬프트가 짧아진다. <code>--jinja</code> 로 띄운 llama-server 와 툴 템플릿이
-        있는 모델이 필요하다. JSON 은 예전 방식으로, 턴당 툴 하나만 부른다.
+        네이티브는 도구 여러 개를 한 번에 사용합니다. llama-server 를 <code>--jinja</code> 로 실행해야 합니다.
+        JSON 은 한 번에 도구 하나만 사용합니다.
       </p>
       <Segmented
         value={toolMode}
@@ -831,8 +828,8 @@ function ToolModeSection() {
       />
       <Collapse open={toolMode === "auto" && degraded}>
         <div className="settings-feedback">
-          서버가 네이티브 툴 호출을 거부해서 JSON 모드로 돌고 있어요.
-          llama-server 를 <code>--jinja</code> 로 다시 띄우면 자동으로 복구돼요.
+          서버가 네이티브 방식을 지원하지 않아 JSON 방식으로 동작 중입니다.
+          llama-server 를 <code>--jinja</code> 로 다시 실행하면 자동으로 돌아갑니다.
         </div>
       </Collapse>
     </section>
@@ -847,9 +844,8 @@ function MemorySection() {
     <section className="settings-section">
       <h3 className="settings-section__title">자동 요약</h3>
       <p className="settings-section__desc">
-        대화가 길어져 모델에 다 못 실을 때가 되면, {josa(name, "이/가")} 앞 대화를 요약해 두고 그 요약으로 기억한다.
-        끄면 넘친 오래된 말은 그냥 빠진다. 앞 대화는 어느 쪽이든 화면에 그대로 남는다.
-        Claude 는 Anthropic 의 서버 요약을 쓴다(요약 한 번에 일반 요청 한 번쯤 든다).
+        대화가 길어지면 {josa(name, "이/가")} 앞부분을 요약해 기억합니다. 끄면 오래된 내용은 잊습니다.
+        화면의 대화는 어느 쪽이든 남습니다. Claude 는 요약 한 번에 요청 한 번 정도 비용이 듭니다.
       </p>
       <Segmented
         value={autoCompact ? "on" : "off"}
@@ -867,8 +863,8 @@ function SessionRetentionSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">오래된 대화 지우기</h3>
       <p className="settings-section__desc">
-        마지막으로 쓴 지 이만큼 지난 대화를 앱을 켤 때 지운다. 지금 열린 대화와 기억은 남는다. 지운 대화는 되살릴 수 없다.
-        이 설정이 처음 생긴 날부터 그 기간 동안은 아무것도 지우지 않는다.
+        이 기간 동안 쓰지 않은 대화를 앱을 켤 때 지웁니다. 열린 대화와 기억은 남습니다. 지운 대화는 되살릴 수 없습니다.
+        처음 켠 날부터 이 기간 동안은 지우지 않습니다.
       </p>
       <Segmented
         value={String(days)}
@@ -919,7 +915,7 @@ function UserProfileSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">사용자 프로필</h3>
       <p className="settings-section__desc">
-        나에 대한 정보를 적어두세요. {josa(name, "이/가")} 대화할 때 참고해요.
+        {josa(name, "이/가")} 대화할 때 참고하는 내 정보입니다.
       </p>
       <textarea
         className="settings-textarea"
@@ -968,8 +964,8 @@ function WeatherSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">날씨와 위치</h3>
       <p className="settings-section__desc">
-        {name} 방 벽의 액자에 지금 날씨를 걸어요. 지역 이름을 적거나 현재 위치를 쓰고, 비우면 액자를 내려요.
-        산책 지도가 내 위치를 못 받으면 이 위치를 집으로 써요.
+        {name} 방 액자에 이 지역의 날씨를 표시합니다. 비워 두면 표시하지 않습니다.
+        산책 지도에서 현재 위치를 못 받으면 이 위치를 집으로 씁니다.
       </p>
       <div className="settings-row">
         <input
@@ -1036,11 +1032,11 @@ function ToolRulesSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">항상 허용한 작업</h3>
       <p className="settings-section__desc">
-        확인 창에서 "항상" 을 고른 것들이에요. 지우면 다음부터 다시 물어봐요.
-        위험한 명령(rm -rf, sudo 등)은 여기에 담기지 않고 매번 확인해요.
+        확인 창에서 "항상" 을 고른 작업입니다. 지우면 다음부터 다시 묻습니다.
+        위험한 명령(rm -rf, sudo 등)은 매번 확인합니다.
       </p>
       {empty ? (
-        <div className="settings-empty">아직 없어요.</div>
+        <div className="settings-empty">없습니다.</div>
       ) : (
         <div className="rule-list">
           <AnimatePresence mode="popLayout" initial={false}>
@@ -1116,10 +1112,10 @@ function MemoriesSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">네코가 기억하는 것</h3>
       <p className="settings-section__desc">
-        대화하면서 알게 된 것들이에요. 다음 대화에서도 관련된 것만 자동으로 떠올려요.
+        대화하면서 알게 된 것입니다. 다음 대화에서 관련된 것만 자동으로 떠올립니다.
       </p>
       {memories.length === 0 ? (
-        <div className="settings-empty">아직 기억한 게 없어요.</div>
+        <div className="settings-empty">기억한 것이 없습니다.</div>
       ) : (
         <div className="rule-list">
           <AnimatePresence mode="popLayout" initial={false}>
@@ -1138,8 +1134,8 @@ function MemoriesSection() {
       )}
       <SwitchRow label="쉴 때 정리하기" checked={tidy} onChange={setTidy} />
       <p className="settings-section__desc">
-        {josa(name, "이/가")} 졸 때 하루 한 번 밥을 먹으며 같은 내용을 여러 번 적은 기억을 한 줄로 합쳐요.
-        일정·할 일처럼 바로 찾아볼 수 있는 기억은 지워요. Claude 프로필일 때만, 산책 중이 아닐 때만 해요.
+        {josa(name, "이/가")} 졸 때 하루 한 번 겹치는 기억을 합치고, 일정·할 일처럼 바로 찾아볼 수 있는 기억은 지웁니다.
+        모델이 Claude 이고 산책 중이 아닐 때만 동작합니다.
       </p>
       {tidyLog.length > 0 && (
         <details className="memory-tidy-log">
@@ -1447,9 +1443,8 @@ function ImageGenSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">이미지 생성</h3>
       <p className="settings-section__desc">
-        {josa(name, "이/가")} 그림을 그릴 때 쓰는 서비스예요. Cloudflare Workers AI 는 하루 10,000 뉴런까지 무료
-        (대시보드의 계정 ID + Workers AI 권한 토큰). Google 은 AI Studio 의 Gemini API 키를 쓰고
-        모델에 따라 요금이 나와요.
+        {josa(name, "이/가")} 그림을 그릴 때 쓰는 서비스입니다. Cloudflare Workers AI 는 하루 무료 사용량이 있고
+        계정 ID 와 Workers AI 권한 토큰이 필요합니다. Google 은 AI Studio 의 Gemini API 키를 쓰며 모델에 따라 요금이 나옵니다.
       </p>
       <Segmented<ImageProvider>
         value={imageGen.provider}
@@ -1549,7 +1544,7 @@ function McpSection() {
         </button>
       </div>
       <p className="settings-section__desc">
-        Model Context Protocol 서버를 연결해 {name}의 도구를 확장하세요.
+        MCP 서버를 연결하면 {josa(name, "이/가")} 쓸 수 있는 도구가 늘어납니다.
       </p>
 
       <Collapse open={addingNew}>
@@ -1622,7 +1617,7 @@ function ToolsSection() {
   return (
     <section className="settings-section">
       <h3 className="settings-section__title">도구</h3>
-      <p className="settings-section__desc">{josa(name, "이/가")} 쓸 수 있는 도구입니다. 누르면 설명과 매개변수를 볼 수 있어요.</p>
+      <p className="settings-section__desc">{josa(name, "이/가")} 쓸 수 있는 도구입니다. 누르면 설명을 볼 수 있습니다.</p>
       <Accordion.Root type="multiple" className="tool-acc">
         {[...groups].map(([category, tools]) => (
           <Accordion.Item key={category} value={category} className="tool-group">
@@ -1635,7 +1630,7 @@ function ToolsSection() {
             </Accordion.Header>
             <Accordion.Content className="tool-group__content">
               {tools.length === 0 ? (
-                <div className="settings-empty tool-group__empty">연결된 MCP 도구가 없습니다. 연동 탭에서 서버를 추가하세요.</div>
+                <div className="settings-empty tool-group__empty">연결된 MCP 도구가 없습니다. 연동 탭에서 서버를 추가할 수 있습니다.</div>
               ) : (
                 <ul className="tool-group__list">
                   {tools.map((t, i) => (
@@ -1829,7 +1824,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                     onChange={(e) => setNekoName(e.target.value)} />
                 </div>
                 <p className="settings-section__desc">
-                  {nekoName}의 성격과 말투를 직접 설정하세요.
+                  {nekoName}의 성격과 말투를 직접 정할 수 있습니다.
                 </p>
                 <textarea
                   className="settings-textarea"
@@ -1881,7 +1876,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
               <section className="settings-section">
                 <h3 className="settings-section__title">Brave Search API</h3>
                 <p className="settings-section__desc">
-                  DuckDuckGo 결과가 없을 때 폴백으로 사용. api.search.brave.com에서 무료 발급 (2,000회/월).
+                  DuckDuckGo 결과가 없을 때 대신 사용합니다. api.search.brave.com 에서 무료로 받을 수 있습니다(월 2,000회).
                 </p>
                 <div className="settings-row">
                   <SecretInput secretKey="brave_search_key" placeholder="BSA..." onSaved={onBraveSaved} />
@@ -1908,13 +1903,13 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
               <section className="settings-section">
                 <h3 className="settings-section__title">권한 설정</h3>
                 <p className="settings-section__desc">
-                  아래에서 권한을 설정해주세요.
+                  앱에 필요한 macOS 권한입니다. 누르면 시스템 설정이 열립니다.
                 </p>
                 <div className="perm-grid">
                   {[
                     {
                       label: "손쉬운 사용",
-                      desc: "AppleScript로 다른 앱 제어",
+                      desc: "다른 앱 제어",
                       url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
                     },
                     {
