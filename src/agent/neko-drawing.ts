@@ -115,7 +115,8 @@ async function pickTopic(): Promise<{ title: string; note: string } | null> {
   const persona = s.systemPrompt?.trim() && s.systemPrompt.trim() !== DEFAULT_CHAT_SYSTEM_PROMPT.trim() ? s.systemPrompt.trim() : "";
   // 사용자가 좋아할 만한 걸 고르게 사용자 기억 몇 개, 겹치지 않게 전에 그린 것
   const all = await memoryApi.list().catch((): Memory[] => []);
-  const memories = all.filter((m) => m.kind !== "neko").slice(0, 8).map((m) => `- ${m.content}`);
+  // 취향만(보안 검토, docs/neko-mind.md §4): 고른 것·까닭이 노트에 남고 노트는 웹을 도는 산책 주제의 재료라, 사용자 사실(이름·장소·일정)은 안 보인다
+  const memories = all.filter((m) => m.kind === "preference").slice(0, 8).map((m) => `- ${m.content}`);
   // 전에 그린 것(날짜와 함께)과 내 노트(docs/neko-mind.md §6.2): 고르는 건 네코다 — 규칙 대신 재료
   const before = useNekoGifts.getState().gifts.filter((g) => g.frame).slice(-10).map((g) => `${g.title}(${g.at.slice(5, 10).replace("-", "/")})`);
   const notes = await recentNotesText().catch(() => "");
