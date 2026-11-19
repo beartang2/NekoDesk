@@ -86,8 +86,8 @@ fn server(conn: &Connection) -> AppResult<Option<Server>> {
 /// 등록돼 있으면 서버 정보(켜져 있든 아니든)
 fn creds(conn: &Connection) -> AppResult<Option<Server>> {
     let (Some(url), Some(device)) = (state(conn, "url")?, state(conn, "device")?) else { return Ok(None) };
-    let token = crate::secrets::sync_get("sync_token")?.ok_or("동기화 토큰이 키체인에 없어. 다시 짝을 맞춰줘.")?;
-    let key = crate::secrets::sync_get("sync_key")?.as_deref().and_then(unhex).ok_or("동기화 열쇠가 키체인에 없어. 다시 짝을 맞춰줘.")?;
+    let token = crate::secrets::sync_get("sync_token")?.ok_or("동기화 토큰이 키체인에 없습니다. 기기 연결 코드로 다시 연결하십시오.")?;
+    let key = crate::secrets::sync_get("sync_key")?.as_deref().and_then(unhex).ok_or("암호 키가 키체인에 없습니다. 기기 연결 코드로 다시 연결하십시오.")?;
     Ok(Some(Server { url, token, device, key }))
 }
 
@@ -180,7 +180,7 @@ pub fn sync_status(db: State<'_, DbState>) -> Result<Status, AppError> {
         last_sync: state(&c, "last_sync")?.and_then(|v| v.parse().ok()),
         // 풀지 못해 건너뛴 기록이 있으면 그것부터 알린다(동기화 자체는 됐다고 나와도 일부가 안 보인다)
         last_error: match state(&c, "skipped")?.and_then(|n| n.parse::<i64>().ok()).filter(|n| *n > 0) {
-            Some(n) => Some(format!("기록 {n}개를 받지 못했어요. 다른 암호 키로 올라간 기록이에요 — 맥에서 '암호 키 재설정'을 한 뒤 이 기기를 다시 연결해 주세요.")),
+            Some(n) => Some(format!("기록 {n}개를 받지 못했습니다. 다른 암호 키로 올라간 기록입니다. 맥에서 '암호 키 재설정'을 한 뒤 이 기기를 다시 연결하십시오.")),
             None => state(&c, "last_error")?.filter(|e| !e.is_empty()),
         },
     })
@@ -191,7 +191,7 @@ pub fn sync_enable(db: State<'_, DbState>, on: bool) -> Result<(), AppError> {
     {
         let c = db.0.lock()?;
         if on && state(&c, "device")?.is_none() {
-            return Err(AppError::msg("먼저 서버에 이 맥을 등록하거나 기기 연결 코드를 붙여넣어 주세요."));
+            return Err(AppError::msg("먼저 서버에 이 맥을 등록하거나 기기 연결 코드를 붙여넣으십시오."));
         }
         set_state(&c, "enabled", if on { "1" } else { "0" })?;
     }
@@ -208,7 +208,7 @@ pub fn sync_now() {
 /// 127.0.0.1·localhost 인 http), 사용자 정보(`user@`)·질의·조각은 거절한다. 앞글자만 보면
 /// `http://localhost@evil.example`·`http://127.0.0.1.evil.example` 이 통과하고, 확인 창에 보이는 주소도 속일 수 있다.
 fn check_url(url: &str) -> AppResult<String> {
-    let bad = || AppError::msg("서버 주소는 https:// 로 시작해야 해요.");
+    let bad = || AppError::msg("서버 주소는 https:// 로 시작해야 합니다.");
     let parsed = tauri::Url::parse(url.trim()).map_err(|_| bad())?;
     let host = parsed.host_str().ok_or_else(bad)?;
     let local = parsed.scheme() == "http" && (host == "127.0.0.1" || host == "localhost");
@@ -294,7 +294,7 @@ const PAIR_LINK: &str = "nekodesk://pair?d=";
 #[cfg(desktop)]
 #[tauri::command(async)]
 pub fn sync_pair_qr(pairing: String) -> Result<String, AppError> {
-    let body = pairing.trim().strip_prefix(PAIR_PREFIX).ok_or("기기 연결 코드 형식이 아니에요.")?;
+    let body = pairing.trim().strip_prefix(PAIR_PREFIX).ok_or("기기 연결 코드 형식이 아닙니다.")?;
     qr_svg(&format!("{PAIR_LINK}{body}"))
 }
 
@@ -317,7 +317,7 @@ const PAW: [&str; 8] = [
 fn qr_svg(text: &str) -> AppResult<String> {
     use std::fmt::Write;
     let code = qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::M)
-        .map_err(|e| AppError::msg(format!("QR 을 만들지 못했어요: {e}")))?;
+        .map_err(|e| AppError::msg(format!("QR 을 만들지 못했습니다: {e}")))?;
     let (n, cells) = (code.width(), code.to_colors());
     const QUIET: usize = 4;
     let (pw, ph) = (PAW[0].len(), PAW.len());
@@ -386,7 +386,7 @@ pub fn sync_pair_linked() -> Option<(String, String)> {
 }
 
 fn parse_pairing(s: &str) -> AppResult<(String, String, Key, Option<String>)> {
-    let bad = || AppError::msg("기기 연결 코드 형식이 아니에요. 다시 복사해 주세요.");
+    let bad = || AppError::msg("기기 연결 코드 형식이 아닙니다. 다시 복사하십시오.");
     let body = s.trim().strip_prefix(PAIR_PREFIX).ok_or_else(bad)?;
     let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(body).map_err(|_| bad())?;
     let p: Pairing = serde_json::from_slice(&raw).map_err(|_| bad())?;
@@ -452,7 +452,7 @@ pub async fn sync_devices(db: State<'_, DbState>) -> Result<Devices, AppError> {
 pub async fn sync_revoke(db: State<'_, DbState>, id: String) -> Result<(), AppError> {
     let (srv, _) = checked(&db).await?;
     if id == srv.device {
-        return Err(AppError::msg("이 맥은 여기서 끊을 수 없어요. 동기화를 끄면 돼요."));
+        return Err(AppError::msg("이 맥은 여기서 끊을 수 없습니다. 동기화를 끄십시오."));
     }
     let _: Value = call(reqwest::Method::DELETE, &srv.url, &format!("/v1/devices/{id}"), Some(&srv.token), &Value::Null).await?;
     Ok(())

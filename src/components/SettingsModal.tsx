@@ -1259,7 +1259,7 @@ function syncTime(ms: number): string {
 /** Rust 가 한글 문구를 주면 그대로, 아니면(연결 실패 등 영어 오류) 사람이 읽을 말로 */
 const syncError = (e: unknown): string => {
   const msg = String(e);
-  return /[가-힣]/.test(msg) ? msg.replace(/^Error:\s*/, "") : "서버에 연결하지 못했어요. 서버 주소와 인터넷 연결을 확인해 주세요.";
+  return /[가-힣]/.test(msg) ? msg.replace(/^Error:\s*/, "") : "서버에 연결하지 못했습니다. 서버 주소와 인터넷 연결을 확인하십시오.";
 };
 
 /** 되돌릴 수 없는 일 확인(기기 끊기·암호 키 재설정). 처음 포커스는 취소, Esc 도 취소 */
@@ -1279,8 +1279,8 @@ function SyncSection() {
   async function pasteCode() {
     setErr("");
     const text = (await invoke<string | null>("paste_text").catch(() => null)) ?? (await navigator.clipboard.readText().catch(() => null));
-    if (text === null) setErr("붙여넣지 못했어요. 붙여넣기를 허용했는지 확인해 주세요.");
-    else if (!text.trim().startsWith("nekosync1:")) setErr("복사해 둔 기기 연결 코드가 없어요. 맥에서 코드를 복사한 뒤 다시 눌러 주세요.");
+    if (text === null) setErr("붙여넣지 못했습니다. 붙여넣기 허용 여부를 확인하십시오.");
+    else if (!text.trim().startsWith("nekosync1:")) setErr("복사한 기기 연결 코드가 없습니다. 맥에서 코드를 복사한 뒤 다시 누르십시오.");
     else setPasted(text.trim());
   }
   // 폰: 앱 안에서 QR 찍기
@@ -1308,14 +1308,14 @@ function SyncSection() {
 
   const loadDevices = () => run(async () => setDevices(await syncApi.devices()));
   const revoke = (d: SyncDevice) => setAsk({
-    title: `'${d.name}' 기기 연결을 끊을까요?`,
-    desc: "그 기기는 더 이상 동기화할 수 없어요. 잃어버린 기기라면 암호 키도 재설정해 주세요.",
+    title: `'${d.name}' 기기 연결을 끊으시겠습니까?`,
+    desc: "그 기기는 더 이상 동기화할 수 없습니다. 잃어버린 기기라면 암호 키도 재설정하십시오.",
     ok: "끊기",
     run: async () => { await syncApi.revoke(d.id); setDevices(await syncApi.devices()); },
   });
   const rekey = () => setAsk({
-    title: "암호 키를 재설정할까요?",
-    desc: "다른 기기의 연결이 모두 끊기고, 서버 기록을 비운 뒤 이 맥의 내용을 새 암호 키로 다시 올려요. 다른 기기는 새 기기 연결 코드로 다시 연결해야 해요.",
+    title: "암호 키를 재설정하시겠습니까?",
+    desc: "다른 기기의 연결이 모두 끊기고, 서버 기록을 비운 뒤 이 맥의 내용을 새 암호 키로 다시 올립니다. 다른 기기는 새 기기 연결 코드로 다시 연결해야 합니다.",
     ok: "재설정",
     run: async () => { await syncApi.rekey(); setPairing(""); setDevices(await syncApi.devices()); },
   });
@@ -1330,8 +1330,8 @@ function SyncSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">동기화</h3>
       <p className="settings-section__desc">
-        다른 기기와 대화, 기억, 할 일, 선물, 이름을 동기화해요. 내용은 이 기기에서 암호화된 뒤 올라가서 서버는 읽을 수 없어요.
-        켜기 전에는 아무것도 보내지 않아요.
+        다른 기기와 대화, 기억, 할 일, 선물, 이름을 동기화합니다. 내용은 이 기기에서 암호화한 뒤 올리므로 서버는 읽을 수 없습니다.
+        켜기 전에는 아무것도 보내지 않습니다.
       </p>
       {st?.registered ? (
         <>
@@ -1342,7 +1342,7 @@ function SyncSection() {
           />
           <p className="settings-section__desc">
             {st.url} · 마지막 동기화: {st.last_sync ? syncTime(st.last_sync) : "아직 없음"}
-            {st.last_error ? ` · 동기화하지 못했어요: ${syncError(st.last_error)}` : ""}
+            {st.last_error ? ` · 동기화 실패: ${syncError(st.last_error)}` : ""}
           </p>
           <div className="settings-row">
             <button className="settings-btn settings-btn--ghost" disabled={busy || !st.enabled} onClick={() => void run(() => syncApi.now())}>
@@ -1356,13 +1356,13 @@ function SyncSection() {
           {hasClaude && (
             <label className="settings-section__desc">
               <input type="checkbox" checked={withClaude} onChange={(e) => setWithClaude(e.target.checked)} />
-              {" "}기기 연결 코드에 Claude API 키도 넣기(아이폰에서 키를 따로 넣지 않아도 돼요)
+              {" "}기기 연결 코드에 Claude API 키도 넣기(아이폰에서 키를 따로 넣지 않아도 됩니다)
             </label>
           )}
           {pairing && (
             <>
               <p className="settings-section__desc">
-                다른 기기의 설정 › 연동 › 동기화에 붙여넣어 주세요. 10분 동안 한 번만 쓸 수 있어요. 암호 키가 들어 있으니 다른 사람에게 보내지 마세요.
+                다른 기기의 설정 › 연동 › 동기화에 붙여넣습니다. 10분 동안 한 번만 쓸 수 있습니다. 암호 키가 들어 있으므로 다른 사람에게 보내지 마십시오.
               </p>
               <div className="settings-row">
                 <input className="settings-input" readOnly value={pairing} onFocus={(e) => e.currentTarget.select()} />
@@ -1372,7 +1372,7 @@ function SyncSection() {
               {qr && (
                 <>
                   <img className="sync-qr" alt="기기 연결 QR" src={`data:image/svg+xml;utf8,${encodeURIComponent(qr)}`} />
-                  <p className="settings-section__desc">아이폰은 카메라로 이 QR 을 찍으면 NekoDesk 가 열려요.</p>
+                  <p className="settings-section__desc">아이폰 카메라로 이 QR 을 찍으면 NekoDesk 가 열립니다.</p>
                 </>
               )}
             </>
@@ -1394,7 +1394,7 @@ function SyncSection() {
           )}
           {/* 위험 동작: 다른 버튼과 떨어뜨려 맨 아래에 */}
           <p className="settings-section__desc sync-danger">
-            기기를 잃어버렸다면 암호 키를 재설정해 주세요. 다른 기기의 연결이 모두 끊겨요.
+            기기를 잃어버렸다면 암호 키를 재설정하십시오. 다른 기기의 연결이 모두 끊깁니다.
           </p>
           <div className="settings-row">
             <button className="settings-btn settings-btn--stop" disabled={busy} onClick={rekey}>암호 키 재설정</button>
@@ -1404,7 +1404,7 @@ function SyncSection() {
         <>
           {!IS_PHONE && (
             <>
-              <p className="settings-section__desc">처음 쓰는 맥이라면 서버 주소와 서버를 배포할 때 정한 설정 토큰(SETUP_TOKEN)을 입력해 주세요.</p>
+              <p className="settings-section__desc">처음 쓰는 맥이라면 서버 주소와 서버 배포 때 정한 설정 토큰(SETUP_TOKEN)을 입력하십시오.</p>
               <div className="settings-row">
                 <input className="settings-input" value={url} placeholder="https://sync.example.com" onChange={(e) => setUrl(e.target.value)} />
                 <input className="settings-input" type="password" value={setup} placeholder="SETUP_TOKEN" onChange={(e) => setSetup(e.target.value)} />
@@ -1416,8 +1416,8 @@ function SyncSection() {
           )}
           <p className="settings-section__desc">
             {IS_PHONE
-              ? "맥의 설정 › 연동 › 동기화에서 '기기 연결 코드 만들기'를 누르고, 나온 QR 을 찍어 주세요. QR 이 안 보이면 코드를 복사해 아래에 붙여넣어 주세요."
-              : "다른 기기에서 이미 쓰고 있다면 그 기기에서 만든 기기 연결 코드를 붙여넣어 주세요."}
+              ? "맥의 설정 › 연동 › 동기화에서 '기기 연결 코드 만들기'를 누르고, 나온 QR 을 찍으십시오. QR 을 찍을 수 없으면 코드를 복사해 아래에 붙여넣으십시오."
+              : "다른 기기에서 이미 쓰고 있다면 그 기기에서 만든 기기 연결 코드를 붙여넣으십시오."}
           </p>
           {IS_PHONE && (
             <div className="settings-row">

@@ -10,7 +10,7 @@ import "./QrScan.css";
  */
 export function QrScan({ onClose }: { onClose: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
-  const [note, setNote] = useState("맥 화면의 QR 을 네모 안에 비춰 주세요.");
+  const [note, setNote] = useState("맥 화면의 QR 을 네모 안에 비추십시오.");
   // 부모가 다시 그려질 때마다(동기화 칸은 5초마다) 카메라를 껐다 켜지 않게, 닫기는 ref 로 부른다
   const close = useRef(onClose);
   close.current = onClose;
@@ -24,7 +24,7 @@ export function QrScan({ onClose }: { onClose: () => void }) {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
       } catch {
-        setNote("카메라를 쓸 수 없어요. 설정 앱 › NekoDesk 에서 카메라를 허용하거나, 아이폰 카메라 앱으로 QR 을 찍어 주세요.");
+        setNote("카메라를 쓸 수 없습니다. 설정 앱 › NekoDesk 에서 카메라를 허용하거나, 아이폰 카메라 앱으로 QR 을 찍으십시오.");
         return;
       }
       if (done) { stop(); return; }
@@ -47,7 +47,7 @@ export function QrScan({ onClose }: { onClose: () => void }) {
         const found = jsQR(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height)?.data;
         if (!found) { busy = false; return; }
         void syncApi.pairCheck(found).then((got) => {
-          if (!got) { setNote("NekoDesk 기기 연결 QR 이 아니에요."); busy = false; return; }
+          if (!got) { setNote("NekoDesk 기기 연결 QR 이 아닙니다."); busy = false; return; }
           stop();
           window.dispatchEvent(new CustomEvent(PAIR_SCANNED, { detail: got }));
           close.current();

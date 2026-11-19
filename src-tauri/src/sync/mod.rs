@@ -79,7 +79,7 @@ pub fn seal(key: &Key, r: &Record, plain: &[u8]) -> AppResult<String> {
     let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
     let ct = cipher
         .encrypt(&nonce, Payload { msg: plain, aad: aad(r).as_bytes() })
-        .map_err(|_| AppError::msg("기록을 잠그지 못했어"))?;
+        .map_err(|_| AppError::msg("기록을 암호화하지 못했습니다."))?;
     let mut out = nonce.to_vec();
     out.extend(ct);
     Ok(B64.encode(out))
@@ -93,7 +93,7 @@ pub fn unseal(key: &Key, r: &Record) -> AppResult<Vec<u8>> {
     let (nonce, ct) = raw.split_at(24);
     XChaCha20Poly1305::new(key.into())
         .decrypt(XNonce::from_slice(nonce), Payload { msg: ct, aad: aad(r).as_bytes() })
-        .map_err(|_| AppError::msg("기록을 풀지 못했어요. 암호 키가 다르거나 기록이 바뀌었어요."))
+        .map_err(|_| AppError::msg("기록을 풀지 못했습니다. 암호 키가 다르거나 기록이 바뀌었습니다."))
 }
 
 // ── 로컬 표 ──────────────────────────────────────────────────────────────────
@@ -639,9 +639,9 @@ pub(crate) async fn call<T: serde::de::DeserializeOwned>(
     let res = req.send().await?;
     match res.status().as_u16() {
         200 => Ok(res.json().await?),
-        401 => Err(AppError::msg("서버가 이 기기를 알아보지 못했어요. 연결이 끊겼을 수 있어요. 기기 연결 코드로 다시 연결해 주세요.")),
-        403 => Err(AppError::msg("서버가 요청을 거절했어요. 설정 토큰이나 기기 연결 코드가 틀렸거나 만료됐어요.")),
-        s => Err(AppError::msg(format!("서버에서 오류가 났어요({s}). 서버 설정을 확인해 주세요."))),
+        401 => Err(AppError::msg("서버가 이 기기를 알아보지 못했습니다. 연결이 끊겼을 수 있습니다. 기기 연결 코드로 다시 연결하십시오.")),
+        403 => Err(AppError::msg("서버가 요청을 거절했습니다. 설정 토큰이나 기기 연결 코드가 틀렸거나 만료되었습니다.")),
+        s => Err(AppError::msg(format!("서버 오류입니다({s}). 서버 설정을 확인하십시오."))),
     }
 }
 

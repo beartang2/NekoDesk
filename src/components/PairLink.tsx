@@ -34,7 +34,7 @@ export function PairLinkPrompt() {
     if (!link) return;
     setBusy(true);
     try {
-      if ((await syncApi.status()).registered) { setNote("이미 다른 기기와 연결되어 있어요. 설정 › 연동 › 동기화에서 확인해 주세요."); return; }
+      if ((await syncApi.status()).registered) { setNote("이미 다른 기기와 연결되어 있습니다. 설정 › 연동 › 동기화에서 확인하십시오."); return; }
       await syncApi.pairJoin(link.pairing);
       setLink(null);
     } catch (e) {
@@ -51,9 +51,9 @@ export function PairLinkPrompt() {
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="update-overlay">
           <AlertDialog.Content className="update-dialog">
-            <AlertDialog.Title className="update-dialog__title">이 기기를 연결할까요?</AlertDialog.Title>
+            <AlertDialog.Title className="update-dialog__title">이 기기를 연결하시겠습니까?</AlertDialog.Title>
             <AlertDialog.Description className="update-dialog__sub">
-              {note || `${host} 서버로 대화·기억·할 일을 동기화해요. 내가 맥에서 만든 QR 이 맞을 때만 연결해 주세요.`}
+              {note || `${host} 서버로 대화·기억·할 일을 동기화합니다. 내 맥에서 만든 QR 일 때만 연결하십시오.`}
             </AlertDialog.Description>
             <div className="update-dialog__actions">
               <AlertDialog.Cancel className="update-dialog__btn">취소</AlertDialog.Cancel>
