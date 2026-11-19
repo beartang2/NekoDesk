@@ -59,7 +59,7 @@ block2 = "0.6"
 # (맥 NSImage, 폰 UIImage — 폰 쪽은 objc 로 바로 부른다). 맥 쪽 표에 같은 크레이트를 app-kit 과 함께 다시 적는다.
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2-foundation = "0.3"
-objc2-core-location = { version = "0.3", default-features = false, features = ["std", "CLLocation"] }
+objc2-core-location = { version = "0.3", default-features = false, features = ["std", "CLLocation", "CLLocationManager", "CLLocationManagerDelegate"] }
 objc2-map-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-core-location", "MKAnnotation", "MKDirections", "MKDirectionsRequest", "MKDirectionsResponse", "MKDirectionsTypes", "MKGeometry", "MKLocalSearch", "MKLocalSearchRequest", "MKLocalSearchResponse", "MKMapItem", "MKMapSnapshot", "MKMapSnapshotOptions", "MKMapSnapshotter", "MKMultiPoint", "MKPlacemark", "MKPointOfInterestCategory", "MKPointOfInterestFilter", "MKPolyline", "MKShape", "MKTypes"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

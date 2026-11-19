@@ -1,4 +1,4 @@
-//! 날씨용 현재 위치. macOS 위치 서비스(CLLocationManager)에 한 번 묻는다.
+//! 날씨용 현재 위치. 위치 서비스(CLLocationManager)에 한 번 묻는다 — 맥·폰 같은 코드(폰은 앱을 쓰는 동안만 권한).
 //! 결과는 `"현재 위치 (37.5000,127.0364)"` 꼴 — 설정 칸에 그대로 들어가고, 날씨 쪽
 //! (http::weather)이 괄호 안 좌표를 읽어 지오코딩을 건너뛴다.
 //!
@@ -27,17 +27,17 @@ const PROMPT_WAIT: Duration = Duration::from_secs(60);
 const FIX_WAIT: Duration = Duration::from_secs(15);
 
 const NO_FIX: &str =
-    "위치를 잡지 못했어. 잠시 뒤 다시 해 보거나, 날씨 칸에 동네 이름을 직접 적어줘.";
+    "위치를 잡지 못했습니다. 잠시 뒤 다시 하거나 날씨 칸에 동네 이름을 직접 적습니다.";
+
+/// 권한이 꺼져 있을 때 켜는 곳
+#[cfg(target_os = "ios")]
+const SETTINGS_PATH: &str = "설정 앱 › NekoDesk › 위치";
+#[cfg(not(target_os = "ios"))]
+const SETTINGS_PATH: &str = "시스템 설정 > 개인정보 보호 및 보안 > 위치 서비스";
 
 pub async fn current(app: &tauri::AppHandle) -> Result<String, AppError> {
     let (tx, rx) = mpsc::channel::<Msg>();
-    #[cfg(target_os = "macos")]
     app.run_on_main_thread(move || mac::start(tx))?;
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (app, tx);
-        return Err(AppError::msg("현재 위치는 macOS 에서만 쓸 수 있어."));
-    }
     let got = tauri::async_runtime::spawn_blocking(move || match rx.recv_timeout(PROMPT_WAIT) {
         Ok(Msg::Locating) => match rx.recv_timeout(FIX_WAIT) {
             Ok(Msg::Done(reply)) => Some(reply),
@@ -49,17 +49,27 @@ pub async fn current(app: &tauri::AppHandle) -> Result<String, AppError> {
     .await
     .map_err(|e| AppError::msg(e.to_string()))?;
     // 끝났으면 묻던 것을 거둔다. 안 그러면 위치를 못 잡은 요청이 뒤에서 계속 돈다.
-    #[cfg(target_os = "macos")]
     let _ = app.run_on_main_thread(mac::stop);
     match got {
         Some(reply) => reply.map_err(AppError::msg),
-        None => Err(AppError::msg("위치를 받지 못했어. 시스템 설정 > 개인정보 보호 및 보안 > 위치 서비스를 확인해줘.")),
+        None => Err(AppError::msg(format!("위치를 받지 못했습니다. {SETTINGS_PATH}에서 위치 권한을 확인합니다."))),
     }
 }
 
-#[cfg(target_os = "macos")]
+/// 위치 권한 상태(묻지 않는다): "allowed"·"denied"·"ask"(아직 안 물음). 폰 설정의 권한 칸이 쓴다
+#[cfg(target_os = "ios")]
+pub fn permission() -> &'static str {
+    use objc2_core_location::{CLAuthorizationStatus, CLLocationManager};
+    let manager = unsafe { CLLocationManager::new() };
+    match unsafe { manager.authorizationStatus() } {
+        CLAuthorizationStatus::NotDetermined => "ask",
+        CLAuthorizationStatus::Denied | CLAuthorizationStatus::Restricted => "denied",
+        _ => "allowed",
+    }
+}
+
 mod mac {
-    use super::{Msg, Reply};
+    use super::{Msg, Reply, SETTINGS_PATH};
     use objc2::rc::Retained;
     use objc2::runtime::ProtocolObject;
     use objc2::{define_class, msg_send, DefinedClass, MainThreadMarker, MainThreadOnly};
@@ -68,7 +78,7 @@ mod mac {
     use std::cell::RefCell;
     use std::sync::mpsc::Sender;
 
-    const DENIED: &str = "위치 권한이 꺼져 있어. 시스템 설정 > 개인정보 보호 및 보안 > 위치 서비스에서 켜줘.";
+
 
     thread_local! {
         // 매니저는 델리게이트를 약하게 잡는다. 응답이 올 때까지 둘 다 여기서 살려 두고,
@@ -95,7 +105,9 @@ mod mac {
             fn did_change_authorization(&self, manager: &CLLocationManager) {
                 match unsafe { manager.authorizationStatus() } {
                     CLAuthorizationStatus::NotDetermined => unsafe { manager.requestWhenInUseAuthorization() },
-                    CLAuthorizationStatus::Denied | CLAuthorizationStatus::Restricted => self.finish(Err(DENIED.into())),
+                    CLAuthorizationStatus::Denied | CLAuthorizationStatus::Restricted => {
+                        self.finish(Err(format!("위치 권한이 꺼져 있습니다. {SETTINGS_PATH}에서 켤 수 있습니다.")))
+                    }
                     _ => {
                         if let Some(tx) = self.ivars().tx.borrow().as_ref() {
                             let _ = tx.send(Msg::Locating);
@@ -115,7 +127,9 @@ mod mac {
 
             #[unsafe(method(locationManager:didFailWithError:))]
             fn did_fail(&self, _manager: &CLLocationManager, error: &NSError) {
-                self.finish(Err(format!("위치를 못 찾았어: {}", error.localizedDescription())));
+                // 시스템 오류 글은 영어로 올 수 있어 로그에만 남기고, 화면엔 안내 문구를 준다
+                log::warn!("위치 실패: {}", error.localizedDescription());
+                self.finish(Err(super::NO_FIX.into()));
             }
         }
     );

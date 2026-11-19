@@ -577,7 +577,8 @@ export function ModelProfilesSection() {
     }
   }, []);
 
-  useEffect(() => { scanModels(); }, [scanModels]);
+  // 폰은 로컬 모델(llama.cpp)을 띄우지 못한다
+  useEffect(() => { if (!IS_PHONE) scanModels(); }, [scanModels]);
 
   // 활성 프로필이 실제로 응답하는지 주기적으로 확인한다. 외부 서버든 앱이 띄운
   // 서버든 판정 방법은 같다 — 그 주소가 OpenAI 호환 응답을 주는가.
@@ -664,10 +665,12 @@ export function ModelProfilesSection() {
       <section className="settings-section">
         <div className="settings-section__header">
           <h3 className="settings-section__title">모델 프로필</h3>
-          <button className="settings-btn settings-btn--ghost" onClick={scanModels} disabled={scanning}>
-            <RefreshCw size={12} className={scanning ? "ui-spin" : undefined} />
-            모델 새로고침
-          </button>
+          {!IS_PHONE && (
+            <button className="settings-btn settings-btn--ghost" onClick={scanModels} disabled={scanning}>
+              <RefreshCw size={12} className={scanning ? "ui-spin" : undefined} />
+              모델 새로고침
+            </button>
+          )}
         </div>
         <Collapse open={!!error}>
           <div className="server-error" onClick={() => setError(null)}>{error}</div>
@@ -695,7 +698,7 @@ export function ModelProfilesSection() {
         </Reorder.Group>
 
         <div className="settings-row">
-          <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("local")}><Plus size={12} />로컬 모델</button>
+          {!IS_PHONE && <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("local")}><Plus size={12} />로컬 모델</button>}
           <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("external")}><Plus size={12} />외부 서버</button>
           <button className="settings-btn settings-btn--ghost" onClick={() => addProfile("claude")}><Plus size={12} />Claude</button>
         </div>
@@ -947,7 +950,7 @@ function WeatherSection() {
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // macOS 위치 서비스에 묻는다. 처음 한 번은 권한 창이 뜬다.
+  // 위치 서비스에 묻는다. 처음 한 번은 권한 창이 뜬다.
   async function fillCurrentLocation() {
     setLocating(true);
     setError(null);
@@ -1571,6 +1574,64 @@ function ImageGenSection() {
 
 // ── MCP servers section ───────────────────────────────────────────────────────
 
+type PermState = "allowed" | "denied" | "ask";
+type PhonePerms = Record<"location" | "music" | "camera" | "paste", PermState>;
+
+const PHONE_PERMS: { key: keyof PhonePerms; label: string; desc: string }[] = [
+  { key: "location", label: "위치", desc: "날씨·산책 지도의 집" },
+  { key: "music", label: "음악 보관함", desc: "곡을 찾아 틀기·지금 듣는 곡" },
+  { key: "camera", label: "카메라", desc: "맥 화면의 연결 QR 찍기" },
+  { key: "paste", label: "붙여넣기", desc: "다른 앱에서 복사한 글" },
+];
+
+/** 폰이 쓰는 권한. 아직 안 물은 것은 누르면 iOS 권한 창, 나머지는 설정 앱의 이 앱 화면 */
+function PhonePermSection() {
+  const [perms, setPerms] = useState<PhonePerms | null>(null);
+  const refresh = useCallback(() => {
+    invoke<PhonePerms>("phone_permissions").then(setPerms).catch(console.warn);
+  }, []);
+  // 설정 앱에서 바꾸고 돌아오면 다시 읽는다
+  useEffect(() => {
+    refresh();
+    const onShow = () => { if (!document.hidden) refresh(); };
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
+  }, [refresh]);
+
+  function press(key: keyof PhonePerms) {
+    if (key !== "paste" && perms?.[key] === "ask") {
+      invoke<PhonePerms>("phone_permission_ask", { kind: key }).then(setPerms).catch(console.warn);
+    } else {
+      invoke("phone_open_settings").catch(console.warn);
+    }
+  }
+
+  const stateText = (key: keyof PhonePerms) =>
+    key === "paste" ? "붙여넣을 때 묻습니다"
+    : !perms ? ""
+    : perms[key] === "allowed" ? "허용"
+    : perms[key] === "denied" ? "거절"
+    : "아직 묻지 않음";
+
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">권한 설정</h3>
+      <p className="settings-section__desc">
+        폰 앱이 쓰는 권한입니다. 아직 묻지 않은 권한은 누르면 묻고, 나머지는 설정 앱에서 바꿉니다.
+      </p>
+      <div className="perm-grid">
+        {PHONE_PERMS.map(({ key, label, desc }) => (
+          <button key={key} className="perm-btn" onClick={() => press(key)}>
+            <span className="perm-btn__label">{label}</span>
+            <span className="perm-btn__desc">{desc}</span>
+            <span className="perm-btn__state" data-state={key === "paste" ? "ask" : perms?.[key]}>{stateText(key)}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function McpSection() {
   const name = useSettingsStore(nekoNameOf);
   // 설정은 DB 에 있으므로 비동기로 읽어온다.
@@ -1966,8 +2027,8 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                 </div>
               </section>
 
-              {/* ── MCP 서버 ─────────────────────────────────────────── */}
-              <McpSection />
+              {/* ── MCP 서버 (폰은 stdio 서버를 못 띄운다) ──────────────── */}
+              {!IS_PHONE && <McpSection />}
 
               {/* ── 기기 간 동기화 ───────────────────────────────────── */}
               <SyncSection />
@@ -1982,7 +2043,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
               <ToolRulesSection />
 
               {/* ── 권한 설정 ─────────────────────────────────────────── */}
-              <section className="settings-section">
+              {IS_PHONE ? <PhonePermSection /> : <section className="settings-section">
                 <h3 className="settings-section__title">권한 설정</h3>
                 <p className="settings-section__desc">
                   앱에 필요한 macOS 권한입니다. 누르면 시스템 설정이 열립니다.
@@ -2021,7 +2082,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
                     </button>
                   ))}
                 </div>
-              </section>
+              </section>}
             </>
           )}
         </div>

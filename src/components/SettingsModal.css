@@ -597,6 +597,16 @@
   translate: 2px -2px;
 }
 
+/* 폰 권한 상태(허용·거절·아직) */
+.perm-btn__state {
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.perm-btn__state[data-state="allowed"] { color: var(--accent); }
+.perm-btn__state[data-state="denied"] { color: var(--error); }
+
 /* ── Accent color swatch ── */
 .color-row__swatch {
   position: relative;

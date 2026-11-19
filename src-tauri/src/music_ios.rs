@@ -65,8 +65,20 @@ unsafe fn rust_string(ns: *mut AnyObject) -> Option<String> {
     (!utf8.is_null()).then(|| CStr::from_ptr(utf8).to_string_lossy().into_owned())
 }
 
+/// 보관함 권한 상태(묻지 않는다): "allowed"·"denied"·"ask". 폰 설정의 권한 칸이 쓴다
+pub(crate) fn permission() -> &'static str {
+    media_player();
+    let Some(lib) = AnyClass::get(c"MPMediaLibrary") else { return "denied" };
+    let status: isize = unsafe { msg_send![lib, authorizationStatus] };
+    match status {
+        NOT_DETERMINED => "ask",
+        AUTHORIZED => "allowed",
+        _ => "denied",
+    }
+}
+
 /// 권한. 처음이면 묻고 답을 기다린다(시스템 창, 최대 2분). main thread 가 아닌 데서 부른다.
-fn authorized() -> Result<bool, AppError> {
+pub(crate) fn authorized() -> Result<bool, AppError> {
     let lib = class(c"MPMediaLibrary")?;
     let status: isize = unsafe { msg_send![lib, authorizationStatus] };
     if status != NOT_DETERMINED {

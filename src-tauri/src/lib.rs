@@ -26,7 +26,7 @@ mod quick;
 mod place;
 #[cfg(target_os = "macos")]
 mod capture;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod location;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod map;
@@ -50,6 +50,9 @@ mod music_ios;
 // 폰의 화면 밝기·소리 크기(도구 device.level)
 #[cfg(target_os = "ios")]
 mod device_ios;
+// 폰 설정의 권한 칸
+#[cfg(target_os = "ios")]
+mod perm_ios;
 #[cfg(desktop)]
 mod shelf;
 // 기기 간 동기화(docs/neko-sync.md). 기본은 꺼져 있다
@@ -702,7 +705,7 @@ mod commands {
     }
 
     /// macOS 위치 서비스로 지금 동네를 찾는다. `"역삼동 (37.5000,127.0364)"` 꼴.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     #[tauri::command]
     pub async fn location_current(app: tauri::AppHandle) -> Result<String, AppError> {
         crate::location::current(&app).await
@@ -782,19 +785,24 @@ mod commands {
     /// 링크 출처가 LLM·웹 스크랩(미신뢰)이라 http/https 스킴만 허용한다.
     /// file://·x-apple.systempreferences:·app 스킴 등으로 `open` 이 로컬 리소스를
     /// 실행하는 것을 막는다. arg 는 데이터로 전달돼 셸 해석은 없음.
-    #[cfg(desktop)]
+    /// 폰은 사파리 등 기본 앱으로(UIApplication openURL).
+    #[cfg(any(desktop, target_os = "ios"))]
     #[tauri::command(async)]
-    pub fn open_external_url(url: String) -> Result<(), AppError> {
+    pub fn open_external_url(#[allow(unused)] app: tauri::AppHandle, url: String) -> Result<(), AppError> {
         let lower = url.trim_start().to_ascii_lowercase();
         if !(lower.starts_with("http://") || lower.starts_with("https://")) {
             return Err("http/https 링크만 열 수 있습니다".into());
         }
-        std::process::Command::new("open")
+        #[cfg(target_os = "ios")]
+        let opened = crate::perm_ios::open_url(&app, url.trim_start());
+        #[cfg(desktop)]
+        let opened = std::process::Command::new("open")
             .arg("--")
             .arg(&url)
             .spawn()
-            .map_err(|e| e.to_string())?;
-        Ok(())
+            .map(drop)
+            .map_err(|e| AppError::msg(e.to_string()));
+        opened
     }
 
     // ── 그림판 저장 ───────────────────────────────────────────────────────────
@@ -1277,6 +1285,27 @@ mod commands {
         }
     }
 
+    /// 폰: 권한 상태(위치·음악 보관함·카메라·붙여넣기)
+    #[cfg(target_os = "ios")]
+    #[tauri::command(async)]
+    pub fn phone_permissions() -> crate::perm_ios::Permissions {
+        crate::perm_ios::status()
+    }
+
+    /// 폰: 아직 안 물은 권한을 묻는다(iOS 권한 창). 새 상태
+    #[cfg(target_os = "ios")]
+    #[tauri::command]
+    pub async fn phone_permission_ask(app: tauri::AppHandle, kind: String) -> Result<crate::perm_ios::Permissions, AppError> {
+        crate::perm_ios::ask(&app, &kind).await
+    }
+
+    /// 폰: 설정 앱의 이 앱 화면
+    #[cfg(target_os = "ios")]
+    #[tauri::command]
+    pub fn phone_open_settings(app: tauri::AppHandle) -> Result<(), AppError> {
+        crate::perm_ios::open_settings(&app)
+    }
+
     /// 폰: 지금 듣는 곡(음악 앱, 권한이 있을 때만). 산책이 출발 전 상태로 가져간다
     #[cfg(target_os = "ios")]
     #[tauri::command(async)]
@@ -1681,7 +1710,7 @@ pub fn run() {
             commands::weather_now,
             #[cfg(desktop)]
             commands::window_boot_done,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             commands::location_current,
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             map::map_snapshot,
@@ -1718,7 +1747,7 @@ pub fn run() {
             commands::capture_pick,
             #[cfg(desktop)]
             commands::open_url,
-            #[cfg(desktop)]
+            #[cfg(any(desktop, target_os = "ios"))]
             commands::open_external_url,
             #[cfg(desktop)]
             commands::save_canvas_image,
@@ -1780,6 +1809,12 @@ pub fn run() {
             commands::music_control,
             #[cfg(target_os = "ios")]
             commands::device_level,
+            #[cfg(target_os = "ios")]
+            commands::phone_permissions,
+            #[cfg(target_os = "ios")]
+            commands::phone_permission_ask,
+            #[cfg(target_os = "ios")]
+            commands::phone_open_settings,
             #[cfg(target_os = "macos")]
             commands::neko_screen_cross,
             #[cfg(target_os = "macos")]
