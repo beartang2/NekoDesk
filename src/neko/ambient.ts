@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { IS_PHONE } from "../lib/platform";
 import type { NekoActivity } from "./engine/neko-engine";
 import { useNekoApp } from "./director/stores";
 
@@ -48,7 +49,8 @@ export function appActivity(bundle: string | null): NekoActivity | null {
 
 interface Probe { app: string | null; own: boolean; typed_ago: number }
 
-const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
+// 아이폰의 userAgent 에도 "like Mac OS X" 가 있어 폰은 따로 뺀다
+const IS_MAC = !IS_PHONE && typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 
 let started = false;
 /** 메인 창에서 한 번 */

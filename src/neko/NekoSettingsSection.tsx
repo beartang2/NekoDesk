@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { IS_PHONE } from "../lib/platform";
 import { Segmented, SwitchRow, type Option } from "../components/ui";
 import { NekoGiftBox } from "./NekoGiftBox";
 import { SCREEN_SCALE, useNekoStore, type NekoPlacement } from "./nekoStore";
@@ -12,7 +13,8 @@ import { coatSwatch, summarizeAppearance } from "./summarize";
  */
 
 // 모니터 화면 자리는 macOS 의 투명·클릭 통과 창으로 만든다(neko_screen.rs)
-const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
+// 아이폰의 userAgent 에도 "like Mac OS X" 가 있어 폰은 따로 뺀다
+const IS_MAC = !IS_PHONE && typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 const FPS_OPTIONS: Option<"30" | "60">[] = [{ value: "30", label: "30" }, { value: "60", label: "60" }];
 const PLACES: Option<NekoPlacement>[] = [
   { value: "sidebar", label: "패널" },

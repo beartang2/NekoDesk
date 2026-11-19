@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { IS_PHONE } from "../lib/platform";
 import { settingsApi } from "../api/tauri";
 import type { NekoAppearance, NekoPattern } from "./engine/neko-engine";
 
@@ -99,9 +100,10 @@ export function normalizeAppearance(raw: unknown): NekoAppearance {
 export function normalizeStage(raw: unknown): NekoStageSettings {
   const s = (raw && typeof raw === "object" ? raw : {}) as Partial<NekoStageSettings>;
   return {
-    placement: s.placement === "dock" || s.placement === "screen" ? s.placement : "sidebar",
+    // 폰의 네코 자리는 '거실'(채팅 바 아래 띠) 하나다(docs/neko-sync.md §10.1)
+    placement: IS_PHONE ? "dock" : s.placement === "dock" || s.placement === "screen" ? s.placement : "sidebar",
     sidebarH: clampH(Number.isFinite(s.sidebarH) ? (s.sidebarH as number) : SIDEBAR_H.def, SIDEBAR_H),
-    dockH: clampH(Number.isFinite(s.dockH) ? (s.dockH as number) : DOCK_H.def, DOCK_H),
+    dockH: clampH(Number.isFinite(s.dockH) ? (s.dockH as number) : IS_PHONE ? DOCK_H.min : DOCK_H.def, DOCK_H),
     screenScale: clampScale(Number.isFinite(s.screenScale) ? (s.screenScale as number) : SCREEN_SCALE.def),
     screenOnTop: s.screenOnTop !== false,
     screenFps: s.screenFps === 30 ? 30 : 60,

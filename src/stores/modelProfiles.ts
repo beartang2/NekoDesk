@@ -16,6 +16,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { IS_PHONE } from "../lib/platform";
 import { useSettingsStore, DEFAULT_LLM_URL } from "./settingsStore";
 import { claudeLabel, claudeModelOf, claudeUrl, DEFAULT_CLAUDE_MODEL, isClaudeUrl } from "../lib/claude-models";
 import { llmFetch } from "../agent/llm-transport";
@@ -138,6 +139,11 @@ function sanitize(c: Partial<LlamaConfig>): LlamaConfig {
  * 없다면(모델 미선택) 손으로 띄워둔 서버를 외부 프로필로 받아 적는다.
  */
 function migrate(): ProfileState {
+  // 폰에는 로컬 모델이 없다. 처음부터 Claude 프로필 하나(키는 기기 연결 코드로 온다, docs/neko-sync.md §6.4).
+  if (IS_PHONE) {
+    const claude = newClaudeProfile();
+    return { profiles: [claude], activeId: claude.id };
+  }
   const url = localStorage.getItem(LEGACY_URL_KEY)?.trim() || DEFAULT_LLM_URL;
   let config: LlamaConfig | null = null;
   try {

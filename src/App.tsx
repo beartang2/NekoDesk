@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
+import { IS_PHONE } from "./lib/platform";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -190,7 +191,10 @@ function TitleBar({
   onThemeToggle,
   rightPanelVisible,
   onToggleRightPanel,
+  onSessions,
 }: {
+  /** 폰: 제목을 누르면 대화 목록이 열린다(사이드바가 따로 없다). */
+  onSessions?: () => void;
   sessionTitle: string;
   onSettings: () => void;
   themePref: ThemePref;
@@ -209,7 +213,11 @@ function TitleBar({
     >
       <span className="titlebar__name">NekoDesk</span>
       <span className="titlebar__sep">/</span>
-      <span className="titlebar__session">{sessionTitle}</span>
+      {onSessions ? (
+        <button type="button" className="titlebar__session titlebar__session--btn" onClick={onSessions}>{sessionTitle || "대화 목록"} ▾</button>
+      ) : (
+        <span className="titlebar__session">{sessionTitle}</span>
+      )}
       <button className="titlebar__settings" onClick={onThemeToggle}
         title={`테마: ${THEME_LABEL[themePref]} — 누르면 ${THEME_LABEL[THEME_NEXT[themePref]]}`}>
         <ThemeIcon size={14} />
@@ -1969,6 +1977,10 @@ export default function App() {
     appStyle,
   } = useLayout();
 
+  // 폰: 대화 목록(사이드바)은 제목을 눌러 여닫는 덮개다. 대화를 고르면 닫힌다.
+  const [drawer, setDrawer] = useState(false);
+  useEffect(() => setDrawer(false), [activeId]);
+
   // 예전 버전이 화면 저장소에 남긴 API 키를 키체인으로 옮긴다(한 번이면 끝).
   useEffect(() => {
     migrateLegacySecrets().catch(console.warn);
@@ -2074,7 +2086,7 @@ export default function App() {
   }, [themePref, rightPanelVisible, sessions, activeId]);
 
   return (
-    <div className={`app${isDragging ? " app--resizing" : ""}`} style={appStyle}>
+    <div className={`app${isDragging ? " app--resizing" : ""}`} style={appStyle} data-drawer={drawer ? "" : undefined}>
       <BootSplash />
       <TitleBar
         sessionTitle={activeSession?.title ?? ""}
@@ -2083,6 +2095,7 @@ export default function App() {
         onThemeToggle={cycleTheme}
         rightPanelVisible={rightPanelVisible}
         onToggleRightPanel={() => setRightPanelVisible((v) => !v)}
+        onSessions={IS_PHONE ? () => setDrawer((v) => !v) : undefined}
       />
       {menuMounted && (
         <MenuModal

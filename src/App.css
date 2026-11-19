@@ -1797,3 +1797,51 @@ textarea:focus-visible {
   font-weight: 600;
   pointer-events: none;
 }
+
+/* ── 폰(iOS): 세로 한 줄 배치 (docs/neko-sync.md §6.2) ──────────────────────────
+   제목 줄 / 대화 / 네코 띠('거실'). 사이드바는 제목을 눌러 여닫는 덮개, 오른쪽 패널은 없다.
+   html.phone 은 main.tsx 가 폰 빌드에서만 붙인다 — 맥 화면은 이 규칙을 안 탄다. */
+html.phone .app {
+  grid-template-columns: minmax(0, 1fr);
+  height: var(--vvh, 100%);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  --titlebar-h: 44px;
+}
+html.phone .titlebar { padding: 0 8px 0 14px; }
+html.phone .titlebar__name,
+html.phone .titlebar__sep,
+html.phone .titlebar__panel-toggle { display: none; }
+.titlebar__session--btn {
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 15px;
+  color: var(--text-primary);
+  height: 44px;
+  cursor: pointer;
+}
+html.phone .titlebar__settings { min-width: 44px; min-height: 44px; }
+html.phone .main { grid-column: 1; margin: 0 var(--gutter) var(--gutter); }
+html.phone .right-panel { display: none; }
+/* 대화 목록 덮개: 제목 줄 아래를 다 덮는다 */
+html.phone .sidebar {
+  position: fixed;
+  z-index: 20;
+  inset: calc(env(safe-area-inset-top) + var(--titlebar-h)) 0 0 0;
+  margin: 0;
+  padding: var(--gutter) var(--gutter) calc(var(--gutter) + env(safe-area-inset-bottom));
+  background: var(--bg-base);
+  display: none;
+}
+html.phone .app[data-drawer] .sidebar { display: flex; }
+html.phone .sidebar .cat-room { display: none; }
+html.phone .session-item { min-height: 44px; }
+html.phone .session-item__delete { opacity: 1; min-width: 44px; }
+/* 16px 보다 작은 입력 칸은 누를 때 iOS 가 화면을 확대한다 */
+html.phone input,
+html.phone textarea { font-size: 16px; }
+html.phone .composer { padding: 10px 12px 12px; }
+/* 키보드가 올라오면 네코 띠를 숨겨 대화 자리를 남긴다 */
+html.phone.kbd .neko-slot--dock { display: none; }
+html.phone.kbd .app { padding-bottom: 0; }
