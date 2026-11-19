@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { drawShape, onShapeImage } from "./engine/gift-shape";
-import { decorDims, decorK } from "./engine/decor-draw";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { onShapeImage } from "./engine/gift-shape";
+import { decorBoxes, dragDecor, drawDecor, hitDecorAt } from "./engine/decor-draw";
+import type { NekoDecorSpot } from "./engine/neko-engine";
 import { decorItems, useNekoGifts } from "./gifts";
 import { WeatherWindow } from "./WeatherWindow";
 import "./NekoRoom.css";
@@ -62,42 +63,74 @@ export function RoomBackdrop() {
   );
 }
 
+/** 꾹 누르기('정리' 메뉴): 이만큼(ms) 이 거리(px) 안에서 누르고 있으면. 엔진 무대와 같다 */
+const HOLD_MS = 500, HOLD_SLOP = 8;
+
 /**
- * 네코가 다른 자리(거실·마당)에 가 있을 때 방에 놓인 선물. 엔진의 decorAt·drawDecorItem 과 같은 자리·크기로
- * 정지 그림만 그린다(뿅·흔들림 없이). 엔진의 자리 계산이 바뀌면 여기도 맞춘다.
+ * 네코가 다른 자리(거실·마당)에 가 있을 때 방에 놓인 선물. 엔진 무대·마당 선물 창과 같은 그리기(decor-draw drawDecor)로
+ * 정지 그림만 그린다(뿅·흔들림 없이). 엔진이 없어도 옮기고 치울 수 있다 — 끌면 옮기고(놓을 때 선물함에 적는다), 우클릭이나
+ * 터치로 꾹 누르면 onMenu 로 '정리' 버튼 자리를 알린다(NekoSlot). 폰은 네코가 거실에 살아 방은 늘 이 그림이다
  */
-export function RoomGifts({ isDark }: { isDark: boolean }) {
+export function RoomGifts({ isDark, onMenu }: { isDark: boolean; onMenu?: (m: { id: string; x: number; y: number }) => void }) {
   const gifts = useNekoGifts((s) => s.gifts);
   const [ref, { w, h }] = useSize<HTMLCanvasElement>();
   // 낙서 그림(shape.img)을 다 읽으면 다시 그린다(처음엔 매트만 보인다)
   const [loaded, setLoaded] = useState(0);
   useEffect(() => onShapeImage(() => setLoaded((n) => n + 1)), []);
+  const items = useMemo(() => decorItems(gifts, "sidebar"), [gifts]);
+  const view = useMemo(() => { const { floorY, S } = stageMetrics(w, h); return { W: w, H: h, floorY, scale: S }; }, [w, h]);
+  // 끄는 중인 물건(물건 가운데 x, 바닥 y). 그리기가 무대 안으로 묶고 들어 올린 모양으로 맨 위에 그린다
+  const [drag, setDrag] = useState<{ id: string; x: number; bottom: number } | null>(null);
+  const press = useRef<{ id: string; pid: number; dx: number; dy: number; x0: number; y0: number; hold: number; spot: NekoDecorSpot | null } | null>(null);
+  useEffect(() => () => clearTimeout(press.current?.hold), []);
   useEffect(() => {
     const cv = ref.current;
-    const g = cv?.getContext("2d");
-    if (!cv || !g || !w || !h) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    cv.width = Math.round(w * dpr);
-    cv.height = Math.round(h * dpr);
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, w, h);
-    const { floorY, S } = stageMetrics(w, h), m = 16 * S;
-    for (const d of decorItems(gifts, "sidebar")) {
-      // 크기 × 사용자 배율, 방 상한까지 — 엔진·선물 창과 같은 식(decor-draw)
-      const { bd, u, w: iw, h: ih } = decorDims(d.shape, decorK(d.shape, d.size, d.scale, "sidebar", { floorY, S }).k, S);
-      const x = m + d.u * Math.max(0, w - 2 * m);
-      const wall = d.surface === "wall";
-      const bottom = wall ? floorY - (d.v ?? 0.5) * Math.max(1, floorY - ih - 10 * S) : floorY;
-      if (!wall) {
-        g.save(); g.globalAlpha = 0.5; g.fillStyle = isDark ? "rgba(0, 0, 0, 0.32)" : "rgba(20, 14, 24, 0.18)";
-        g.beginPath(); g.ellipse(x, floorY + S, iw * 0.5, 2.6 * S, 0, 0, Math.PI * 2); g.fill(); g.restore();
-      }
-      drawShape(g, d.shape, x - ((bd.x0 + bd.x1) / 2) * u, bottom, u, 4 * dpr);
-      if (wall) { // 압정
-        g.fillStyle = "#8f8a86"; g.beginPath(); g.arc(x, bottom - ih + 1.5 * S, 1.8 * S, 0, Math.PI * 2); g.fill();
-        g.fillStyle = "rgba(255,255,255,0.6)"; g.beginPath(); g.arc(x - 0.5 * S, bottom - ih + S, 0.7 * S, 0, Math.PI * 2); g.fill();
-      }
-    }
-  }, [gifts, w, h, isDark, ref, loaded]);
-  return <canvas ref={ref} className="neko-room__gifts" aria-hidden="true" />;
+    if (!cv || !w || !h) return;
+    drawDecor(cv, items, { ...view, dpr: Math.min(window.devicePixelRatio || 1, 2), dark: isDark, drag });
+  }, [items, view, isDark, drag, loaded, ref, w, h]);
+
+  const pos = (e: React.MouseEvent) => { const r = e.currentTarget.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top] as const; };
+  const boxOf = (id: string | null) => (id === null ? undefined : decorBoxes(items, view).find((b) => b.id === id));
+  const menu = (id: string | null) => { const b = boxOf(id); if (b) onMenu?.({ id: b.id, x: b.x + b.w, y: b.y }); return !!b; };
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return;
+    const [x, y] = pos(e), b = boxOf(hitDecorAt(items, view, x, y));
+    if (!b) return;
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터 */ }
+    const p = { id: b.id, pid: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x0: x, y0: y, hold: 0, spot: null };
+    // 터치·펜으로 꾹 누르면 끌기를 접고 '정리' 메뉴(iOS 웹뷰엔 contextmenu 가 안 온다). 마우스는 우클릭만
+    if (e.pointerType !== "mouse") p.hold = window.setTimeout(() => { if (press.current !== p) return; press.current = null; setDrag(null); menu(p.id); }, HOLD_MS);
+    press.current = p;
+    setDrag({ id: b.id, x: b.x + b.w / 2, bottom: b.y + b.h });
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const [x, y] = pos(e), p = press.current;
+    if (!p || e.pointerId !== p.pid) { e.currentTarget.classList.toggle("can-grab", hitDecorAt(items, view, x, y) !== null); return; }
+    if (p.hold && Math.hypot(x - p.x0, y - p.y0) > HOLD_SLOP) { clearTimeout(p.hold); p.hold = 0; } // 움직이면 그냥 끌기
+    const r = dragDecor(items, view, p.id, x - p.dx, y - p.dy);
+    if (r) { p.spot = r.spot; setDrag({ id: p.id, x: r.x, bottom: r.bottom }); }
+  };
+  const onPointerEnd = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const p = press.current;
+    if (!p || e.pointerId !== p.pid) return;
+    clearTimeout(p.hold); press.current = null; setDrag(null);
+    if (p.spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, p.spot); // 움직이지 않고 떼면 그대로
+  };
+  const onContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const [x, y] = pos(e);
+    if (menu(hitDecorAt(items, view, x, y))) e.preventDefault();
+  };
+  return (
+    <canvas
+      ref={ref}
+      className={`neko-room__gifts${drag ? " dragging" : ""}`}
+      aria-hidden="true"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      onPointerCancel={onPointerEnd}
+      onContextMenu={onContextMenu}
+    />
+  );
 }

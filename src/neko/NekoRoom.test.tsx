@@ -1,0 +1,80 @@
+// @vitest-environment jsdom
+
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
+import { render, fireEvent, cleanup, act } from "@testing-library/react";
+
+/** 빈 방의 선물(RoomGifts): 엔진 없이도 끌어 옮기고, 우클릭·꾹 누르기로 '정리' 메뉴 자리를 알린다(폰은 방이 늘 이 그림) */
+const h = vi.hoisted(() => ({
+  place: vi.fn(),
+  gifts: [{ id: "g", title: "", body: "", at: "", size: "medium", shape: { v: 1, parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "gray" }] }, placed: { at: "sidebar", surface: "floor", u: 0.5 } }],
+}));
+vi.mock("./gifts", () => ({
+  useNekoGifts: Object.assign((sel: (s: unknown) => unknown) => sel({ gifts: h.gifts }), { getState: () => ({ place: h.place }) }),
+  decorItems: (gs: typeof h.gifts, at: string) => gs.filter((g) => g.placed.at === at).map((g) => ({ ...g.placed, id: g.id, shape: g.shape, size: g.size, at })),
+}));
+vi.mock("./WeatherWindow", () => ({ WeatherWindow: () => null }));
+vi.mock("./engine/decor-draw", async (orig) => ({ ...(await orig<object>()), drawDecor: () => {} })); // jsdom 엔 캔버스 그리기가 없다
+
+import { RoomGifts } from "./NekoRoom";
+
+beforeAll(() => {
+  // 방 280×200: 바닥 194, S 0.81 → 가운데(u 0.5) 선물은 x 140, 바닥 194, 높이 약 78
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 280 });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 200 });
+  globalThis.ResizeObserver = class { cb: () => void; constructor(cb: () => void) { this.cb = cb; } observe() { this.cb(); } disconnect() {} } as unknown as typeof ResizeObserver;
+  // jsdom 에 PointerEvent 가 없어 fireEvent 가 pointerId·pointerType 을 못 싣는다
+  globalThis.PointerEvent = class extends MouseEvent {
+    pointerId: number; pointerType: string;
+    constructor(type: string, init: PointerEventInit = {}) { super(type, init); this.pointerId = init.pointerId ?? 1; this.pointerType = init.pointerType ?? "mouse"; }
+  } as unknown as typeof PointerEvent;
+});
+afterEach(() => { cleanup(); h.place.mockClear(); vi.useRealTimers(); });
+
+const ON = { clientX: 140, clientY: 160 };
+
+describe("빈 방의 선물(RoomGifts)", () => {
+  it("마우스로 끌어 놓으면 그 자리를 선물함에 적고, 움직이지 않고 떼면 그대로", () => {
+    const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas")!;
+    fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 1, pointerType: "mouse" });
+    fireEvent.pointerMove(cv, { clientX: 60, clientY: 160, pointerId: 1, pointerType: "mouse" });
+    fireEvent.pointerUp(cv, { clientX: 60, clientY: 160, pointerId: 1, pointerType: "mouse" });
+    expect(h.place).toHaveBeenCalledTimes(1);
+    expect(h.place.mock.calls[0][0]).toBe("g");
+    expect(h.place.mock.calls[0][1]).toMatchObject({ surface: "floor" });
+    expect(h.place.mock.calls[0][1].u).toBeLessThan(0.5);
+    fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 2, pointerType: "mouse" });
+    fireEvent.pointerUp(cv, { ...ON, pointerId: 2, pointerType: "mouse" });
+    expect(h.place).toHaveBeenCalledTimes(1);
+  });
+
+  it("터치로 꾹 누르면(0.5초) 끌기를 접고 '정리' 메뉴 자리를 알린다. 움직이면 그냥 끌기", () => {
+    vi.useFakeTimers();
+    const onMenu = vi.fn();
+    const cv = render(<RoomGifts isDark={false} onMenu={onMenu} />).container.querySelector("canvas")!;
+    fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 3, pointerType: "touch" });
+    act(() => { vi.advanceTimersByTime(520); });
+    expect(onMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "g" }));
+    fireEvent.pointerUp(cv, { ...ON, pointerId: 3, pointerType: "touch" });
+    expect(h.place).not.toHaveBeenCalled();
+
+    onMenu.mockClear();
+    fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 4, pointerType: "touch" });
+    fireEvent.pointerMove(cv, { clientX: 200, clientY: 160, pointerId: 4, pointerType: "touch" });
+    act(() => { vi.advanceTimersByTime(600); });
+    fireEvent.pointerUp(cv, { clientX: 200, clientY: 160, pointerId: 4, pointerType: "touch" });
+    expect(onMenu).not.toHaveBeenCalled();
+    expect(h.place.mock.calls[0][1].u).toBeGreaterThan(0.5);
+  });
+
+  it("우클릭은 선물 위에서만 메뉴(기본 메뉴를 막는다), 빈 데선 아무것도 안 한다", () => {
+    const onMenu = vi.fn();
+    const cv = render(<RoomGifts isDark={false} onMenu={onMenu} />).container.querySelector("canvas")!;
+    expect(fireEvent.contextMenu(cv, ON)).toBe(false); // preventDefault
+    expect(onMenu).toHaveBeenCalledTimes(1);
+    expect(fireEvent.contextMenu(cv, { clientX: 10, clientY: 20 })).toBe(true);
+    fireEvent.pointerDown(cv, { clientX: 10, clientY: 20, button: 0, pointerId: 5, pointerType: "touch" });
+    fireEvent.pointerUp(cv, { clientX: 10, clientY: 20, pointerId: 5, pointerType: "touch" });
+    expect(onMenu).toHaveBeenCalledTimes(1);
+    expect(h.place).not.toHaveBeenCalled();
+  });
+});

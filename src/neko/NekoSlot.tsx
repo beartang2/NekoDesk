@@ -120,7 +120,7 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
       {/* 산책 중: 채팅 바 아래(가로로 김)는 '산책 중' 그림과 지도를 나란히, 사이드바 방(좁음)은 지도만.
           지도를 못 받으면(개발 빌드 등) 방에선 '산책 중' 그림으로 대신한다 */}
       {!active ? (
-        <RoomGifts isDark={isDark} />
+        <RoomGifts isDark={isDark} onMenu={setDecorMenu} />
       ) : away ? (
         placement === "dock" ? (
           <div className="neko-slot__walk">
@@ -148,7 +148,7 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
         </button>
       )}
       {lastWalkOpen && walk && <LastWalkModal walk={walk} isDark={isDark} onClose={() => setLastWalkOpen(false)} />}
-      {decorMenu && active && !away && (
+      {decorMenu && (!active || !away) && ( /* 빈 방: 정지 그림(RoomGifts)이 알린다 */
         <button
           ref={tidyRef}
           type="button"

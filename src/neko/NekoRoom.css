@@ -51,4 +51,11 @@
   width: 100%;
   height: 100%;
   display: block;
+  /* 선물을 끌고 꾹 누른다(엔진 무대 .neko-canvas 와 같게): 스크롤·iOS 길게 누르기 메뉴·글자 선택이 끼지 않게 */
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
+.neko-room__gifts.can-grab { cursor: grab; }
+.neko-room__gifts.dragging { cursor: grabbing; }
