@@ -2,27 +2,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { mapApi, type MapSnapshot } from "../api/tauri";
-import { useSettingsStore } from "../stores/settingsStore";
 import { NekoWalker } from "../neko/NekoWalker";
 import { positionAt, toMeters, walkEnd, walkStart, walkedAt, type LatLon, type Pt, type Walk } from "../lib/walk";
+import { HERE_RETRY_MS, hereOnce, useHere } from "../lib/here";
 import "../neko/NekoCustomizeModal.css";
 import "./WalkMap.css";
-
-/**
- * 이번 앱 세션의 내 위치. 받으면 계속 그걸 쓴다 — 15초까지 걸리고 권한을 물을 수도 있어서 매번 묻지 않는다.
- * 산책을 떠날 때(App)도 이걸 쓴다.
- *
- * 못 받으면 날씨 칸의 위치(좌표나 "대전" 같은 동네 이름)로 대신하고(그것도 못 찾으면 지도 없이 동심원),
- * HERE_RETRY_MS 뒤 다시 묻는다 — 권한을 켜거나 위치가 잡히면 진짜 자리로 옮겨 간다. `tauri dev` 의 맨
- * 실행 파일은 위치 서비스가 누군지 몰라(identity unverified) 권한 창도 없이 60초 뒤 실패했다.
- */
-const HERE_RETRY_MS = 10 * 60_000;
-let herePromise: Promise<LatLon | null> | null = null;
-export const hereOnce = () =>
-  (herePromise ??= mapApi.here().catch(() => {
-    setTimeout(() => (herePromise = null), HERE_RETRY_MS);
-    return mapApi.weatherSpot(useSettingsStore.getState().weatherLocation).catch(() => null);
-  }));
 
 /** 이보다 가까이는 당기지 않는다 — 동네가 안 보인다. */
 const MIN_SPAN_M = 400;
@@ -36,7 +20,10 @@ const MIN_SPAN_M = 400;
 export function WalkMap({ walk, isDark, fallback, className = "" }: { walk: Walk | null; isDark: boolean; fallback?: ReactNode; className?: string }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
-  const [here, setHere] = useState<LatLon | null>(null);
+  // 가운데(나): 가장 최근에 앱을 연 기기의 동네(lib/here). 아직 아무 기기도 위치를 못 적었으면 이 기기의 자리를 묻는다
+  const near = useHere();
+  const [own, setOwn] = useState<LatLon | null>(null);
+  const here = near ?? own;
   const [snap, setSnap] = useState<(MapSnapshot & { w: number; h: number }) | null>(null);
   const [now, setNow] = useState(Date.now);
 
@@ -51,12 +38,12 @@ export function WalkMap({ walk, isDark, fallback, className = "" }: { walk: Walk
   const visible = size.w > 0 && size.h > 0;
   // 받은 위치는 같은 객체라 다시 불러도 그대로다. 대신 쓴 좌표였으면 그사이 진짜 위치로 바뀐다.
   useEffect(() => {
-    if (!visible) return;
-    const look = () => void hereOnce().then(setHere);
+    if (!visible || near) return;
+    const look = () => void hereOnce().then(setOwn);
     look();
     const id = setInterval(look, HERE_RETRY_MS);
     return () => clearInterval(id);
-  }, [visible]);
+  }, [visible, near]);
 
   // 지금 걷는 중인 산책. 다녀와서 보고를 기다리는 동안은 이미 집이다.
   const live = walk && !walk.done && now < walkEnd(walk) ? walk : null;

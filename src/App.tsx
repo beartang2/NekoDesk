@@ -51,7 +51,7 @@ import { budgetBlockReason } from "./stores/claudeBudget";
 import { startWalkBrain, type WalkBefore, type WalkBrain } from "./agent/walk";
 import { useNekoController } from "./neko/nekoHost";
 import { buildPath, EXTRA_WAIT_MS, fallbackLegs, hurryHome, lastWalkWith, walkingElsewhere, nextWalkAt, pickPlaces, routineName, positionAt, toLatLon, toMeters, walkEnd, walkStart, WALK_MS, type Pt, type SharedWalk, type Walk } from "./lib/walk";
-import { hereOnce } from "./components/WalkMap";
+import { hereOnce, watchHere } from "./lib/here";
 import { DEFAULT_SIDEBAR_W, useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
@@ -1674,6 +1674,8 @@ export default function App() {
 
   // Init MCP servers on mount
   useEffect(() => { initMcpFromStorage(); }, []);
+  // 앱이 앞으로 올 때 위치를 묻고 다른 기기의 동네를 받는다(지도·날씨, lib/here)
+  useEffect(() => watchHere(), []);
   // 저장해둔 "항상 허용" 규칙을 메모리에 올린다. 이게 없으면 첫 요청은
   // 이미 승인한 명령에도 확인 창이 뜬다.
   useEffect(() => { loadPermissionRules(); }, []);
