@@ -8,6 +8,7 @@ import { SCREEN_SCALE, useNekoStore, type NekoPlacement } from "./nekoStore";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { josa } from "../lib/hangul";
 import { coatSwatch, summarizeAppearance } from "./summarize";
+import { WALLPAPERS } from "./Wallpaper";
 
 /**
  * 설정창 '고양이' 영역: 자리 고르기(패널·채팅 바 아래·모니터 화면)와 지금 모습 요약,
@@ -44,6 +45,8 @@ export function NekoSettingsSection() {
   const fps = useNekoStore((s) => s.stage.screenFps);
   const setScreen = useNekoStore((s) => s.setScreen);
   const name = useSettingsStore(nekoNameOf);
+  const wallpaper = useSettingsStore((s) => s.nekoWallpaper);
+  const setWallpaper = useSettingsStore((s) => s.setNekoWallpaper);
 
   return (
     <section className="settings-section neko-settings">
@@ -57,6 +60,12 @@ export function NekoSettingsSection() {
 
       <Segmented value={placement} onChange={setPlacement} options={PLACES} />
       <p className="settings-section__desc">{placeDesc(placement, name)}</p>
+
+      <div className="ui-switch-row">
+        <span>벽지</span>
+        <Segmented value={wallpaper} onChange={setWallpaper} options={WALLPAPERS} />
+      </div>
+      <p className="settings-section__desc">방과 거실의 벽지입니다. 벽색은 창밖 하늘을 따라 낮·노을·밤으로 바뀝니다.</p>
       {placement === "screen" && (
         <>
           <SwitchRow label="항상 위에 두기" checked={onTop} onChange={(v) => setScreen({ screenOnTop: v })} />
