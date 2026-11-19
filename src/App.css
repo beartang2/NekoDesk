@@ -1856,7 +1856,8 @@ html.phone.drag-drawer .drawer-scrim { transition: none; }
 }
 html[data-drawer] .drawer-scrim { opacity: var(--scrim, 1); pointer-events: auto; }
 html.phone .session-item { min-height: 44px; }
-html.phone .session-item__delete { opacity: 1; min-width: 44px; }
+/* 지우기 버튼: 맥은 줄에 올려 둘 때만 눌리는데(pointer-events) 폰엔 '올려 둠'이 없어 아예 안 눌렸다. 늘 보이고 44pt 로 눌린다 */
+html.phone .session-item__delete { opacity: 1; pointer-events: auto; min-width: 44px; min-height: 44px; font-size: 14px; margin-right: -8px; }
 /* 채팅 바는 얇게: 한 줄일 때 38pt */
 html.phone .composer { padding: 6px 10px 8px; }
 html.phone .composer__row { padding: 3px 4px 3px 10px; border-radius: 14px; }

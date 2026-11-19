@@ -200,7 +200,12 @@ export const useNekoStore = create<NekoStore>((set, get) => ({
       settingsApi.get(STAGE_KEY).catch(() => null),
     ]);
     try {
-      if (a) set({ appearance: normalizeAppearance(JSON.parse(a)) });
+      if (a) {
+        set({ appearance: normalizeAppearance(JSON.parse(a)) });
+        // 다음에 켤 때 첫 그림(부팅 화면의 네코)부터 이 외형이게 localStorage 에도 둔다. 다른 기기에서 꾸민 외형은 DB 로만
+        // 와서, 폰은 켤 때마다 부팅 화면에 기본 외형이 먼저 나왔다
+        try { localStorage.setItem(APPEARANCE_KEY, a); } catch { /* 저장 공간 없음 등 — 무시 */ }
+      }
       // 처음: 이 기기에서 정해 둔 외형(localStorage)만 DB 로 옮긴다. 정한 적 없는 기본값은 안 옮긴다 — 동기화는 나중에 쓴 쪽이
       // 이겨서, 새로 짝 맞춘 기기가 방금 적은 기본 외형으로 다른 기기에서 꾸민 외형을 덮었다(같이 쓰는 다른 설정은 hydrateSyncedSettings 가 같은 규칙)
       else if (hasLocalAppearance()) save(APPEARANCE_KEY, get().appearance);

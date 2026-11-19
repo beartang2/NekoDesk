@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 
-const db = vi.hoisted(() => ({ set: vi.fn(async () => {}), get: vi.fn(async () => null as string | null) }));
+const db = vi.hoisted(() => ({ set: vi.fn(async () => {}), get: vi.fn(async (_key: string) => null as string | null) }));
 vi.mock("../api/tauri", () => ({ settingsApi: db }));
 import { DEFAULT_APPEARANCE, DOCK_H, SCREEN_SCALE, SIDEBAR_H, migrateVariant, normalizeAppearance, normalizeStage } from "./nekoStore";
 
@@ -61,6 +61,16 @@ describe("외형을 DB 로 옮기기(동기화)", () => {
     await useNekoStore.getState().load();
     vi.advanceTimersByTime(1000);
     expect(db.set).toHaveBeenCalledWith("neko_appearance", expect.any(String));
+    // DB 에 있는 외형(다른 기기에서 꾸민 것)은 localStorage 에도 둔다 — 다음에 켤 때 부팅 화면부터 그 외형이게. DB 에 다시 적지는 않는다
+    localStorage.clear();
+    db.set.mockClear();
+    db.get.mockImplementation(async (key: string) => (key === "neko_appearance" ? JSON.stringify({ coat: "black" }) : null));
+    await useNekoStore.getState().load();
+    vi.advanceTimersByTime(1000);
+    expect(JSON.parse(localStorage.getItem("neko_appearance") ?? "{}").coat).toBe("black");
+    expect(useNekoStore.getState().appearance.coat).toBe("black");
+    expect(db.set).not.toHaveBeenCalled();
+    db.get.mockImplementation(async () => null);
     vi.useRealTimers();
   });
 });

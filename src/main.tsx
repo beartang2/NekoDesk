@@ -1,4 +1,5 @@
 import React from "react";
+import { useNekoStore } from "./neko/nekoStore";
 import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
@@ -43,8 +44,9 @@ if (isQuick) document.documentElement.classList.add("quick-window");
 if (isCapture || isGlow || isNekoScreen || isNekoDecor) document.documentElement.classList.add("capture-window");
 if (isViewer) document.documentElement.classList.add("viewer-window");
 
+const isMain = !isQuick && !isCapture && !isViewer && !isGlow && !isNekoScreen && !isNekoDecor && !panel;
 // 오래된 대화 지우기(설정). 메인 창만, 켤 때 한 번
-if (!isQuick && !isCapture && !isViewer && !isGlow && !isNekoScreen && !isNekoDecor && !panel) {
+if (isMain) {
   void pruneOldSessions(useSettingsStore.getState().sessionRetention).catch(() => {});
   // 세션 목록·같이 쓰는 설정을 DB 에서 읽고, 다른 기기에서 온 것을 받는다(설정 › 동기화)
   startSync();
@@ -87,7 +89,9 @@ window.addEventListener(
 
 // 홈 경로를 화면·Claude 에서 ~ 로 가리려고 켤 때 한 번 가져온다(lib/home). 받은 뒤에 그린다 —
 // 말풍선은 메모라 한 번 그린 뒤 다시 안 그리므로, 먼저 그리면 가리기 전 경로가 그대로 남는다.
-void loadHome().finally(() =>
+// 메인 창은 네코 외형도 먼저 읽는다 — 부팅 화면의 네코가 기본 외형으로 먼저 나오지 않게(읽기는 몇 ms, 실패해도 그린다)
+const before = [loadHome(), ...(isMain ? [useNekoStore.getState().load()] : [])];
+void Promise.allSettled(before).finally(() =>
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <ErrorBoundary>

@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
+import { AlertDialog } from "radix-ui";
 import { PairLinkPrompt } from "./components/PairLink";
 import { bindPanels, drawer, type Panels } from "./lib/phone";
 import { IS_PHONE } from "./lib/platform";
@@ -2028,6 +2029,8 @@ export default function App() {
   // 폰: 대화 목록(사이드바)은 제목을 눌러 여닫는 덮개다. 대화를 고르면 닫힌다.
   useEffect(() => { if (IS_PHONE) drawer.set(false); }, [activeId]);
   // 폰: 왼쪽 끝에서 밀면 대화 목록, 오른쪽 끝에서 밀면 설정. 장이 손가락을 따라 움직이고 놓을 때 정해진다(lib/phone.ts).
+  // 폰: 지우기 전에 묻는 대화(id)
+  const [askDelete, setAskDelete] = useState<string | null>(null);
   const panelsRef = useRef<Panels>({ sheetOpen: false, setSheet: setMenuOpen });
   panelsRef.current = { sheetOpen: menuOpen, setSheet: setMenuOpen };
   useEffect(() => (IS_PHONE ? bindPanels(() => panelsRef.current) : undefined), []);
@@ -2161,14 +2164,35 @@ export default function App() {
         onClose={() => setPaletteOpen(false)}
         commands={paletteCommands}
       />
-      <UpdatePrompt />
+      {!IS_PHONE && <UpdatePrompt />}
+      {IS_PHONE && (
+        <AlertDialog.Root open={!!askDelete} onOpenChange={(open) => { if (!open) setAskDelete(null); }}>
+          <AlertDialog.Portal>
+            <AlertDialog.Overlay className="update-overlay">
+              <AlertDialog.Content className="update-dialog">
+                <AlertDialog.Title className="update-dialog__title">이 대화를 지울까요?</AlertDialog.Title>
+                <AlertDialog.Description className="update-dialog__sub">
+                  "{sessions.find((s) => s.id === askDelete)?.title ?? ""}" 대화가 다른 기기에서도 지워집니다.
+                </AlertDialog.Description>
+                <div className="update-dialog__actions">
+                  <AlertDialog.Cancel className="update-dialog__btn">취소</AlertDialog.Cancel>
+                  <AlertDialog.Action className="update-dialog__btn update-dialog__btn--danger" onClick={() => { if (askDelete) handleDelete(askDelete); }}>
+                    지우기
+                  </AlertDialog.Action>
+                </div>
+              </AlertDialog.Content>
+            </AlertDialog.Overlay>
+          </AlertDialog.Portal>
+        </AlertDialog.Root>
+      )}
       {IS_PHONE && <PairLinkPrompt />}
 
       {IS_PHONE && <div className="drawer-scrim" onClick={() => drawer.set(false)} aria-hidden="true" />}
       <ErrorBoundary label="사이드바">
       <Sidebar
         onNew={handleNew}
-        onDelete={handleDelete}
+        // 폰: 버튼이 늘 보여 잘못 누르기 쉽다 — 지우기 전에 묻는다(맥은 올려 둔 뒤 0.3초 있어야 나타난다)
+        onDelete={IS_PHONE ? setAskDelete : handleDelete}
         isRunning={pool.isRunning}
         gameSpeech={gameSpeech}
         rpg={{

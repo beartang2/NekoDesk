@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { IS_PHONE } from "../lib/platform";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import { invoke } from "@tauri-apps/api/core";
@@ -207,12 +208,15 @@ export function UpdateSection() {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
 
+  // 폰에는 자동 업데이트가 없다(Tauri updater 는 데스크탑만). 확인을 부르면 늘 실패해 "인터넷 연결을 확인해 주세요"가 떴다
   useEffect(() => {
-    check();
+    if (!IS_PHONE) check();
   }, [check]);
 
-  const dev = import.meta.env.DEV;
-  const { tone, text } = dev
+  const dev = import.meta.env.DEV || IS_PHONE;
+  const { tone, text } = IS_PHONE
+    ? { tone: "muted" as const, text: () => "폰 앱은 맥에서 다시 설치합니다." }
+    : dev
     ? { tone: "muted" as const, text: () => "개발 실행에서는 업데이트를 확인하지 않습니다." }
     : SECTION_STATUS[phase];
   const hasUpdate = !!info && (phase === "available" || phase === "failed");
