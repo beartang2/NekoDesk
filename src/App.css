@@ -1910,3 +1910,13 @@ html.phone .menu-modal .settings-section { background: var(--bg-surface); box-sh
 /* 설정 탭 줄: 카드 폭에 다 안 들어가면 옆으로 밀어 본다 */
 html.phone .menu-modal__tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 html.phone .menu-modal__tabs::-webkit-scrollbar { display: none; }
+/* 폰을 가로로: 네코만 보는 화면(lib/phone.ts watchStandby). 거실이 화면을 채우고 나머지는 걷는다 */
+html.phone.standby .app { grid-template-rows: minmax(0, 1fr); }
+html.phone.standby .titlebar,
+html.phone.standby .main,
+html.phone.standby .sidebar,
+html.phone.standby .drawer-scrim,
+html.phone.standby .menu-backdrop,
+html.phone.standby .phone-panel,
+html.phone.standby .neko-slot__map-btn { display: none; }
+html.phone.standby .neko-slot--dock { grid-row: 1; height: 100% !important; border: 0; }

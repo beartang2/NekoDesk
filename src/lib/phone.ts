@@ -3,6 +3,8 @@
  * 배치 규칙은 App.css 의 `html.phone`.
  */
 
+import { useNekoStore, type NekoPlacement } from "../neko/nekoStore";
+
 const KBD_KEY = "nekodesk_phone_kbd_h";
 
 /** 키보드: 보이는 높이(--vvh)만큼만 쓴다. 올라오는 걸 기다리지 않고 지난번 키보드 높이로 먼저 줄여 입력 칸이 키보드와 같이 올라온다. */
@@ -125,7 +127,7 @@ function watchEdgeDrags(root: HTMLElement): void {
     drag = null;
     const p = panels?.();
     // 네코 꾸미기·선물함이 떠 있으면 그 밑의 장을 끌지 않는다
-    if (!p || e.touches.length !== 1 || document.querySelector(".phone-panel")) return;
+    if (!p || e.touches.length !== 1 || document.querySelector(".phone-panel") || root.classList.contains("standby")) return;
     const t = e.touches[0];
     const target = e.target as Element | null;
     const onScrim = target?.classList?.contains("drawer-scrim");
@@ -199,6 +201,36 @@ function watchEdgeDrags(root: HTMLElement): void {
   document.addEventListener("touchcancel", end, { capture: true });
 }
 
+/**
+ * 가로로 돌리면 네코만 보는 화면(아이폰의 스탠바이처럼): 제목 줄·대화를 걷고 거실이 화면을 채운다. 네코가 방에 있었으면
+ * 그동안만 거실로 나온다(저장하지 않는다 — 세로로 돌리면 있던 자리로 돌아간다). 켜 둔 동안 화면이 꺼지지 않게 해 본다.
+ */
+function watchStandby(root: HTMLElement): void {
+  const landscape = window.matchMedia("(orientation: landscape)");
+  let before: NekoPlacement | null = null;
+  let awake: { release(): Promise<void> } | null = null;
+  const apply = () => {
+    const on = landscape.matches;
+    root.classList.toggle("standby", on);
+    const stage = useNekoStore.getState().stage;
+    if (on) {
+      before ??= stage.placement;
+      if (stage.placement !== "dock") useNekoStore.setState({ stage: { ...stage, placement: "dock" } });
+      drawer.set(false);
+      // ponytail: 웹뷰가 Wake Lock 을 안 주면 그냥 자동 잠금 시간에 꺼진다
+      const lock = (navigator as Navigator & { wakeLock?: { request(kind: "screen"): Promise<{ release(): Promise<void> }> } }).wakeLock;
+      if (!awake) void lock?.request("screen").then((l) => { if (landscape.matches) awake = l; else void l.release(); }).catch(() => {});
+    } else {
+      if (before && before !== stage.placement) useNekoStore.setState({ stage: { ...stage, placement: before } });
+      before = null;
+      void awake?.release().catch(() => {});
+      awake = null;
+    }
+  };
+  landscape.addEventListener("change", apply);
+  apply();
+}
+
 export function startPhone(): void {
   const root = document.documentElement;
   root.classList.add("phone");
@@ -207,4 +239,5 @@ export function startPhone(): void {
   fitKeyboard(root);
   dropHover();
   watchEdgeDrags(root);
+  watchStandby(root);
 }
