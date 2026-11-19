@@ -56,8 +56,8 @@ pub async fn current(app: &tauri::AppHandle) -> Result<String, AppError> {
     }
 }
 
-/// 위치 권한 상태(묻지 않는다): "allowed"·"denied"·"ask"(아직 안 물음). 폰 설정의 권한 칸이 쓴다
-#[cfg(target_os = "ios")]
+/// 위치 권한 상태(묻지 않는다): "allowed"·"denied"·"ask"(아직 안 물음). 폰 설정의 권한 칸과,
+/// 앱이 앞으로 올 때 권한 창 없이 동네를 적을지 볼 때(src/lib/here.ts) 쓴다
 pub fn permission() -> &'static str {
     use objc2_core_location::{CLAuthorizationStatus, CLLocationManager};
     let manager = unsafe { CLLocationManager::new() };

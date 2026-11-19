@@ -969,8 +969,8 @@ function WeatherSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">날씨와 위치</h3>
       <p className="settings-section__desc">
-        {name} 방 액자에 이 지역의 날씨를 표시합니다. 비워 두면 표시하지 않습니다.
-        산책 지도에서 현재 위치를 못 받으면 이 위치를 집으로 씁니다.
+        {name} 방 액자에 날씨를 표시합니다. 최근에 앱을 연 기기의 동네를 먼저 쓰고, 어느 기기도 위치를 모르면
+        이 지역을 씁니다(산책 지도의 집도 같습니다). 둘 다 없으면 표시하지 않습니다.
       </p>
       <div className="settings-row">
         <input

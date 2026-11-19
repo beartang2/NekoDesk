@@ -704,7 +704,14 @@ mod commands {
         crate::http::weather::run(&location).await
     }
 
-    /// macOS 위치 서비스로 지금 동네를 찾는다. `"역삼동 (37.5000,127.0364)"` 꼴.
+    /// 위치 권한 상태(묻지 않는다): "allowed"·"denied"·"ask"
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[tauri::command(async)]
+    pub fn location_permission() -> &'static str {
+        crate::location::permission()
+    }
+
+    /// 위치 서비스로 지금 자리를 찾는다. `"현재 위치 (37.5000,127.0364)"` 꼴.
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     #[tauri::command]
     pub async fn location_current(app: tauri::AppHandle) -> Result<String, AppError> {
@@ -1712,6 +1719,8 @@ pub fn run() {
             commands::window_boot_done,
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             commands::location_current,
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            commands::location_permission,
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             map::map_snapshot,
             #[cfg(any(target_os = "macos", target_os = "ios"))]

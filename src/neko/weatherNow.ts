@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore } from "../stores/settingsStore";
 import { setTimeZone } from "../lib/time";
+import { useHere } from "../lib/here";
 
 /** 지금 날씨(Rust weather_now). 방·거실 창문이 같이 쓴다 */
 export interface WeatherNow {
@@ -61,9 +62,12 @@ export function onWeatherNow(f: () => void): () => void {
   return () => { subs.delete(f); };
 }
 
-/** 지금 날씨. 위치가 없거나 못 가져오면 null. 30분 지나면 다시 본다 */
+/** 지금 날씨. 가장 최근에 앱을 연 기기의 동네(lib/here), 없으면 날씨 칸에 적은 위치. 둘 다 없거나 못 가져오면 null. 30분 지나면 다시 본다 */
 export function useWeatherNow(): WeatherNow | null {
-  const location = useSettingsStore((s) => s.weatherLocation.trim());
+  const typed = useSettingsStore((s) => s.weatherLocation.trim());
+  const here = useHere();
+  // 날씨엔 동네(소수 둘째 자리, 약 1km)면 된다 — 조금 움직일 때마다 새로 받지 않게
+  const location = here ? `(${here.lat.toFixed(2)},${here.lon.toFixed(2)})` : typed;
   useEffect(() => {
     users++;
     start(location);
