@@ -4,6 +4,7 @@ import { decorBoxes, dragDecor, drawDecor, hitDecorAt } from "./engine/decor-dra
 import type { NekoDecorSpot } from "./engine/neko-engine";
 import { decorItems, useNekoGifts } from "./gifts";
 import { WeatherWindow } from "./WeatherWindow";
+import { setHolding } from "./holding";
 import "./NekoRoom.css";
 
 /**
@@ -82,7 +83,7 @@ export function RoomGifts({ isDark, onMenu }: { isDark: boolean; onMenu?: (m: { 
   // 끄는 중인 물건(물건 가운데 x, 바닥 y). 그리기가 무대 안으로 묶고 들어 올린 모양으로 맨 위에 그린다
   const [drag, setDrag] = useState<{ id: string; x: number; bottom: number } | null>(null);
   const press = useRef<{ id: string; pid: number; dx: number; dy: number; x0: number; y0: number; hold: number; spot: NekoDecorSpot | null } | null>(null);
-  useEffect(() => () => clearTimeout(press.current?.hold), []);
+  useEffect(() => () => { clearTimeout(press.current?.hold); if (press.current) setHolding(false); }, []);
   useEffect(() => {
     const cv = ref.current;
     if (!cv || !w || !h) return;
@@ -100,8 +101,9 @@ export function RoomGifts({ isDark, onMenu }: { isDark: boolean; onMenu?: (m: { 
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터 */ }
     const p = { id: b.id, pid: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x0: x, y0: y, hold: 0, spot: null };
     // 터치·펜으로 꾹 누르면 끌기를 접고 '정리' 메뉴(iOS 웹뷰엔 contextmenu 가 안 온다). 마우스는 우클릭만
-    if (e.pointerType !== "mouse") p.hold = window.setTimeout(() => { if (press.current !== p) return; press.current = null; setDrag(null); menu(p.id); }, HOLD_MS);
+    if (e.pointerType !== "mouse") p.hold = window.setTimeout(() => { if (press.current !== p) return; press.current = null; setHolding(false); setDrag(null); menu(p.id); }, HOLD_MS);
     press.current = p;
+    setHolding(true);
     setDrag({ id: b.id, x: b.x + b.w / 2, bottom: b.y + b.h });
   };
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -114,7 +116,7 @@ export function RoomGifts({ isDark, onMenu }: { isDark: boolean; onMenu?: (m: { 
   const onPointerEnd = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const p = press.current;
     if (!p || e.pointerId !== p.pid) return;
-    clearTimeout(p.hold); press.current = null; setDrag(null);
+    clearTimeout(p.hold); press.current = null; setHolding(false); setDrag(null);
     if (p.spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, p.spot); // 움직이지 않고 떼면 그대로
   };
   const onContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {

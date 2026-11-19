@@ -146,7 +146,7 @@ function watchEdgeDrags(root: HTMLElement): void {
 
   document.addEventListener("touchmove", (e) => {
     const d = drag;
-    if (!d) return;
+    if (!d || root.dataset.holding) { drag = null; return; } // 네코 무대에서 고양이·선물을 잡은 동안(neko/holding)은 손짓이 아니다
     const t = e.touches[0], dx = (t.clientX - d.x0) * d.dir, dy = t.clientY - d.y0;
     if (!d.locked) {
       if (Math.abs(dy) > LOCK && Math.abs(dy) > Math.abs(dx)) { drag = null; return; } // 세로로 민다 = 스크롤

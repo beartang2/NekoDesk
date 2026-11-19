@@ -4,6 +4,7 @@ import { useNekoStore } from "./nekoStore";
 import { getRemoteNeko, onRemoteNeko } from "./remoteNeko";
 import { decorItems, useNekoGifts } from "./gifts";
 import { onWeatherNow, weatherNowSnapshot } from "./weatherNow";
+import { setHolding } from "./holding";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 
 /**
@@ -43,6 +44,7 @@ export function ensureNeko(): NekoController {
     // 무대에서 끌어 옮기면 선물함에 적는다(우클릭 '정리'는 자리 쪽 버튼이 한다 — NekoSlot)
     ctrl.on("decorMove", ({ id, ...spot }) => useNekoGifts.getState().place(id, spot));
     ctrl.on("decorPlayed", ({ id, at }) => useNekoGifts.getState().played(id, at));
+    ctrl.on("hold", setHolding); // 잡은 동안 폰 가장자리 손짓을 막는다
     useNekoGifts.subscribe((s, prev) => { if (s.gifts !== prev.gifts) decor(); });
     void useNekoGifts.getState().load().then(decor);
     // 방·거실 벽의 날씨 창문: '창밖 구경'이 그 아래로 간다. 날씨가 없으면 커튼이 닫혀 있다(WeatherWindow)

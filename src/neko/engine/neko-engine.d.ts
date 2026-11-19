@@ -100,6 +100,8 @@ export interface NekoEvents {
    * 나머지는 선물 창이 그린다 — 선물 창은 이 id 를 빼고 그린다. 빠진 id 는 엔진이 0.3초 더 그려 바꿔 그리는 틈을 메운다
    */
   decorHeld: string[];
+  /** 고양이나 놓아 둔 물건을 누르기 시작(true)·뗌(false). 폰은 그동안 가장자리 손짓(대화 목록 열기)을 막는다(neko/holding) */
+  hold: boolean;
 }
 
 export interface NekoOptions {

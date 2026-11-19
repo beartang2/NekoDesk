@@ -36,8 +36,10 @@ describe("빈 방의 선물(RoomGifts)", () => {
   it("마우스로 끌어 놓으면 그 자리를 선물함에 적고, 움직이지 않고 떼면 그대로", () => {
     const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas")!;
     fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 1, pointerType: "mouse" });
+    expect(document.documentElement.dataset.holding).toBe("1"); // 잡은 동안 폰 가장자리 손짓을 막는다(lib/phone.ts)
     fireEvent.pointerMove(cv, { clientX: 60, clientY: 160, pointerId: 1, pointerType: "mouse" });
     fireEvent.pointerUp(cv, { clientX: 60, clientY: 160, pointerId: 1, pointerType: "mouse" });
+    expect(document.documentElement.dataset.holding).toBeUndefined();
     expect(h.place).toHaveBeenCalledTimes(1);
     expect(h.place.mock.calls[0][0]).toBe("g");
     expect(h.place.mock.calls[0][1]).toMatchObject({ surface: "floor" });
@@ -54,6 +56,7 @@ describe("빈 방의 선물(RoomGifts)", () => {
     fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 3, pointerType: "touch" });
     act(() => { vi.advanceTimersByTime(520); });
     expect(onMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "g" }));
+    expect(document.documentElement.dataset.holding).toBeUndefined(); // 메뉴가 뜨면 잡기는 끝
     fireEvent.pointerUp(cv, { ...ON, pointerId: 3, pointerType: "touch" });
     expect(h.place).not.toHaveBeenCalled();
 

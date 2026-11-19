@@ -4514,7 +4514,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       // 바로 잡지 않는다: 움직이거나 잠깐 누르고 있으면 잡기, 그냥 떼면 '냥'
       press = { id: e.pointerId, x, y, t: performance.now(), grabbing: false, el };
       el.setPointerCapture(e.pointerId);
-      e.preventDefault();
+      e.preventDefault(); emit("hold", true);
     } else if (hitDecor(x, y)) { // 놓아 둔 물건: 잡고 끌어 옮긴다(고양이 뒤에 있으니 고양이 다음에 본다)
       const d = decor.find((o) => o.id === hitDecor(x, y)), b = d.box;
       decorDrag = { id: d.id, pointerId: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x: b.x + b.w / 2, bottom: b.y + b.h, el };
@@ -4525,13 +4525,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         hold.t = setTimeout(() => {
           if (!decorDrag || decorDrag.hold !== hold) return;
           const g = decorDrag; decorDrag = null; // 놓지 않고 접는다 — decorMove 없이 제자리로
-          g.el.classList.remove("dragging");
+          g.el.classList.remove("dragging"); emit("hold", false);
           decorMenuOf(decor.find((o) => o.id === g.id));
         }, HOLD_MS);
         decorDrag.hold = hold;
       }
       try { el.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터: 캡처 없이도 끌린다 */ }
-      el.classList.add("dragging"); e.preventDefault();
+      el.classList.add("dragging"); e.preventDefault(); emit("hold", true);
     } else if (y > floorY - 160 * S && cat.pose === "stand" && (!cat.act || cat.act.key === "butterfly")) walkTo(x);
   }
   function onPointerMove(e) {
@@ -4564,12 +4564,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         d.px = null; d.vx = 0; // 굴러가던 걸 잡아 옮겼으면 굴러가던 자리로 돌아가지 않게
         emit("decorMove", { id: d.id, ...spot });
       }
-      decorDrag.el.classList.remove("dragging"); decorDrag = null;
+      decorDrag.el.classList.remove("dragging"); decorDrag = null; emit("hold", false);
       return;
     }
     if (!press || e.pointerId !== press.id) return;
     if (press.grabbing) { press.el.classList.remove("dragging"); release(); emit("drop"); } else tap();
-    press = null;
+    press = null; emit("hold", false);
   }
   // 우클릭(또는 터치로 꾹 누르기): 놓아 둔 물건이면 바로 치우지 않고, 호스트가 그 오른쪽 위에 '정리' 버튼을 띄우게
   // 자리를 알린다. 그 밖에선 기본 메뉴를 막지 않는다
