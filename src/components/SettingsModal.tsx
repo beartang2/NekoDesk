@@ -1343,13 +1343,15 @@ function SyncSection() {
             </>
           )}
           {devices && (
-            <ul className="settings-section__desc">
+            <ul className="settings-section__desc sync-devices">
               {devices.devices.map((d) => (
                 <li key={d.id}>
-                  {d.name}{d.id === devices.me ? " (이 기기)" : ""}
-                  {" · "}{d.revoked ? "연결 끊김" : d.last_seen ? `마지막 접속 ${syncTime(d.last_seen)}` : "아직 접속 안 함"}
+                  <span>
+                    {d.name}{d.id === devices.me ? " (이 기기)" : ""}
+                    {" · "}{d.revoked ? "연결 끊김" : d.last_seen ? `마지막 접속 ${syncTime(d.last_seen)}` : "아직 접속 안 함"}
+                  </span>
                   {d.id !== devices.me && !d.revoked && (
-                    <> <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => revoke(d)}>끊기</button></>
+                    <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => revoke(d)}>끊기</button>
                   )}
                 </li>
               ))}

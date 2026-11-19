@@ -423,17 +423,30 @@ fn registered(db: &DbState) -> AppResult<Server> {
     Ok(creds(&*db.0.lock()?)?.ok_or("먼저 서버에 이 맥을 등록해줘.")?)
 }
 
+/// 서버 정보와 기기 목록. 토큰이 가리키는 기기(서버가 알려 주는 `me`)가 DB 가 아는 기기와 다르면 DB 를 토큰 쪽에 맞춘다.
+/// 키체인의 토큰이 다른 등록 것으로 바뀐 경우다 — dev 빌드와 배포 버전이 키체인 이름을 같이 쓰던 때 dev 에서 등록하면
+/// 그랬다. 안 맞추면 '다른 기기 끊기'(열쇠 바꾸기)가 제 토큰의 기기를 끊어, 그 뒤 요청이 다 거절된다.
+async fn checked(db: &DbState) -> AppResult<(Server, Devices)> {
+    let mut srv = registered(db)?;
+    let list: Devices = call(reqwest::Method::GET, &srv.url, "/v1/devices", Some(&srv.token), &Value::Null).await?;
+    if list.me != srv.device {
+        log::warn!("동기화: 토큰의 기기가 DB 와 달라 DB 를 맞춘다");
+        set_state(&*db.0.lock()?, "device", &list.me)?;
+        srv.device = list.me.clone();
+    }
+    Ok((srv, list))
+}
+
 #[tauri::command]
 pub async fn sync_devices(db: State<'_, DbState>) -> Result<Devices, AppError> {
-    let srv = registered(&db)?;
-    call(reqwest::Method::GET, &srv.url, "/v1/devices", Some(&srv.token), &Value::Null).await
+    Ok(checked(&db).await?.1)
 }
 
 /// 다른 기기를 끊는다(토큰이 더는 안 통하고, 그 기기가 만든 짝 코드도 지워진다). 열쇠는 그 기기에 남으니
 /// 잃어버린 기기면 열쇠 바꾸기도 한다.
 #[tauri::command]
 pub async fn sync_revoke(db: State<'_, DbState>, id: String) -> Result<(), AppError> {
-    let srv = registered(&db)?;
+    let (srv, _) = checked(&db).await?;
     if id == srv.device {
         return Err(AppError::msg("이 맥은 여기서 끊을 수 없어요. 동기화를 끄면 돼요."));
     }
@@ -462,7 +475,7 @@ pub(crate) async fn rekey_server(srv: &Server) -> AppResult<()> {
 /// 다시 올린다. 끝에 기기 목록을 다시 읽어 그사이 들어온 기기도 끊는다. 다른 기기는 새 짝 문자열로 다시 맞춘다.
 #[tauri::command]
 pub async fn sync_rekey(db: State<'_, DbState>) -> Result<(), AppError> {
-    let srv = registered(&db)?;
+    let (srv, _) = checked(&db).await?;
     rekey_server(&srv).await?;
     let mut key = [0u8; 32];
     OsRng.fill_bytes(&mut key);

@@ -1231,3 +1231,7 @@ code.rule-row__key {
 
 /* 기기 연결 QR: 어두운 테마에서도 읽히게 흰 바탕 그대로 */
 .sync-qr { width: 200px; height: 200px; border-radius: var(--r-md); align-self: center; }
+
+/* 연결된 기기 목록: 점 없이, 위의 설명·버튼과 같은 왼쪽 선에서 시작한다. '끊기'는 그 줄 오른쪽 끝 */
+.sync-devices { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sync-devices li { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
