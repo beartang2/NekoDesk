@@ -15,12 +15,21 @@ function fitKeyboard(root: HTMLElement): void {
     root.style.setProperty("--vvh", `${h}px`);
     root.classList.toggle("kbd", tallest - h > 120);
   };
+  const isField = (t: EventTarget | null) => t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && !/^(checkbox|radio|range|button|color|file)$/.test(t.type));
+  // 치는 칸이 키보드에 가리지 않게: 화면이 줄어든 뒤, 그 칸을 감싼 스크롤 칸(설정 등) 안에서 보이는 자리로 올린다
+  let reveal = 0;
+  const showField = () => {
+    clearTimeout(reveal);
+    reveal = window.setTimeout(() => {
+      const el = document.activeElement;
+      if (isField(el)) (el as HTMLElement).scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 280);
+  };
   const fit = () => {
     tallest = Math.max(tallest, vv.height);
     apply(vv.height);
-    if (tallest - vv.height > 120) localStorage.setItem(KBD_KEY, String(Math.round(tallest - vv.height)));
+    if (tallest - vv.height > 120) { localStorage.setItem(KBD_KEY, String(Math.round(tallest - vv.height))); showField(); }
   };
-  const isField = (t: EventTarget | null) => t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && !/^(checkbox|radio|range|button|color|file)$/.test(t.type));
   let settle = 0;
   const guess = (open: boolean) => {
     const h = Number(localStorage.getItem(KBD_KEY));
@@ -30,7 +39,7 @@ function fitKeyboard(root: HTMLElement): void {
     clearTimeout(settle);
     settle = window.setTimeout(fit, 700);
   };
-  document.addEventListener("focusin", (e) => { if (isField(e.target)) guess(true); });
+  document.addEventListener("focusin", (e) => { if (isField(e.target)) { guess(true); showField(); } });
   document.addEventListener("focusout", (e) => { if (isField(e.target) && !isField((e as FocusEvent).relatedTarget)) guess(false); });
   window.addEventListener("orientationchange", () => { tallest = 0; });
   vv.addEventListener("resize", fit);
