@@ -198,7 +198,8 @@ async fn register(url: &str, body: Value) -> AppResult<Registered> {
 }
 
 /// 등록을 적는다. 새 서버(또는 새 등록)라 처음부터 받고, 가진 것은 전부 다시 올린다.
-fn save(db: &DbState, url: &str, reg: Registered, key: &Key) -> AppResult<()> {
+/// `joining`: 이미 쓰는 기기들에 끼어드는 것(짝 문자열)이면 같이 쓰는 설정은 그쪽 것을 따른다(`yield_settings`).
+fn save(db: &DbState, url: &str, reg: Registered, key: &Key, joining: bool) -> AppResult<()> {
     crate::secrets::sync_set("sync_token", &reg.token)?;
     crate::secrets::sync_set("sync_key", &hex(key))?;
     let c = db.0.lock()?;
@@ -206,6 +207,9 @@ fn save(db: &DbState, url: &str, reg: Registered, key: &Key) -> AppResult<()> {
         set_state(&c, k, v)?;
     }
     c.execute("UPDATE sync_meta SET dirty = 1", [])?;
+    if joining {
+        super::yield_settings(&c)?;
+    }
     drop(c);
     kick();
     Ok(())
@@ -218,7 +222,7 @@ pub async fn sync_setup(db: State<'_, DbState>, url: String, setup_token: String
     let reg = register(&url, serde_json::json!({ "name": DEVICE_NAME, "setup_token": setup_token.trim() })).await?;
     let mut key = [0u8; 32];
     OsRng.fill_bytes(&mut key);
-    save(&db, &url, reg, &key)
+    save(&db, &url, reg, &key, false)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -260,7 +264,7 @@ fn parse_pairing(s: &str) -> AppResult<(String, String, Key, Option<String>)> {
 pub async fn sync_pair_join(db: State<'_, DbState>, pairing: String) -> Result<(), AppError> {
     let (url, code, key, claude) = parse_pairing(&pairing)?;
     let reg = register(&url, serde_json::json!({ "name": DEVICE_NAME, "pair_code": code })).await?;
-    save(&db, &url, reg, &key)?;
+    save(&db, &url, reg, &key, true)?;
     if let Some(k) = claude {
         crate::secrets::set("anthropic_api_key", &k)?;
     }

@@ -392,6 +392,14 @@ pub fn collect(conn: &Connection, me: &str, key: &Key) -> AppResult<Vec<Record>>
     Ok(out)
 }
 
+/// 끼어드는 기기의 같이 쓰는 설정(외형·이름·성격·프로필·지우기 설정)을 양보시킨다: 올리지 않고, 받는 쪽이 이긴다.
+/// 동기화는 나중에 쓴 쪽이 이기는데, 방금 켠 기기가 적어 둔 값(기본 외형 등)이 더 새것이라 쓰던 기기의 설정을 덮었다.
+/// 그쪽에 없는 설정은 이 기기 값이 남고, 여기서 다시 바꾸면 그때 올라간다.
+pub fn yield_settings(conn: &Connection) -> AppResult<()> {
+    conn.execute("UPDATE sync_meta SET ts = 0, dirty = 0 WHERE coll = 'setting'", [])?;
+    Ok(())
+}
+
 // ── 적용 ─────────────────────────────────────────────────────────────────────
 
 /// 사용자가 지운 세션(cut 없는 지움 표시)은 늘 이기고 되살릴 수 없다. 자동 삭제는 cut 이 있다.

@@ -1689,7 +1689,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
   }
 
   function resetAccent() {
-    const defaultHex = "#a78bfa";
+    const defaultHex = "#75a7ce";
     saveAccentHex(defaultHex);
     setAccentVars(defaultHex, isDark);
     setAccentHex(defaultHex);

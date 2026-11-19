@@ -193,6 +193,28 @@ fn later_write_wins_and_earlier_one_is_ignored() {
 }
 
 #[test]
+fn a_joining_device_takes_the_groups_settings_instead_of_overwriting_them() {
+    let (a, b) = (db(), db());
+    // 쓰던 기기 A 가 한참 전에 꾸민 외형
+    settings::set(&a, "neko_appearance", "꾸민 외형").unwrap();
+    a.execute("UPDATE sync_meta SET ts = 1000 WHERE coll = 'setting'", []).unwrap();
+    // 방금 켠 기기 B 는 기본 외형을 더 나중에 적었다. 메모는 B 것도 올라가야 한다
+    settings::set(&b, "neko_appearance", "기본 외형").unwrap();
+    memories::save(&b, "fact", "B 가 아는 것").unwrap();
+    // B 가 짝 문자열로 끼어든다: 전부 올릴 것으로 찍되 설정은 양보
+    b.execute("UPDATE sync_meta SET dirty = 1", []).unwrap();
+    yield_settings(&b).unwrap();
+    let from_b = push_all(&b, "B");
+    assert!(from_b.iter().all(|r| r.coll != "setting"), "끼어든 기기의 설정은 올라가지 않는다");
+    assert!(from_b.iter().any(|r| r.coll == "memory"));
+    apply_all(&b, "B", &push_all(&a, "A"));
+    assert_eq!(settings::get(&b, "neko_appearance").unwrap().as_deref(), Some("꾸민 외형"));
+    // 그 뒤 B 에서 바꾸면 다시 올라간다
+    settings::set(&b, "neko_appearance", "폰에서 바꾼 외형").unwrap();
+    assert!(push_all(&b, "B").iter().any(|r| r.coll == "setting"));
+}
+
+#[test]
 fn same_memory_from_two_devices_is_merged_into_the_smaller_id() {
     let (a, b) = (db(), db());
     memories::save(&a, "fact", "생일은 3월 2일").unwrap();

@@ -50,7 +50,8 @@ export function deriveAccent(accentHex: string, isDark: boolean) {
 
 const ACCENT_HEX_KEY = "nekodesk_accent_hex";
 const ACCENT_HUE_KEY = "nekodesk_accent_hue"; // 구버전 마이그레이션용
-const DEFAULT_ACCENT  = "#a78bfa";
+// 앱 아이콘 바탕의 하늘색(src-tauri/icons 의 그라데이션 가운데쯤)
+const DEFAULT_ACCENT  = "#75a7ce";
 
 /** 구버전 hue → 대표 hex 변환 (S=0.8, L=0.6 고정) */
 function legacyHueToHex(hue: number): string {
