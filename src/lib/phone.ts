@@ -91,7 +91,17 @@ function watchEdgeDrags(root: HTMLElement): void {
   const EDGE = 28, LOCK = 10, FLICK = 0.4; // px, px, px/ms
   type Drag = { kind: "drawer" | "sheet"; opening: boolean; dir: 1 | -1; w: number; x0: number; y0: number; locked: boolean; open: number; lastX: number; lastT: number; v: number };
   let drag: Drag | null = null;
+  // 놓은 뒤 치울 것(끄는 동안 붙인 클래스·변수). 다음 손짓이 먼저 시작되면 그때 바로 치운다 — 타이머만 지우면
+  // 설정을 끌다 놓고 곧바로 대화 목록을 끌 때 설정의 자리 값이 남아, 다음에 설정을 누르면 반쯤 나온 채 멈췄다
   let cleanup = 0;
+  let pending: (() => void) | null = null;
+  const later = (ms: number, fn: () => void) => {
+    pending = fn;
+    cleanup = window.setTimeout(() => { pending?.(); pending = null; }, ms);
+  };
+  const flush = () => { clearTimeout(cleanup); pending?.(); pending = null; };
+  // 두 장의 보이는 폭은 같다(App.css 의 --panel-w 와 같은 식)
+  const panelWidth = () => Math.min(window.innerWidth * 0.86, 340);
 
   const paint = (d: Drag) => {
     if (d.kind === "drawer") {
@@ -108,17 +118,17 @@ function watchEdgeDrags(root: HTMLElement): void {
     const p = panels?.();
     if (!p || e.touches.length !== 1) return;
     const t = e.touches[0];
-    const onScrim = (e.target as Element | null)?.classList?.contains("drawer-scrim");
+    const target = e.target as Element | null;
+    const onScrim = target?.classList?.contains("drawer-scrim");
+    // 버튼·입력 칸에서 시작한 건 누르기다. 설정 버튼이 오른쪽 끝에 있어, 누르다 손가락이 조금 밀리면 끌기로 잡혔다
+    if (!onScrim && target?.closest?.("button, a, input, textarea, select, [role='tab']")) return;
     const side = t.clientX <= EDGE ? "left" : t.clientX >= window.innerWidth - EDGE || onScrim ? "right" : null;
     if (!side) return;
     const pick = side === "left"
       ? (p.sheetOpen ? { kind: "sheet" as const, opening: false } : !p.drawerOpen ? { kind: "drawer" as const, opening: true } : null)
       : (p.drawerOpen ? { kind: "drawer" as const, opening: false } : !p.sheetOpen ? { kind: "sheet" as const, opening: true } : null);
     if (!pick) return;
-    // 대화 목록은 넘침 여유(--over)만큼 화면 왼쪽 밖으로 늘어나 있다 — 보이는 폭은 오른쪽 끝 자리다
-    const side_ = document.querySelector<HTMLElement>(".sidebar");
-    const w = pick.kind === "drawer" ? (side_ ? side_.offsetWidth + side_.offsetLeft : 0) : window.innerWidth;
-    if (!w) return;
+    const w = panelWidth();
     drag = { ...pick, dir: side === "left" ? 1 : -1, w, x0: t.clientX, y0: t.clientY, locked: false, open: pick.opening ? 0 : w, lastX: t.clientX, lastT: e.timeStamp, v: 0 };
   }, { passive: true, capture: true });
 
@@ -130,7 +140,7 @@ function watchEdgeDrags(root: HTMLElement): void {
       if (Math.abs(dy) > LOCK && Math.abs(dy) > Math.abs(dx)) { drag = null; return; } // 세로로 민다 = 스크롤
       if (dx < LOCK) return;
       d.locked = true;
-      clearTimeout(cleanup);
+      flush();
       root.classList.add(`drag-${d.kind}`);
       // 설정은 열려야 화면에 있다. 손가락 자리에서 시작하게 먼저 그리고 연다
       if (d.kind === "sheet" && d.opening) { paint(d); panels?.().setSheet(true); }
@@ -164,16 +174,16 @@ function watchEdgeDrags(root: HTMLElement): void {
       root.style.setProperty("--sheet-x", "0px");
       root.style.setProperty("--sheet-p", "1");
       p?.setSheet(true);
-      cleanup = window.setTimeout(() => { root.style.removeProperty("--sheet-x"); root.style.removeProperty("--sheet-p"); }, 350);
+      later(520, () => { root.style.removeProperty("--sheet-x"); root.style.removeProperty("--sheet-p"); });
     } else { // 닫힘: 지금 자리에서 나가는 애니메이션(MenuModal.css menu-slide-out 의 --menu-from). 다 나갈 때까지 자리를 붙들어 둔다
       root.style.setProperty("--menu-from", `${d.w - d.open}px`);
       p?.setSheet(false);
-      cleanup = window.setTimeout(() => {
+      later(400, () => {
         root.classList.remove("drag-sheet");
         root.style.removeProperty("--sheet-x");
         root.style.removeProperty("--sheet-p");
         root.style.removeProperty("--menu-from");
-      }, 400);
+      });
     }
   };
   document.addEventListener("touchend", end, { capture: true });
