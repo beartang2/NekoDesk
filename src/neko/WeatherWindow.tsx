@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { roomWindows } from "./engine/room-window";
+import { hitDecorAt } from "./engine/decor-draw";
 import { useWeatherNow } from "./weatherNow";
+import { useNekoController } from "./nekoHost";
+import { useNekoStore } from "./nekoStore";
+import { decorItems, useNekoGifts } from "./gifts";
 import { WINDOW_PAD, WINDOW_SILL, drawWindow, skyAt, weatherKind, type WeatherKind, type WindowState } from "./weatherWindowDraw";
+import "./WeatherWindow.css";
 
 /** 날씨 움직임 프레임 간격(약 15fps) */
 const FRAME_MS = 66;
@@ -10,6 +16,13 @@ const CURTAIN_S = 1.4;
 const FADE_S = 2;
 
 const reduceMq = typeof window !== "undefined" ? window.matchMedia?.("(prefers-reduced-motion: reduce)") : undefined;
+
+/** 창문을 눌렀을 때 뜨는 말풍선: 이만큼(ms) 뒤 사라진다. 누르기로 치는 움직임·시간 한도 */
+const BUBBLE_MS = 3000, TAP_SLOP = 8, TAP_MS = 500;
+/** 말풍선의 날씨 이름(창밖 그림 6가지와 같다) */
+const KIND_NAME: Record<WeatherKind, string> = { clear: "맑음", cloud: "구름", rain: "비", snow: "눈", storm: "천둥", fog: "안개" };
+/** 커튼이 닫혀 있을 때(날씨를 모를 때) 말풍선 */
+const NO_WEATHER = "날씨 정보 없음";
 
 /**
  * 방·거실 벽의 날씨 창문(자리는 engine/room-window — 엔진도 같은 자리를 읽는다). 네코 자리를 채우는 상자 안에 두면
@@ -28,6 +41,15 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
   const weather = useWeatherNow();
   const rects = roomWindows(place, size.w, size.h);
   const rect = rects[0];
+  const ctrl = useNekoController();
+  const catHere = useNekoStore((s) => s.stage.placement === place);
+  // 말풍선: 누른 창의 화면 자리(뷰포트 px)와 누른 때(다시 누르면 처음부터)
+  const [bubble, setBubble] = useState<{ x: number; y: number; at: number } | null>(null);
+  useEffect(() => {
+    if (!bubble) return;
+    const t = setTimeout(() => setBubble(null), BUBBLE_MS);
+    return () => clearTimeout(t);
+  }, [bubble]);
 
   useEffect(() => {
     const el = boxRef.current;
@@ -52,6 +74,36 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
     }
     L.wake();
   }, [kind, weather, rect?.x, rect?.w, rect?.h]);
+
+  // 창문 누르기(맥 클릭·폰 탭). 창문은 고양이 무대·선물 그림 밑이라 직접 못 받는다 — 화면 전체의 눌림 중
+  // 이 창 위에서 거의 움직이지 않고 짧게 뗀 것만 고른다. 고양이·선물 위면 그쪽 몫, 위에 뜬 버튼·창이면 그쪽 몫
+  const hitRef = useRef({ ctrl, catHere });
+  hitRef.current = { ctrl, catHere };
+  useEffect(() => {
+    let down: { x: number; y: number; t: number } | null = null;
+    const onDown = (e: PointerEvent) => { down = e.button === 0 ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null; };
+    const onUp = (e: PointerEvent) => {
+      const d = down;
+      down = null;
+      const box = boxRef.current?.getBoundingClientRect();
+      if (!d || !box?.width || Math.hypot(e.clientX - d.x, e.clientY - d.y) > TAP_SLOP || e.timeStamp - d.t > TAP_MS) return;
+      const x = e.clientX - box.left, y = e.clientY - box.top;
+      const r = live.current.rects.find((q) => x >= q.x - 2 && x <= q.x + q.w + 2 && y >= q.y - 4 && y <= q.y + q.h + WINDOW_SILL);
+      if (!r) return;
+      const top = document.elementFromPoint(e.clientX, e.clientY);
+      if (!top?.closest(".cat-room, .neko-slot") || top.closest("button, a, input, textarea, [role='dialog']")) return;
+      const { ctrl: c, catHere: here } = hitRef.current;
+      if (here && c && (c.hit(x, y) || c.hitDecor(x, y) !== null)) return;
+      if (!here && place === "sidebar") { // 빈 방: 정지 그림(RoomGifts)의 선물 위
+        const W = box.width, floorY = box.height - 6, scale = Math.min(1.4, Math.max(0.35, Math.min(floorY / 240, W / 250)));
+        if (hitDecorAt(decorItems(useNekoGifts.getState().gifts, "sidebar"), { W, floorY, scale }, x, y) !== null) return;
+      }
+      setBubble({ x: box.left + r.x + r.w / 2, y: box.top + r.y + r.h * 0.4, at: e.timeStamp });
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("pointerup", onUp, true);
+    return () => { window.removeEventListener("pointerdown", onDown, true); window.removeEventListener("pointerup", onUp, true); };
+  }, [place]);
 
   useEffect(() => {
     const cvs = cvRefs.map((r) => r.current).filter((c): c is HTMLCanvasElement => !!c);
@@ -131,6 +183,13 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
         <span className="weather-window__temp" style={{ left: rect.x + rect.w / 2, top: rect.y + rect.h + WINDOW_SILL + 1 }}>
           {`${Math.round(weather.temp)}°`}
         </span>
+      )}
+      {/* 고양이가 창 앞에 앉아 있어도 가리지 않게 맨 위(body)에 띄운다 */}
+      {bubble && createPortal(
+        <div key={bubble.at} className="weather-bubble" role="status" style={{ left: bubble.x, top: bubble.y }}>
+          {weather ? `${Math.round(weather.temp)}° ${KIND_NAME[weatherKind(weather.code)]}` : NO_WEATHER}
+        </div>,
+        document.body,
       )}
     </div>
   );
