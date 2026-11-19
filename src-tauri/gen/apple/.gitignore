@@ -1,0 +1,5 @@
+xcuserdata/
+build/
+Externals/
+# 서명 팀 ID(계정마다 다르다). scripts/ios-install.sh 가 읽는다
+.team

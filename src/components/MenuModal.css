@@ -26,7 +26,7 @@
 }
 
 @keyframes menu-slide-in {
-  from { opacity: 0; transform: translateX(16px); }
+  from { opacity: var(--menu-fade, 0); transform: translateX(var(--menu-slide, 16px)); }
   to   { opacity: 1; transform: translateX(0); }
 }
 
@@ -42,8 +42,8 @@
 }
 
 @keyframes menu-slide-out {
-  from { opacity: 1; transform: translateX(0); }
-  to   { opacity: 0; transform: translateX(16px); }
+  from { opacity: 1; transform: translateX(var(--menu-from, 0px)); }
+  to   { opacity: var(--menu-fade, 0); transform: translateX(var(--menu-slide, 16px)); }
 }
 
 @keyframes menu-fade-out {

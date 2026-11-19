@@ -19,6 +19,7 @@
     "@anthropic-ai/sdk": "1.7.0",
     "@crabnebula/tauri-plugin-drag": "^2.1.0",
     "@tauri-apps/api": "^2.11.0",
+    "jsqr": "1.4.0",
     "lucide-react": "^1.8.0",
     "motion": "13.4.6",
     "radix-ui": "1.6.7",

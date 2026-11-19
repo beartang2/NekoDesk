@@ -13,7 +13,7 @@ use rusqlite::Connection;
 /// 키체인에 두는 설정 이름. 이 밖의 이름은 비밀로 다루지 않는다.
 pub const KEYS: &[&str] = &["brave_search_key", "cf_api_token", "google_api_key", "anthropic_api_key"];
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 const SERVICE: &str = "com.nekodesk.desktop";
 
 pub fn is_secret(key: &str) -> bool {
@@ -31,7 +31,7 @@ fn check(key: &str) -> Result<(), AppError> {
 /// 한 번 꺼낸 값. 키체인을 매번 읽으면 서명이 바뀌는 dev 빌드(다시 빌드할 때마다 새 바이너리)에선
 /// Claude 요청·검색마다 macOS 가 비밀번호를 물었다. 이제 실행당 항목마다 한 번만 묻는다.
 /// 값은 이 프로세스 메모리에만 있다 — 같은 사용자의 다른 프로그램이 읽을 수 있는 곳이 아니다.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, Option<String>>> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Option<String>>>> =
         std::sync::OnceLock::new();
@@ -39,7 +39,7 @@ fn cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, Option
 }
 
 /// 꺼낸다. 없으면 None.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub fn get(key: &str) -> Result<Option<String>, AppError> {
     check(key)?;
     if let Some(hit) = cache().lock()?.get(key) {
@@ -52,7 +52,7 @@ pub fn get(key: &str) -> Result<Option<String>, AppError> {
 }
 
 /// 넣는다. 빈 값이면 지운다.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub fn set(key: &str, value: &str) -> Result<(), AppError> {
     check(key)?;
     keychain_set(SERVICE, key, value)?;
@@ -61,7 +61,7 @@ pub fn set(key: &str, value: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn keychain_get(service: &str, key: &str) -> Result<Option<String>, AppError> {
     match security_framework::passwords::get_generic_password(service, key) {
         Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
@@ -71,7 +71,7 @@ fn keychain_get(service: &str, key: &str) -> Result<Option<String>, AppError> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn keychain_set(service: &str, key: &str, value: &str) -> Result<(), AppError> {
     let value = value.trim();
     if value.is_empty() {
@@ -85,12 +85,12 @@ fn keychain_set(service: &str, key: &str, value: &str) -> Result<(), AppError> {
 }
 
 /// 대화 DB 열쇠의 키체인 이름. `KEYS` 밖이라 화면에서 읽거나 바꿀 수 없다 — 바뀌면 DB 를 못 연다.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 const DB_KEY: &str = "db_key";
 
 /// 대화 DB 열쇠(32바이트 hex). 처음이면 만들어 넣는다. 꺼내다 실패하면(거부 등) 새로 만들지
 /// 않고 실패를 돌려준다 — 새 열쇠로는 이미 암호화된 DB 를 못 연다.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub fn db_key() -> Result<String, AppError> {
     if let Some(key) = keychain_get(SERVICE, DB_KEY)? {
         return Ok(key);
@@ -111,50 +111,59 @@ fn check_sync(name: &str) -> Result<(), AppError> {
     if SYNC_NAMES.contains(&name) { Ok(()) } else { Err(AppError::msg(format!("동기화 비밀 이름이 아니야: {name}"))) }
 }
 
+/// 키체인에 적는 이름. dev 빌드는 뒤에 `_dev` 를 붙인다 — dev 와 배포 버전은 DB 가 따로인데(nekodesk-dev) 키체인 이름이
+/// 같아서, dev 에서 동기화를 등록하면 배포 버전의 토큰·열쇠를 덮어 그쪽 동기화가 끊겼다. 배포 쪽 이름은 그대로라
+/// 이미 등록한 사용자는 영향이 없다.
+fn sync_account(name: &str, dev: bool) -> String {
+    if dev { format!("{name}_dev") } else { name.to_owned() }
+}
+
 /// 동기화 비밀을 꺼낸다(실행당 한 번만 키체인에 묻는다 — `get` 과 같은 캐시).
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub fn sync_get(name: &str) -> Result<Option<String>, AppError> {
     check_sync(name)?;
-    if let Some(hit) = cache().lock()?.get(name) {
+    let account = sync_account(name, cfg!(debug_assertions));
+    if let Some(hit) = cache().lock()?.get(&account) {
         return Ok(hit.clone());
     }
-    let value = keychain_get(SERVICE, name)?;
-    cache().lock()?.insert(name.to_owned(), value.clone());
+    let value = keychain_get(SERVICE, &account)?;
+    cache().lock()?.insert(account, value.clone());
     Ok(value)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub fn sync_set(name: &str, value: &str) -> Result<(), AppError> {
     check_sync(name)?;
-    keychain_set(SERVICE, name, value)?;
-    cache().lock()?.insert(name.to_owned(), (!value.trim().is_empty()).then(|| value.trim().to_owned()));
+    let account = sync_account(name, cfg!(debug_assertions));
+    keychain_set(SERVICE, &account, value)?;
+    cache().lock()?.insert(account, (!value.trim().is_empty()).then(|| value.trim().to_owned()));
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub fn sync_get(name: &str) -> Result<Option<String>, AppError> {
     check_sync(name)?;
     Err(AppError::msg("키체인은 macOS 에서만 쓸 수 있어."))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub fn sync_set(name: &str, _value: &str) -> Result<(), AppError> {
     check_sync(name)?;
     Err(AppError::msg("키체인은 macOS 에서만 쓸 수 있어."))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub fn db_key() -> Result<String, AppError> {
     Err(AppError::msg("키체인은 macOS 에서만 쓸 수 있어."))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub fn get(key: &str) -> Result<Option<String>, AppError> {
     check(key)?;
     Err(AppError::msg("키체인은 macOS 에서만 쓸 수 있어."))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub fn set(key: &str, _value: &str) -> Result<(), AppError> {
     check(key)?;
     Err(AppError::msg("키체인은 macOS 에서만 쓸 수 있어."))
@@ -187,13 +196,17 @@ mod tests {
         // 동기화 비밀은 화면 쪽 이름(KEYS)이 아니다
         assert!(!is_secret("sync_key") && !is_secret("sync_token"));
         assert!(sync_get("db_key").is_err());
+        // dev 빌드는 배포 버전의 동기화 토큰·열쇠와 다른 이름을 쓴다. 배포 쪽 이름은 예전 그대로
+        assert_eq!(sync_account("sync_token", false), "sync_token");
+        assert_eq!(sync_account("sync_token", true), "sync_token_dev");
+        assert_ne!(sync_account("sync_key", true), sync_account("sync_key", false));
     }
 
     /// 진짜 키체인에 넣고 꺼내고 지운다(테스트 전용 서비스 이름). 키체인이 잠긴 CI 에선 못 돌아
     /// 손으로 돌린다: cargo test --lib secrets -- --ignored
     #[test]
     #[ignore]
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn keychain_round_trip() {
         let service = "com.nekodesk.desktop.test";
         keychain_set(service, "k", "  비밀 값 ").unwrap();

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 맥의 기기 연결 QR(nekodesk://pair?d=…)을 카메라로 찍으면 이 앱이 열린다(sync/run.rs link_opened). -->
+	<key>NSCameraUsageDescription</key>
+	<string>맥 화면에 뜬 기기 연결 QR 을 찍으려고 카메라를 써요.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.nekodesk.desktop</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>nekodesk</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

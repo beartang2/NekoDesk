@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import { buildToolSchemas, describeToolsForPrompt } from "./tool-schemas";
-import { clipList, getAllTools } from "./tool-registry";
+import { clipList, getAllTools, onThisDevice } from "./tool-registry";
 import { DEFAULT_IMAGE_GEN, useSettingsStore } from "../stores/settingsStore";
 
 describe("buildToolSchemas", () => {
@@ -11,6 +11,18 @@ describe("buildToolSchemas", () => {
     expect(names()).not.toContain("image.generate");
     useSettingsStore.getState().setImageGen({ ...DEFAULT_IMAGE_GEN, provider: "cloudflare" });
     expect(names()).toContain("image.generate");
+  });
+
+  it("폰에는 파일·코드 실행·그림·보안 점검 툴이 안 보이고, 맥에선 다 보인다", () => {
+    const all = getAllTools().map((t) => t.name);
+    const phone = all.filter((n) => onThisDevice(n, true));
+    for (const gone of ["fs.read", "fs.write", "code.exec", "skill.read", "file.upload", "image.trace", "security.check", "process.list", "airdrop.send"]) {
+      expect(phone).not.toContain(gone);
+    }
+    for (const kept of ["todo.add", "schedule.list", "web.search", "web.scrape", "weather.get", "memory.save", "memory.search", "user.ask", "plan.set", "game.start", "agent.delegate"]) {
+      expect(phone).toContain(kept);
+    }
+    expect(all.filter((n) => onThisDevice(n, false))).toEqual(all);
   });
 
   it("registry 의 모든 툴을 빠짐없이 내보낸다", () => {

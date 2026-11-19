@@ -286,8 +286,21 @@ export const syncApi = {
   /** 첫 기기: 배포 때 정한 SETUP_TOKEN 으로 등록 */
   setup: (url: string, setupToken: string) => invoke<void>("sync_setup", { url, setupToken }),
   /** 다른 기기에 붙여넣을 짝 문자열(10분) */
-  pairMake: () => invoke<string>("sync_pair_make"),
+  /** `withClaude`: Claude API 키도 싣는다(받는 기기가 자기 키체인에 넣는다 — 폰에서 긴 키를 안 쳐도 되게). */
+  pairMake: (withClaude = false) => invoke<string>("sync_pair_make", { withClaude }),
   pairJoin: (pairing: string) => invoke<void>("sync_pair_join", { pairing }),
+  /** 맥: 짝 문자열을 QR(SVG 글)로. 폰 카메라로 찍으면 앱이 열린다 */
+  pairQr: (pairing: string) => invoke<string>("sync_pair_qr", { pairing }),
+  /** 기기들이 같이 보는 마지막 산책(동기화를 안 쓰면 null) */
+  walkShared: () => invoke<{ start: number; end: number; mine: boolean } | null>("walk_shared"),
+  /** 나가기 전에 선점한다. ok 가 false 면 다른 기기가 먼저 나갔다. 동기화를 안 쓰거나 서버에 못 닿으면 ok */
+  walkClaim: (start: number, end: number) => invoke<{ ok: boolean; walk: { start: number; end: number; mine: boolean } | null }>("walk_claim", { start, end }),
+  /** 나간 기기가 끝 시각을 고친다(서둘러 돌아옴·도착) */
+  walkEnd: (start: number, end: number) => invoke<void>("walk_end", { start, end }),
+  /** 앱 안에서 찍은 QR 주소 → 짝 문자열과 서버(호스트·포트). 연결 주소가 아니면 null */
+  pairCheck: (link: string) => invoke<[pairing: string, host: string] | null>("sync_pair_check", { link }),
+  /** 폰: 카메라로 찍어 온 짝 문자열과 그 서버(백엔드가 해석한 호스트·포트). 한 번 가져가면 비워진다 */
+  pairLinked: () => invoke<[pairing: string, host: string] | null>("sync_pair_linked"),
   devices: () => invoke<{ devices: SyncDevice[]; me: string }>("sync_devices"),
   revoke: (id: string) => invoke<void>("sync_revoke", { id }),
   /** 다른 기기를 다 끊고 서버를 비운 뒤 새 열쇠로 이 맥 것을 다시 올린다 */

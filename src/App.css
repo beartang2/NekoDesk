@@ -41,7 +41,7 @@ textarea {
   --accent:        oklch(0.760 0.150 292);
   --accent-dim:    oklch(0.330 0.090 292);
   /* 고른 포인트색 그대로. 앱이 켜지면 theme-colors.ts 가 덮어쓴다(그 전에 쓸 기본값). */
-  --accent-base:   #a78bfa;
+  --accent-base:   #75a7ce;
   /* 사용자 말풍선. 고른 포인트색(--accent-base)의 색상(hue)은 그대로 두고
      밝기·채도만 정한 불투명한 색. 예전엔 바탕색과 섞어서 만들었는데, 보라 기가 도는 바탕에
      끌려 초록은 회색빛, 주황은 갈색빛으로 색상 자체가 틀어졌다. oklch 라 밝기를 바꿔도 색상이 안 돈다. */
@@ -1775,3 +1775,137 @@ textarea:focus-visible {
   font-weight: 600;
   pointer-events: none;
 }
+
+/* ── 폰(iOS): 세로 한 줄 배치 (docs/neko-sync.md §6.2) ──────────────────────────
+   제목 줄 / 네코 거실(위쪽 띠) / 대화. 왼쪽 끝에서 밀면 대화 목록(안에 네코 방), 오른쪽 끝에서 밀면 설정.
+   html.phone 은 lib/phone.ts 가 폰 빌드에서만 붙인다 — 맥 화면은 이 규칙을 안 탄다. */
+html.phone .app {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: var(--titlebar-h) auto minmax(0, 1fr);
+  height: var(--vvh, 100%);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  --titlebar-h: 44px;
+  /* 키보드가 오르내릴 때 입력 칸이 같이 움직인다 */
+  transition: height 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* 장(대화 목록·설정)이 자리 잡는 움직임: 끝에서 살짝 넘쳤다 돌아와 딱딱하지 않게. 넘치는 만큼(--over) 장을 화면 밖으로 늘려 둔다 */
+  /* 대화 목록의 보이는 폭(lib/phone.ts drawerWidth 와 같은 식). 화면을 다 덮지 않고 옆이 흐리게 비친다 */
+  --panel-w: min(86vw, 340px);
+  --soft: cubic-bezier(0.22, 1.25, 0.36, 1);
+  --soft-dur: 0.46s;
+  --over: 28px;
+}
+/* 손가락: 누른 자리의 회색 네모·글자 고르기·길게 눌러 뜨는 메뉴를 끈다 */
+html.phone { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+html.phone button, html.phone [role="tab"], html.phone .session-item, html.phone .titlebar { -webkit-user-select: none; user-select: none; }
+/* 입력 칸은 길게 눌러 붙여넣기·고르기가 그대로 돼야 한다 */
+html.phone input, html.phone textarea { -webkit-touch-callout: default; -webkit-user-select: text; user-select: text; }
+html.phone .titlebar { padding: 0 8px 0 14px; }
+html.phone .titlebar__name,
+html.phone .titlebar__sep,
+html.phone .titlebar__panel-toggle { display: none; }
+.titlebar__session--btn {
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 15px;
+  color: var(--text-primary);
+  height: 44px;
+  cursor: pointer;
+}
+html.phone .titlebar__settings { min-width: 44px; min-height: 44px; }
+html.phone .main { grid-column: 1; grid-row: 3; margin: 6px var(--gutter) var(--gutter); }
+html.phone .right-panel { display: none; }
+/* 네코 거실: 제목 줄 바로 아래 띠. 키보드가 올라와도 그대로 보인다. 높이 손잡이는 없다 */
+html.phone .neko-slot--dock { grid-row: 2; border-top: 0; border-bottom: 1px solid var(--border); background: none; }
+html.phone .neko-slot__handle { display: none; }
+/* 대화 목록(안에 네코 방): 왼쪽에서 밀려 들어온다 */
+html.phone .sidebar {
+  position: fixed;
+  z-index: 21;
+  inset: 0 auto 0 calc(-1 * var(--over));
+  width: calc(var(--panel-w) + var(--over));
+  border-radius: 0 22px 22px 0;
+  margin: 0;
+  padding: calc(env(safe-area-inset-top) + var(--gutter)) var(--gutter) calc(env(safe-area-inset-bottom) + var(--gutter)) calc(var(--gutter) + var(--over));
+  background: var(--bg-base);
+  box-shadow: var(--shadow-lg);
+  /* 끄는 동안은 --drawer-x 가 손가락 자리다(lib/phone.ts). 놓으면 변수가 빠지고 전환이 남은 거리를 간다 */
+  transform: translateX(var(--drawer-x, -105%));
+  visibility: hidden;
+  transition: transform var(--soft-dur) var(--soft), visibility 0s var(--soft-dur);
+}
+html.phone[data-drawer] .sidebar { transform: translateX(var(--drawer-x, 0px)); visibility: visible; transition-delay: 0s; }
+html.phone.drag-drawer .sidebar { transition: none; visibility: visible; }
+/* 미는 동안 합성 층에서만 움직이게 하고, 뒤에서 도는 오로라는 장이 열려 있거나 끄는 동안 멈춘다(흐린 막이 프레임마다 뒤를 다시 흐리지 않게) */
+html.phone .sidebar { will-change: transform; }
+html.phone .drawer-scrim { will-change: opacity; }
+html.phone[data-drawer] .chat-aurora__lobe, html.phone.drag-drawer .chat-aurora__lobe, html.phone.drag-sheet .chat-aurora__lobe { animation-play-state: paused; }
+html.phone.drag-drawer .drawer-scrim { transition: none; }
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  /* 뒤 화면을 흐린다. 흐림 세기를 프레임마다 바꾸면 무거워서, 흐린 막 하나의 투명도를 열린 만큼 올린다 */
+  background: color-mix(in oklab, #000 22%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  opacity: var(--scrim, 0);
+  pointer-events: none;
+  transition: opacity 0.36s ease;
+}
+html[data-drawer] .drawer-scrim { opacity: var(--scrim, 1); pointer-events: auto; }
+html.phone .session-item { min-height: 44px; }
+html.phone .session-item__delete { opacity: 1; min-width: 44px; }
+/* 채팅 바는 얇게: 한 줄일 때 38pt */
+html.phone .composer { padding: 6px 10px 8px; }
+html.phone .composer__row { padding: 3px 4px 3px 10px; border-radius: 14px; }
+html.phone .composer__input { font-size: 15px; line-height: 1.3; padding: 5px 2px; }
+html.phone.kbd .app { padding-bottom: 0; }
+/* 설정: 오른쪽에서 화면 폭만큼 밀려 들어오는 한 장(오른쪽 끝에서 밀어 열고, 왼쪽 끝에서 밀어 닫는다) */
+/* 대화 목록과 같은 카드: 화면 맨 위부터 맨 아래까지, 같은 바탕·모서리·그림자. 안전 영역은 안쪽 여백으로 */
+/* 키보드가 올라오면 설정도 보이는 높이까지만 쓴다 — 맨 아래 입력 칸이 키보드 밑에 깔리지 않게(치는 칸은 lib/phone.ts 가 보이는 자리로 올린다) */
+html.phone .menu-backdrop { inset: 0 0 auto; height: var(--vvh, 100%); padding: 0; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; transition: height 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); }
+html.phone.kbd .menu-modal { padding-bottom: 0; }
+/* 들어올 때는 전환으로(끄는 동안은 --sheet-x 가 손가락 자리), 나갈 때는 키프레임으로(App 이 그 끝을 듣고 뗀다) */
+html.phone .menu-backdrop::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklab, #000 22%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  opacity: var(--sheet-p, 1);
+  transition: opacity 0.36s ease;
+}
+@starting-style {
+  html.phone .menu-backdrop::before { opacity: 0; }
+}
+html.phone.drag-sheet .menu-backdrop:not([data-leaving])::before { transition: none; }
+html.phone .menu-backdrop[data-leaving]::before { opacity: 0; transition: opacity 0.3s ease-in; }
+html.phone .menu-modal {
+  position: relative;
+  /* 설정은 화면을 다 덮는다(사용자) — 내용이 많아 폭이 필요하다. 대화 목록만 옆이 비친다 */
+  width: calc(100% + var(--over));
+  margin-right: calc(-1 * var(--over));
+  padding: env(safe-area-inset-top) var(--over) env(safe-area-inset-bottom) 0;
+  background: var(--bg-base);
+  border-radius: 22px 0 0 22px;
+  box-shadow: var(--shadow-lg);
+  --menu-slide: 100%;
+  --menu-fade: 1;
+  animation: none;
+  transform: translateX(var(--sheet-x, 0px));
+  transition: transform var(--soft-dur) var(--soft);
+}
+@starting-style {
+  html.phone .menu-modal { transform: translateX(100%); }
+}
+html.phone.drag-sheet .menu-modal { transition: none; }
+html.phone .menu-backdrop[data-leaving] { animation: none; }
+html.phone .menu-backdrop[data-leaving] .menu-modal { animation: menu-slide-out 0.3s cubic-bezier(0.5, 0, 0.75, 0.4) both; }
+/* 설정 안의 칸도 대화 목록의 카드와 같은 결: 바탕보다 밝은 면 + 옅은 그림자 */
+html.phone .menu-modal .settings-section { background: var(--bg-surface); box-shadow: var(--shadow-card); }
+/* 설정 탭 줄: 카드 폭에 다 안 들어가면 옆으로 밀어 본다 */
+html.phone .menu-modal__tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+html.phone .menu-modal__tabs::-webkit-scrollbar { display: none; }

@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { PLACE_NAME } from "./gifts";
+import { IS_PHONE } from "../lib/platform";
 import { Segmented, SwitchRow, type Option } from "../components/ui";
 import { NekoGiftBox } from "./NekoGiftBox";
 import { SCREEN_SCALE, useNekoStore, type NekoPlacement } from "./nekoStore";
@@ -12,15 +14,21 @@ import { coatSwatch, summarizeAppearance } from "./summarize";
  */
 
 // 모니터 화면 자리는 macOS 의 투명·클릭 통과 창으로 만든다(neko_screen.rs)
-const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
+// 아이폰의 userAgent 에도 "like Mac OS X" 가 있어 폰은 따로 뺀다
+const IS_MAC = !IS_PHONE && typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 const FPS_OPTIONS: Option<"30" | "60">[] = [{ value: "30", label: "30" }, { value: "60", label: "60" }];
+// 자리 이름은 선물함과 같은 말을 쓴다(방·거실·마당, gifts.ts PLACE_NAME). 마당은 맥에만 있다
 const PLACES: Option<NekoPlacement>[] = [
-  { value: "sidebar", label: "패널" },
-  { value: "dock", label: "채팅 바 아래" },
-  ...(IS_MAC ? [{ value: "screen" as const, label: "모니터 화면" }] : []),
+  { value: "sidebar", label: PLACE_NAME.sidebar },
+  { value: "dock", label: PLACE_NAME.dock },
+  ...(IS_MAC ? [{ value: "screen" as const, label: PLACE_NAME.screen }] : []),
 ];
 /** 자리 설명. 문장 속 호칭은 지어 준 이름(조사는 받침에 맞춘다) */
-const placeDesc = (place: NekoPlacement, name: string): string => ({
+const placeDesc = (place: NekoPlacement, name: string): string => IS_PHONE ? ({
+  sidebar: `${josa(name, "이/가")} 방에서 지냅니다. 방은 대화 목록(화면 왼쪽 끝에서 오른쪽으로 밀기) 아래에 있습니다.`,
+  dock: `${josa(name, "이/가")} 대화 창 위쪽 거실에서 걸어 다닙니다.`,
+  screen: "",
+})[place] : ({
   sidebar: `${josa(name, "이/가")} 방(사이드바)에서 지냅니다. 위쪽 가장자리를 끌면 방 높이와 고양이 크기가 바뀝니다.`,
   dock: `${josa(name, "이/가")} 거실(입력창 아래)에서 더 넓게 걸어 다닙니다. 위쪽 가장자리를 끌어 높이를 바꿀 수 있습니다.`,
   screen: `${josa(name, "이/가")} 앱 밖 마당(화면 맨 아래, Dock 위)을 걸어 다닙니다. ${name} 밖의 클릭은 뒤의 창으로 갑니다. ⌥ 를 누르고 있으면 ${name} 위의 클릭도 넘어갑니다.`,

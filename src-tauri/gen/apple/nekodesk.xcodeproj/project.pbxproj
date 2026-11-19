@@ -1,0 +1,592 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		03CCFC27D1132FF40E51B41A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0E8E1C1A2A5D67A6CC05339A /* Assets.xcassets */; };
+		3C1CF0EE7904F91FA26D04D1 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 140E9291917F0541F46CB517 /* MetalKit.framework */; };
+		447AB8D84037DB280C857D42 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4ECFF48B3F2CF8CFB36B2341 /* CoreGraphics.framework */; };
+		766BD1BAD9B4B781E02610C8 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A6A4504660C553A99935185 /* Metal.framework */; };
+		7A7822E39670B56ACAAA1F15 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B507E0F212C17AFEE2737B03 /* QuartzCore.framework */; };
+		833518B30892C1231053A589 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = EB568A02D0E08B8A953353F8 /* main.mm */; };
+		88D5D3DC0BE89E8C92384E06 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 5944DCAA7A54F16CED8C141A /* LaunchScreen.storyboard */; };
+		AAB567D54DD7ADABC7A0A762 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 68F47CD748088BDCCA264511 /* WebKit.framework */; };
+		ABC04757A02A368FA170354F /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = EB92D34468E8E0585356D467 /* libapp.a */; };
+		B2566940A1C8758609CC1748 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 1DCE29D487B756EB5E3135F3 /* assets */; };
+		CFF4AB792ED6E30F371FB858 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3C0E2D29B7B628EA6CFCFA0 /* Security.framework */; };
+		E26AE754172D5BCE765B2CE4 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 94E6F46C02762A773200EA0E /* UIKit.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0A4E371DF3358EC9C50E22B8 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		0BD628EFDBD4F717DC749636 /* settings.rs */ = {isa = PBXFileReference; path = settings.rs; sourceTree = "<group>"; };
+		0E8E1C1A2A5D67A6CC05339A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		0FEA0D9B9B1178A8B60E32A4 /* todos.rs */ = {isa = PBXFileReference; path = todos.rs; sourceTree = "<group>"; };
+		140E9291917F0541F46CB517 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		17093336FABA29F1E92CD935 /* neko_perch.rs */ = {isa = PBXFileReference; path = neko_perch.rs; sourceTree = "<group>"; };
+		19FEB190469BEC9046E1D610 /* models.rs */ = {isa = PBXFileReference; path = models.rs; sourceTree = "<group>"; };
+		1A6A4504660C553A99935185 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		1C9FDE243BA4290BA152A3A2 /* error.rs */ = {isa = PBXFileReference; path = error.rs; sourceTree = "<group>"; };
+		1DCE29D487B756EB5E3135F3 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		2A5E711B094217FA1FEE71B1 /* scrape.rs */ = {isa = PBXFileReference; path = scrape.rs; sourceTree = "<group>"; };
+		2B213912DE4987A3D2EB19D0 /* guard.rs */ = {isa = PBXFileReference; path = guard.rs; sourceTree = "<group>"; };
+		390C516305D127D7E35AC4DB /* tests.rs */ = {isa = PBXFileReference; path = tests.rs; sourceTree = "<group>"; };
+		3A9411BDA1F572B1458E0677 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		419B8B700886C80CD9EA49DF /* claude.rs */ = {isa = PBXFileReference; path = claude.rs; sourceTree = "<group>"; };
+		4779D170C8EB6B86361449DC /* image.rs */ = {isa = PBXFileReference; path = image.rs; sourceTree = "<group>"; };
+		4D1D9D73A396D244157F2FA1 /* location.rs */ = {isa = PBXFileReference; path = location.rs; sourceTree = "<group>"; };
+		4ECFF48B3F2CF8CFB36B2341 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		4F172EB0CA296EBEBEA732C5 /* secrets.rs */ = {isa = PBXFileReference; path = secrets.rs; sourceTree = "<group>"; };
+		4F291008B21FA5A72184D1D3 /* nekodesk_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = nekodesk_iOS.entitlements; sourceTree = "<group>"; };
+		4FE99E46A610B428DDBD41DD /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		5022A799E4564E6514BC7099 /* neko_draw.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = neko_draw.py; sourceTree = "<group>"; };
+		523486D32CF26702350D746E /* llama.rs */ = {isa = PBXFileReference; path = llama.rs; sourceTree = "<group>"; };
+		5724807EBE26E7282239A450 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5944DCAA7A54F16CED8C141A /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		59CF8DE50A0FD07CC68335B9 /* capture.rs */ = {isa = PBXFileReference; path = capture.rs; sourceTree = "<group>"; };
+		5BC6745435FD2727630F7E9F /* weather.rs */ = {isa = PBXFileReference; path = weather.rs; sourceTree = "<group>"; };
+		5EE1B99B08EFB9AE39049418 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		62B845882256BAAB7FF38EA8 /* glow.rs */ = {isa = PBXFileReference; path = glow.rs; sourceTree = "<group>"; };
+		66A0270CE1C37C6AB670EE89 /* events.rs */ = {isa = PBXFileReference; path = events.rs; sourceTree = "<group>"; };
+		66CD3FF183E818738B54AF99 /* conversations.rs */ = {isa = PBXFileReference; path = conversations.rs; sourceTree = "<group>"; };
+		68F47CD748088BDCCA264511 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		71886581474A911245951A6C /* cipher.rs */ = {isa = PBXFileReference; path = cipher.rs; sourceTree = "<group>"; };
+		7B39CE460489BE7649A76775 /* memories.rs */ = {isa = PBXFileReference; path = memories.rs; sourceTree = "<group>"; };
+		82F487AF8ABFB06342B456B5 /* procs.rs */ = {isa = PBXFileReference; path = procs.rs; sourceTree = "<group>"; };
+		8D725F5010146164D091EDD4 /* terms.rs */ = {isa = PBXFileReference; path = terms.rs; sourceTree = "<group>"; };
+		8E80EFCA88A0822C2125F6FA /* protocol.rs */ = {isa = PBXFileReference; path = protocol.rs; sourceTree = "<group>"; };
+		907B44A7D62384E4DDBBC0D6 /* guard.rs */ = {isa = PBXFileReference; path = guard.rs; sourceTree = "<group>"; };
+		94E6F46C02762A773200EA0E /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		A0256442E4A983956CFB7D0E /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		A4EA3626CC3D2A84A0D1C534 /* run.rs */ = {isa = PBXFileReference; path = run.rs; sourceTree = "<group>"; };
+		A72AE0880B832C73274897D0 /* skills.rs */ = {isa = PBXFileReference; path = skills.rs; sourceTree = "<group>"; };
+		AF1CE653AD893F83DFB465BF /* neko_screen.rs */ = {isa = PBXFileReference; path = neko_screen.rs; sourceTree = "<group>"; };
+		B3723229D75D2739A75E93DF /* security.rs */ = {isa = PBXFileReference; path = security.rs; sourceTree = "<group>"; };
+		B507E0F212C17AFEE2737B03 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		B8909B3D51A0C46E5EDBB4C0 /* quick.rs */ = {isa = PBXFileReference; path = quick.rs; sourceTree = "<group>"; };
+		C5258C5C7875DFDB27C5A126 /* nekodesk_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = nekodesk_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C52932E3D183D062D8C6E9C4 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		C698709326DFA929AB1A9979 /* shelf.rs */ = {isa = PBXFileReference; path = shelf.rs; sourceTree = "<group>"; };
+		C9F90814F36D2E34A0FE82C6 /* exec_history.rs */ = {isa = PBXFileReference; path = exec_history.rs; sourceTree = "<group>"; };
+		D3C0E2D29B7B628EA6CFCFA0 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		D64FECBD8AA8EA632B1E865C /* airdrop.rs */ = {isa = PBXFileReference; path = airdrop.rs; sourceTree = "<group>"; };
+		D7CC981E4D1FDC5630F9B3B8 /* search.rs */ = {isa = PBXFileReference; path = search.rs; sourceTree = "<group>"; };
+		D9F84F2941B18D6DC54ECF9F /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		DF6D54F6954F40C135E1D3EF /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		E31238E7EC08C7BBD79BFBF6 /* map.rs */ = {isa = PBXFileReference; path = map.rs; sourceTree = "<group>"; };
+		EB568A02D0E08B8A953353F8 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		EB92D34468E8E0585356D467 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		EFAA3E56BE8A75CC68234A17 /* ambient.rs */ = {isa = PBXFileReference; path = ambient.rs; sourceTree = "<group>"; };
+		FDF577059E52E1FBD3B98E50 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		597014AEC39CEFA9F76DCB69 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ABC04757A02A368FA170354F /* libapp.a in Frameworks */,
+				447AB8D84037DB280C857D42 /* CoreGraphics.framework in Frameworks */,
+				766BD1BAD9B4B781E02610C8 /* Metal.framework in Frameworks */,
+				3C1CF0EE7904F91FA26D04D1 /* MetalKit.framework in Frameworks */,
+				7A7822E39670B56ACAAA1F15 /* QuartzCore.framework in Frameworks */,
+				CFF4AB792ED6E30F371FB858 /* Security.framework in Frameworks */,
+				E26AE754172D5BCE765B2CE4 /* UIKit.framework in Frameworks */,
+				AAB567D54DD7ADABC7A0A762 /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0C83BBA16EEF50F9A5617014 /* files */ = {
+			isa = PBXGroup;
+			children = (
+				907B44A7D62384E4DDBBC0D6 /* guard.rs */,
+				FDF577059E52E1FBD3B98E50 /* mod.rs */,
+			);
+			path = files;
+			sourceTree = "<group>";
+		};
+		1EC9FAD32078DB114721217C /* exec */ = {
+			isa = PBXGroup;
+			children = (
+				2B213912DE4987A3D2EB19D0 /* guard.rs */,
+				DF6D54F6954F40C135E1D3EF /* mod.rs */,
+				5022A799E4564E6514BC7099 /* neko_draw.py */,
+			);
+			path = exec;
+			sourceTree = "<group>";
+		};
+		25194EE2FC60C0F949F7EA91 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				83D39703D4E6D9B788A35258 /* nekodesk */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		3602290265D5B9DA35E75656 /* nekodesk_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				5724807EBE26E7282239A450 /* Info.plist */,
+				4F291008B21FA5A72184D1D3 /* nekodesk_iOS.entitlements */,
+			);
+			path = nekodesk_iOS;
+			sourceTree = "<group>";
+		};
+		4E236E5025A49669E2AA48E6 /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		6DB702142C210FA82BF9BB7D /* mcp */ = {
+			isa = PBXGroup;
+			children = (
+				A0256442E4A983956CFB7D0E /* mod.rs */,
+				8E80EFCA88A0822C2125F6FA /* protocol.rs */,
+			);
+			path = mcp;
+			sourceTree = "<group>";
+		};
+		6FC7690530D0BD40F4AF4DBD = {
+			isa = PBXGroup;
+			children = (
+				1DCE29D487B756EB5E3135F3 /* assets */,
+				0E8E1C1A2A5D67A6CC05339A /* Assets.xcassets */,
+				5944DCAA7A54F16CED8C141A /* LaunchScreen.storyboard */,
+				4E236E5025A49669E2AA48E6 /* Externals */,
+				3602290265D5B9DA35E75656 /* nekodesk_iOS */,
+				25194EE2FC60C0F949F7EA91 /* Sources */,
+				8E7C1E10B80D82347874A193 /* src */,
+				7AFBF642B9D3E24FBE31E89D /* Frameworks */,
+				E747E9E74E7357D2CC17951B /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7AFBF642B9D3E24FBE31E89D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				4ECFF48B3F2CF8CFB36B2341 /* CoreGraphics.framework */,
+				EB92D34468E8E0585356D467 /* libapp.a */,
+				1A6A4504660C553A99935185 /* Metal.framework */,
+				140E9291917F0541F46CB517 /* MetalKit.framework */,
+				B507E0F212C17AFEE2737B03 /* QuartzCore.framework */,
+				D3C0E2D29B7B628EA6CFCFA0 /* Security.framework */,
+				94E6F46C02762A773200EA0E /* UIKit.framework */,
+				68F47CD748088BDCCA264511 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		7FCD2430D07CADA68C09A8C2 /* db */ = {
+			isa = PBXGroup;
+			children = (
+				71886581474A911245951A6C /* cipher.rs */,
+				66CD3FF183E818738B54AF99 /* conversations.rs */,
+				66A0270CE1C37C6AB670EE89 /* events.rs */,
+				C9F90814F36D2E34A0FE82C6 /* exec_history.rs */,
+				7B39CE460489BE7649A76775 /* memories.rs */,
+				C52932E3D183D062D8C6E9C4 /* mod.rs */,
+				19FEB190469BEC9046E1D610 /* models.rs */,
+				0BD628EFDBD4F717DC749636 /* settings.rs */,
+				8D725F5010146164D091EDD4 /* terms.rs */,
+				0FEA0D9B9B1178A8B60E32A4 /* todos.rs */,
+			);
+			path = db;
+			sourceTree = "<group>";
+		};
+		83D39703D4E6D9B788A35258 /* nekodesk */ = {
+			isa = PBXGroup;
+			children = (
+				EB568A02D0E08B8A953353F8 /* main.mm */,
+				8ADC68A168EB59B930504DBF /* bindings */,
+			);
+			path = nekodesk;
+			sourceTree = "<group>";
+		};
+		8ADC68A168EB59B930504DBF /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				4FE99E46A610B428DDBD41DD /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+		8E7C1E10B80D82347874A193 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				D64FECBD8AA8EA632B1E865C /* airdrop.rs */,
+				EFAA3E56BE8A75CC68234A17 /* ambient.rs */,
+				59CF8DE50A0FD07CC68335B9 /* capture.rs */,
+				419B8B700886C80CD9EA49DF /* claude.rs */,
+				1C9FDE243BA4290BA152A3A2 /* error.rs */,
+				62B845882256BAAB7FF38EA8 /* glow.rs */,
+				3A9411BDA1F572B1458E0677 /* lib.rs */,
+				523486D32CF26702350D746E /* llama.rs */,
+				4D1D9D73A396D244157F2FA1 /* location.rs */,
+				D9F84F2941B18D6DC54ECF9F /* main.rs */,
+				E31238E7EC08C7BBD79BFBF6 /* map.rs */,
+				17093336FABA29F1E92CD935 /* neko_perch.rs */,
+				AF1CE653AD893F83DFB465BF /* neko_screen.rs */,
+				82F487AF8ABFB06342B456B5 /* procs.rs */,
+				B8909B3D51A0C46E5EDBB4C0 /* quick.rs */,
+				4F172EB0CA296EBEBEA732C5 /* secrets.rs */,
+				B3723229D75D2739A75E93DF /* security.rs */,
+				C698709326DFA929AB1A9979 /* shelf.rs */,
+				A72AE0880B832C73274897D0 /* skills.rs */,
+				7FCD2430D07CADA68C09A8C2 /* db */,
+				1EC9FAD32078DB114721217C /* exec */,
+				0C83BBA16EEF50F9A5617014 /* files */,
+				93C52DD99345FFC1345C9B22 /* http */,
+				6DB702142C210FA82BF9BB7D /* mcp */,
+				E2D54755ADE50C80C1476A32 /* sync */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		93C52DD99345FFC1345C9B22 /* http */ = {
+			isa = PBXGroup;
+			children = (
+				4779D170C8EB6B86361449DC /* image.rs */,
+				0A4E371DF3358EC9C50E22B8 /* mod.rs */,
+				2A5E711B094217FA1FEE71B1 /* scrape.rs */,
+				D7CC981E4D1FDC5630F9B3B8 /* search.rs */,
+				5BC6745435FD2727630F7E9F /* weather.rs */,
+			);
+			path = http;
+			sourceTree = "<group>";
+		};
+		E2D54755ADE50C80C1476A32 /* sync */ = {
+			isa = PBXGroup;
+			children = (
+				5EE1B99B08EFB9AE39049418 /* mod.rs */,
+				A4EA3626CC3D2A84A0D1C534 /* run.rs */,
+				390C516305D127D7E35AC4DB /* tests.rs */,
+			);
+			path = sync;
+			sourceTree = "<group>";
+		};
+		E747E9E74E7357D2CC17951B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C5258C5C7875DFDB27C5A126 /* nekodesk_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		339CE5758F9835323702ADE1 /* nekodesk_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B7C487B43E99D96A3B5C1C5A /* Build configuration list for PBXNativeTarget "nekodesk_iOS" */;
+			buildPhases = (
+				E1E8B4AB870C186E5D0F1805 /* Build Rust Code */,
+				EE75CAF8677FC3462820EC7C /* Sources */,
+				55E4262F35EA32A5A9C6CEF1 /* Resources */,
+				597014AEC39CEFA9F76DCB69 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = nekodesk_iOS;
+			packageProductDependencies = (
+			);
+			productName = nekodesk_iOS;
+			productReference = C5258C5C7875DFDB27C5A126 /* nekodesk_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		EE3BB1E8A380BB624C763DA3 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 539543473D8586129FAA3E89 /* Build configuration list for PBXProject "nekodesk" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 6FC7690530D0BD40F4AF4DBD;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = E747E9E74E7357D2CC17951B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				339CE5758F9835323702ADE1 /* nekodesk_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		55E4262F35EA32A5A9C6CEF1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				03CCFC27D1132FF40E51B41A /* Assets.xcassets in Resources */,
+				88D5D3DC0BE89E8C92384E06 /* LaunchScreen.storyboard in Resources */,
+				B2566940A1C8758609CC1748 /* assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		E1E8B4AB870C186E5D0F1805 /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		EE75CAF8677FC3462820EC7C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				833518B30892C1231053A589 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		05FE15769EA01C13F0E9C04F /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = nekodesk_iOS/nekodesk_iOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = nekodesk_iOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.nekodesk.desktop;
+				PRODUCT_NAME = "NekoDesk";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		9F656507DB4ACA5A46493D22 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+		C90E887523202E79D7055DC5 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+		F8BF5F76B49DE944A77BACCE /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = nekodesk_iOS/nekodesk_iOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = nekodesk_iOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.nekodesk.desktop;
+				PRODUCT_NAME = "NekoDesk";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		539543473D8586129FAA3E89 /* Build configuration list for PBXProject "nekodesk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9F656507DB4ACA5A46493D22 /* debug */,
+				C90E887523202E79D7055DC5 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		B7C487B43E99D96A3B5C1C5A /* Build configuration list for PBXNativeTarget "nekodesk_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				05FE15769EA01C13F0E9C04F /* debug */,
+				F8BF5F76B49DE944A77BACCE /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = EE3BB1E8A380BB624C763DA3 /* Project object */;
+}

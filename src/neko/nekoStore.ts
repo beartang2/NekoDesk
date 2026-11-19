@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { IS_PHONE } from "../lib/platform";
 import { settingsApi } from "../api/tauri";
 import type { NekoAppearance, NekoPattern } from "./engine/neko-engine";
 
@@ -99,9 +100,12 @@ export function normalizeAppearance(raw: unknown): NekoAppearance {
 export function normalizeStage(raw: unknown): NekoStageSettings {
   const s = (raw && typeof raw === "object" ? raw : {}) as Partial<NekoStageSettings>;
   return {
-    placement: s.placement === "dock" || s.placement === "screen" ? s.placement : "sidebar",
+    // 폰: 방(대화 목록 안)·거실(대화 창 위 띠) 둘. 마당(모니터 화면)은 없고, 처음엔 거실이다
+    placement: IS_PHONE
+      ? (s.placement === "sidebar" ? "sidebar" : "dock")
+      : s.placement === "dock" || s.placement === "screen" ? s.placement : "sidebar",
     sidebarH: clampH(Number.isFinite(s.sidebarH) ? (s.sidebarH as number) : SIDEBAR_H.def, SIDEBAR_H),
-    dockH: clampH(Number.isFinite(s.dockH) ? (s.dockH as number) : DOCK_H.def, DOCK_H),
+    dockH: clampH(Number.isFinite(s.dockH) ? (s.dockH as number) : IS_PHONE ? DOCK_H.min : DOCK_H.def, DOCK_H),
     screenScale: clampScale(Number.isFinite(s.screenScale) ? (s.screenScale as number) : SCREEN_SCALE.def),
     screenOnTop: s.screenOnTop !== false,
     // 기본 30(CPU, docs/neko-perf.md §3 #4). 60 을 저장해 둔 사용자는 그대로(직접 고른 값)
@@ -139,6 +143,15 @@ function initialAppearance(): NekoAppearance {
   let legacy: string | null = null;
   try { legacy = localStorage.getItem(LEGACY_VARIANT_KEY); } catch { /* 무시 */ }
   return normalizeAppearance({ ...DEFAULT_APPEARANCE, ...(migrateVariant(legacy) ?? {}) });
+}
+
+/** 이 기기에서 외형을 정한 적이 있나(지금 형식이든 예전 스프라이트 이름이든) */
+function hasLocalAppearance(): boolean {
+  try {
+    return localStorage.getItem(APPEARANCE_KEY) !== null || localStorage.getItem(LEGACY_VARIANT_KEY) !== null;
+  } catch {
+    return false;
+  }
 }
 
 interface NekoStore {
@@ -188,7 +201,9 @@ export const useNekoStore = create<NekoStore>((set, get) => ({
     ]);
     try {
       if (a) set({ appearance: normalizeAppearance(JSON.parse(a)) });
-      else save(APPEARANCE_KEY, get().appearance); // 처음: 옮겨 온(또는 기본) 외형을 DB 에도 남긴다
+      // 처음: 이 기기에서 정해 둔 외형(localStorage)만 DB 로 옮긴다. 정한 적 없는 기본값은 안 옮긴다 — 동기화는 나중에 쓴 쪽이
+      // 이겨서, 새로 짝 맞춘 기기가 방금 적은 기본 외형으로 다른 기기에서 꾸민 외형을 덮었다(같이 쓰는 다른 설정은 hydrateSyncedSettings 가 같은 규칙)
+      else if (hasLocalAppearance()) save(APPEARANCE_KEY, get().appearance);
       if (s) set({ stage: normalizeStage(JSON.parse(s)) });
     } catch {
       /* 깨진 값 — 지금 값을 유지 */

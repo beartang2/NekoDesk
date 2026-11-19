@@ -18,6 +18,8 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { startMemoryTidy } from "./neko/memoryTidy";
 import { startAmbient } from "./neko/ambient";
 import { startSync } from "./lib/sync";
+import { IS_PHONE } from "./lib/platform";
+import { startPhone } from "./lib/phone";
 
 
 // 같은 번들을 여러 창이 쓴다. ⌃⇧N 창("quick")은 입력만 받고, 캡처 막("capture-N")은
@@ -34,6 +36,8 @@ const isNekoScreen = label === "neko-screen";
 const isNekoDecor = label.startsWith("neko-decor-");
 // 설정에서 따로 띄우는 창(네코 꾸미기·선물함, panel_open)
 const panel = label === "neko-customize" || label === "neko-gifts" ? (label as NekoPanelKind) : null;
+// 폰: 세로 한 줄 배치·키보드·터치(lib/phone.ts)
+if (IS_PHONE) startPhone();
 if (isQuick) document.documentElement.classList.add("quick-window");
 // 빛 창·화면 네코 창도 캡처 막처럼 바탕이 투명해야 한다.
 if (isCapture || isGlow || isNekoScreen || isNekoDecor) document.documentElement.classList.add("capture-window");

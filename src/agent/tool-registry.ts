@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { IS_PHONE } from "../lib/platform";
 import {
   airdropApi,
   todosApi,
@@ -974,10 +975,17 @@ export function getTool(name: ToolName): ToolEntry {
   return REGISTRY[name];
 }
 
+/** 폰(iOS)에 없는 툴: 파일·코드 실행·보안 점검처럼 맥에서만 되는 것과, 폰 1차엔 뺀 그림(docs/neko-sync.md §6.1). */
+const DESKTOP_ONLY = /^(fs\.|image\.|(code\.exec|skill\.read|file\.upload|security\.check|process\.list|airdrop\.send)$)/;
+
+export function onThisDevice(name: string, phone = IS_PHONE): boolean {
+  return !phone || !DESKTOP_ONLY.test(name);
+}
+
 export function getAllTools(): ToolEntry[] {
-  // 꺼둔 기능은 스키마에서도 뺀다 — 못 쓰는 툴을 모델에게 보여주면 부르고 실패한다.
+  // 꺼둔 기능·이 기기에 없는 기능은 스키마에서도 뺀다 — 못 쓰는 툴을 모델에게 보여주면 부르고 실패한다.
   const imageOff = useSettingsStore.getState().imageGen.provider === "off";
-  return Object.values(REGISTRY).filter((t) => !(imageOff && t.name === "image.generate"));
+  return Object.values(REGISTRY).filter((t) => onThisDevice(t.name) && !(imageOff && t.name === "image.generate"));
 }
 
 export function isStaticTool(name: string): name is ToolName {

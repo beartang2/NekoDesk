@@ -218,6 +218,65 @@ fn later_write_wins_and_earlier_one_is_ignored() {
 }
 
 #[test]
+fn a_joining_device_takes_the_groups_settings_instead_of_overwriting_them() {
+    let (a, b) = (db(), db());
+    // 쓰던 기기 A 가 한참 전에 꾸민 외형
+    settings::set(&a, "neko_appearance", "꾸민 외형").unwrap();
+    a.execute("UPDATE sync_meta SET ts = 1000 WHERE coll = 'setting'", []).unwrap();
+    // 방금 켠 기기 B 는 기본 외형을 더 나중에 적었다. 메모는 B 것도 올라가야 한다
+    settings::set(&b, "neko_appearance", "기본 외형").unwrap();
+    memories::save(&b, "fact", "B 가 아는 것").unwrap();
+    // B 가 짝 문자열로 끼어든다: 전부 올릴 것으로 찍되 설정은 양보
+    b.execute("UPDATE sync_meta SET dirty = 1", []).unwrap();
+    yield_settings(&b).unwrap();
+    let from_b = push_all(&b, "B");
+    assert!(from_b.iter().all(|r| r.coll != "setting"), "끼어든 기기의 설정은 올라가지 않는다");
+    assert!(from_b.iter().any(|r| r.coll == "memory"));
+    apply_all(&b, "B", &push_all(&a, "A"));
+    assert_eq!(settings::get(&b, "neko_appearance").unwrap().as_deref(), Some("꾸민 외형"));
+    // 그 뒤 B 에서 바꾸면 다시 올라간다
+    settings::set(&b, "neko_appearance", "폰에서 바꾼 외형").unwrap();
+    assert!(push_all(&b, "B").iter().any(|r| r.coll == "setting"));
+}
+
+#[test]
+fn records_sealed_with_another_key_are_skipped_and_counted() {
+    let (a, b) = (db(), db());
+    todos::add(&a, "다른 열쇠로 올린 것", None).unwrap();
+    let recs = push_all(&a, "A");
+    // B 는 다른 암호 키를 들고 있다(dev 빌드가 키체인의 열쇠를 덮은 뒤 연결된 기기처럼)
+    let srv = Server { url: String::new(), token: String::new(), device: "B".into(), key: [7u8; 32] };
+    let resp = SyncResp { records: recs.clone(), seq: 9, more: false, rejected: Vec::new(), reset: false, walk: None };
+    settle(&b, &srv, &[], &resp, &mut Changes::default()).unwrap();
+    assert!(todos::list_open(&b).unwrap().is_empty(), "못 푼 기록은 적용되지 않는다");
+    assert_eq!(state_i64(&b, "skipped").unwrap(), recs.len() as i64, "건너뛴 수를 남긴다(설정이 알린다)");
+    // 처음부터 다시 받아 다 풀리면 0 으로 돌아온다
+    set_state(&b, "since", "0").unwrap();
+    let ok = Server { key: KEY, ..srv };
+    settle(&b, &ok, &[], &resp, &mut Changes::default()).unwrap();
+    assert_eq!(state_i64(&b, "skipped").unwrap(), 0);
+    assert_eq!(todos::list_open(&b).unwrap().len(), 1);
+}
+
+#[test]
+fn the_shared_walk_from_the_server_is_kept_and_reported_once() {
+    let c = db();
+    let srv = Server { url: String::new(), token: String::new(), device: "B".into(), key: KEY };
+    let walk = SharedWalk { start: 1000, end: 2000, device: "A".into() };
+    let with = |w: Option<SharedWalk>| SyncResp { records: Vec::new(), seq: 1, more: false, rejected: Vec::new(), reset: false, walk: w };
+    let mut ch = Changes::default();
+    settle(&c, &srv, &[], &with(Some(walk.clone())), &mut ch).unwrap();
+    assert!(ch.colls.contains("walk"), "다른 기기의 산책을 화면에 알린다");
+    assert_eq!(stored_walk(&c).unwrap(), Some(walk.clone()));
+    // 같은 산책이면 다시 알리지 않고, 옛 서버(walk 없음)면 적어 둔 것을 지우지 않는다
+    let mut again = Changes::default();
+    settle(&c, &srv, &[], &with(Some(walk.clone())), &mut again).unwrap();
+    settle(&c, &srv, &[], &with(None), &mut again).unwrap();
+    assert!(again.colls.is_empty());
+    assert_eq!(stored_walk(&c).unwrap(), Some(walk));
+}
+
+#[test]
 fn same_memory_from_two_devices_is_merged_into_the_smaller_id() {
     let (a, b) = (db(), db());
     memories::save(&a, "fact", "생일은 3월 2일").unwrap();

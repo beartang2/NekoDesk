@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { QrScan } from "./QrScan";
+import { IS_PHONE } from "../lib/platform";
 import { invoke } from "@tauri-apps/api/core";
 import { memoryApi, secretsApi, settingsApi, syncApi, type SyncDevice, type SyncStatus } from "../api/tauri";
 import { appEvents } from "../lib/events";
@@ -1273,6 +1275,26 @@ function SyncSection() {
   const [setup, setSetup] = useState("");
   const [pasted, setPasted] = useState("");
   const [pairing, setPairing] = useState("");
+  // 폰: 붙여넣기 버튼. 시스템 클립보드를 직접 읽고(웹뷰의 붙여넣기가 안 되는 일이 있다), 안 되면 웹 쪽으로 한 번 더
+  async function pasteCode() {
+    setErr("");
+    const text = (await invoke<string | null>("paste_text").catch(() => null)) ?? (await navigator.clipboard.readText().catch(() => null));
+    if (text === null) setErr("붙여넣지 못했어요. 붙여넣기를 허용했는지 확인해 주세요.");
+    else if (!text.trim().startsWith("nekosync1:")) setErr("복사해 둔 기기 연결 코드가 없어요. 맥에서 코드를 복사한 뒤 다시 눌러 주세요.");
+    else setPasted(text.trim());
+  }
+  // 폰: 앱 안에서 QR 찍기
+  const [scanning, setScanning] = useState(false);
+  // 맥: 코드를 QR 로도 보인다(폰에서는 긴 코드를 못 친다). 숨기면 같이 사라진다
+  const [qr, setQr] = useState("");
+  useEffect(() => {
+    setQr("");
+    if (pairing && !IS_PHONE) void syncApi.pairQr(pairing).then(setQr).catch(() => {});
+  }, [pairing]);
+  // 기기 연결 코드에 Claude API 키도 싣는다(아이폰은 긴 키를 치기 어렵다). 키가 있을 때만 고를 수 있다
+  const [hasClaude, setHasClaude] = useState(false);
+  const [withClaude, setWithClaude] = useState(true);
+  useEffect(() => { secretsApi.has("anthropic_api_key").then(setHasClaude).catch(() => {}); }, []);
   const [devices, setDevices] = useState<{ devices: SyncDevice[]; me: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -1326,11 +1348,17 @@ function SyncSection() {
             <button className="settings-btn settings-btn--ghost" disabled={busy || !st.enabled} onClick={() => void run(() => syncApi.now())}>
               지금 동기화
             </button>
-            <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void run(async () => setPairing(await syncApi.pairMake()))}>
+            <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void run(async () => setPairing(await syncApi.pairMake(hasClaude && withClaude)))}>
               기기 연결 코드 만들기
             </button>
             <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void loadDevices()}>연결된 기기</button>
           </div>
+          {hasClaude && (
+            <label className="settings-section__desc">
+              <input type="checkbox" checked={withClaude} onChange={(e) => setWithClaude(e.target.checked)} />
+              {" "}기기 연결 코드에 Claude API 키도 넣기(아이폰에서 키를 따로 넣지 않아도 돼요)
+            </label>
+          )}
           {pairing && (
             <>
               <p className="settings-section__desc">
@@ -1341,16 +1369,24 @@ function SyncSection() {
                 <button className="settings-btn settings-btn--ghost" onClick={() => { void navigator.clipboard.writeText(pairing); }}>복사</button>
                 <button className="settings-btn settings-btn--ghost" onClick={() => setPairing("")}>숨기기</button>
               </div>
+              {qr && (
+                <>
+                  <img className="sync-qr" alt="기기 연결 QR" src={`data:image/svg+xml;utf8,${encodeURIComponent(qr)}`} />
+                  <p className="settings-section__desc">아이폰은 카메라로 이 QR 을 찍으면 NekoDesk 가 열려요.</p>
+                </>
+              )}
             </>
           )}
           {devices && (
-            <ul className="settings-section__desc">
+            <ul className="settings-section__desc sync-devices">
               {devices.devices.map((d) => (
                 <li key={d.id}>
-                  {d.name}{d.id === devices.me ? " (이 맥)" : ""}
-                  {" · "}{d.revoked ? "연결 끊김" : d.last_seen ? `마지막 접속 ${syncTime(d.last_seen)}` : "아직 접속 안 함"}
+                  <span>
+                    {d.name}{d.id === devices.me ? " (이 기기)" : ""}
+                    {" · "}{d.revoked ? "연결 끊김" : d.last_seen ? `마지막 접속 ${syncTime(d.last_seen)}` : "아직 접속 안 함"}
+                  </span>
                   {d.id !== devices.me && !d.revoked && (
-                    <> <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => revoke(d)}>끊기</button></>
+                    <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => revoke(d)}>끊기</button>
                   )}
                 </li>
               ))}
@@ -1366,17 +1402,38 @@ function SyncSection() {
         </>
       ) : (
         <>
-          <p className="settings-section__desc">처음 쓰는 맥이라면 서버 주소와 서버를 배포할 때 정한 설정 토큰(SETUP_TOKEN)을 입력해 주세요.</p>
-          <div className="settings-row">
-            <input className="settings-input" value={url} placeholder="https://sync.example.com" onChange={(e) => setUrl(e.target.value)} />
-            <input className="settings-input" type="password" value={setup} placeholder="SETUP_TOKEN" onChange={(e) => setSetup(e.target.value)} />
-            <button className="settings-btn settings-btn--ghost" disabled={busy || !url || !setup} onClick={() => void run(() => syncApi.setup(url, setup).then(() => setSetup("")))}>
-              등록하고 켜기
-            </button>
-          </div>
-          <p className="settings-section__desc">다른 기기에서 이미 쓰고 있다면 그 기기에서 만든 기기 연결 코드를 붙여넣어 주세요.</p>
+          {!IS_PHONE && (
+            <>
+              <p className="settings-section__desc">처음 쓰는 맥이라면 서버 주소와 서버를 배포할 때 정한 설정 토큰(SETUP_TOKEN)을 입력해 주세요.</p>
+              <div className="settings-row">
+                <input className="settings-input" value={url} placeholder="https://sync.example.com" onChange={(e) => setUrl(e.target.value)} />
+                <input className="settings-input" type="password" value={setup} placeholder="SETUP_TOKEN" onChange={(e) => setSetup(e.target.value)} />
+                <button className="settings-btn settings-btn--ghost" disabled={busy || !url || !setup} onClick={() => void run(() => syncApi.setup(url, setup).then(() => setSetup("")))}>
+                  등록하고 켜기
+                </button>
+              </div>
+            </>
+          )}
+          <p className="settings-section__desc">
+            {IS_PHONE
+              ? "맥의 설정 › 연동 › 동기화에서 '기기 연결 코드 만들기'를 누르고, 나온 QR 을 찍어 주세요. QR 이 안 보이면 코드를 복사해 아래에 붙여넣어 주세요."
+              : "다른 기기에서 이미 쓰고 있다면 그 기기에서 만든 기기 연결 코드를 붙여넣어 주세요."}
+          </p>
+          {IS_PHONE && (
+            <div className="settings-row">
+              <button className="settings-btn" disabled={busy} onClick={() => setScanning(true)}>QR 찍기</button>
+            </div>
+          )}
+          {scanning && <QrScan onClose={() => setScanning(false)} />}
           <div className="settings-row">
             <input className="settings-input" type="password" value={pasted} placeholder="nekosync1:…" onChange={(e) => setPasted(e.target.value)} />
+            {/* 폰: 긴 코드를 손으로 칠 수는 없다. 길게 눌러 붙여넣기를 못 찾아도 한 번에 붙게(iOS 가 붙여넣기 허용을 묻는다) */}
+            {IS_PHONE && (
+              <button className="settings-btn settings-btn--ghost" disabled={busy}
+                onClick={() => void pasteCode()}>
+                붙여넣기
+              </button>
+            )}
             <button className="settings-btn settings-btn--ghost" disabled={busy || !pasted} onClick={() => void run(() => syncApi.pairJoin(pasted).then(() => setPasted("")))}>
               연결하기
             </button>
@@ -1745,7 +1802,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
   }
 
   function resetAccent() {
-    const defaultHex = "#a78bfa";
+    const defaultHex = "#75a7ce";
     saveAccentHex(defaultHex);
     setAccentVars(defaultHex, isDark);
     setAccentHex(defaultHex);

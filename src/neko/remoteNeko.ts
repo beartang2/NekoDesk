@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { IS_PHONE } from "../lib/platform";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import type { NekoActivity, NekoController, NekoDecorSpot, NekoEvents } from "./engine/neko-engine";
@@ -215,7 +216,8 @@ export function link(): void {
   ping();
 }
 
-const IS_MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
+// 아이폰의 userAgent 에도 "like Mac OS X" 가 있어 폰은 따로 뺀다
+const IS_MAC = !IS_PHONE && typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 /** 지금 산책 중인가. 화면 창이 새로 준비되면(다른 자리에서 돌아옴 등) 그때도 팻말 상태를 맞춰 준다 */
 let awayNow = false;
 let awayMusic = false;

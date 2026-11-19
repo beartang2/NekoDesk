@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { describe, expect, it, vi } from "vitest";
+
+const db = vi.hoisted(() => ({ set: vi.fn(async () => {}), get: vi.fn(async () => null as string | null) }));
+vi.mock("../api/tauri", () => ({ settingsApi: db }));
 import { DEFAULT_APPEARANCE, DOCK_H, SCREEN_SCALE, SIDEBAR_H, migrateVariant, normalizeAppearance, normalizeStage } from "./nekoStore";
 
 describe("nekoStore 정리 함수", () => {
@@ -40,5 +44,23 @@ describe("nekoStore 정리 함수", () => {
     expect(normalizeStage({ placement: "wall", screenScale: 0.777, screenOnTop: "no" })).toMatchObject({
       placement: "sidebar", screenScale: 0.78, screenOnTop: true,
     });
+  });
+});
+
+describe("외형을 DB 로 옮기기(동기화)", () => {
+  it("정한 적 없는 기본 외형은 DB 에 적지 않는다 — 새로 짝 맞춘 기기가 다른 기기의 외형을 덮지 않게", async () => {
+    vi.useFakeTimers();
+    const { useNekoStore } = await import("./nekoStore");
+    localStorage.clear();
+    db.set.mockClear();
+    await useNekoStore.getState().load();
+    vi.advanceTimersByTime(1000);
+    expect(db.set).not.toHaveBeenCalled();
+    // 이 기기에서 정해 둔 외형이 있으면 옮긴다
+    localStorage.setItem("neko_appearance", JSON.stringify({ coat: "black" }));
+    await useNekoStore.getState().load();
+    vi.advanceTimersByTime(1000);
+    expect(db.set).toHaveBeenCalledWith("neko_appearance", expect.any(String));
+    vi.useRealTimers();
   });
 });

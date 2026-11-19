@@ -67,6 +67,20 @@ export function routineName(time: number): string | null {
   return ROUTINE_HOURS.find(([a, b]) => h >= a && h < b)?.[2] ?? null;
 }
 
+/** 기기들이 같이 보는 마지막 산책(동기화, docs/neko-sync.md §5.4). mine = 이 기기가 나간 것 */
+export interface SharedWalk { start: number; end: number; mine: boolean }
+
+/** 다음 산책을 잴 '지난 산책': 이 기기 것과 같이 보는 것 중 더 늦게 나간 쪽. 다른 기기가 끼니 산책을 다녀왔으면 또 나가지 않는다 */
+export function lastWalkWith(local: { start: number; end: number } | null, shared: SharedWalk | null): { start: number; end: number } | null {
+  if (!shared) return local;
+  const s = { start: shared.start, end: shared.end };
+  return local && local.start >= s.start ? local : s;
+}
+
+/** 다른 기기가 지금 산책 중인가 — 그동안 이 기기의 네코도 자리에 없다 */
+export const walkingElsewhere = (shared: SharedWalk | null, now: number): boolean =>
+  !!shared && !shared.mine && now >= shared.start && now < shared.end;
+
 export interface WalkPlan {
   /** 나갈 시각(ms). 지금보다 이르면 바로 */
   at: number;

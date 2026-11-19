@@ -7,25 +7,36 @@ use tauri::Manager;
 mod error;
 mod db;
 mod http;
+// 폰(iOS)에는 파일·코드 실행·로컬 모델·캡처·빠른 질문 같은 데스크탑 도구가 없다 — `cfg(desktop)` 로 가른다(docs/neko-sync.md §6.1).
 // 이름을 `fs` 로 두면 이 파일 곳곳의 `std::fs` 와 헷갈린다.
+#[cfg(desktop)]
 mod files;
+#[cfg(desktop)]
 mod airdrop;
+#[cfg(desktop)]
 mod exec;
+#[cfg(desktop)]
 mod llama;
+#[cfg(desktop)]
 mod skills;
+#[cfg(desktop)]
 mod quick;
 // 창을 어느 모니터 가운데에 띄울지(마우스·메인 창 모니터). 폰엔 창이 하나라 데스크탑만
 #[cfg(desktop)]
 mod place;
 #[cfg(target_os = "macos")]
 mod capture;
+#[cfg(target_os = "macos")]
 mod location;
 #[cfg(target_os = "macos")]
 mod map;
 mod secrets;
 mod claude;
+#[cfg(desktop)]
 mod security;
+#[cfg(desktop)]
 mod procs;
+#[cfg(desktop)]
 mod glow;
 #[cfg(target_os = "macos")]
 mod neko_screen;
@@ -33,10 +44,12 @@ mod neko_screen;
 mod neko_perch;
 #[cfg(target_os = "macos")]
 mod ambient;
+#[cfg(desktop)]
 mod shelf;
 // 기기 간 동기화(docs/neko-sync.md). 기본은 꺼져 있다
 mod sync;
 // 통합 테스트(tests/mcp_stdio.rs)가 실제 프로세스를 띄워 확인하므로 공개한다.
+#[cfg(desktop)]
 pub mod mcp;
 pub use error::AppError;
 // 모델은 db::models 소속. 예전에 lib.rs 에 있던 경로를 유지하려 재노출.
@@ -50,15 +63,18 @@ pub struct DbState(pub Mutex<Connection>);
 /// 포트를 같이 들고 있어야, 자식 핸들이 stale/None 이어도(앱이 SIGKILL 로 죽어
 /// 자식이 launchd 로 reparent 된 고아, 또는 포트 선점으로 spawn 이 조용히 실패한
 /// 경우) 종료 시 포트 기준으로 확실히 죽일 수 있다.
+#[cfg(desktop)]
 #[derive(Default)]
 pub struct LlamaProc {
     pub child: Option<std::process::Child>,
     pub port: Option<i32>,
 }
+#[cfg(desktop)]
 pub struct LlamaServerState(pub Mutex<LlamaProc>);
 
 /// 해당 TCP 포트를 LISTEN 중인 프로세스를 종료한다(고아 llama 청소용).
 /// 추적 핸들이 없어도 동작하도록 lsof 로 PID 를 찾아 신호를 보낸다.
+#[cfg(desktop)]
 pub fn kill_port(port: i32) {
     let _ = std::process::Command::new("sh")
         .arg("-c")
@@ -171,6 +187,7 @@ unsafe fn perform_haptic(pattern: isize) {
 }
 
 /// 뷰어 창에 띄울 것. 그림은 data URL, 글 파일은 text.
+#[cfg(desktop)]
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewerItem {
@@ -181,11 +198,13 @@ pub struct ViewerItem {
 
 /// 지금 뷰어 창에 띄울 것. 창은 열릴 때 이걸 가져간다 — 막 만든 창은 이벤트를 듣기 전이라
 /// 내용을 이벤트에 실어 보내면 놓친다. 이미 떠 있는 창엔 `viewer-open` 으로 다시 가져가라고 알린다.
+#[cfg(desktop)]
 #[derive(Default)]
 pub struct ViewerState(Mutex<Option<ViewerItem>>);
 
 /// dir 안에서 name 을 쓸 경로. 같은 이름이 있으면 "이름 (2).확장자" 처럼 번호를 붙인다.
 /// name 은 화면에서 온 값이라 디렉터리 부분은 버리고 파일 이름만 쓴다.
+#[cfg(desktop)]
 fn unique_download_path(dir: &std::path::Path, name: &str) -> PathBuf {
     let base = std::path::Path::new(name)
         .file_name()
@@ -227,6 +246,107 @@ unsafe fn copy_png_to_pasteboard(png: &[u8]) -> bool {
     let _: isize = msg_send![pb, clearContents];
     let ok: Bool = msg_send![pb, setData: data, forType: kind];
     ok.as_bool()
+}
+
+/// 폰: 웹뷰가 화면 끝까지(상태 막대·홈 막대 밑까지) 그리게 한다. 기본값(자동)이면 iOS 18 의 WKWebView 가 안전 영역만큼
+/// 문서를 줄여, 화면 아래 84pt 가 창 바탕색(검정)으로 비었다. 여백은 화면 쪽 CSS 가 env(safe-area-inset-*) 로 둔다.
+/// 문서가 화면에 꽉 차니 튕기는 스크롤도 끈다.
+#[cfg(target_os = "ios")]
+fn ios_full_screen(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|webview| unsafe {
+        use objc2::msg_send;
+        use objc2::runtime::AnyObject;
+        let scroll: *mut AnyObject = msg_send![webview.inner() as *mut AnyObject, scrollView];
+        if scroll.is_null() {
+            return;
+        }
+        // UIScrollViewContentInsetAdjustmentNever = 2
+        let _: () = msg_send![scroll, setContentInsetAdjustmentBehavior: 2isize];
+        let _: () = msg_send![scroll, setBounces: false];
+        let _: () = msg_send![scroll, setScrollEnabled: false];
+        ios_scroll::lock(scroll);
+    });
+}
+
+/// 폰: 키보드가 올라올 때 WKWebView 가 입력 칸을 보이려고 문서를 통째로 밀어 올린다. 화면 쪽은 보이는 높이에 맞춰
+/// 스스로 줄어드니(main.tsx 의 --vvh) 그 밀림은 쓸모없고, 둘이 겹쳐 화면이 한 번 내려갔다 올라왔다.
+/// 스크롤 뷰가 움직일 때마다 처음 자리로 되돌린다(스크롤 끄기만으로는 코드로 미는 것을 못 막는다).
+#[cfg(target_os = "ios")]
+mod ios_scroll {
+    use objc2::runtime::{AnyClass, AnyObject, ClassBuilder, Sel};
+    use objc2::{msg_send, sel, Encode, Encoding};
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Point {
+        x: f64,
+        y: f64,
+    }
+    unsafe impl Encode for Point {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+
+    extern "C-unwind" fn did_scroll(_this: &AnyObject, _cmd: Sel, scroll: *mut AnyObject) {
+        unsafe {
+            let at: Point = msg_send![scroll, contentOffset];
+            if at.x != 0.0 || at.y != 0.0 {
+                let _: () = msg_send![scroll, setContentOffset: Point { x: 0.0, y: 0.0 }];
+            }
+        }
+    }
+
+    /// main thread 전용. 델리게이트는 약한 참조라 만든 객체를 놓지 않는다(앱이 사는 동안 하나).
+    pub unsafe fn lock(scroll: *mut AnyObject) {
+        let cls = AnyClass::get(c"NekoScrollLock").or_else(|| {
+            let mut builder = ClassBuilder::new(c"NekoScrollLock", AnyClass::get(c"NSObject")?)?;
+            builder.add_method(sel!(scrollViewDidScroll:), did_scroll as extern "C-unwind" fn(_, _, _));
+            Some(builder.register())
+        });
+        let Some(cls) = cls else { return };
+        let delegate: *mut AnyObject = msg_send![cls, new];
+        let _: () = msg_send![scroll, setDelegate: delegate];
+    }
+}
+
+/// 폰: 클립보드의 글. 웹뷰의 붙여넣기(navigator.clipboard·길게 눌러 뜨는 메뉴)가 안 되는 일이 있어 시스템 클립보드를
+/// 직접 읽는다 — iOS 가 "붙여넣기 허용"을 묻는다. main thread 전용.
+#[cfg(target_os = "ios")]
+fn ios_pasteboard_text() -> Option<String> {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    unsafe {
+        let pasteboard: *mut AnyObject = msg_send![AnyClass::get(c"UIPasteboard")?, generalPasteboard];
+        if pasteboard.is_null() {
+            return None;
+        }
+        let text: *mut AnyObject = msg_send![pasteboard, string];
+        if text.is_null() {
+            return None;
+        }
+        let utf8: *const std::ffi::c_char = msg_send![text, UTF8String];
+        (!utf8.is_null()).then(|| std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+    }
+}
+
+// AVAudioSession 이 든 프레임워크
+#[cfg(target_os = "ios")]
+#[link(name = "AVFoundation", kind = "framework")]
+extern "C" {}
+
+/// 폰의 '따라 하기': 다른 앱에서 소리가 나오는 중인가(음악·영상). 어느 앱·무슨 곡인지는 모른다 — iOS 가 안 알려 준다.
+#[cfg(target_os = "ios")]
+fn ios_other_audio_playing() -> bool {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject, Bool};
+    unsafe {
+        let Some(cls) = AnyClass::get(c"AVAudioSession") else { return false };
+        let session: *mut AnyObject = msg_send![cls, sharedInstance];
+        if session.is_null() {
+            return false;
+        }
+        let playing: Bool = msg_send![session, isOtherAudioPlaying];
+        playing.as_bool()
+    }
 }
 
 fn open_db(data_dir: PathBuf) -> Result<Connection, String> {
@@ -284,6 +404,7 @@ pub struct ScrapResult {
     pub images: Vec<String>,
 }
 
+#[cfg(desktop)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CodeExecResult {
     pub stdout: String,
@@ -302,7 +423,6 @@ pub struct CodeExecResult {
 
 mod commands {
     use super::*;
-    use std::process::{Command, Stdio};
     use tauri::State;
 
     // todos 커맨드는 DB 잠금만 잡고 db::todos 순수 함수에 위임한다.
@@ -360,6 +480,7 @@ mod commands {
     }
 
     /// 로컬 코드 실행. 실제 구현과 하드 게이트는 `crate::exec` 안에 있다.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn code_exec(
         code: String,
@@ -409,6 +530,7 @@ mod commands {
     }
 
     /// image.trace 의 선 경로를 출력 폴더에 두고 파일 이름을 돌려준다.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn trace_save(name: String, json: String) -> Result<String, AppError> {
         crate::exec::save_trace(&name, &json)
@@ -511,6 +633,7 @@ mod commands {
 
     /// 부팅 화면이 끝나면 프런트가 부른다. 작게 뜬 창이 같은 가운데에서 본 크기로
     /// 부드럽게 커지고, 다 커진 뒤에 돌아온다 — 프런트는 그때 부팅 화면을 걷는다.
+    #[cfg(desktop)]
     #[tauri::command]
     pub async fn window_boot_done(window: tauri::WebviewWindow) -> Result<(), AppError> {
         // 처음엔 1366×768 이었는데 커지고 나면 크게 느껴졌다. 한 단계 줄였다.
@@ -539,12 +662,14 @@ mod commands {
         grown
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn shelf_list(app: tauri::AppHandle) -> Result<Vec<crate::shelf::ShelfItem>, AppError> {
         crate::shelf::list(&crate::shelf::dir(&app)?)
     }
 
     /// 보관함에 넣는다. 몸통은 파일 바이트 그대로, 이름은 x-name 헤더(encodeURIComponent).
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn shelf_add(app: tauri::AppHandle, request: tauri::ipc::Request<'_>) -> Result<crate::shelf::ShelfItem, AppError> {
         let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
@@ -559,6 +684,7 @@ mod commands {
         crate::shelf::add(&crate::shelf::dir(&app)?, &name, bytes)
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn shelf_remove(app: tauri::AppHandle, name: String) -> Result<(), AppError> {
         crate::shelf::remove(&crate::shelf::dir(&app)?, &name)
@@ -570,6 +696,7 @@ mod commands {
     }
 
     /// macOS 위치 서비스로 지금 동네를 찾는다. `"역삼동 (37.5000,127.0364)"` 꼴.
+    #[cfg(target_os = "macos")]
     #[tauri::command]
     pub async fn location_current(app: tauri::AppHandle) -> Result<String, AppError> {
         crate::location::current(&app).await
@@ -620,12 +747,14 @@ mod commands {
     }
 
     /// 빠른 질문 창의 📷. 화면 일부를 잘라 data URL 로, 그만두면 None.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn quick_capture(app: tauri::AppHandle) -> Result<Option<String>, AppError> {
         crate::quick::capture(&app)
     }
 
     /// 빠른 질문 창 높이. 고른 글을 풀어 본 칸이 붙을 때 늘린다.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn quick_fit(app: tauri::AppHandle, height: f64) -> Result<(), AppError> {
         crate::quick::fit(&app, height.clamp(100.0, 600.0))
@@ -633,6 +762,7 @@ mod commands {
 
     /// macOS URL 스킴 또는 앱을 엽니다 (권한 설정 페이지 열기 등에 사용).
     /// 내부 신뢰 호출 전용(x-apple.systempreferences: 등). 미신뢰 링크는 open_external_url.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn open_url(url: String) -> Result<(), AppError> {
         std::process::Command::new("open")
@@ -646,6 +776,7 @@ mod commands {
     /// 링크 출처가 LLM·웹 스크랩(미신뢰)이라 http/https 스킴만 허용한다.
     /// file://·x-apple.systempreferences:·app 스킴 등으로 `open` 이 로컬 리소스를
     /// 실행하는 것을 막는다. arg 는 데이터로 전달돼 셸 해석은 없음.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn open_external_url(url: String) -> Result<(), AppError> {
         let lower = url.trim_start().to_ascii_lowercase();
@@ -662,6 +793,7 @@ mod commands {
 
     // ── 그림판 저장 ───────────────────────────────────────────────────────────
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn save_canvas_image(data_url: String) -> Result<String, AppError> {
         use base64::Engine;
@@ -684,6 +816,7 @@ mod commands {
 
     /// 그림·파일을 뷰어 창에 띄운다. 창은 하나 — 떠 있으면 내용만 바꾸고 앞으로 가져온다.
     /// 창 만들기를 main thread 에서 기다리면 굳을 수 있어 async 로 둔다.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn viewer_open(
         app: tauri::AppHandle,
@@ -713,6 +846,7 @@ mod commands {
     }
 
     /// 설정에서 따로 띄우는 창(네코 꾸미기·선물함). 떠 있으면 앞으로 가져온다. 내용은 같은 번들이 창 이름을 보고 그린다(main.tsx).
+    #[cfg(desktop)]
     #[tauri::command]
     pub fn panel_open(app: tauri::AppHandle, kind: String) -> Result<(), AppError> {
         let (title, w, h, min_w, min_h) = match kind.as_str() {
@@ -745,12 +879,14 @@ mod commands {
     }
 
     /// 뷰어 창이 띄울 것을 가져간다.
+    #[cfg(desktop)]
     #[tauri::command]
     pub fn viewer_item(state: State<'_, crate::ViewerState>) -> Result<Option<crate::ViewerItem>, AppError> {
         Ok(state.0.lock()?.clone())
     }
 
     /// 뷰어의 "다운로드". 그림은 data URL, 글은 text 로 받아 ~/Downloads 에 쓰고 경로를 돌려준다.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn save_download(name: String, data_url: Option<String>, text: Option<String>) -> Result<String, AppError> {
         use base64::Engine;
@@ -769,6 +905,7 @@ mod commands {
     }
 
     /// Finder 에서 그 파일을 골라 보여준다.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn reveal_in_finder(path: String) -> Result<(), AppError> {
         std::process::Command::new("open").arg("-R").arg(&path).spawn()?;
@@ -777,6 +914,7 @@ mod commands {
 
     /// 뷰어의 그림 "복사". 프런트가 PNG 로 바꿔 보낸다 — 다른 앱에 붙일 때 가장 잘 받는 형식.
     /// NSPasteboard 는 AppKit 이라 동기 커맨드(main thread)로 둔다.
+    #[cfg(desktop)]
     #[tauri::command]
     pub fn copy_image(data_url: String) -> Result<(), AppError> {
         use base64::Engine;
@@ -796,11 +934,13 @@ mod commands {
     // 여기서는 승인된 쓰기 루트를 DB 에서 꺼내 넘겨주는 역할만 한다.
 
     /// 사용자가 "항상 허용" 한 쓰기 루트 목록(JSON 배열 문자열).
+    #[cfg(desktop)]
     fn write_roots(db: &State<'_, DbState>) -> Result<String, AppError> {
         let conn = db.0.lock()?;
         Ok(crate::db::settings::get(&conn, "fs_write_roots")?.unwrap_or_else(|| "[]".to_string()))
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn fs_read(
         path: String,
@@ -810,6 +950,7 @@ mod commands {
         crate::files::read(&path, offset, limit)
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn fs_write(
         db: State<'_, DbState>,
@@ -821,6 +962,7 @@ mod commands {
         crate::files::write(&path, &content, &roots, approved)
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn fs_edit(
         db: State<'_, DbState>,
@@ -841,16 +983,19 @@ mod commands {
         )
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn fs_list(path: String) -> Result<Vec<crate::files::FsEntry>, AppError> {
         crate::files::list(&path)
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn fs_glob(pattern: String, base: Option<String>) -> Result<Vec<String>, AppError> {
         crate::files::glob(&pattern, base.as_deref())
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn fs_grep(
         pattern: String,
@@ -862,6 +1007,7 @@ mod commands {
     }
 
     /// 실제로 건드리기 전에 정책만 물어본다. 프런트엔드가 확인 창을 띄울지 판단한다.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn fs_check(
         db: State<'_, DbState>,
@@ -876,6 +1022,7 @@ mod commands {
     // HTTP(SSE) 서버는 프런트엔드가 직접 붙는다. stdio 는 로컬 프로세스를 띄워야
     // 하므로 여기를 거친다. 프로토콜 자체는 crate::mcp 안에서 단위 테스트된다.
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn mcp_stdio_start(
         state: State<'_, crate::mcp::McpRegistry>,
@@ -886,6 +1033,7 @@ mod commands {
         crate::mcp::start(&state, &id, &command, &env.unwrap_or_default())
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn mcp_stdio_rpc(
         state: State<'_, crate::mcp::McpRegistry>,
@@ -896,6 +1044,7 @@ mod commands {
         crate::mcp::rpc(&state, &id, &method, params)
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn mcp_stdio_stop(
         state: State<'_, crate::mcp::McpRegistry>,
@@ -904,6 +1053,7 @@ mod commands {
         crate::mcp::stop(&state, &id)
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn mcp_stdio_is_running(
         state: State<'_, crate::mcp::McpRegistry>,
@@ -964,6 +1114,7 @@ mod commands {
     // ── 보안 점검 (security 모듈 위임) ────────────────────────────────────────
 
     /// 읽기 전용(`remember` 면 자동 실행 목록만 기억). 명령은 DB 잠금 밖에서 돌리고, 목록을 견줄 때만 잠근다.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn security_check(db: State<'_, DbState>, remember: bool) -> Result<crate::security::Report, AppError> {
         let checks = crate::security::checks();
@@ -974,12 +1125,14 @@ mod commands {
     }
 
     /// 일정 알림 때 커서가 있는 화면 테두리를 빛낸다.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn glow_alert(app: tauri::AppHandle) -> Result<(), AppError> {
         crate::glow::alert(&app)
     }
 
     /// 빛 창이 띄울 자리를 가져간다. 한 번 가져가면 비운다.
+    #[cfg(desktop)]
     #[tauri::command]
     pub fn glow_take() -> Option<crate::glow::GlowAt> {
         crate::glow::take()
@@ -1069,6 +1222,20 @@ mod commands {
         crate::ambient::music(&app)
     }
 
+    /// 폰: 클립보드의 글(기기 연결 코드 붙여넣기 버튼). 동기 커맨드라 main thread 에서 돈다.
+    #[cfg(target_os = "ios")]
+    #[tauri::command]
+    pub fn paste_text() -> Option<String> {
+        crate::ios_pasteboard_text()
+    }
+
+    /// 폰: 다른 앱에서 소리가 나오는 중인가(네코가 헤드폰을 낀다).
+    #[cfg(target_os = "ios")]
+    #[tauri::command(async)]
+    pub fn ambient_music() -> bool {
+        crate::ios_other_audio_playing()
+    }
+
     /// 지금 듣는 곡 제목·가수(재생 중인 첫 음악 앱). 재생 중이 아니거나 권한이 없으면 null.
     #[cfg(target_os = "macos")]
     #[tauri::command(async)]
@@ -1091,6 +1258,7 @@ mod commands {
     }
 
     /// 열린 포트를 쓰는 프로세스와 CPU·메모리를 많이 쓰는 프로세스. 읽기 전용.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn process_list(port: Option<u16>) -> crate::procs::Snapshot {
         crate::procs::snapshot(port)
@@ -1098,11 +1266,13 @@ mod commands {
 
     // ── llama-server (llama 모듈 위임) ────────────────────────────────────────
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn llama_scan_models() -> Result<Vec<String>, AppError> {
         crate::llama::scan_models()
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn llama_start(
         config: crate::llama::LlamaConfig,
@@ -1111,28 +1281,33 @@ mod commands {
         crate::llama::start(config, &server_state)
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn llama_stop(port: i32, server_state: State<'_, LlamaServerState>) -> Result<(), AppError> {
         crate::llama::stop(port, &server_state)
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn llama_adopt(port: i32, server_state: State<'_, LlamaServerState>) -> Result<(), AppError> {
         crate::llama::adopt(port, &server_state)
     }
 
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn llama_is_running(server_state: State<'_, LlamaServerState>) -> Result<bool, AppError> {
         crate::llama::is_running(&server_state)
     }
 
     /// 사용자가 `~/.nekodesk/skills/*.md` 에 넣어둔 지식.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn skills_load() -> Result<Vec<crate::skills::Skill>, AppError> {
         crate::skills::load()
     }
 
     /// AirDrop 선택 시트를 연다. 받는 사람은 사용자가 고른다 — 그게 곧 확인이다.
+    #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn airdrop_send(app: tauri::AppHandle, paths: Vec<String>) -> Result<usize, AppError> {
         let files = crate::airdrop::resolve_files(&paths)?;
@@ -1162,7 +1337,9 @@ mod commands {
         sound: Option<bool>,
     ) -> Result<(), AppError> {
         let sound = sound.unwrap_or(false).then_some("Glass");
+        #[cfg(target_os = "macos")]
         if tauri::is_dev() {
+            use std::process::{Command, Stdio};
             // 본문은 모델이 쓴 글이다. 스크립트 문자열에 이어 붙이면 따옴표 하나로
             // 임의 AppleScript 가 실행된다. 코드는 고정하고 글은 argv 로만 넘긴다.
             let line = match sound {
@@ -1191,6 +1368,7 @@ mod commands {
 
     // ── 업데이트 ──────────────────────────────────────────────────────────────
 
+    #[cfg(desktop)]
     #[derive(serde::Serialize)]
     pub struct UpdateInfo {
         version: String,
@@ -1200,6 +1378,7 @@ mod commands {
 
     /// 깃헙 Release 에 더 새 버전이 있으면 그 정보. dev 실행은 늘 없음 —
     /// 손으로 띄운 개발본을 배포본으로 덮어쓰면 안 된다.
+    #[cfg(desktop)]
     #[tauri::command]
     pub async fn update_check(app: tauri::AppHandle) -> Result<Option<UpdateInfo>, AppError> {
         if tauri::is_dev() {
@@ -1214,6 +1393,7 @@ mod commands {
     ///
     /// `restart` 가 아니라 `request_restart` 다. 이벤트 루프를 정상으로 빠져나가야
     /// `RunEvent::Exit` 가 돌아 앱이 띄운 llama-server 를 정리한다.
+    #[cfg(desktop)]
     #[tauri::command]
     pub async fn update_install(app: tauri::AppHandle) -> Result<(), AppError> {
         use tauri_plugin_updater::UpdaterExt;
@@ -1286,11 +1466,12 @@ pub fn run() {
     // 창 크기·위치를 기억하던 window-state 플러그인은 뺐다. 메인 창은 부팅 화면 크기로
     // 작게 떴다가 window_boot_done 에서 본 크기로 커지고, 빠른 질문 창은 늘 가운데다.
     // 지난 크기(어쩌다 줄여 둔 889×593)를 되살리면 켤 때마다 작게 떴다.
-    tauri::Builder::default()
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        // 보관함에서 파일을 끌어내 다른 앱에 놓는다(macOS 드래그 세션).
-        .plugin(tauri_plugin_drag::init())
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init());
+    // 자동 업데이트와, 보관함에서 파일을 끌어내 다른 앱에 놓기(macOS 드래그 세션)는 데스크탑만.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_drag::init());
+    builder
         .on_window_event(|window, event| {
             // 앱이 앞으로 오면 곧 맞춘다(다른 기기에서 쓴 것을 바로 보게)
             if let ("main", tauri::WindowEvent::Focused(true)) = (window.label(), event) {
@@ -1334,14 +1515,22 @@ pub fn run() {
             secrets::migrate(&conn);
             app.manage(DbState(Mutex::new(conn)));
             sync::run::start(app.handle().clone());
-            app.manage(LlamaServerState(Mutex::new(LlamaProc::default())));
-            app.manage(crate::mcp::McpRegistry::new());
-            app.manage(ViewerState::default());
+            #[cfg(target_os = "ios")]
+            if let Some(main) = app.get_webview_window("main") {
+                ios_full_screen(&main);
+            }
+            #[cfg(desktop)]
+            {
+                app.manage(LlamaServerState(Mutex::new(LlamaProc::default())));
+                app.manage(crate::mcp::McpRegistry::new());
+                app.manage(ViewerState::default());
+            }
             #[cfg(target_os = "macos")]
             app.manage(crate::capture::CaptureState::default());
 
             // ⌃⇧N — 어느 앱에서든 빠른 질문 창. 다른 앱이 이미 쓰고 있으면 등록이
             // 실패하는데, 그렇다고 앱이 안 뜨면 안 된다.
+            #[cfg(desktop)]
             {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
                 app.handle().plugin(
@@ -1393,10 +1582,12 @@ pub fn run() {
             commands::schedule_list,
             commands::schedule_add,
             commands::schedule_delete,
+            #[cfg(desktop)]
             commands::code_exec,
             commands::web_search,
             commands::web_scrape,
             commands::web_image,
+            #[cfg(desktop)]
             commands::trace_save,
             commands::image_generate,
             commands::settings_set,
@@ -1416,6 +1607,14 @@ pub fn run() {
             sync::run::sync_setup,
             sync::run::sync_pair_make,
             sync::run::sync_pair_join,
+            sync::run::sync_pair_check,
+            sync::run::walk_shared,
+            sync::run::walk_claim,
+            sync::run::walk_end,
+            #[cfg(desktop)]
+            sync::run::sync_pair_qr,
+            #[cfg(target_os = "ios")]
+            sync::run::sync_pair_linked,
             sync::run::session_list,
             sync::run::session_put,
             sync::run::session_import,
@@ -1430,7 +1629,9 @@ pub fn run() {
             sync::run::gift_remove,
             commands::weather_get,
             commands::weather_now,
+            #[cfg(desktop)]
             commands::window_boot_done,
+            #[cfg(target_os = "macos")]
             commands::location_current,
             #[cfg(target_os = "macos")]
             map::map_snapshot,
@@ -1438,47 +1639,76 @@ pub fn run() {
             map::map_places,
             #[cfg(target_os = "macos")]
             map::map_walk_route,
+            #[cfg(desktop)]
             commands::shelf_list,
+            #[cfg(desktop)]
             commands::shelf_add,
+            #[cfg(desktop)]
             commands::shelf_remove,
             commands::haptic_feedback,
+            #[cfg(desktop)]
             commands::viewer_open,
+            #[cfg(desktop)]
             commands::panel_open,
+            #[cfg(desktop)]
             commands::viewer_item,
+            #[cfg(desktop)]
             commands::save_download,
+            #[cfg(desktop)]
             commands::reveal_in_finder,
+            #[cfg(desktop)]
             commands::copy_image,
+            #[cfg(desktop)]
             commands::quick_capture,
+            #[cfg(desktop)]
             commands::quick_fit,
             #[cfg(target_os = "macos")]
             commands::capture_targets,
             #[cfg(target_os = "macos")]
             commands::capture_pick,
+            #[cfg(desktop)]
             commands::open_url,
+            #[cfg(desktop)]
             commands::open_external_url,
+            #[cfg(desktop)]
             commands::save_canvas_image,
             commands::exec_history_save,
             commands::exec_history_list,
             commands::exec_history_clear,
+            #[cfg(desktop)]
             commands::fs_read,
+            #[cfg(desktop)]
             commands::fs_write,
+            #[cfg(desktop)]
             commands::fs_edit,
+            #[cfg(desktop)]
             commands::fs_list,
+            #[cfg(desktop)]
             commands::fs_glob,
+            #[cfg(desktop)]
             commands::fs_grep,
+            #[cfg(desktop)]
             commands::fs_check,
+            #[cfg(desktop)]
             commands::airdrop_send,
             commands::notify_user,
+            #[cfg(desktop)]
             commands::update_check,
+            #[cfg(desktop)]
             commands::update_install,
+            #[cfg(desktop)]
             commands::skills_load,
             commands::memory_save,
             commands::memory_search,
             commands::memory_list,
             commands::memory_delete,
+            #[cfg(desktop)]
             commands::security_check,
+            #[cfg(desktop)]
             commands::process_list,
+            #[cfg(desktop)]
             commands::glow_alert,
+            #[cfg(desktop)]
             commands::glow_take,
             #[cfg(target_os = "macos")]
             commands::neko_screen_show,
@@ -1488,8 +1718,10 @@ pub fn run() {
             commands::neko_screen_layout,
             #[cfg(target_os = "macos")]
             commands::ambient_probe,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             commands::ambient_music,
+            #[cfg(target_os = "ios")]
+            commands::paste_text,
             #[cfg(target_os = "macos")]
             commands::ambient_track,
             #[cfg(target_os = "macos")]
@@ -1510,26 +1742,46 @@ pub fn run() {
             commands::neko_screen_perches,
             #[cfg(target_os = "macos")]
             commands::neko_screen_perch_debug,
+            #[cfg(desktop)]
             commands::mcp_stdio_start,
+            #[cfg(desktop)]
             commands::mcp_stdio_rpc,
+            #[cfg(desktop)]
             commands::mcp_stdio_stop,
+            #[cfg(desktop)]
             commands::mcp_stdio_is_running,
+            #[cfg(desktop)]
             commands::llama_scan_models,
+            #[cfg(desktop)]
             commands::llama_start,
+            #[cfg(desktop)]
             commands::llama_stop,
+            #[cfg(desktop)]
             commands::llama_adopt,
+            #[cfg(desktop)]
             commands::llama_is_running,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
+            // 폰에는 다시 열기·끝낼 때 치울 자식 프로세스가 없다
+            let _ = (&app_handle, &event);
+            // 폰: 맥의 QR 을 카메라로 찍으면 nekodesk://pair?d=… 로 앱이 열린다
+            #[cfg(target_os = "ios")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                for url in urls {
+                    crate::sync::run::link_opened(app_handle, url.as_str());
+                }
+            }
             // Dock 아이콘을 누르면 숨겨둔 메인 창을 다시 보인다.
+            #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 if let Some(win) = app_handle.get_webview_window("main") {
                     let _ = win.show();
                     let _ = win.set_focus();
                 }
             }
+            #[cfg(desktop)]
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<LlamaServerState>() {
                     let mut guard = state.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -1552,7 +1804,7 @@ pub fn run() {
         });
 }
 
-#[cfg(test)]
+#[cfg(all(test, desktop))]
 mod download_tests {
     use super::unique_download_path;
 
