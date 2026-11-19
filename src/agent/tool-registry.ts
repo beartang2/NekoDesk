@@ -407,6 +407,27 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
   },
 
+  "music.control": {
+    name: "music.control",
+    description: "음악 앱을 다룬다(보관함 곡만). search 는 곡·가수·앨범·재생목록을 찾아 튼다",
+    params: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["play", "pause", "next", "previous", "now", "search"], description: "now = 지금 곡" },
+        query: { type: "string", description: "search 할 이름" },
+        kind: { type: "string", enum: ["song", "artist", "album", "playlist"], description: "모르면 비운다" },
+      },
+      required: ["action"],
+    },
+    readOnly: false,
+    execute: async (p) => invoke<string>("music_control", {
+      action: p["action"] as string,
+      query: (p["query"] as string | undefined) ?? null,
+      kind: (p["kind"] as string | undefined) ?? null,
+    }),
+    summarize: (r) => r as string,
+  },
+
   "weather.get": {
     name: "weather.get",
     description: "현재 날씨와 단기 예보를 가져온다",
@@ -978,8 +999,11 @@ export function getTool(name: ToolName): ToolEntry {
 /** 폰(iOS)에 없는 툴: 파일·코드 실행·보안 점검처럼 맥에서만 되는 것과, 폰 1차엔 뺀 그림(docs/neko-sync.md §6.1). */
 const DESKTOP_ONLY = /^(fs\.|image\.|(code\.exec|skill\.read|file\.upload|security\.check|process\.list|airdrop\.send)$)/;
 
+/** 폰에만 있는 툴: 음악 앱 다루기(MediaPlayer). 맥은 code.exec 의 AppleScript 로 한다 */
+const PHONE_ONLY: ReadonlySet<string> = new Set(["music.control"]);
+
 export function onThisDevice(name: string, phone = IS_PHONE): boolean {
-  return !phone || !DESKTOP_ONLY.test(name);
+  return phone ? !DESKTOP_ONLY.test(name) : !PHONE_ONLY.has(name);
 }
 
 export function getAllTools(): ToolEntry[] {

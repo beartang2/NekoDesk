@@ -44,6 +44,9 @@ mod neko_screen;
 mod neko_perch;
 #[cfg(target_os = "macos")]
 mod ambient;
+// 폰의 음악 조작(도구 music.control)
+#[cfg(target_os = "ios")]
+mod music_ios;
 #[cfg(desktop)]
 mod shelf;
 // 기기 간 동기화(docs/neko-sync.md). 기본은 꺼져 있다
@@ -1253,6 +1256,20 @@ mod commands {
         crate::ios_other_audio_playing()
     }
 
+    /// 폰: 음악 앱 다루기(도구 music.control). action = play·pause·next·previous·now·search
+    #[cfg(target_os = "ios")]
+    #[tauri::command(async)]
+    pub fn music_control(app: tauri::AppHandle, action: String, query: Option<String>, kind: Option<String>) -> Result<String, AppError> {
+        crate::music_ios::control(&app, &action, query, kind)
+    }
+
+    /// 폰: 지금 듣는 곡(음악 앱, 권한이 있을 때만). 산책이 출발 전 상태로 가져간다
+    #[cfg(target_os = "ios")]
+    #[tauri::command(async)]
+    pub fn ambient_track(app: tauri::AppHandle) -> Option<crate::music_ios::Track> {
+        crate::music_ios::track(&app)
+    }
+
     /// 지금 듣는 곡 제목·가수(재생 중인 첫 음악 앱). 재생 중이 아니거나 권한이 없으면 null.
     #[cfg(target_os = "macos")]
     #[tauri::command(async)]
@@ -1743,8 +1760,10 @@ pub fn run() {
             commands::paste_text,
             #[cfg(target_os = "ios")]
             commands::phone_standby,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             commands::ambient_track,
+            #[cfg(target_os = "ios")]
+            commands::music_control,
             #[cfg(target_os = "macos")]
             commands::neko_screen_cross,
             #[cfg(target_os = "macos")]

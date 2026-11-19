@@ -88,7 +88,9 @@ export type ToolName =
   | "security.check"
   | "process.list"
   | "agent.delegate"
-  | "airdrop.send";
+  | "airdrop.send"
+  /** 폰만: 음악 앱 다루기(맥은 code.exec 의 AppleScript) */
+  | "music.control";
 
 /**
  * 툴 파라미터는 JSON Schema 로 기술한다. 이 스키마 하나가 두 곳에 쓰인다:

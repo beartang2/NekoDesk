@@ -30,6 +30,7 @@ const TABLE: Record<Exclude<ToolName, "user.ask">, NekoActivity> = {
   "web.search": "window",
   "web.scrape": "reading",
   "weather.get": "window",
+  "music.control": "music",
   "game.start": "draw", // 끝말잇기는 아래에서 골똘히로
   "game.judge": "think", // 끝말잇기 판정
   "file.upload": "dig",

@@ -23,6 +23,10 @@ describe("buildToolSchemas", () => {
       expect(phone).toContain(kept);
     }
     expect(all.filter((n) => onThisDevice(n, false))).toEqual(all);
+    // 음악 앱 다루기는 폰에만(맥은 AppleScript)
+    expect(onThisDevice("music.control", true)).toBe(true);
+    expect(onThisDevice("music.control", false)).toBe(false);
+    expect(all).not.toContain("music.control");
   });
 
   it("registry 의 모든 툴을 빠짐없이 내보낸다", () => {

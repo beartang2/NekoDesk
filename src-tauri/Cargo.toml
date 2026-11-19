@@ -52,6 +52,8 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 security-framework = "3"
 # 맥: NSHapticFeedbackManager 등. 폰: 웹뷰 스크롤 뷰 설정(lib.rs ios_full_screen). tauri 가 이미 쓰는 버전이라 추가 빌드 비용 없음.
 objc2 = "0.6"
+# objc 블록(맥: 지도 콜백, 폰: 음악 보관함 권한 답, music_ios.rs). tauri 가 이미 lock 에 올려둔 버전.
+block2 = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # 날씨용 현재 위치(CLLocationManager). tauri 가 이미 lock 에 올려둔 objc2 0.3 계열.
@@ -60,4 +62,3 @@ objc2-core-location = { version = "0.3", default-features = false, features = ["
 # 네코 산책 지도(map.rs). 키 없이 쓰는 네이티브 MapKit. app-kit·block2 는 tauri 가 이미 lock 에 올려둔 버전.
 objc2-map-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-location", "MKAnnotation", "MKDirections", "MKDirectionsRequest", "MKDirectionsResponse", "MKDirectionsTypes", "MKGeometry", "MKLocalSearch", "MKLocalSearchRequest", "MKLocalSearchResponse", "MKMapItem", "MKMapSnapshot", "MKMapSnapshotOptions", "MKMapSnapshotter", "MKMultiPoint", "MKPlacemark", "MKPointOfInterestCategory", "MKPointOfInterestFilter", "MKPolyline", "MKShape", "MKTypes"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAppearance", "NSBitmapImageRep", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep"] }
-block2 = "0.6"
