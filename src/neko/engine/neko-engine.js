@@ -4629,7 +4629,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (raf || timer || paused) return;
     // rAF 는 기다린 뒤 다음 화면 갱신(최대 한 프레임 뒤)에 오니 반 프레임(8ms) 일찍 깬다
     const fps = fpsNow(), wait = fps > 0 ? 1000 / fps - (performance.now() - lastDraw) - 8 : 0;
-    if (wait > 4) timer = setTimeout(() => { timer = 0; raf = requestAnimationFrame(frame); }, wait);
+    // 반 프레임 넘게 기다릴 때만 타이머(60 상한이면 rAF 바로 — 타이머를 끼우면 60 을 그대로 그리며 깨움만 늘었다, §5.2)
+    if (wait > 8) timer = setTimeout(() => { timer = 0; raf = requestAnimationFrame(frame); }, wait);
     else raf = requestAnimationFrame(frame);
   }
   /** 기다리는 중이면 지금 상한으로 다시(잡기 시작·상한 바뀜 — 졸 때 15 로 기다리다 잡혀도 바로 60) */
