@@ -19,9 +19,9 @@ pub mod terms;
 /// 바꾸면 이미 배포된 마이그레이션 4번은 그대로 두고, 트리거를 새 마이그레이션에서 다시 만든다.
 /// 비밀(키체인·API 키), 경로·권한·실행 관련 키(fs_write_roots 등), 모델 프로필, 예산·장부는 절대 넣지 않는다 —
 /// 연결된 다른 기기가 이 맥의 권한을 넓힐 수 있게 된다. 받을 때도 이 목록 밖은 버린다(crate::sync::apply).
-pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention", "neko_needs", "neko_walk_view", "neko_here"];
+pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention", "neko_needs", "neko_walk_view", "neko_here", "cat_rpg_state"];
 /// 트리거용 같은 목록(SQL 글). concat! 은 상수를 못 받아 따로 적고, 테스트가 둘이 같은지 본다.
-macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention', 'neko_needs', 'neko_walk_view', 'neko_here')" } }
+macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention', 'neko_needs', 'neko_walk_view', 'neko_here', 'cat_rpg_state')" } }
 
 /// 지금 시각(ms). SQLite 의 julianday 는 ms 까지 준다
 macro_rules! now_ms { () => { "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)" } }
@@ -228,6 +228,16 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         sync_named_triggers!("setting", "settings", "key", concat!("NEW.key IN ", synced_keys!()), "OLD.value IS NOT NEW.value"),
         sync_tombstone!("setting", "settings", "OLD.key", concat!("OLD.key IN ", synced_keys!())),
     ),
+    // 9 — 맞추는 설정 키에 cat_rpg_state(밥·놀이·오늘 밥 준 횟수·생일, 0.1.19)를 더한다. 사용자: 밥·놀이도 맥·폰이 한 고양이로.
+    // 값과 잰 때(lastTick)를 같이 두고 받는 쪽이 지난 만큼 줄여 읽는다(useCatRpg). 6–8번과 같이 설정 트리거를 지금 목록으로
+    // 다시 만들고, 있던 값도 올릴 거리로 찍는다(나중에 쓴 기기가 이긴다). 옛 버전은 모르는 키를 받으면 버린다
+    concat!(
+        "DROP TRIGGER IF EXISTS sync_setting_ins; DROP TRIGGER IF EXISTS sync_setting_upd; DROP TRIGGER IF EXISTS sync_setting_del;",
+        sync_named_triggers!("setting", "settings", "key", concat!("NEW.key IN ", synced_keys!()), "OLD.value IS NOT NEW.value"),
+        sync_tombstone!("setting", "settings", "OLD.key", concat!("OLD.key IN ", synced_keys!())),
+        "INSERT INTO sync_meta (coll, uid, local_key, ts) SELECT 'setting', key, key, ", now_ms!(), " FROM settings WHERE key = 'cat_rpg_state'
+             ON CONFLICT (coll, uid) DO UPDATE SET dirty = 1;"
+    ),
 ];
 
 /// 스키마를 최신으로 올린다. 앱 시작 시 1회 호출.
@@ -301,6 +311,22 @@ mod tests {
         assert_eq!(marked("neko_needs"), 1, "바꾸면 다시 올린다(새 트리거)");
         c.execute("UPDATE settings SET value = '{\"a\":1}' WHERE key = 'neko_stage'", []).unwrap();
         assert_eq!(marked("neko_stage"), 0, "자리 설정은 이 기기에만");
+    }
+
+    #[test]
+    fn cat_rpg_state_syncs_after_upgrading_from_version_8() {
+        // 0.1.18 설치(8번까지): 밥·놀이를 이 기기에만 갖고 있다
+        let c = Connection::open_in_memory().unwrap();
+        run_migrations(&c, &MIGRATIONS[..8]).unwrap();
+        c.execute("INSERT INTO settings (key, value) VALUES ('cat_rpg_state', '{\"hunger\":50}')", []).unwrap();
+        init_schema(&c).unwrap();
+        let marked = || -> i64 {
+            c.query_row("SELECT count(*) FROM sync_meta WHERE coll = 'setting' AND uid = 'cat_rpg_state' AND dirty = 1", [], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(marked(), 1, "있던 값도 올린다");
+        c.execute("UPDATE sync_meta SET dirty = 0", []).unwrap();
+        c.execute("UPDATE settings SET value = '{\"hunger\":60}' WHERE key = 'cat_rpg_state'", []).unwrap();
+        assert_eq!(marked(), 1, "바꾸면 다시 올린다");
     }
 
     #[test]
