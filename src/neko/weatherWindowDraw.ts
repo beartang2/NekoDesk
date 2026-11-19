@@ -180,7 +180,7 @@ export interface WindowState {
   /** 커튼: 0 닫힘 ~ 1 열림 */
   open: number;
   dark: boolean;
-  /** 거실(가로로 긴 창)이면 유리를 세 칸으로 */
+  /** 거실(가로로 긴 창)이면 창살을 세로 하나로(두 칸) */
   wide: boolean;
 }
 
@@ -188,8 +188,11 @@ export interface WindowState {
 export const WINDOW_PAD = 7;
 export const WINDOW_SILL = 6;
 
-/** 창 하나를 그린다. (0,0) = 캔버스 왼쪽 위, 창 칸은 (PAD,PAD) 에서 w×h */
-export function drawWindow(g: CanvasRenderingContext2D, w: number, h: number, st: WindowState) {
+/**
+ * 창 하나를 그린다. (0,0) = 창 칸 왼쪽 위에서 PAD 만큼 바깥, 창 칸은 (PAD,PAD) 에서 w×h.
+ * view: 창 여럿이 한 풍경을 나눠 볼 때 이 창이 보는 자리(풍경 왼쪽에서 x, 풍경 폭 w). 없으면 이 창이 풍경 전부
+ */
+export function drawWindow(g: CanvasRenderingContext2D, w: number, h: number, st: WindowState, view?: { x: number; w: number }) {
   const F = Math.max(4, Math.round(Math.min(w, h) * 0.08)), pw = w - 2 * F, ph = h - 2 * F;
   const frame = st.dark ? mix(P.white, INK, 0.62) : mix(P.white, WHITE, 0.2);
   g.save();
@@ -203,10 +206,13 @@ export function drawWindow(g: CanvasRenderingContext2D, w: number, h: number, st
   // 유리 안 풍경
   g.save();
   rrect(g, F, F, pw, ph, F * 0.35); g.clip(); g.translate(F, F);
-  if (st.prev && st.fade < 1) scene(g, pw, ph, st.prev, st.light, st.glow, st.t);
+  const vw = view ? view.w : pw;
+  g.save(); if (view) g.translate(-view.x, 0);
+  if (st.prev && st.fade < 1) scene(g, vw, ph, st.prev, st.light, st.glow, st.t);
   if (st.prev && st.fade < 1) g.globalAlpha = st.fade;
-  scene(g, pw, ph, st.kind, st.light, st.glow, st.t);
+  scene(g, vw, ph, st.kind, st.light, st.glow, st.t);
   g.globalAlpha = 1;
+  g.restore();
   // 다크 테마에선 창밖을 살짝 눌러 밝은 낮 하늘이 눈을 찌르지 않게
   if (st.dark) { g.fillStyle = css(INK, 0.18); g.fillRect(0, 0, pw, ph); }
   // 유리 반짝임(왼쪽 위 짧게)
@@ -218,7 +224,7 @@ export function drawWindow(g: CanvasRenderingContext2D, w: number, h: number, st
   // 창살: 세로 창은 십자, 가로 창은 세 칸
   const bar = Math.max(2, Math.round(F * 0.5));
   g.fillStyle = shade(g, frame, 0, h);
-  if (st.wide) for (const k of [1 / 3, 2 / 3]) g.fillRect(Math.round(F + pw * k - bar / 2), F, bar, ph);
+  if (st.wide) g.fillRect(Math.round(w / 2 - bar / 2), F, bar, ph);
   else { g.fillRect(Math.round(w / 2 - bar / 2), F, bar, ph); g.fillRect(F, Math.round(F + ph * 0.42 - bar / 2), pw, bar); }
 
   // 창턱

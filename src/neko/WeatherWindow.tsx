@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { roomWindow } from "./engine/room-window";
+import { roomWindows } from "./engine/room-window";
 import { useWeatherNow } from "./weatherNow";
 import { WINDOW_PAD, WINDOW_SILL, drawWindow, skyAt, weatherKind, type WeatherKind, type WindowState } from "./weatherWindowDraw";
 
@@ -22,10 +22,12 @@ const reduceMq = typeof window !== "undefined" ? window.matchMedia?.("(prefers-r
  */
 export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
   const boxRef = useRef<HTMLDivElement>(null);
-  const cvRef = useRef<HTMLCanvasElement>(null);
+  // 창마다 캔버스 하나(거실은 둘 — 멀리 떨어져 있어 하나로 덮으면 빈 벽까지 다시 그린다)
+  const cvRefs = [useRef<HTMLCanvasElement>(null), useRef<HTMLCanvasElement>(null)];
   const [size, setSize] = useState({ w: 0, h: 0 });
   const weather = useWeatherNow();
-  const rect = roomWindow(place, size.w, size.h);
+  const rects = roomWindows(place, size.w, size.h);
+  const rect = rects[0];
 
   useEffect(() => {
     const el = boxRef.current;
@@ -36,9 +38,9 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
   }, []);
 
   // 그리기 상태는 ref 로(매 프레임 React 를 거치지 않는다)
-  const live = useRef({ kind: "clear" as WeatherKind, prev: null as WeatherKind | null, fadeAt: 0, open: 0, t: 0, weather, rect, wake: () => {} });
+  const live = useRef({ kind: "clear" as WeatherKind, prev: null as WeatherKind | null, fadeAt: 0, open: 0, t: 0, weather, rects, wake: () => {} });
   live.current.weather = weather;
-  live.current.rect = rect;
+  live.current.rects = rects;
 
   // 날씨가 바뀌면 겹쳐 바꾼다(처음 받은 날씨는 그냥 — 커튼이 열리며 보인다)
   const kind = weather ? weatherKind(weather.code) : null;
@@ -49,18 +51,18 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
       L.kind = kind;
     }
     L.wake();
-  }, [kind, weather, rect?.w, rect?.h]);
+  }, [kind, weather, rect?.x, rect?.w, rect?.h]);
 
   useEffect(() => {
-    const cv = cvRef.current, g = cv?.getContext("2d");
-    if (!cv || !g) return;
+    const cvs = cvRefs.map((r) => r.current).filter((c): c is HTMLCanvasElement => !!c);
+    if (!cvs.length) return;
     const L = live.current, root = document.documentElement;
-    let timer = 0, last = performance.now(), dpr = 0, cw = 0, ch = 0;
+    let timer = 0, last = performance.now();
     const running = () => !root.hasAttribute("data-idle") && !reduceMq?.matches;
 
     const draw = () => {
-      const r = L.rect, w = L.weather;
-      if (!r) return;
+      const rs = L.rects, w = L.weather;
+      if (!rs.length) return;
       const now = performance.now(), dt = Math.min(0.5, (now - last) / 1000), run = running();
       last = now;
       const target = w ? 1 : 0;
@@ -71,22 +73,27 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
       const fade = L.prev ? Math.min(1, (now - L.fadeAt) / 1000 / FADE_S) : 1;
       if (fade >= 1) L.prev = null;
 
-      const d = Math.min(window.devicePixelRatio || 1, 2), W = r.w + 2 * WINDOW_PAD, H = r.h + 2 * WINDOW_PAD + WINDOW_SILL;
-      if (d !== dpr || W !== cw || H !== ch) {
-        dpr = d; cw = W; ch = H;
-        cv.width = Math.round(W * d); cv.height = Math.round(H * d);
-      }
-      g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      g.clearRect(0, 0, W, H);
+      const d = Math.min(window.devicePixelRatio || 1, 2);
       const sky = skyAt(Date.now() / 1000, w?.sunrise ?? null, w?.sunset ?? null, w?.is_day ?? true);
       const st: WindowState = { kind: L.kind, prev: L.prev, fade, ...sky, t: L.t, open: L.open, dark: !root.classList.contains("light"), wide: place === "dock" };
-      drawWindow(g, r.w, r.h, st);
+      // 창이 여럿이면 한 풍경을 나눠 본다(같은 구름이 두 번 보이지 않게). 사이 벽은 건너뛰고 창끼리 붙인 풍경 —
+      // 벽 뒤로 해가 숨지 않게
+      const span = rs.reduce((a, r) => a + r.w, 0);
+      rs.forEach((r, i) => {
+        const cv = cvs[i], g = cv?.getContext("2d");
+        if (!cv || !g) return;
+        const W = r.w + 2 * WINDOW_PAD, H = r.h + 2 * WINDOW_PAD + WINDOW_SILL;
+        if (cv.width !== Math.round(W * d) || cv.height !== Math.round(H * d)) { cv.width = Math.round(W * d); cv.height = Math.round(H * d); }
+        g.setTransform(d, 0, 0, d, 0, 0);
+        g.clearRect(0, 0, W, H);
+        drawWindow(g, r.w, r.h, st, rs.length > 1 ? { x: rs.slice(0, i).reduce((a, q) => a + q.w, 0), w: span } : undefined);
+      });
     };
     const loop = () => {
       timer = 0;
       draw();
       // 커튼이 움직이는 중이거나 창밖이 움직이면 다음 프레임. 멈췄으면 1분 뒤(하늘색)
-      const moving = running() && L.rect && (L.open !== (L.weather ? 1 : 0) || L.prev || L.open === 1);
+      const moving = running() && L.rects.length > 0 && (L.open !== (L.weather ? 1 : 0) || L.prev || L.open === 1);
       timer = window.setTimeout(loop, moving ? FRAME_MS : 60_000);
     };
     const wake = () => { if (timer) clearTimeout(timer); last = performance.now(); loop(); };
@@ -106,14 +113,20 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
 
   return (
     <div ref={boxRef} className="weather-window" aria-hidden="true">
-      {/* 캔버스는 늘 둔다(그리기 흐름이 처음 한 번만 붙는다). 자리를 모르면 숨긴다 */}
-      <canvas
-        ref={cvRef}
-        className="weather-window__cv"
-        style={rect
-          ? { left: rect.x - WINDOW_PAD, top: rect.y - WINDOW_PAD, width: rect.w + 2 * WINDOW_PAD, height: rect.h + 2 * WINDOW_PAD + WINDOW_SILL }
-          : { display: "none" }}
-      />
+      {/* 캔버스는 늘 둘 다 둔다(그리기 흐름이 처음 한 번만 붙는다). 그 자리에 창이 없으면 숨긴다 */}
+      {cvRefs.map((ref, i) => {
+        const r = rects[i];
+        return (
+          <canvas
+            key={i}
+            ref={ref}
+            className="weather-window__cv"
+            style={r
+              ? { left: r.x - WINDOW_PAD, top: r.y - WINDOW_PAD, width: r.w + 2 * WINDOW_PAD, height: r.h + 2 * WINDOW_PAD + WINDOW_SILL }
+              : { display: "none" }}
+          />
+        );
+      })}
       {rect && weather && (
         <span className="weather-window__temp" style={{ left: rect.x + rect.w / 2, top: rect.y + rect.h + WINDOW_SILL + 1 }}>
           {`${Math.round(weather.temp)}°`}
