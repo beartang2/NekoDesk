@@ -40,12 +40,16 @@ if (IS_PHONE) {
   const root = document.documentElement;
   root.classList.add("phone");
   const vv = window.visualViewport;
+  // 키보드가 올라왔나: 지금까지 본 가장 큰 높이보다 많이 줄었으면. innerHeight 는 iOS 버전에 따라 같이 줄기도 해서 못 믿는다.
+  let tallest = 0;
   const fit = () => {
     if (!vv) return;
+    tallest = Math.max(tallest, vv.height);
     root.style.setProperty("--vvh", `${vv.height}px`);
-    root.classList.toggle("kbd", window.innerHeight - vv.height > 120);
+    root.classList.toggle("kbd", tallest - vv.height > 120);
     window.scrollTo(0, 0);
   };
+  window.addEventListener("orientationchange", () => { tallest = 0; });
   vv?.addEventListener("resize", fit);
   vv?.addEventListener("scroll", fit);
   fit();

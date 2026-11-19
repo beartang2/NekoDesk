@@ -48,10 +48,10 @@ tauri-plugin-updater = "2"
 # API 키·DB 열쇠·동기화 열쇠를 키체인에 둔다(secrets.rs). 업데이트 쪽이 이미 lock 에 올려둔 버전이다. iOS 키체인도 같은 API.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 security-framework = "3"
+# 맥: NSHapticFeedbackManager 등. 폰: 웹뷰 스크롤 뷰 설정(lib.rs ios_full_screen). tauri 가 이미 쓰는 버전이라 추가 빌드 비용 없음.
+objc2 = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# NSHapticFeedbackManager 호출용. tauri 가 이미 쓰는 버전이라 추가 빌드 비용 없음.
-objc2 = "0.6"
 # 날씨용 현재 위치(CLLocationManager). tauri 가 이미 lock 에 올려둔 objc2 0.3 계열.
 objc2-foundation = "0.3"
 objc2-core-location = { version = "0.3", default-features = false, features = ["std", "CLLocation", "CLLocationManager", "CLLocationManagerDelegate"] }

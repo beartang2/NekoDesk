@@ -1841,7 +1841,10 @@ html.phone .session-item__delete { opacity: 1; min-width: 44px; }
 /* 16px 보다 작은 입력 칸은 누를 때 iOS 가 화면을 확대한다 */
 html.phone input,
 html.phone textarea { font-size: 16px; }
-html.phone .composer { padding: 10px 12px 12px; }
+/* 채팅 바는 얇게: 한 줄일 때 38pt */
+html.phone .composer { padding: 6px 10px 8px; }
+html.phone .composer__row { padding: 3px 4px 3px 10px; border-radius: 14px; }
+html.phone .composer__input { line-height: 1.3; padding: 5px 2px; }
 /* 키보드가 올라오면 네코 띠를 숨겨 대화 자리를 남긴다 */
 html.phone.kbd .neko-slot--dock { display: none; }
 html.phone.kbd .app { padding-bottom: 0; }

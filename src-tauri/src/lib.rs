@@ -245,6 +245,24 @@ unsafe fn copy_png_to_pasteboard(png: &[u8]) -> bool {
     ok.as_bool()
 }
 
+/// 폰: 웹뷰가 화면 끝까지(상태 막대·홈 막대 밑까지) 그리게 한다. 기본값(자동)이면 iOS 18 의 WKWebView 가 안전 영역만큼
+/// 문서를 줄여, 화면 아래 84pt 가 창 바탕색(검정)으로 비었다. 여백은 화면 쪽 CSS 가 env(safe-area-inset-*) 로 둔다.
+/// 문서가 화면에 꽉 차니 튕기는 스크롤도 끈다.
+#[cfg(target_os = "ios")]
+fn ios_full_screen(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|webview| unsafe {
+        use objc2::msg_send;
+        use objc2::runtime::AnyObject;
+        let scroll: *mut AnyObject = msg_send![webview.inner() as *mut AnyObject, scrollView];
+        if scroll.is_null() {
+            return;
+        }
+        // UIScrollViewContentInsetAdjustmentNever = 2
+        let _: () = msg_send![scroll, setContentInsetAdjustmentBehavior: 2isize];
+        let _: () = msg_send![scroll, setBounces: false];
+    });
+}
+
 fn open_db(data_dir: PathBuf) -> Result<Connection, String> {
     // dev 빌드는 별도 디렉토리로 분리
     let dir = if cfg!(debug_assertions) {
@@ -1388,6 +1406,10 @@ pub fn run() {
             secrets::migrate(&conn);
             app.manage(DbState(Mutex::new(conn)));
             sync::run::start(app.handle().clone());
+            #[cfg(target_os = "ios")]
+            if let Some(main) = app.get_webview_window("main") {
+                ios_full_screen(&main);
+            }
             #[cfg(desktop)]
             {
                 app.manage(LlamaServerState(Mutex::new(LlamaProc::default())));
