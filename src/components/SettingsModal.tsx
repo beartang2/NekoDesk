@@ -1376,7 +1376,7 @@ function SyncSection() {
           )}
           <p className="settings-section__desc">
             {IS_PHONE
-              ? "맥의 설정 › 연동 › 동기화에서 만든 기기 연결 코드를 붙여넣어 주세요."
+              ? "맥의 설정 › 연동 › 동기화에서 '기기 연결 코드 만들기'를 누르고, 나온 QR 을 아이폰 카메라로 찍어 주세요. QR 이 안 보이면 코드를 복사해 아래에 붙여넣어 주세요."
               : "다른 기기에서 이미 쓰고 있다면 그 기기에서 만든 기기 연결 코드를 붙여넣어 주세요."}
           </p>
           <div className="settings-row">
