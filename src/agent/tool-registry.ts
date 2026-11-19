@@ -428,6 +428,27 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     summarize: (r) => r as string,
   },
 
+  "device.level": {
+    name: "device.level",
+    description: "화면 밝기·소리 크기를 읽거나 바꾼다(0~100). set 은 그 값으로, by 는 지금에서 더하거나 빼고, 둘 다 없으면 읽기만",
+    params: {
+      type: "object",
+      properties: {
+        what: { type: "string", enum: ["brightness", "volume"] },
+        set: { type: "number", description: "0~100" },
+        by: { type: "number", description: "예: -20" },
+      },
+      required: ["what"],
+    },
+    readOnly: false,
+    execute: async (p) => invoke<string>("device_level", {
+      what: p["what"] as string,
+      set: typeof p["set"] === "number" ? p["set"] : null,
+      by: typeof p["by"] === "number" ? p["by"] : null,
+    }),
+    summarize: (r) => r as string,
+  },
+
   "weather.get": {
     name: "weather.get",
     description: "현재 날씨와 단기 예보를 가져온다",
@@ -999,8 +1020,8 @@ export function getTool(name: ToolName): ToolEntry {
 /** 폰(iOS)에 없는 툴: 파일·코드 실행·보안 점검처럼 맥에서만 되는 것과, 폰 1차엔 뺀 그림(docs/neko-sync.md §6.1). */
 const DESKTOP_ONLY = /^(fs\.|image\.|(code\.exec|skill\.read|file\.upload|security\.check|process\.list|airdrop\.send)$)/;
 
-/** 폰에만 있는 툴: 음악 앱 다루기(MediaPlayer). 맥은 code.exec 의 AppleScript 로 한다 */
-const PHONE_ONLY: ReadonlySet<string> = new Set(["music.control"]);
+/** 폰에만 있는 툴: 음악 앱 다루기(MediaPlayer)·화면 밝기와 소리 크기. 맥은 code.exec 의 AppleScript 로 한다 */
+const PHONE_ONLY: ReadonlySet<string> = new Set(["music.control", "device.level"]);
 
 export function onThisDevice(name: string, phone = IS_PHONE): boolean {
   return phone ? !DESKTOP_ONLY.test(name) : !PHONE_ONLY.has(name);

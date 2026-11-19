@@ -19,7 +19,7 @@ extern "C" {
 
 /// MediaPlayer 프레임워크를 실행 중에 불러온다. Rust 의 #[link] 는 정적 라이브러리(libapp.a)에서 Xcode 의 최종 링크까지
 /// 넘어가지 않아 'Undefined symbols' 가 났다 — Xcode 프로젝트를 고치는 대신 여기서 연다(시스템 프레임워크라 늘 있다).
-fn media_player() -> Option<usize> {
+pub(crate) fn media_player() -> Option<usize> {
     static HANDLE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     let h = *HANDLE.get_or_init(|| unsafe { dlopen(c"/System/Library/Frameworks/MediaPlayer.framework/MediaPlayer".as_ptr(), 1) as usize });
     (h != 0).then_some(h)

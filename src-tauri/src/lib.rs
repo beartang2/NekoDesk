@@ -47,6 +47,9 @@ mod ambient;
 // 폰의 음악 조작(도구 music.control)
 #[cfg(target_os = "ios")]
 mod music_ios;
+// 폰의 화면 밝기·소리 크기(도구 device.level)
+#[cfg(target_os = "ios")]
+mod device_ios;
 #[cfg(desktop)]
 mod shelf;
 // 기기 간 동기화(docs/neko-sync.md). 기본은 꺼져 있다
@@ -1263,6 +1266,17 @@ mod commands {
         crate::music_ios::control(&app, &action, query, kind)
     }
 
+    /// 폰: 화면 밝기·소리 크기(도구 device.level). what = brightness·volume, set(0~100) 또는 by(±), 둘 다 없으면 읽기만
+    #[cfg(target_os = "ios")]
+    #[tauri::command(async)]
+    pub fn device_level(app: tauri::AppHandle, what: String, set: Option<f64>, by: Option<f64>) -> Result<String, AppError> {
+        match what.as_str() {
+            "brightness" => crate::device_ios::brightness(&app, set, by),
+            "volume" => crate::device_ios::volume(&app, set, by),
+            _ => Err(AppError::msg(format!("모르는 항목: {what}"))),
+        }
+    }
+
     /// 폰: 지금 듣는 곡(음악 앱, 권한이 있을 때만). 산책이 출발 전 상태로 가져간다
     #[cfg(target_os = "ios")]
     #[tauri::command(async)]
@@ -1764,6 +1778,8 @@ pub fn run() {
             commands::ambient_track,
             #[cfg(target_os = "ios")]
             commands::music_control,
+            #[cfg(target_os = "ios")]
+            commands::device_level,
             #[cfg(target_os = "macos")]
             commands::neko_screen_cross,
             #[cfg(target_os = "macos")]

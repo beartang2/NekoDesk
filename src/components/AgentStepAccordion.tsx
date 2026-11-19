@@ -28,7 +28,7 @@ import {
   Users,
   Wrench,
   X,
-  type LucideIcon, Music } from "lucide-react";
+  type LucideIcon, Music, SlidersHorizontal } from "lucide-react";
 import type { AgentStep, ToolName } from "../agent/types";
 import "./AgentStepAccordion.css";
 
@@ -57,6 +57,7 @@ const TOOL_META: Record<ToolName, ToolMeta> = {
   "web.scrape": { label: "페이지 읽기", icon: Globe },
   "weather.get": { label: "날씨 확인", icon: CloudSun },
   "music.control": { label: "음악", icon: Music },
+  "device.level": { label: "밝기·소리", icon: SlidersHorizontal },
   "image.generate": { label: "그림 그리기", icon: ImagePlus },
   "image.trace": { label: "윤곽 따기", icon: ScanLine },
   "skill.read": { label: "방법 찾아보기", icon: BookOpen },

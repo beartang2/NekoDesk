@@ -27,6 +27,9 @@ describe("buildToolSchemas", () => {
     expect(onThisDevice("music.control", true)).toBe(true);
     expect(onThisDevice("music.control", false)).toBe(false);
     expect(all).not.toContain("music.control");
+    // 밝기·소리 크기도 폰에만
+    expect(onThisDevice("device.level", true)).toBe(true);
+    expect(onThisDevice("device.level", false)).toBe(false);
   });
 
   it("registry 의 모든 툴을 빠짐없이 내보낸다", () => {
