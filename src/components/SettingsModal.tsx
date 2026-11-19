@@ -5,7 +5,7 @@ import { appEvents } from "../lib/events";
 import {
   X, Zap, Pencil, Trash2, Settings, Plus, RefreshCw, MapPin, Loader2, ChevronRight, ArrowUpRight, Info, Copy,
 } from "lucide-react";
-import { Accordion, Popover } from "radix-ui";
+import { Accordion, AlertDialog, Popover } from "radix-ui";
 import { AnimatePresence, Reorder, motion, useDragControls } from "motion/react";
 import type { Memory } from "../agent/types";
 import { loadTidyLog, type TidyRecord } from "../agent/memory-tidy";
@@ -1219,9 +1219,26 @@ function SecretInput({ secretKey, placeholder, onSaved }: { secretKey: string; p
   );
 }
 
+/** 동기화 시각: 오늘이면 "오전 9:33", 아니면 "11월 18일 오전 9:33", 다른 해면 연도까지. 초는 안 보인다 */
+function syncTime(ms: number): string {
+  const d = new Date(ms), now = new Date();
+  const time: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString("ko-KR", time);
+  return d.toLocaleString("ko-KR", { ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}), month: "long", day: "numeric", ...time });
+}
+
+/** Rust 가 한글 문구를 주면 그대로, 아니면(연결 실패 등 영어 오류) 사람이 읽을 말로 */
+const syncError = (e: unknown): string => {
+  const msg = String(e);
+  return /[가-힣]/.test(msg) ? msg.replace(/^Error:\s*/, "") : "서버에 연결하지 못했어요. 서버 주소와 인터넷 연결을 확인해 주세요.";
+};
+
+/** 되돌릴 수 없는 일 확인(기기 끊기·암호 키 재설정). 처음 포커스는 취소, Esc 도 취소 */
+interface SyncAsk { title: string; desc: string; ok: string; run: () => Promise<void> }
+
 /**
- * 설정 › 동기화(docs/neko-sync.md). 기본은 꺼져 있고, 켜기 전엔 아무것도 밖으로 안 나간다.
- * 첫 맥: 서버 주소 + 배포 때 정한 SETUP_TOKEN 으로 등록. 다음 기기: 다른 기기가 만든 짝 문자열을 붙여넣는다.
+ * 설정 › 연동 › 동기화(docs/neko-sync.md). 기본은 꺼져 있고, 켜기 전엔 아무것도 밖으로 안 나간다.
+ * 첫 맥: 서버 주소 + 배포 때 정한 SETUP_TOKEN 으로 등록. 다음 기기: 다른 기기가 만든 기기 연결 코드를 붙여넣는다.
  */
 function SyncSection() {
   const [st, setSt] = useState<SyncStatus | null>(null);
@@ -1232,6 +1249,7 @@ function SyncSection() {
   const [devices, setDevices] = useState<{ devices: SyncDevice[]; me: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [ask, setAsk] = useState<SyncAsk | null>(null);
   const refresh = useCallback(() => { syncApi.status().then(setSt).catch(() => {}); }, []);
   useEffect(() => {
     refresh();
@@ -1240,28 +1258,31 @@ function SyncSection() {
   }, [refresh]);
 
   const loadDevices = () => run(async () => setDevices(await syncApi.devices()));
-  async function revoke(d: SyncDevice) {
-    if (!window.confirm(`"${d.name}" 기기를 끊을까? 그 기기는 더 못 맞춘다. 잃어버린 기기면 열쇠도 바꿔줘.`)) return;
-    await run(async () => { await syncApi.revoke(d.id); setDevices(await syncApi.devices()); });
-  }
-  async function rekey() {
-    if (!window.confirm("열쇠를 바꿀까? 다른 기기는 모두 끊기고, 서버 기록을 비운 뒤 이 맥 것을 새 열쇠로 다시 올린다. 다른 기기는 새 짝 문자열로 다시 맞춰야 한다.")) return;
-    await run(async () => { await syncApi.rekey(); setPairing(""); setDevices(await syncApi.devices()); });
-  }
+  const revoke = (d: SyncDevice) => setAsk({
+    title: `'${d.name}' 기기 연결을 끊을까요?`,
+    desc: "그 기기는 더 이상 동기화할 수 없어요. 잃어버린 기기라면 암호 키도 재설정해 주세요.",
+    ok: "끊기",
+    run: async () => { await syncApi.revoke(d.id); setDevices(await syncApi.devices()); },
+  });
+  const rekey = () => setAsk({
+    title: "암호 키를 재설정할까요?",
+    desc: "다른 기기의 연결이 모두 끊기고, 서버 기록을 비운 뒤 이 맥의 내용을 새 암호 키로 다시 올려요. 다른 기기는 새 기기 연결 코드로 다시 연결해야 해요.",
+    ok: "재설정",
+    run: async () => { await syncApi.rekey(); setPairing(""); setDevices(await syncApi.devices()); },
+  });
 
   async function run(job: () => Promise<unknown>) {
     setBusy(true);
     setErr("");
-    try { await job(); } catch (e) { setErr(String(e)); } finally { setBusy(false); refresh(); }
+    try { await job(); } catch (e) { setErr(syncError(e)); } finally { setBusy(false); refresh(); }
   }
 
-  const last = st?.last_sync ? new Date(st.last_sync).toLocaleString("ko-KR") : "아직 없음";
   return (
     <section className="settings-section">
       <h3 className="settings-section__title">동기화</h3>
       <p className="settings-section__desc">
-        다른 기기와 대화·기억·할 일·선물·이름을 맞춘다. 기기에서 잠가 올려서 서버는 내용을 못 읽는다.
-        서버는 직접 배포한 Cloudflare Worker(server/). 켜기 전엔 아무것도 밖으로 보내지 않는다.
+        다른 기기와 대화, 기억, 할 일, 선물, 이름을 동기화해요. 내용은 이 기기에서 암호화된 뒤 올라가서 서버는 읽을 수 없어요.
+        켜기 전에는 아무것도 보내지 않아요.
       </p>
       {st?.registered ? (
         <>
@@ -1271,67 +1292,87 @@ function SyncSection() {
             options={[{ value: "on", label: "켬" }, { value: "off", label: "끔" }]}
           />
           <p className="settings-section__desc">
-            {st.url} · 마지막으로 맞춘 때: {last}
-            {st.last_error ? ` · 못 맞춤: ${st.last_error}` : ""}
+            {st.url} · 마지막 동기화: {st.last_sync ? syncTime(st.last_sync) : "아직 없음"}
+            {st.last_error ? ` · 동기화하지 못했어요: ${syncError(st.last_error)}` : ""}
           </p>
           <div className="settings-row">
-            <button className="settings-btn" disabled={busy} onClick={() => void run(async () => setPairing(await syncApi.pairMake()))}>
-              짝 문자열 만들기
-            </button>
             <button className="settings-btn settings-btn--ghost" disabled={busy || !st.enabled} onClick={() => void run(() => syncApi.now())}>
-              지금 맞추기
+              지금 동기화
             </button>
+            <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void run(async () => setPairing(await syncApi.pairMake()))}>
+              기기 연결 코드 만들기
+            </button>
+            <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void loadDevices()}>연결된 기기</button>
           </div>
-          <div className="settings-row">
-            <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void loadDevices()}>기기 목록</button>
-            <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void rekey()}>열쇠 바꾸기</button>
-          </div>
+          {pairing && (
+            <>
+              <p className="settings-section__desc">
+                다른 기기의 설정 › 연동 › 동기화에 붙여넣어 주세요. 10분 동안 한 번만 쓸 수 있어요. 암호 키가 들어 있으니 다른 사람에게 보내지 마세요.
+              </p>
+              <div className="settings-row">
+                <input className="settings-input" readOnly value={pairing} onFocus={(e) => e.currentTarget.select()} />
+                <button className="settings-btn settings-btn--ghost" onClick={() => { void navigator.clipboard.writeText(pairing); }}>복사</button>
+                <button className="settings-btn settings-btn--ghost" onClick={() => setPairing("")}>숨기기</button>
+              </div>
+            </>
+          )}
           {devices && (
             <ul className="settings-section__desc">
               {devices.devices.map((d) => (
                 <li key={d.id}>
                   {d.name}{d.id === devices.me ? " (이 맥)" : ""}
-                  {" · "}{d.revoked ? "끊김" : d.last_seen ? `마지막 접속 ${new Date(d.last_seen).toLocaleString("ko-KR")}` : "접속 전"}
+                  {" · "}{d.revoked ? "연결 끊김" : d.last_seen ? `마지막 접속 ${syncTime(d.last_seen)}` : "아직 접속 안 함"}
                   {d.id !== devices.me && !d.revoked && (
-                    <> <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void revoke(d)}>끊기</button></>
+                    <> <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => revoke(d)}>끊기</button></>
                   )}
                 </li>
               ))}
             </ul>
           )}
-          {pairing && (
-            <>
-              <p className="settings-section__desc">
-                다른 기기의 설정 › 동기화에 붙여넣어줘. 10분 동안 한 번만 쓸 수 있다. 동기화 열쇠가 들어 있으니 남에게 보내지 마.
-              </p>
-              <div className="settings-row">
-                <input className="settings-input" readOnly value={pairing} onFocus={(e) => e.currentTarget.select()} />
-                <button className="settings-btn" onClick={() => { void navigator.clipboard.writeText(pairing); }}>복사</button>
-                <button className="settings-btn settings-btn--ghost" onClick={() => setPairing("")}>숨기기</button>
-              </div>
-            </>
-          )}
+          {/* 위험 동작: 다른 버튼과 떨어뜨려 맨 아래에 */}
+          <p className="settings-section__desc sync-danger">
+            기기를 잃어버렸다면 암호 키를 재설정해 주세요. 다른 기기의 연결이 모두 끊겨요.
+          </p>
+          <div className="settings-row">
+            <button className="settings-btn settings-btn--stop" disabled={busy} onClick={rekey}>암호 키 재설정</button>
+          </div>
         </>
       ) : (
         <>
-          <p className="settings-section__desc">이 맥이 처음이면: 서버 주소와 배포할 때 정한 설정 토큰(SETUP_TOKEN).</p>
+          <p className="settings-section__desc">처음 쓰는 맥이라면 서버 주소와 서버를 배포할 때 정한 설정 토큰(SETUP_TOKEN)을 입력해 주세요.</p>
           <div className="settings-row">
             <input className="settings-input" value={url} placeholder="https://sync.example.com" onChange={(e) => setUrl(e.target.value)} />
             <input className="settings-input" type="password" value={setup} placeholder="SETUP_TOKEN" onChange={(e) => setSetup(e.target.value)} />
-            <button className="settings-btn" disabled={busy || !url || !setup} onClick={() => void run(() => syncApi.setup(url, setup).then(() => setSetup("")))}>
+            <button className="settings-btn settings-btn--ghost" disabled={busy || !url || !setup} onClick={() => void run(() => syncApi.setup(url, setup).then(() => setSetup("")))}>
               등록하고 켜기
             </button>
           </div>
-          <p className="settings-section__desc">다른 기기에서 이미 쓰고 있으면: 그 기기에서 만든 짝 문자열.</p>
+          <p className="settings-section__desc">다른 기기에서 이미 쓰고 있다면 그 기기에서 만든 기기 연결 코드를 붙여넣어 주세요.</p>
           <div className="settings-row">
             <input className="settings-input" type="password" value={pasted} placeholder="nekosync1:…" onChange={(e) => setPasted(e.target.value)} />
-            <button className="settings-btn" disabled={busy || !pasted} onClick={() => void run(() => syncApi.pairJoin(pasted).then(() => setPasted("")))}>
-              짝 맞추기
+            <button className="settings-btn settings-btn--ghost" disabled={busy || !pasted} onClick={() => void run(() => syncApi.pairJoin(pasted).then(() => setPasted("")))}>
+              연결하기
             </button>
           </div>
         </>
       )}
-      {err && <p className="settings-section__desc">{err}</p>}
+      {err && <p className="settings-section__desc settings-section__desc--error">{err}</p>}
+      <AlertDialog.Root open={!!ask} onOpenChange={(open) => { if (!open) setAsk(null); }}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="update-overlay">
+            <AlertDialog.Content className="update-dialog">
+              <AlertDialog.Title className="update-dialog__title">{ask?.title}</AlertDialog.Title>
+              <AlertDialog.Description className="update-dialog__sub">{ask?.desc}</AlertDialog.Description>
+              <div className="update-dialog__actions">
+                <AlertDialog.Cancel className="update-dialog__btn">취소</AlertDialog.Cancel>
+                <AlertDialog.Action className="update-dialog__btn update-dialog__btn--danger" onClick={() => { if (ask) void run(ask.run); }}>
+                  {ask?.ok}
+                </AlertDialog.Action>
+              </div>
+            </AlertDialog.Content>
+          </AlertDialog.Overlay>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </section>
   );
 }

@@ -163,7 +163,7 @@ export function NekoGiftPanel() {
               <AlertDialog.Description className="update-dialog__sub">되돌릴 수 없어.</AlertDialog.Description>
               <div className="update-dialog__actions">
                 <AlertDialog.Cancel className="update-dialog__btn">취소</AlertDialog.Cancel>
-                <AlertDialog.Action className="update-dialog__btn neko-gifts__drop-ok" onClick={() => drop && useNekoGifts.getState().remove(drop.id)}>
+                <AlertDialog.Action className="update-dialog__btn update-dialog__btn--danger" onClick={() => drop && useNekoGifts.getState().remove(drop.id)}>
                   버리기
                 </AlertDialog.Action>
               </div>

@@ -127,6 +127,17 @@
   word-break: keep-all;
 }
 
+.settings-section__desc--error {
+  color: var(--error);
+}
+
+/* 동기화 › 암호 키 재설정: 다른 버튼과 떨어뜨린 위험 동작 */
+.sync-danger {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
 .settings-section__desc code,
 .settings-feedback code {
   font-family: var(--font-mono);
