@@ -4,6 +4,7 @@ import { ensureNeko, nekoCanvas, useNekoController } from "./nekoHost";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { NekoAway } from "./NekoAway";
 import { RoomGifts } from "./NekoRoom";
+import { WeatherWindow } from "./WeatherWindow";
 import { Map as MapIcon } from "lucide-react";
 import { LastWalkModal, WalkMap } from "../components/WalkMap";
 import type { Walk } from "../lib/walk";
@@ -130,12 +131,16 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
           <WalkMap className="neko-slot__map neko-slot__map--fill" walk={walk} isDark={isDark} fallback={<NekoAway music={!!walk?.music} />} />
         )
       ) : (
-        <div
-          ref={stageRef}
-          className="neko-slot__stage"
-          onMouseMove={onMove}
-          onMouseLeave={onBodyLeave}
-        />
+        <>
+          {/* 거실: 벽 대신 띠 바탕에 가로로 긴 날씨 창문(고양이 뒤) */}
+          {placement === "dock" && <WeatherWindow place="dock" />}
+          <div
+            ref={stageRef}
+            className="neko-slot__stage"
+            onMouseMove={onMove}
+            onMouseLeave={onBodyLeave}
+          />
+        </>
       )}
       {active && !away && walk && (
         <button type="button" className="neko-slot__map-btn" onClick={() => setLastWalkOpen(true)} title="지난 산책 지도" aria-label="지난 산책 지도">

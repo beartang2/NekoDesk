@@ -526,73 +526,12 @@ html, body, #root {
   z-index: 1;
 }
 
-/* ── 창가 햇빛 ────────────────────────────────────────────────────────────────
-   reactbits 의 SideRays 는 WebGL(ogl) 로 광선을 그린다. 여기서 필요한 건 고양이에게
-   드는 빛 한 줄기뿐이라, 기울인 그라데이션 두 장을 흐리게 깔고 천천히 숨 쉬게 했다.
-   고양이보다 뒤에 깔려 UI 를 덮지 않는다. */
-.cat-panel__sun {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  overflow: hidden;
-  border-radius: inherit;
-  /* 창가 쪽 번짐. 움직이지 않는다 — 빛줄기만 흔들린다.
-     blend mode 는 쓰지 않는다 — 밝은 배경에서 그냥 사라져 버린다. */
-  background: radial-gradient(150% 110% at 8% -14%, color-mix(in oklab, #ffd98f 30%, transparent), transparent 70%);
-  opacity: 0.85;
-}
-
-/* 빛줄기. 해는 왼쪽 위 바깥 한 점에 있고, 줄기는 거기서 고양이 쪽으로 부채꼴로 퍼진다.
-   이 상자의 왼쪽 위 모서리가 곧 해다 — 그라데이션의 중심도, 회전축도 같은 점이라
-   해는 제자리에 있고 줄기의 방향만 바뀐다. 상자를 오른쪽 아래로 크게 잡아 두어
-   기울어도 가장자리가 드러나지 않는다. */
-.cat-panel__sun::before {
-  content: "";
-  position: absolute;
-  left: -6%;
-  top: -18%;
-  width: 260%;
-  height: 260%;
-  background: conic-gradient(at 0 0,
-    transparent 108deg,
-    color-mix(in oklab, var(--sun-ray-a, #fff4c5) 46%, transparent) 117deg,
-    transparent 126deg,
-    transparent 131deg,
-    color-mix(in oklab, var(--sun-ray-b, #ffce66) 34%, transparent) 140deg,
-    transparent 151deg);
-  transform-origin: 0 0;
-  /* 줄기 가장자리가 남을 만큼만 흐린다. 10px 넘게 흐리면 줄기가 한 덩어리 안개가
-     되고, 안개는 어떻게 움직여도 같은 그림이라 멈춘 것처럼 읽힌다. 번짐은 고정이다 —
-     keyframes 에서 blur 를 바꾸면 프레임마다 흐림을 다시 계산한다(docs/neko-perf.md). */
-  filter: blur(5px);
-  animation: sunbeam-drift 3s ease-in-out infinite alternate;
-}
-
-/* 다크에서는 같은 빛도 눈을 찌른다. 흐리게 두되, 흐리면 회색으로 읽히니 더 짙은 노랑·주황으로 */
-:root:not(.light) .cat-panel__sun {
-  opacity: 0.42;
-  --sun-ray-a: #ffc65c;
-  --sun-ray-b: #ff9a2e;
-}
-
-/* 해를 축으로 줄기 방향만 바뀐다. 옮기거나 늘이면 해가 따라 움직여 버린다. */
-@keyframes sunbeam-drift {
-  from { transform: rotate(5deg); }
-  50%  { transform: rotate(-1deg); }
-  to   { transform: rotate(-6deg); }
-}
-
-/* 창이 비활성(다른 앱이 앞)이거나 안 보이면 빛줄기·오로라를 멈춘다(main.tsx 가 html[data-idle] 을 단다) */
-:root[data-idle] .cat-panel__sun::before,
+/* 창이 비활성(다른 앱이 앞)이거나 안 보이면 오로라를 멈춘다(main.tsx 가 html[data-idle] 을 단다). 날씨 창문도 같은 표시를 본다 */
 :root[data-idle] .chat-aurora__lobe {
   animation-play-state: paused;
 }
 
 
-@media (prefers-reduced-motion: reduce) {
-  .cat-panel__sun::before { animation: none; }
-}
 
 /* ── Game speech bubble (그림판과 고양이 사이) ──────────────────────────────────
    예전엔 고양이 패널 **위에 겹쳐** 떠서 고양이와 게이지를 가렸다. 지금은 흐름 안에

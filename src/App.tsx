@@ -354,11 +354,9 @@ function Sidebar({
       {gameSpeech && <GameSpeechBubble text={gameSpeech} />}
 
       <div className="cat-panel">
-        {/* 네코 방: 배경(벽·바닥·날씨 액자) 위에 창가 햇빛, 그 위에 네코 자리. 네코가 다른 자리로 가도 빈 방으로 남는다 */}
+        {/* 네코 방: 배경(벽·바닥·날씨 창문) 위에 네코 자리. 네코가 다른 자리로 가도 빈 방으로 남는다 */}
         <div className="cat-room">
           <RoomBackdrop />
-          {/* 창가에 든 햇빛. reactbits 의 SideRays 를 WebGL 없이 기울인 그라데이션으로. 방 안에만 든다 */}
-          <div className="cat-panel__sun" aria-hidden="true" />
           <NekoSlot placement="sidebar" onRubPet={rpg.onPet} away={away} walk={walk} isDark={isDark} />
         </div>
         {/* 방 아래 얇은 띠: DAY·컨텍스트, 밥·놀이 게이지(누르면 밥 주기·놀아주기) */}

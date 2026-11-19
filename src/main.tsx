@@ -50,7 +50,7 @@ if (!isQuick && !isCapture && !isViewer && !isGlow && !isNekoScreen && !isNekoDe
   startMemoryTidy();
   // 다른 앱 따라 하기(늘 켜짐)
   startAmbient();
-  // 창이 비활성이거나 안 보이면 html[data-idle] — 빛줄기·오로라 CSS 애니메이션을 멈춘다(App.css)
+  // 창이 비활성이거나 안 보이면 html[data-idle] — 오로라 CSS 애니메이션(App.css)과 날씨 창문(WeatherWindow)을 멈춘다
   const idle = () => document.documentElement.toggleAttribute("data-idle", document.hidden || !document.hasFocus());
   for (const ev of ["focus", "blur"]) window.addEventListener(ev, idle);
   document.addEventListener("visibilitychange", idle);
