@@ -52,11 +52,36 @@ interface Probe { app: string | null; own: boolean; typed_ago: number }
 // 아이폰의 userAgent 에도 "like Mac OS X" 가 있어 폰은 따로 뺀다
 const IS_MAC = !IS_PHONE && typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 
+/**
+ * 폰의 따라 하기. 다른 앱은 못 보니 이 앱 입력 칸에 치는 것과, 다른 앱에서 나오는 소리(음악, AVAudioSession)만 따라 한다.
+ * 치다 멈춘 뒤 손 쉬기·졸림 시계는 맥과 같이 감독이 `at` 으로 센다.
+ */
+function startPhoneAmbient(): void {
+  const app = useNekoApp;
+  let last = -Infinity;
+  document.addEventListener("input", (e) => {
+    if (!(e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement)) return;
+    last = performance.now();
+    app.getState().setOutside({ ...app.getState().outside, typing: true, at: last });
+  }, true);
+  setInterval(() => {
+    const cur = app.getState().outside;
+    if (cur.typing && performance.now() - last > TYPING_S * 1000) app.getState().setOutside({ ...cur, typing: false });
+  }, POLL_MS);
+  const music = async () => {
+    const on = await invoke<boolean>("ambient_music").catch(() => false);
+    app.getState().setOutside({ ...app.getState().outside, music: on });
+  };
+  void music();
+  setInterval(() => void music(), MUSIC_MS);
+}
+
 let started = false;
 /** 메인 창에서 한 번 */
 export function startAmbient(): void {
-  if (started || !IS_MAC) return;
+  if (started || !(IS_MAC || IS_PHONE)) return;
   started = true;
+  if (IS_PHONE) return startPhoneAmbient();
   let music = false;
   let musicAt = -Infinity;
   const off = () => useNekoApp.getState().setOutside({ ...useNekoApp.getState().outside, typing: false, activity: null, music: false });

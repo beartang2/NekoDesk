@@ -16,13 +16,20 @@ import { coatSwatch, summarizeAppearance } from "./summarize";
 // 아이폰의 userAgent 에도 "like Mac OS X" 가 있어 폰은 따로 뺀다
 const IS_MAC = !IS_PHONE && typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 const FPS_OPTIONS: Option<"30" | "60">[] = [{ value: "30", label: "30" }, { value: "60", label: "60" }];
-const PLACES: Option<NekoPlacement>[] = [
+const PLACES: Option<NekoPlacement>[] = IS_PHONE ? [
+  { value: "sidebar", label: "방" },
+  { value: "dock", label: "거실" },
+] : [
   { value: "sidebar", label: "패널" },
   { value: "dock", label: "채팅 바 아래" },
   ...(IS_MAC ? [{ value: "screen" as const, label: "모니터 화면" }] : []),
 ];
 /** 자리 설명. 문장 속 호칭은 지어 준 이름(조사는 받침에 맞춘다) */
-const placeDesc = (place: NekoPlacement, name: string): string => ({
+const placeDesc = (place: NekoPlacement, name: string): string => IS_PHONE ? ({
+  sidebar: `${josa(name, "이/가")} 방에서 지내요. 방은 대화 목록(화면 왼쪽 끝에서 오른쪽으로 밀기) 아래에 있어요.`,
+  dock: `${josa(name, "이/가")} 대화 창 위쪽 거실에서 걸어 다녀요.`,
+  screen: "",
+})[place] : ({
   sidebar: `${josa(name, "이/가")} 사이드바 패널에서 지내요. 위쪽 가장자리를 끌어 높이를 바꾸면 고양이 크기도 따라 바뀌어요.`,
   dock: `${josa(name, "이/가")} 대화 입력창 아래 띠로 내려가 더 넓게 걸어 다녀요. 위쪽 가장자리를 끌어 높이를 바꿀 수 있어요.`,
   screen: `${josa(name, "이/가")} 앱 밖으로 나가 맥 화면 맨 아래(Dock 위)를 걸어 다녀요. ${name} 위에서만 클릭을 받고, 나머지 클릭은 뒤에 있는 창으로 넘어가요. ⌥ 를 누르고 있으면 ${name} 위의 클릭도 넘어가요.`,
@@ -48,9 +55,8 @@ export function NekoSettingsSection() {
         <button type="button" className="settings-btn" onClick={() => void invoke("panel_open", { kind: "neko-customize" }).catch(() => {})}>네코 꾸미기</button>
       </div>
 
-      {/* 폰의 네코 자리는 '거실' 하나라 고를 게 없다 */}
-      {!IS_PHONE && <Segmented value={placement} onChange={setPlacement} options={PLACES} />}
-      {!IS_PHONE && <p className="settings-section__desc">{placeDesc(placement, name)}</p>}
+      <Segmented value={placement} onChange={setPlacement} options={PLACES} />
+      <p className="settings-section__desc">{placeDesc(placement, name)}</p>
       {placement === "screen" && (
         <>
           <SwitchRow label="항상 위에 두기" checked={onTop} onChange={(v) => setScreen({ screenOnTop: v })} />

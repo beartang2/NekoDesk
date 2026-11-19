@@ -260,7 +260,70 @@ fn ios_full_screen(window: &tauri::WebviewWindow) {
         // UIScrollViewContentInsetAdjustmentNever = 2
         let _: () = msg_send![scroll, setContentInsetAdjustmentBehavior: 2isize];
         let _: () = msg_send![scroll, setBounces: false];
+        let _: () = msg_send![scroll, setScrollEnabled: false];
+        ios_scroll::lock(scroll);
     });
+}
+
+/// 폰: 키보드가 올라올 때 WKWebView 가 입력 칸을 보이려고 문서를 통째로 밀어 올린다. 화면 쪽은 보이는 높이에 맞춰
+/// 스스로 줄어드니(main.tsx 의 --vvh) 그 밀림은 쓸모없고, 둘이 겹쳐 화면이 한 번 내려갔다 올라왔다.
+/// 스크롤 뷰가 움직일 때마다 처음 자리로 되돌린다(스크롤 끄기만으로는 코드로 미는 것을 못 막는다).
+#[cfg(target_os = "ios")]
+mod ios_scroll {
+    use objc2::runtime::{AnyClass, AnyObject, ClassBuilder, Sel};
+    use objc2::{msg_send, sel, Encode, Encoding};
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Point {
+        x: f64,
+        y: f64,
+    }
+    unsafe impl Encode for Point {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+
+    extern "C-unwind" fn did_scroll(_this: &AnyObject, _cmd: Sel, scroll: *mut AnyObject) {
+        unsafe {
+            let at: Point = msg_send![scroll, contentOffset];
+            if at.x != 0.0 || at.y != 0.0 {
+                let _: () = msg_send![scroll, setContentOffset: Point { x: 0.0, y: 0.0 }];
+            }
+        }
+    }
+
+    /// main thread 전용. 델리게이트는 약한 참조라 만든 객체를 놓지 않는다(앱이 사는 동안 하나).
+    pub unsafe fn lock(scroll: *mut AnyObject) {
+        let cls = AnyClass::get(c"NekoScrollLock").or_else(|| {
+            let mut builder = ClassBuilder::new(c"NekoScrollLock", AnyClass::get(c"NSObject")?)?;
+            builder.add_method(sel!(scrollViewDidScroll:), did_scroll as extern "C-unwind" fn(_, _, _));
+            Some(builder.register())
+        });
+        let Some(cls) = cls else { return };
+        let delegate: *mut AnyObject = msg_send![cls, new];
+        let _: () = msg_send![scroll, setDelegate: delegate];
+    }
+}
+
+// AVAudioSession 이 든 프레임워크
+#[cfg(target_os = "ios")]
+#[link(name = "AVFoundation", kind = "framework")]
+extern "C" {}
+
+/// 폰의 '따라 하기': 다른 앱에서 소리가 나오는 중인가(음악·영상). 어느 앱·무슨 곡인지는 모른다 — iOS 가 안 알려 준다.
+#[cfg(target_os = "ios")]
+fn ios_other_audio_playing() -> bool {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject, Bool};
+    unsafe {
+        let Some(cls) = AnyClass::get(c"AVAudioSession") else { return false };
+        let session: *mut AnyObject = msg_send![cls, sharedInstance];
+        if session.is_null() {
+            return false;
+        }
+        let playing: Bool = msg_send![session, isOtherAudioPlaying];
+        playing.as_bool()
+    }
 }
 
 fn open_db(data_dir: PathBuf) -> Result<Connection, String> {
@@ -1127,6 +1190,13 @@ mod commands {
         crate::ambient::music(&app)
     }
 
+    /// 폰: 다른 앱에서 소리가 나오는 중인가(네코가 헤드폰을 낀다).
+    #[cfg(target_os = "ios")]
+    #[tauri::command(async)]
+    pub fn ambient_music() -> bool {
+        crate::ios_other_audio_playing()
+    }
+
     /// 지금 듣는 곡 제목·가수(재생 중인 첫 음악 앱). 재생 중이 아니거나 권한이 없으면 null.
     #[cfg(target_os = "macos")]
     #[tauri::command(async)]
@@ -1596,7 +1666,7 @@ pub fn run() {
             commands::neko_screen_layout,
             #[cfg(target_os = "macos")]
             commands::ambient_probe,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             commands::ambient_music,
             #[cfg(target_os = "macos")]
             commands::ambient_track,

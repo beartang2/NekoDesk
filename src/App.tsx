@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
+import { onEdgeSwipe, type EdgeSwipe } from "./lib/phone";
 import { IS_PHONE } from "./lib/platform";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
@@ -1987,6 +1988,14 @@ export default function App() {
   // 폰: 대화 목록(사이드바)은 제목을 눌러 여닫는 덮개다. 대화를 고르면 닫힌다.
   const [drawer, setDrawer] = useState(false);
   useEffect(() => setDrawer(false), [activeId]);
+  // 폰: 왼쪽 끝에서 오른쪽으로 밀면 대화 목록, 오른쪽 끝에서 왼쪽으로 밀면 설정. 열려 있는 쪽은 반대로 밀어 닫는다.
+  const swipeRef = useRef<(s: EdgeSwipe) => void>(() => {});
+  useEffect(() => (IS_PHONE ? onEdgeSwipe((s) => swipeRef.current(s)) : undefined), []);
+  swipeRef.current = (s) => {
+    if (s === "from-left") { if (menuOpen) setMenuOpen(false); else setDrawer(true); }
+    else if (drawer) setDrawer(false);
+    else setMenuOpen(true);
+  };
 
   // 예전 버전이 화면 저장소에 남긴 API 키를 키체인으로 옮긴다(한 번이면 끝).
   useEffect(() => {
@@ -2119,6 +2128,7 @@ export default function App() {
       />
       <UpdatePrompt />
 
+      {IS_PHONE && <div className="drawer-scrim" onClick={() => setDrawer(false)} aria-hidden="true" />}
       <ErrorBoundary label="사이드바">
       <Sidebar
         onNew={handleNew}

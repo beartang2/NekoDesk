@@ -19,6 +19,7 @@ import { startMemoryTidy } from "./neko/memoryTidy";
 import { startAmbient } from "./neko/ambient";
 import { startSync } from "./lib/sync";
 import { IS_PHONE } from "./lib/platform";
+import { startPhone } from "./lib/phone";
 
 
 // 같은 번들을 여러 창이 쓴다. ⌃⇧N 창("quick")은 입력만 받고, 캡처 막("capture-N")은
@@ -35,25 +36,8 @@ const isNekoScreen = label === "neko-screen";
 const isNekoDecor = label.startsWith("neko-decor-");
 // 설정에서 따로 띄우는 창(네코 꾸미기·선물함, panel_open)
 const panel = label === "neko-customize" || label === "neko-gifts" ? (label as NekoPanelKind) : null;
-// 폰: 세로 한 줄 배치(App.css 의 html.phone). 키보드가 올라오면 보이는 높이(--vvh)만큼만 쓰고 네코 띠를 숨긴다(html.kbd).
-if (IS_PHONE) {
-  const root = document.documentElement;
-  root.classList.add("phone");
-  const vv = window.visualViewport;
-  // 키보드가 올라왔나: 지금까지 본 가장 큰 높이보다 많이 줄었으면. innerHeight 는 iOS 버전에 따라 같이 줄기도 해서 못 믿는다.
-  let tallest = 0;
-  const fit = () => {
-    if (!vv) return;
-    tallest = Math.max(tallest, vv.height);
-    root.style.setProperty("--vvh", `${vv.height}px`);
-    root.classList.toggle("kbd", tallest - vv.height > 120);
-    window.scrollTo(0, 0);
-  };
-  window.addEventListener("orientationchange", () => { tallest = 0; });
-  vv?.addEventListener("resize", fit);
-  vv?.addEventListener("scroll", fit);
-  fit();
-}
+// 폰: 세로 한 줄 배치·키보드·터치(lib/phone.ts)
+if (IS_PHONE) startPhone();
 if (isQuick) document.documentElement.classList.add("quick-window");
 // 빛 창·화면 네코 창도 캡처 막처럼 바탕이 투명해야 한다.
 if (isCapture || isGlow || isNekoScreen || isNekoDecor) document.documentElement.classList.add("capture-window");
