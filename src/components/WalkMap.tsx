@@ -67,8 +67,10 @@ export function WalkMap({ walk, isDark, fallback, className = "" }: { walk: Walk
     return () => clearInterval(id);
   }, [walking]);
 
-  // 산책 경로는 집 기준이라 실제 길로 걸었으면 그 집이 가운데다.
-  const center = walk?.onMap && walk.home ? walk.home : here;
+  // 산책 경로는 집(출발한 곳) 기준이다. 걷는 중이면 실제 길로 걸을 때 그 집이, 아니면 지금 자리가 가운데다(대체 경로는 지도
+  // 없이 동심원 위에). 다녀온 산책은 늘 그때 그 집이 가운데다 — 그 뒤 다른 곳으로 옮겼어도 그 자리의 지도 위에 길을 그린다.
+  // 집을 모르면(위치 없이 나간 산책) 지금 자리의 지도에 얹지 않고 동심원 위에 그린다.
+  const center = live ? (live.onMap && live.home ? live.home : here) : walk ? walk.home : here;
   const pinPt = center && walk?.done && walk.pin ? toMeters(center, walk.pin.lat, walk.pin.lon) : null;
   // 걸은 길(다녀온 뒤엔 선물 핀까지)이 좁은 쪽 변에도 다 들어오게. 50m 단위로 올려 자잘한 변화로 다시 그리지 않는다.
   const reach = Math.max(0, ...(walk ? walk.path : []).map(([x, y]) => Math.hypot(x, y)), pinPt ? Math.hypot(...pinPt) : 0);
@@ -103,9 +105,8 @@ export function WalkMap({ walk, isDark, fallback, className = "" }: { walk: Walk
   const ahead = live ? px(positionAt(live.path, now + 1000)) : neko;
   const stepping = Math.hypot(ahead[0] - neko[0], ahead[1] - neko[1]) > 0.3;
   const facingLeft = stepping && ahead[0] < neko[0];
-  // 걷는 중이면 지금까지 걸은 길, 다녀온 산책이면 길 전체. 지도가 없으면(폰은 지도 그림을 못 받는다 — MapKit 스냅숏이 맥에만
-  // 있다) 걷는 중처럼 동심원 위에 그린다. 지도는 있는데 대체 경로로 걸었으면 건물을 뚫고 다니니 안 그린다
-  const trail = live ? walkedAt(live.path, now).map(px) : walk && (!map || walk.onMap) ? walk.path.map(([x, y]) => px([x, y])) : [];
+  // 걷는 중이면 지금까지 걸은 길, 다녀온 산책이면 길 전체(그 집의 지도 위에, 지도가 없으면 동심원 위에)
+  const trail = live ? walkedAt(live.path, now).map(px) : walk ? walk.path.map(([x, y]) => px([x, y])) : [];
   const stops = map && center && walk?.onMap && !walk.done ? walk.places.map((p) => ({ name: p.name, at: px(toMeters(center, p.lat, p.lon)) })) : [];
   const ring = Math.max(size.w, size.h) / 8;
   const fallbackOn = !map && fallback;

@@ -96,6 +96,8 @@ import "./App.css";
 
 /** 산책 기록(lib/walk 의 Walk). 다녀온 뒤에도 남겨 다음 산책(정기 산책·추가 산책 간격)을 정한다. */
 const WALK_KEY = "neko_walk";
+/** 다른 기기에 보이는 산책(동기화되는 설정, Rust db::SYNCED_SETTINGS). 내용은 WALK_KEY 와 같다 */
+const WALK_VIEW_KEY = "neko_walk_view";
 /** 다녀온 지난 산책의 시작·끝(다음 산책 정하기용). 아직 안 다녀왔거나 기록이 없으면 null */
 const lastWalkOf = (w: Walk | null) => (w?.done ? { start: walkStart(w), end: walkEnd(w) } : null);
 
@@ -1807,10 +1809,19 @@ export default function App() {
   // 기기들이 같이 보는 마지막 산책(동기화). 다른 기기가 나가 있으면 여기 네코도 자리에 없고, 이 기기는 안 나간다
   const [shared, setShared] = useState<SharedWalk | null>(null);
   const [elsewhere, setElsewhere] = useState(false);
+  // 다른 기기가 나간 산책의 길(neko_walk_view). 그 기기가 나가고 서둘러 오고 돌아올 때마다 적는다
+  const [viewWalk, setViewWalk] = useState<Walk | null>(null);
   useEffect(() => {
     const read = () => void syncApi.walkShared().then(setShared).catch(() => {});
+    const readView = () => void settingsApi.get(WALK_VIEW_KEY).then((raw) => {
+      try { const w = raw ? (JSON.parse(raw) as Walk) : null; setViewWalk(w?.path?.length ? w : null); } catch { /* 깨진 값 */ }
+    }).catch(() => {});
     read();
-    return appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("walk")) read(); });
+    readView();
+    return appEvents.on("syncChanged", ({ colls }) => {
+      if (colls.includes("walk")) read();
+      if (colls.includes("setting")) readView();
+    });
   }, []);
   useEffect(() => {
     const on = walkingElsewhere(shared, Date.now());
@@ -1821,6 +1832,12 @@ export default function App() {
   }, [shared]);
   /** 자리에 없다: 이 기기가 산책 중이거나 다른 기기에서 산책 중 */
   const gone = away || elsewhere;
+  /**
+   * 지도에 그릴 산책: 이 기기가 걷는 중이면 그것, 다른 기기가 걷는 중이면 그 기기가 적어 둔 길(아직 안 왔으면 없음),
+   * 아니면 둘 중 늦게 나간 것(지난 산책 지도). 다른 기기의 산책은 그리기만 한다.
+   */
+  const otherWalk = viewWalk && (!walk || walkStart(viewWalk) > walkStart(walk) + 1000) ? viewWalk : null;
+  const shownWalk = away ? walk : elsewhere ? (otherWalk && shared && Math.abs(walkStart(otherWalk) - shared.start) < 2000 ? otherWalk : null) : (otherWalk ?? walk);
   // 모니터 화면 자리면 화면 창을 띄운다(산책 중엔 숨긴다)
   useNekoScreen(gone, !!walk?.music);
   const brainRef = useRef<WalkBrain | null>(null);
@@ -1842,7 +1859,11 @@ export default function App() {
 
   const saveWalk = useCallback((w: Walk) => {
     setWalk(w);
-    settingsApi.set(WALK_KEY, JSON.stringify(w)).catch(() => {});
+    const raw = JSON.stringify(w);
+    settingsApi.set(WALK_KEY, raw).catch(() => {});
+    // 다른 기기가 이 산책을 지도에 그리게(neko_walk_view, 동기화되는 설정 — 암호화돼 올라간다). 다른 기기는 그리기만 하고
+    // 일지는 이 기기만 쓴다(WALK_KEY 는 이 기기에만)
+    settingsApi.set(WALK_VIEW_KEY, raw).catch(() => {});
   }, []);
 
   // 산책 중에 껐다 켰으면 이어 걷는다. 머리(조사하던 것)는 사라졌으니 새로 붙인다.
@@ -2217,7 +2238,7 @@ export default function App() {
         modelContextLength={modelContextLength}
         gameMode={game.phase !== "idle" ? game : null}
         away={gone}
-        walk={elsewhere ? null : walk}
+        walk={shownWalk}
         isDark={isDark}
       />
       </ErrorBoundary>
@@ -2327,7 +2348,7 @@ export default function App() {
 
       {/* '채팅 바 아래' 네코 자리: 창 맨 아래 한 줄, 사이드바부터 오른쪽 패널 끝까지(.app 셋째 줄).
           채팅 칸 안(.chat-dock)에 두면 대화 폭만큼만 생겼다. --dock-h 는 이제 입력창만 잰다. */}
-      <NekoSlot placement="dock" onRubPet={handlePet} away={gone} walk={elsewhere ? null : walk} isDark={isDark} />
+      <NekoSlot placement="dock" onRubPet={handlePet} away={gone} walk={shownWalk} isDark={isDark} />
     </div>
   );
 }
