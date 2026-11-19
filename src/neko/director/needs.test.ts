@@ -44,20 +44,43 @@ describe("숨은 게이지(docs/neko-activity-mix.md 2부)", () => {
     expect(applyFill(START, fillsOf("typing")).energy).toBe(67);
   });
 
-  it("직전 활동은 빼고, 놓인 선물이 없으면 선물 놀이도 없고, 있으면 두 배", () => {
+  it("최근 활동은 빼고, 놓인 선물이 없으면 선물 놀이도 없고, 있어도 덤은 없다", () => {
     const keys = (o: Parameters<typeof soloOdds>[1]) => soloOdds(START, o).map((x) => x.key);
     expect(keys({ last: "window", hasGifts: false })).not.toContain("window");
+    expect(keys({ last: "window", recent: ["giftplay"], hasGifts: true })).not.toContain("giftplay"); // 사이에 하나 끼고도 안 한다
     expect(keys({ last: null, hasGifts: false })).not.toContain("giftplay");
     // 창 탐험은 갈 창이 있을 때만(화면 모드)
     expect(keys({ last: null, hasGifts: false })).not.toContain("tower");
     expect(keys({ last: null, hasGifts: false, towerOk: true })).toContain("tower");
     const odds = soloOdds(START, { last: null, hasGifts: true });
     const p = (k: string) => odds.find((x) => x.key === k)!.p;
-    expect(p("giftplay") / p("draw")).toBeCloseTo((score(START, fillsOf("giftplay")) * 2) / score(START, fillsOf("draw")));
+    expect(p("giftplay") / p("draw")).toBeCloseTo(score(START, fillsOf("giftplay")) / score(START, fillsOf("draw")));
     expect(odds.reduce((a, b) => a + b.p, 0)).toBeCloseTo(1);
     expect(SOLO_KEYS).toEqual(expect.arrayContaining(["dig", "gaze", "groom", "knead", "window"]));
     // r 로 고른다
     expect(pickByNeeds(START, { last: null, hasGifts: false }, 0)).toBe(odds.filter((x) => x.key !== "giftplay")[0].key);
+  });
+
+  it("놀이 게이지: 심심하면 뛰노는 놀이(털실·선물), 차 있으면 다른 걸 더 고른다", () => {
+    const p = (play: number, k: string) => soloOdds(START, { last: null, hasGifts: true, play }).find((x) => x.key === k)!.p;
+    expect(p(40, "yarn")).toBeGreaterThan(p(95, "yarn"));
+    expect(p(40, "giftplay")).toBeGreaterThan(p(95, "giftplay"));
+    expect(p(95, "groom")).toBeGreaterThan(p(40, "groom"));
+  });
+
+  it("선물이 놓여 있어도 선물 놀이가 혼자 놀기를 차지하지 않는다(0.1.19): 하루 중 30% 아래, 연달아(사이 하나 끼고도) 안 나온다", () => {
+    let s = { ...START }, last: NekoActivity | null = null, older: NekoActivity | null = null, seed = 11;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+    let gift = 0, picks = 0, again = 0;
+    for (let i = 0; i < 300; i++) {
+      const play = 40 + 60 * rand();
+      const k = pickByNeeds(s, { last, recent: older ? [older] : [], hasGifts: true, play }, rand());
+      if (k === last || k === older) again++;
+      older = last; last = k; picks++; if (k === "giftplay") gift++;
+      s = decay(applyFill(s, fillsOf(k), 3), 3 * 60_000, "awake");
+    }
+    expect(gift / picks).toBeLessThan(0.3);
+    expect(again).toBe(0);
   });
 
   it("가상 하루 8시간: 한 활동이 30% 를 넘지 않고, 게이지가 바닥에 붙어 있지 않다", () => {

@@ -516,8 +516,8 @@ try {
       const n = window.__neko, c = n.cat, shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] }, played = [];
       n.setWander(false); n.on("decorPlayed", (e) => played.push(e.id));
       n.setDecor(["a", "b", "c"].map((id, i) => ({ id, surface: "floor", u: 0.15 + i * 0.35, play: "sniff", shape })));
-      n.act("giftplay");
-      for (let i = 0; i < 120 * 40 && played.length < 4; i++) n.step(1);
+      // 한 판은 물건 둘과 놀고 끝난다(한 번짜리) — 끝나면 다시 시켜 셋째를 본다
+      for (let i = 0; i < 120 * 60 && played.length < 4; i++) { if (!c.act) n.act("giftplay"); n.step(1); }
       const rotation = played.slice(0, 3).sort().join(""), plays = {};
       n.act(null); n.step(30);
       for (const [size, play] of [["large", "carry"], ["large", "roll"], ["large", "lean"], ["large", "hide"], ["large", "scratch"], ["small", "scratch"]]) {
@@ -537,7 +537,7 @@ try {
       return { rotation, played, plays, scaled };
     });
     const big = ["scratch", "lean", "hide"], P = r.plays;
-    check("선물 배율: 놀이는 실제 크기로(중간×2 는 큰 물건 놀이, 작은×0.5 기대기는 냄새, 중간×3 위에 앉기는 기대기, 작은×0.5 굴리기 그대로)", JSON.stringify(r.scaled),
+    check("선물 배율: 놀이는 종류 × 배율로(중간×2 는 큰 물건 놀이, 작은×0.5 기대기는 냄새, 중간×3 위에 앉기는 기대기, 작은×0.5 굴리기 그대로)", JSON.stringify(r.scaled),
       big.includes(r.scaled["medium×2/carry"]) && r.scaled["small×0.5/lean"] === "sniff" && r.scaled["medium×3/sit_on"] === "lean" && r.scaled["small×0.5/roll"] === "roll");
     check("선물 놀이 순서: 놓인 셋을 하나도 빠짐없이 돌아가며 논다(decorPlayed)", `${r.played.join("→")}`, r.rotation === "abc");
     check("큰 물건: 물고 옮기기·굴리기는 큰 물건 놀이로, 큰 물건 놀이 셋은 실제로 논다, 작은 데선 냄새로",
@@ -1092,6 +1092,43 @@ try {
         r.act === "window" && r.mode === "act" && Math.abs(r.x - cx) <= win.w && // 방 창은 왼쪽 벽 가까이라 걸을 수 있는 끝(EDGE)에 앉는다
            Math.sign(cx - r.x) === r.face &&
           r.closedMode === "act" && r.pawUp < r.floorY - 30 * r.S && r.after === null);
+    }
+  }
+
+  // 9-y) 선물 놀이(0.1.19): 작은 선물은 기본 배율에서도 물고 옮기고 굴린다(그려지는 크기가 아니라 종류로 — 폰 세로·가로 같게),
+  //      한 판은 물건 둘과 놀고 스스로 끝낸다(감독이 다른 놀이와 번갈아), 기운이 없으면 움직이는 놀이 대신 냄새 맡기
+  {
+    const run = async (q, vp) => {
+      const p = await open(q, vp, 1);
+      const r = await p.evaluate(() => {
+        const n = window.__neko, c = n.cat, shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+        n.setWander(false);
+        const chose = {};
+        for (const play of ["carry", "roll"]) {
+          n.setDecor([{ id: "s" + play, surface: "floor", u: 0.3, size: "small", play, shape }]);
+          n.act("giftplay"); n.step(1); chose[play] = c.act && c.act.play;
+          let carried = false, moved = false; const off = n.on("decorMove", () => { moved = true; });
+          for (let i = 0; i < 120 * 25 && c.act; i++) { n.step(1); if (n.carried().length) carried = true; }
+          off(); chose[play + "Did"] = play === "carry" ? carried : moved; n.act(null); n.step(30);
+        }
+        n.setNeeds({ energy: 20 });
+        n.setDecor([{ id: "t", surface: "floor", u: 0.3, size: "small", play: "carry", shape }]);
+        n.act("giftplay"); n.step(1); chose.tired = c.act && c.act.play; n.act(null); n.step(10);
+        n.setNeeds({ energy: 70 });
+        const played = []; const off = n.on("decorPlayed", (e) => played.push(e.id));
+        n.setDecor(["a", "b", "c"].map((id, i) => ({ id, surface: "floor", u: 0.15 + i * 0.35, play: "sniff", shape })));
+        n.act("giftplay");
+        let t = 0; for (; t < 120 * 70 && n.activity === "giftplay"; t++) n.step(1);
+        off();
+        return { ...chose, rounds: played.length, ended: n.activity === null, sec: Math.round(t / 120) };
+      });
+      await p.close();
+      return r;
+    };
+    for (const [name, q, vp] of [["폰 세로", "?w=375&h=120&scale=height", { width: 500, height: 300 }], ["폰 가로", "?w=724&h=340&scale=height", { width: 900, height: 500 }], ["맥 방", "?w=280&h=200&scale=height", { width: 500, height: 400 }]]) {
+      const r = await run(q, vp);
+      check(`선물 놀이(${name}): 작은 선물은 기본 배율에서 물고·굴리고, 한 판은 둘과 놀고 끝, 지치면 냄새`, JSON.stringify(r),
+        r.carry === "carry" && r.carryDid && r.roll === "roll" && r.rollDid && r.tired === "sniff" && r.rounds === 2 && r.ended && r.sec < 60);
     }
   }
 

@@ -152,7 +152,8 @@ export interface NekoController {
   tail(sign: NekoTailSign, sec?: number): void;
   /** "pet" 은 기분 좋게 받으면 true, 너무 만져 짜증 났으면 false(웃지 않고 피함). 나머지는 true */
   react(kind: NekoReaction): boolean;
-  setNeeds(n: { hunger?: number; play?: number }): void;
+  /** energy: 숨은 게이지 기운(0–100). 30 아래면 선물 놀이가 움직이는 놀이 대신 곁에서 냄새 맡기·기대기 */
+  setNeeds(n: { hunger?: number; play?: number; energy?: number }): void;
   setWander(on: boolean): void;
   setRig(on: boolean): void;
 

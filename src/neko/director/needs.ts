@@ -69,25 +69,36 @@ export function add(s: Needs, d: Partial<Needs>): Needs {
 export const fillsOf = (key: string | null | undefined): Partial<Needs> | undefined =>
   key ? (MIX as Record<string, { fills?: Needs }>)[key]?.fills : undefined;
 
-/** 점수(§2.4): 모자란 욕구를 채우는 활동일수록 가파르게 오른다. 기운은 넘치면 쓰는 놀이, 바닥이면 쉬는 놀이 */
-export function score(s: Needs, fills: Partial<Needs> | undefined): number {
+/**
+ * 점수(§2.4): 모자란 욕구를 채우는 활동일수록 가파르게 오른다. 기운은 넘치면 쓰는 놀이, 바닥이면 쉬는 놀이.
+ * play = 보이는 놀이 게이지(0–100, 낮을수록 심심함). 기운을 쓰는 놀이(털실·나비·선물…)가 심심함을 채우는 것으로 본다 —
+ * 심심하면 뛰노는 놀이, 놀이가 차 있으면 다른 걸(그루밍·창밖·꾹꾹이…) 한다. 같은 '모자란 걸 채운다' 틀이다
+ */
+export function score(s: Needs, fills: Partial<Needs> | undefined, play?: number): number {
   const u = (v: number) => ((100 - v) / 100) ** 2;
   const e = (50 - s.energy) / 50;
   const f = fills ?? {};
-  const want = (f.curiosity ?? 0) * u(s.curiosity) + (f.clean ?? 0) * u(s.clean) + (f.affection ?? 0) * u(s.affection);
+  const fun = Math.max(0, -(f.energy ?? 0)); // 기운을 쓰는 만큼 노는 놀이
+  const want = (f.curiosity ?? 0) * u(s.curiosity) + (f.clean ?? 0) * u(s.clean) + (f.affection ?? 0) * u(s.affection)
+    + (Number.isFinite(play) ? fun * (u(play!) - 0.25) : 0); // 놀이 50 이면 그대로, 낮으면 더, 차 있으면 덜
   return Math.max(0.1, 1 + 0.15 * want + 0.06 * (f.energy ?? 0) * e);
 }
 
 /** 혼자 놀기 후보(MIX 의 solo). 놓인 선물로 노는 giftplay 는 선물이 있을 때만, 창 탐험 tower 는 갈 창이 있을 때만(ctrl.towerOk) */
 export const SOLO_KEYS = Object.entries(MIX as Record<string, { solo?: boolean }>).filter(([, d]) => d.solo).map(([k]) => k as NekoActivity);
 
-export interface SoloWhere { last: NekoActivity | null; hasGifts: boolean; towerOk?: boolean }
+/** last = 직전 혼자 놀기, recent = 그 앞의 것들(연달아 같은 걸 안 하게), play = 보이는 놀이 게이지 */
+export interface SoloWhere { last: NekoActivity | null; recent?: NekoActivity[]; hasGifts: boolean; towerOk?: boolean; play?: number }
 
-/** 후보마다 확률(합 1). 직전 활동은 빼고, 놓인 선물이 있으면 giftplay 는 두 배. 갈 창이 없으면 tower 는 빼다(고르면 바로 끝나 깜빡인다) */
+/**
+ * 후보마다 확률(합 1). 최근에 한 것(직전·그 앞)은 빼고, 선물 놀이는 놓인 선물이 있을 때만, 갈 창이 없으면 tower 는 뺀다
+ * (고르면 바로 끝나 깜빡인다). 선물 놀이에 덤(×2)을 주지 않는다 — 덤 때문에 선물만 건드렸다(0.1.19, 사용자)
+ */
 export function soloOdds(s: Needs, o: SoloWhere): { key: NekoActivity; p: number }[] {
+  const recent = new Set([o.last, ...(o.recent ?? [])]);
   const w = SOLO_KEYS
-    .filter((k) => k !== o.last && (k !== "giftplay" || o.hasGifts) && (k !== "tower" || !!o.towerOk))
-    .map((key) => ({ key, w: score(s, fillsOf(key)) * (key === "giftplay" ? 2 : 1) }));
+    .filter((k) => !recent.has(k) && (k !== "giftplay" || o.hasGifts) && (k !== "tower" || !!o.towerOk))
+    .map((key) => ({ key, w: score(s, fillsOf(key), o.play) }));
   const sum = w.reduce((a, b) => a + b.w, 0) || 1;
   return w.map(({ key, w: x }) => ({ key, p: x / sum }));
 }

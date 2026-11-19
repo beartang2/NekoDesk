@@ -53,6 +53,10 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
 
   useEffect(() => { ctrl?.setTheme({ dark: isDark }); }, [ctrl, isDark]);
 
+  // 기운(숨은 게이지)도 엔진에: 선물 놀이가 지치면 곁에서 냄새 맡기·기대기로(10 단위로만 다시 넘긴다)
+  const energy = useNekoNeeds((s) => Math.round(s.needs.energy / 10) * 10);
+  useEffect(() => { ctrl?.setNeeds({ energy }); }, [ctrl, energy]);
+
   useEffect(() => {
     ctrl?.setNeeds({ hunger: needs.hunger, play: needs.play });
     syncBoxRef.current();
@@ -63,6 +67,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
     if (!ctrl) return;
     let box: DirectorInput["box"] = null;
     let lastSolo: NekoActivity | null = null;
+    let olderSolo: NekoActivity | null = null; // 그 앞의 혼자 놀기: 같은 걸 연달아(사이에 하나 끼고) 안 하게
     let boxPetBase = 0;
     let boxTimer: ReturnType<typeof setTimeout> | null = null;
     let boxExitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -101,8 +106,10 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
           // 놓아 둔 선물이 있으면 그걸 갖고 노는 것도 고른다(docs/neko-gifts.md §5)
           // 창 탐험은 화면 모드에서 갈 창이 있을 때만(엔진 towerOk — 대리는 화면 창이 알린 값)
           const c = ctrl as { decorCount?: number; towerOk?: boolean };
-          const kind = pickByNeeds(useNekoNeeds.getState().needs, { last: lastSolo, hasGifts: !!c.decorCount, towerOk: c.towerOk === true });
-          lastSolo = kind;
+          const kind = pickByNeeds(useNekoNeeds.getState().needs, {
+            last: lastSolo, recent: olderSolo ? [olderSolo] : [], hasGifts: !!c.decorCount, towerOk: c.towerOk === true, play: needsRef.current.play,
+          });
+          olderSolo = lastSolo; lastSolo = kind;
           box = { since: performance.now(), kind };
           // 그리기면 정말 그린다(하루 두 장, Claude 일 때만). 다 그려 액자를 선물함에 넣으면 꼬리 세우기
           if (kind === "draw") void maybeDraw().then((title) => { if (title) sch.react([{ type: "react", kind: "proud" }]); });

@@ -56,7 +56,8 @@ export const MIX = {
   groom: act("body paws head mouth tail", "sit", "", solo(fill(3, 0, 35))),
   knead: act("body paws head tail", "stand", "floor", solo(fill(10, 0, 0, 8))),
   yarn: act("body move paws head tail", "move", "floor", solo(fill(-20, 5))),
-  giftplay: act("body move paws head mouth tail", "move", "decor", solo(fill(-8, 15))),
+  // 선물 갖고 놀기: 물건 둘(하나뿐이면 하나)과 놀고 스스로 끝낸다(한 번짜리, 하네스 최대 약 45초)
+  giftplay: act("body move paws head mouth tail", "move", "decor", { ...solo(fill(-8, 15)), ...maxMs(60000) }),
   box: act("body paws head tail", "loaf", "floor", solo(fill(5, 10))),
   window: act("body head tail", "sit", "wall", solo(fill(3, 25))),
   think: act("body paws head tail", "sit", "", { fills: fill(0, 3) }),

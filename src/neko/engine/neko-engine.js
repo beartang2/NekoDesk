@@ -3203,8 +3203,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   });
 
   /* ----- 선물 갖고 놀기(docs/neko-gifts.md §5) -----
-     놓아 둔 물건 하나를 골라, 그 물건에 붙은 노는 방식으로 논다. 한 판이 끝나면 잠깐 쉬고 다시 고른다(감독이 그만하게
-     할 때까지). 벽에 건 것은 올려다보기만 한다. 굴리기·물고 옮기기로 자리가 바뀌면 settleDecor 가 decorMove 로 알린다. */
+     놓아 둔 물건 하나를 골라, 그 물건에 붙은 노는 방식으로 논다. 한 판이 끝나면 잠깐 쉬고 다음 물건으로, 물건 둘(하나뿐이면
+     하나)과 놀면 스스로 끝낸다(한 번짜리 — 감독이 다른 놀이와 번갈아 고른다. 예전엔 2–4분 내내 선물만 건드렸다).
+     벽에 건 것은 올려다보기만 한다. 굴리기·물고 옮기기로 자리가 바뀌면 settleDecor 가 decorMove 로 알린다. */
+  const GIFT_ROUNDS = 2;
   const giftOf = (A) => decor.find((d) => d.id === A.id) || null;
   function giftPos(d) { const h = decorDims(d.shape, d.k).h; const [x, bottom] = d.px || decorAt(d, h); return { x, bottom, h }; }
   /** 놀 물건: 오래 안 놀아 준 것부터(한 번도 안 논 것이 먼저). 놓인 건 돌아가며 하나도 빠짐없이 논다 */
@@ -3215,15 +3217,21 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     A.id = d ? d.id : null; A.kicks = 0; A.stage = d ? "go" : "rest"; A.rest = d ? 0 : 1.5; A.dt = 0;
     A.play = d ? playFor(d) : null;
   }
-  /** 물건 크기·자리·입 상태에 맞는 놀이 */
+  /**
+   * 물건의 종류·자리·입 상태·기운에 맞는 놀이. 크기는 그려지는 크기가 아니라 종류(소·중·대 × 사용자 배율, 중 = 1)로 본다 —
+   * 그려지는 크기(기본 한 변 96, 자리 상한, 폰 가로 0.7)로 보면 기본 크기에선 작은 것도 커서 물고 굴리기가 아예 안 나왔다.
+   * 작으면 굴리기·물기, 크면 기대기·숨기·발톱, 위에 앉기는 작지도 아주 크지도 않을 때. 기운이 없으면(30 아래) 움직이는
+   * 놀이 대신 곁에서 냄새 맡기·기대기
+   */
   function playFor(d) {
     if (d.surface === "wall") return "look";
-    // 실제 그리는 크기(한 변, S 단위)로: 크면 기대기·숨기·발톱, 작으면 굴리기·물기, 위에 앉기는 적당한 크기
     let p = d.play;
-    const sz = d.k * DD.DECOR_SIZE, big = sz >= 42, small = sz <= 35;
+    const cls = DD.sizeK(d.size) * DD.clampScale(d.scale), small = cls <= 0.75, big = cls >= 1.3;
     if (!small && (p === "carry" || p === "roll")) p = big ? LARGE_PLAYS[Math.floor(Math.random() * LARGE_PLAYS.length)] : "bat";
     if (!big && LARGE_PLAYS.includes(p)) p = "sniff";
-    if (p === "sit_on" && (sz < 29 || sz > 70)) p = sz > 70 ? "lean" : "sniff"; // 작은 건 못 앉고, 너무 크면 기대 잔다
+    if (p === "sit_on" && (small || cls > 1.6)) p = small ? "sniff" : "lean"; // 작은 건 못 앉고, 너무 크면 기대 잔다
+    const tired = cat.needs && Number.isFinite(cat.needs.energy) && cat.needs.energy < 30;
+    if (tired && ["carry", "roll", "bat", "scratch", "hide"].includes(p)) p = big ? "lean" : "sniff";
     if (p === "carry" && carrying.length) p = "bat"; // 입에 다른 걸(파일) 물고 있으면
     return p;
   }
@@ -3258,6 +3266,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (d) { d.front = false; d.lastPlayed = Date.now(); emit("decorPlayed", { id: d.id, at: d.lastPlayed }); }
     A.stage = "rest"; A.rest = rest;
     if (cat.mode === "act") setMode("idle");
+    // 물건 둘(하나뿐이면 하나)과 놀았으면 끝(한 번짜리). 같은 물건을 연달아 건드리지 않는다
+    A.rounds = (A.rounds || 0) + 1;
+    if (A.rounds >= Math.min(GIFT_ROUNDS, Math.max(1, decor.filter((o) => !o.hidden).length)) && cat.act === A) endAct();
   }
   defineActivity("giftplay", {
     name: "선물 갖고 놀기", label: "선물 갖고 노는 중", roam: true, keepOnGrab: true,
