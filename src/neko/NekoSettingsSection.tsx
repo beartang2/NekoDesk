@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { PLACE_NAME } from "./gifts";
 import { IS_PHONE } from "../lib/platform";
 import { Segmented, SwitchRow, type Option } from "../components/ui";
 import { NekoGiftBox } from "./NekoGiftBox";
@@ -16,13 +17,11 @@ import { coatSwatch, summarizeAppearance } from "./summarize";
 // 아이폰의 userAgent 에도 "like Mac OS X" 가 있어 폰은 따로 뺀다
 const IS_MAC = !IS_PHONE && typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 const FPS_OPTIONS: Option<"30" | "60">[] = [{ value: "30", label: "30" }, { value: "60", label: "60" }];
-const PLACES: Option<NekoPlacement>[] = IS_PHONE ? [
-  { value: "sidebar", label: "방" },
-  { value: "dock", label: "거실" },
-] : [
-  { value: "sidebar", label: "패널" },
-  { value: "dock", label: "채팅 바 아래" },
-  ...(IS_MAC ? [{ value: "screen" as const, label: "모니터 화면" }] : []),
+// 자리 이름은 선물함과 같은 말을 쓴다(방·거실·마당, gifts.ts PLACE_NAME). 마당은 맥에만 있다
+const PLACES: Option<NekoPlacement>[] = [
+  { value: "sidebar", label: PLACE_NAME.sidebar },
+  { value: "dock", label: PLACE_NAME.dock },
+  ...(IS_MAC ? [{ value: "screen" as const, label: PLACE_NAME.screen }] : []),
 ];
 /** 자리 설명. 문장 속 호칭은 지어 준 이름(조사는 받침에 맞춘다) */
 const placeDesc = (place: NekoPlacement, name: string): string => IS_PHONE ? ({
