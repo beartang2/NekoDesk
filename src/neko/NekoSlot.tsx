@@ -5,6 +5,7 @@ import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { NekoAway } from "./NekoAway";
 import { RoomGifts } from "./NekoRoom";
 import { WeatherWindow } from "./WeatherWindow";
+import { DockWall } from "./Wallpaper";
 import { Map as MapIcon } from "lucide-react";
 import { LastWalkModal, WalkMap } from "../components/WalkMap";
 import type { Walk } from "../lib/walk";
@@ -143,7 +144,7 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
       ) : (
         <>
           {/* 거실: 벽 대신 띠 바탕에 가로로 긴 날씨 창문(고양이 뒤) */}
-          {placement === "dock" && <WeatherWindow place="dock" />}
+          {placement === "dock" && <><DockWall /><WeatherWindow place="dock" /></>}
           <div
             ref={stageRef}
             className="neko-slot__stage"

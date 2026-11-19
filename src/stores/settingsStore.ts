@@ -63,6 +63,7 @@ const K = {
   autoCompact: "nekodesk_auto_compact",
   sessionRetention: "nekodesk_session_retention",
   memoryTidy: "nekodesk_memory_tidy",
+  nekoWallpaper: "nekodesk_neko_wallpaper",
 } as const;
 
 /**
@@ -81,6 +82,9 @@ const mirror = (field: SyncedField, value: string | null) => void settingsApi.se
 
 /** 오래된 대화를 지우는 기준(일). 0 이면 끔 */
 export type SessionRetention = 0 | 30 | 90;
+/** 방·거실 벽지(neko/Wallpaper.tsx). 이 기기에만 */
+export type NekoWallpaper = "plain" | "panel" | "twotone" | "arch";
+const WALLPAPERS: readonly NekoWallpaper[] = ["plain", "panel", "twotone", "arch"];
 const toRetention = (raw: string | null): SessionRetention => (raw === "0" ? 0 : raw === "90" ? 90 : 30);
 function loadSessionRetention(): SessionRetention {
   return toRetention(localStorage.getItem(K.sessionRetention));
@@ -148,6 +152,7 @@ interface SettingsStore {
   sessionRetention: SessionRetention;
   /** 네코가 졸 때 하루 한 번 겹치는 기억을 합친다(neko/memoryTidy.ts). Claude 프로필일 때만 돈다 */
   memoryTidy: boolean;
+  nekoWallpaper: NekoWallpaper;
   /** auto 모드에서 서버가 `tools` 를 거부해 json 으로 내려앉았다. 영속화하지 않는다. */
   nativeToolsDegraded: boolean;
   setLlmUrl: (url: string) => void;
@@ -163,6 +168,7 @@ interface SettingsStore {
   setAutoCompact: (on: boolean) => void;
   setSessionRetention: (days: SessionRetention) => void;
   setMemoryTidy: (on: boolean) => void;
+  setNekoWallpaper: (v: NekoWallpaper) => void;
   setNativeToolsDegraded: (v: boolean) => void;
 }
 
@@ -177,6 +183,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   toolMode: loadToolMode(),
   imageGen: loadImageGen(),
   weatherLocation: localStorage.getItem(K.weatherLocation) ?? "Seoul",
+  nekoWallpaper: WALLPAPERS.find((v) => v === localStorage.getItem(K.nekoWallpaper)) ?? "plain",
   claudeContext: loadClaudeContext(),
   autoCompact: localStorage.getItem(K.autoCompact) !== "off",
   sessionRetention: loadSessionRetention(),
@@ -223,6 +230,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setWeatherLocation: (v) => {
     localStorage.setItem(K.weatherLocation, v);
     set({ weatherLocation: v });
+  },
+  setNekoWallpaper: (v) => {
+    localStorage.setItem(K.nekoWallpaper, v);
+    set({ nekoWallpaper: v });
   },
   setClaudeContext: (model, tokens) => {
     const claudeContext = { ...get().claudeContext, [model]: tokens };

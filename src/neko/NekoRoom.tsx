@@ -4,6 +4,7 @@ import { decorBoxes, dragDecor, drawDecor, hitDecorAt } from "./engine/decor-dra
 import type { NekoDecorSpot } from "./engine/neko-engine";
 import { decorItems, useNekoGifts } from "./gifts";
 import { WeatherWindow } from "./WeatherWindow";
+import { SkyTint, WallPattern } from "./Wallpaper";
 import { setHolding } from "./holding";
 import "./NekoRoom.css";
 
@@ -54,9 +55,11 @@ export function RoomBackdrop() {
             </linearGradient>
           </defs>
           <rect className="neko-room__wall" x={0} y={0} width={w} height={seam} />
+          <WallPattern place="sidebar" w={w} wallH={seam} />
           <rect x={0} y={seam} width={w} height={h - seam} fill="url(#neko-room-floor)" />
           <rect className="neko-room__base" x={0} y={seam - 3 * S} width={w} height={3 * S} />
           <ellipse className="neko-room__rug" cx={w * 0.52} cy={floorY - 1} rx={w * 0.3} ry={Math.max(3, 5 * S)} />
+          <SkyTint w={w} h={h} />
         </svg>
       )}
       <WeatherWindow place="sidebar" />
