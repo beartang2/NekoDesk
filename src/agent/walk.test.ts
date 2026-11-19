@@ -121,6 +121,7 @@ describe("산책 머리", () => {
       { id: 1, kind: "fact", content: "사용자의 동생 이름은 김하린이다", created_at: "", use_count: 0 },
     ]);
     topic.mockResolvedValueOnce("비 오는 날 새들의 쉼터");
+    among.mockResolvedValueOnce("trinket"); // 사용자 기억 선물(memory)이 굴러 나오면 궁금한 것을 일부러 안 남긴다 — 그 길은 따로 본다
     subagent.mockResolvedValueOnce("");
     completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b", next_wonder: "새 둥지는 젖을까" }));
     await startWalkBrain({ places: [], here: null }).result;
