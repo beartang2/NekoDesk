@@ -535,8 +535,8 @@ html, body, #root {
     transparent 151deg);
   transform-origin: 0 0;
   /* 줄기 가장자리가 남을 만큼만 흐린다. 10px 넘게 흐리면 줄기가 한 덩어리 안개가
-     되고, 안개는 어떻게 움직여도 같은 그림이라 멈춘 것처럼 읽힌다. 번짐은 keyframes 에서
-     함께 숨 쉰다. */
+     되고, 안개는 어떻게 움직여도 같은 그림이라 멈춘 것처럼 읽힌다. 번짐은 고정이다 —
+     keyframes 에서 blur 를 바꾸면 프레임마다 흐림을 다시 계산한다(docs/neko-perf.md). */
   filter: blur(5px);
   animation: sunbeam-drift 3s ease-in-out infinite alternate;
 }
@@ -550,9 +550,15 @@ html, body, #root {
 
 /* 해를 축으로 줄기 방향만 바뀐다. 옮기거나 늘이면 해가 따라 움직여 버린다. */
 @keyframes sunbeam-drift {
-  from { transform: rotate(5deg); filter: blur(3px); }
-  50%  { transform: rotate(-1deg); filter: blur(8px); }
-  to   { transform: rotate(-6deg); filter: blur(4px); }
+  from { transform: rotate(5deg); }
+  50%  { transform: rotate(-1deg); }
+  to   { transform: rotate(-6deg); }
+}
+
+/* 창이 비활성(다른 앱이 앞)이거나 안 보이면 빛줄기·오로라를 멈춘다(main.tsx 가 html[data-idle] 을 단다) */
+:root[data-idle] .cat-panel__sun::before,
+:root[data-idle] .chat-aurora__lobe {
+  animation-play-state: paused;
 }
 
 

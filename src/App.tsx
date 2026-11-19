@@ -17,6 +17,7 @@ import { ChatEmptyState } from "./components/ChatEmptyState";
 import { NekoBootCat } from "./neko/NekoPortrait";
 import { NekoSlot } from "./neko/NekoSlot";
 import { RoomBackdrop } from "./neko/NekoRoom";
+import { splitMarkdownBlocks } from "./lib/markdownBlocks";
 import { addPictureGift } from "./neko/pictureGift";
 import { useNekoDirector } from "./neko/useNekoDirector";
 import { useNekoApp } from "./neko/director/stores";
@@ -381,6 +382,36 @@ function Sidebar({
 /** 처음에 그리는 말풍선 수, 그리고 위로 올릴 때마다 더 붙이는 수. */
 const MESSAGE_PAGE = 60;
 
+const MD_PLUGINS = [remarkGfm];
+const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = {
+  table: ({ children }) => (
+    <div className="table-wrapper"><table>{children}</table></div>
+  ),
+  a: ({ href, children }) => (
+    // Tauri webview 는 <a> 클릭을 자기 창에서 처리해 브라우저를 안 띄운다.
+    // 가로채서 기본 브라우저로 연다(http/https 만, Rust 에서 재검증).
+    <a
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        if (href) invoke("open_external_url", { url: href }).catch(() => {});
+      }}
+    >
+      {children}
+    </a>
+  ),
+};
+
+/** 마크다운 한 덩이. 글이 같으면 다시 해석하지 않는다 */
+const MdBlock = React.memo(function MdBlock({ text }: { text: string }) {
+  return <ReactMarkdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>{text}</ReactMarkdown>;
+});
+
+function MessageMarkdown({ text, streaming }: { text: string; streaming: boolean }) {
+  if (!streaming) return <MdBlock text={text} />;
+  return <>{splitMarkdownBlocks(text).map((b, i) => <MdBlock key={i} text={b} />)}</>;
+}
+
 /**
  * 말풍선 하나. 메모라서 답이 흘러나오는 동안엔 그 말풍선만 다시 그린다 — 예전엔 글자 하나마다
  * 대화 전체의 마크다운을 다시 해석해서 대화가 길수록 느려졌다. 메시지 저장소는 바뀐 메시지만
@@ -447,29 +478,7 @@ const MessageItem = React.memo(function MessageItem({
             </details>
           )}
           {m.content && (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                table: ({ children }) => (
-                  <div className="table-wrapper"><table>{children}</table></div>
-                ),
-                a: ({ href, children }) => (
-                  // Tauri webview 는 <a> 클릭을 자기 창에서 처리해 브라우저를 안 띄운다.
-                  // 가로채서 기본 브라우저로 연다(http/https 만, Rust 에서 재검증).
-                  <a
-                    href={href}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      if (href) invoke("open_external_url", { url: href }).catch(() => {});
-                    }}
-                  >
-                    {children}
-                  </a>
-                ),
-              }}
-            >
-              {maskHome(stripThink(expanded && m.prompt ? m.prompt : m.content))}
-            </ReactMarkdown>
+            <MessageMarkdown text={maskHome(stripThink(expanded && m.prompt ? m.prompt : m.content))} streaming={!!m.isStreaming} />
           )}
           {m.role === "user" && m.prompt && (
             <button type="button" className="message__more" onClick={() => onToggle(m.id)}>
