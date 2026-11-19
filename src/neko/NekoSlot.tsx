@@ -12,6 +12,7 @@ import type { Walk } from "../lib/walk";
 import { useNekoGifts } from "./gifts";
 import { useKeepInside } from "./keepInside";
 import { useNekoApp } from "./director/stores";
+import { appEvents } from "../lib/events";
 import "./NekoSlot.css";
 
 /**
@@ -107,6 +108,20 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
     el.addEventListener("pointercancel", up);
   }, [height, placement, setStageHeight]);
 
+  // 네코가 먼저 건네는 한마디(agent/neko-mind): 이 자리에 네코가 있을 때 고양이 머리 위 말풍선으로 7초
+  const [says, setSays] = useState<{ text: string; x: number } | null>(null);
+  useEffect(() => {
+    if (!active || away) return;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const off = appEvents.on("nekoSays", (text) => {
+      const cat = (ctrl as unknown as { cat?: { head?: { x: number } } } | null)?.cat;
+      setSays({ text, x: cat?.head?.x ?? 0 });
+      clearTimeout(t);
+      t = setTimeout(() => setSays(null), 7000);
+    });
+    return () => { off(); clearTimeout(t); setSays(null); };
+  }, [active, away, ctrl]);
+
   // 산책 중(이 기기에서 나간 산책): 자리를 누르거나 '불러오기'를 누르면 부른 것이다 — 서둘러 온다(App, walkWatch).
   // 다른 기기에서 나간 산책은 walk 가 없어 부르지 않는다. 높이 손잡이를 끈 건 누르기가 아니다
   const calling = active && away && !!walk && !walk.done;
@@ -152,6 +167,9 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
             onMouseLeave={onBodyLeave}
           />
         </>
+      )}
+      {says && (
+        <div className="neko-slot__says" role="status" style={says.x ? { left: says.x } : undefined}>{says.text}</div>
       )}
       {calling && (
         <button type="button" className="neko-slot__call-btn" onClick={(e) => { e.stopPropagation(); callHome(); }} title="지금 돌아오게 부릅니다">

@@ -1,7 +1,8 @@
 import { memoryApi, settingsApi } from "../api/tauri";
 import { drawGift } from "./gift-draw";
 import { DEFAULT_CHAT_SYSTEM_PROMPT, fetchCompletionMessage } from "./llm-client";
-import type { OpenAiToolSchema } from "./types";
+import type { Memory, OpenAiToolSchema } from "./types";
+import { noteChose, recentNotesText } from "./neko-mind";
 import { shapeBounds, validateShape, type GiftPart, type GiftShape } from "../neko/engine/gift-shape";
 import { useNekoGifts } from "../neko/gifts";
 import { budgetBlockReason } from "../stores/claudeBudget";
@@ -29,6 +30,7 @@ const TOPIC_TOOL = {
       properties: {
         title: { type: "string", description: "그릴 것. 짧은 이름(예: 비 오는 날 우산, 노란 튤립)" },
         note: { type: "string", description: "그림을 건네며 사용자에게 하는 한두 문장. 네 말투로" },
+        why: { type: "string", description: "이걸 고른 까닭 한 줄(네 노트에 남는다)" },
       },
       required: ["title", "note"],
     },
@@ -112,8 +114,11 @@ async function pickTopic(): Promise<{ title: string; note: string } | null> {
   const name = nekoNameOf(s);
   const persona = s.systemPrompt?.trim() && s.systemPrompt.trim() !== DEFAULT_CHAT_SYSTEM_PROMPT.trim() ? s.systemPrompt.trim() : "";
   // 사용자가 좋아할 만한 걸 고르게 사용자 기억 몇 개, 겹치지 않게 전에 그린 것
-  const memories = (await memoryApi.list().catch(() => [])).filter((m) => m.kind !== "neko").slice(0, 8).map((m) => `- ${m.content}`);
-  const before = useNekoGifts.getState().gifts.filter((g) => g.frame).slice(-10).map((g) => g.title);
+  const all = await memoryApi.list().catch((): Memory[] => []);
+  const memories = all.filter((m) => m.kind !== "neko").slice(0, 8).map((m) => `- ${m.content}`);
+  // 전에 그린 것(날짜와 함께)과 내 노트(docs/neko-mind.md §6.2): 고르는 건 네코다 — 규칙 대신 재료
+  const before = useNekoGifts.getState().gifts.filter((g) => g.frame).slice(-10).map((g) => `${g.title}(${g.at.slice(5, 10).replace("-", "/")})`);
+  const notes = await recentNotesText().catch(() => "");
   const turn = await fetchCompletionMessage(
     [
       { role: "system", content: [`너는 고양이 ${name}. neko_drawing 툴로 답해.`, persona && `네 성격과 말투:\n${persona}`].filter(Boolean).join("\n\n") },
@@ -122,7 +127,8 @@ async function pickTopic(): Promise<{ title: string; note: string } | null> {
         content: [
           "혼자 놀다가 그림을 그리고 싶어졌어. 그리고 싶은 것 하나를 골라. 도형 몇 개로 그릴 수 있는 작은 물건·동물·꽃·음식·풍경 조각이 좋아. 다 그리면 액자에 넣어 사용자에게 줄 거야.",
           memories.length ? `사용자에 대해 아는 것(참고만):\n${memories.join("\n")}` : "",
-          before.length ? `전에 그린 것(다른 걸 골라): ${before.join(", ")}` : "",
+          before.length ? `전에 그린 것: ${before.join(", ")}` : "",
+          notes ? `내 노트(요즘 궁금한 것·하고 싶은 것·고른 것):\n${notes}` : "",
         ].filter(Boolean).join("\n\n"),
       },
     ],
@@ -131,5 +137,6 @@ async function pickTopic(): Promise<{ title: string; note: string } | null> {
   const p = turn.toolCalls.find((c) => c.name === "neko_drawing")?.params;
   const title = typeof p?.title === "string" ? p.title.trim().slice(0, 30) : "";
   const note = typeof p?.note === "string" ? p.note.trim().slice(0, 200) : "";
+  if (title) void noteChose("drawing", title, typeof p?.why === "string" ? p.why : "", all).catch(() => {});
   return title ? { title, note } : null;
 }

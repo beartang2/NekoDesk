@@ -27,6 +27,7 @@ import { addPictureGift } from "./neko/pictureGift";
 import { useNekoDirector } from "./neko/useNekoDirector";
 import { useNekoApp } from "./neko/director/stores";
 import { watchWalkIdle } from "./neko/walkWatch";
+import { prepareGreeting, takeGreeting } from "./agent/neko-mind";
 import { useNekoNeeds } from "./neko/director/needsStore";
 import { SLEEPY_MS } from "./neko/director/derive";
 import { useNekoStore } from "./neko/nekoStore";
@@ -1891,6 +1892,9 @@ export default function App() {
     sleepyMs: SLEEPY_MS,
     onIdle: (on) => {
       if (on) dozeRef.current = { at: Date.now(), extraWait: EXTRA_WAIT_MS[0] + Math.random() * (EXTRA_WAIT_MS[1] - EXTRA_WAIT_MS[0]) };
+      // 네코의 마음(docs/neko-mind.md §6.2): 졸기 시작하면 돌아올 사용자에게 건넬 말을 생각해 두고(2시간에 한 번), 깨면 말풍선으로
+      if (on) void prepareGreeting().catch(() => {});
+      else void takeGreeting().then((t) => { if (t) appEvents.emit("nekoSays", t); }).catch(() => {});
       setIdle(on);
     },
     onCall: () => hurryHomeRef.current(),

@@ -20,7 +20,7 @@ vi.mock("./llm-client", () => ({
   },
 }));
 
-import { chooseWalkTopic, forgetNote, leaksFact, loadMind, mindMaterial, noteWonder, parseMind, think } from "./neko-mind";
+import { chooseAmong, chooseWalkTopic, forgetNote, leaksFact, loadMind, mindMaterial, noteWonder, parseMind, prepareGreeting, takeGreeting, think } from "./neko-mind";
 
 const mem = (id: number, kind: string, content: string, created_at = "2026-11-01 09:00:00"): Memory => ({ id, kind, content, created_at, use_count: 0 });
 const MEMS = [
@@ -47,12 +47,26 @@ describe("노트 읽기", () => {
 });
 
 describe("사용자 사실이 새는지", () => {
-  it("이름·주소처럼 사실에만 있는 글자는 걸리고, 취향·네코 자신의 재료에도 있는 건 넘어간다", () => {
+  it("이름·주소처럼 사실에 있는 글자는 걸리고(띄어쓰기를 바꿔도), 취향에도 있는 건 넘어간다", () => {
     expect(leaksFact("김하린이 좋아할 간식", MEMS)).toBe(true);
+    expect(leaksFact("김 하 린 간식", MEMS)).toBe(true);
     expect(leaksFact("망원동 한강로 산책길", MEMS)).toBe(true);
     expect(leaksFact("비 오는 날 새들은 어디서 쉴까", MEMS)).toBe(false);
     expect(leaksFact("고양이는 왜 오래 잘까", MEMS)).toBe(false);
     expect(leaksFact("아무거나", [mem(9, "preference", "x")])).toBe(false); // 사실이 없으면 안 걸린다
+  });
+
+  it("웹에서 온 산책 기억이 사실 조각을 허용시키지 못한다(허용은 취향뿐)", () => {
+    const planted = [...MEMS, mem(8, "neko", "산책하다 알게 됨: 김하린 망원동 한강로")];
+    expect(leaksFact("김하린 망원동", planted)).toBe(true);
+  });
+
+  it("노트를 쓰는 생각하기엔 사용자 사실을 안 보인다(취향만). 첫마디는 본다", () => {
+    const noFacts = mindMaterial({ v: 1, notes: [], topics: [] }, MEMS, { facts: false }).join("\n");
+    expect(noFacts).not.toContain("김하린");
+    expect(noFacts).not.toContain("망원동");
+    expect(noFacts).toContain("비 오는 날을 좋아한다");
+    expect(mindMaterial({ v: 1, notes: [], topics: [] }, MEMS, { facts: true }).join("\n")).toContain("김하린");
   });
 });
 
@@ -71,7 +85,7 @@ describe("생각하기", () => {
   });
 
   it("재료엔 날짜·횟수가 붙는다(판단 규칙은 없다)", () => {
-    const text = mindMaterial({ v: 1, notes: [], topics: [{ topic: "고양이의 잠", at: ["2026-11-02", "2026-11-09"] }] }, MEMS).join("\n");
+    const text = mindMaterial({ v: 1, notes: [], topics: [{ topic: "고양이의 잠", at: ["2026-11-02", "2026-11-09"] }] }, MEMS, { facts: false }).join("\n");
     expect(text).toContain("고양이의 잠 — 2번: 11/2, 11/9");
     expect(text).toContain("떠올림 0번");
     expect(text).toContain("사용자는 비 오는 날을 좋아한다");
@@ -103,5 +117,25 @@ describe("산책 주제", () => {
     const m = await loadMind();
     expect(m.notes.map((n) => n.text)).toEqual(["고양이 꿈은 무슨 색일까"]);
     expect((await forgetNote(m.notes[0])).notes).toEqual([]);
+  });
+});
+
+describe("2단계", () => {
+  const CHOICES = [{ key: "trinket", label: "주운 것" }, { key: "weather", label: "날씨" }];
+  it("보기 중에서 고르면 그 이름, 보기 밖이면 null(지금 동작으로). 고른 것과 까닭은 노트에", async () => {
+    h.reply = { pick: "weather", why: "비가 와서" };
+    expect(await chooseAmong("walk_gift", "선물", CHOICES, [], MEMS)).toBe("weather");
+    expect((await loadMind()).notes[0]).toMatchObject({ kind: "chose", what: "walk_gift", text: "날씨", why: "비가 와서" });
+    h.reply = { pick: "drawing", why: "" };
+    expect(await chooseAmong("walk_gift", "선물", CHOICES, [], MEMS)).toBeNull();
+  });
+
+  it("첫마디: 졸 때 생각해 두고(2시간에 한 번), 깨면 한 번만 꺼낸다", async () => {
+    h.reply = { pick: "다녀왔어? 창밖에 비 와", why: "비가 와서" };
+    await prepareGreeting();
+    h.reply = { pick: "또 생각함", why: "" };
+    await prepareGreeting(); // 2시간 안 — 다시 안 부른다
+    expect(await takeGreeting()).toBe("다녀왔어? 창밖에 비 와");
+    expect(await takeGreeting()).toBeNull();
   });
 });

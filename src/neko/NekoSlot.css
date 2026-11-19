@@ -89,6 +89,28 @@
   inset: 6px;
 }
 
+/* 네코가 먼저 건네는 한마디: 고양이 머리 위(왼쪽 = 머리 x, 없으면 가운데), 자리 안에서 */
+.neko-slot__says {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  left: 50%;
+  max-width: min(260px, calc(100% - 16px));
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-primary);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  animation: neko-says-in 0.25s ease-out;
+}
+@keyframes neko-says-in { from { opacity: 0; transform: translate(-50%, 4px); } }
+@media (prefers-reduced-motion: reduce) { .neko-slot__says { animation: none; } }
+
 /* 산책 중: 부르기 버튼(오른쪽 아래, 지도 위). 누르면 서둘러 돌아온다 — 정리 버튼과 같은 모양 */
 .neko-slot__call-btn {
   position: absolute;

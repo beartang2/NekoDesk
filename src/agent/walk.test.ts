@@ -2,12 +2,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { LlmMessage } from "./types";
 
-const { completion, subagent, save, topic, wonder } = vi.hoisted(() => ({
+const { completion, subagent, save, topic, wonder, among } = vi.hoisted(() => ({
   completion: vi.fn(),
   subagent: vi.fn(),
   save: vi.fn(async () => ({})),
   topic: vi.fn(async (): Promise<string | null> => null),
   wonder: vi.fn(async () => {}),
+  among: vi.fn(async (): Promise<string | null> => null),
 }));
 
 vi.mock("./llm-client", () => ({
@@ -17,7 +18,11 @@ vi.mock("./llm-client", () => ({
 vi.mock("./subagent", () => ({ runSubagent: (...a: unknown[]) => subagent(...a) }));
 vi.mock("./memory-merge", () => ({ saveMemory: (...a: unknown[]) => save(...(a as [])) }));
 // 생각하기(neko-mind)는 따로 시험한다. 여기선 고른 주제가 하위 에이전트에 어떻게 가는지만
-vi.mock("./neko-mind", () => ({ chooseWalkTopic: (...a: unknown[]) => topic(...(a as [])), noteWonder: (...a: unknown[]) => wonder(...(a as [])) }));
+vi.mock("./neko-mind", () => ({
+  chooseWalkTopic: (...a: unknown[]) => topic(...(a as [])),
+  noteWonder: (...a: unknown[]) => wonder(...(a as [])),
+  chooseAmong: (...a: unknown[]) => among(...(a as [])),
+}));
 vi.mock("./tool-registry", () => ({ getTool: () => ({ execute: vi.fn(async () => "맑음") }) }));
 vi.mock("../api/tauri", () => ({
   memoryApi: { list: vi.fn(async () => []) },
@@ -40,6 +45,7 @@ beforeEach(() => {
   subagent.mockReset();
   save.mockClear();
   topic.mockReset(); topic.mockResolvedValue(null);
+  among.mockReset(); among.mockResolvedValue(null);
   wonder.mockClear();
 });
 
@@ -122,6 +128,20 @@ describe("산책 머리", () => {
     expect(task).toContain("이번엔 '비 오는 날 새들의 쉼터'가 궁금해서 나왔어");
     expect(task).not.toContain("김하린");
     expect(wonder).toHaveBeenCalledWith("새 둥지는 젖을까", expect.any(Array));
+  });
+
+  it("가져갈 선물은 네코가 고른 것(가능한 것 중에서), 사용자 기억 선물이면 다음에 궁금한 것을 안 남긴다", async () => {
+    vi.mocked(memoryApi.list).mockResolvedValueOnce([
+      { id: 1, kind: "preference", content: "사용자는 비를 좋아한다", created_at: "", use_count: 0 },
+    ]);
+    among.mockResolvedValueOnce("memory");
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b", next_wonder: "다음엔 뭘 볼까" }));
+    const r = await startWalkBrain({ places: [], here: null }).result;
+    expect(r.gift?.kind).toBe("memory");
+    const offered = (among.mock.calls[0] as unknown[])[2] as { key: string }[];
+    expect(offered.map((c) => c.key)).not.toContain("place"); // 들른 곳이 없으면 보기에도 없다
+    expect(wonder).not.toHaveBeenCalled();
   });
 
   it("주제를 못 고르면(생각하기 실패) 지금처럼 하위 에이전트가 스스로 고른다", async () => {

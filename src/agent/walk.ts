@@ -10,7 +10,7 @@ import type { Memory, OpenAiToolSchema, ToolName } from "./types";
 import { validateShape, type GiftShape } from "../neko/engine/gift-shape";
 import { useNekoGifts } from "../neko/gifts";
 import { drawGift, type DrawnGift } from "./gift-draw";
-import { chooseWalkTopic, noteWonder } from "./neko-mind";
+import { chooseAmong, chooseWalkTopic, noteWonder } from "./neko-mind";
 
 /** 산책에서 가져올 수 있는 선물 종류. */
 export type GiftKind = "trinket" | "place" | "weather" | "link" | "memory" | "drawing" | "game";
@@ -91,6 +91,8 @@ interface GiftHistory {
   recent: GiftKind[];
   /** 그림은 하루 한 번 — 바깥 그림 API 의 무료 한도·요금을 쓴다. */
   drawnOn?: string;
+  /** 최근 선물과 날짜(생각하기 재료, 0.1.20). 옛 기록엔 없다 */
+  log?: { kind: GiftKind; day: string }[];
 }
 
 /** 종류별 무게. 못 주는 건 0, 최근 5번에 나온 횟수만큼 반씩 깎는다. */
@@ -290,23 +292,27 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
   g.findings = await runSubagent(task, signal, WALK_TOOLS).catch(() => "");
   if (signal.aborted) return;
 
-  // 2. 선물 — 종류는 코드가 굴리고, 재료도 코드가 마련한다. 모델은 글만 쓴다.
+  // 2. 선물 — 무엇을 가져갈지는 네코가 고른다(생각하기, docs/neko-mind.md §6.2). 안 되면 지금처럼 코드가 굴린다.
+  //    재료는 코드가 마련한다. 모델은 글만 쓴다.
   const today = new Date().toLocaleDateString("en-CA", { timeZone: timeZone() });
   const imageGen = useSettingsStore.getState().imageGen;
-  g.kind = rollGift(
-    giftWeights(
-      {
-        trinket: true,
-        game: true,
-        place: ctx.places.length > 0,
-        weather: ctx.here !== null,
-        link: /https?:\/\//.test(g.findings),
-        memory: userMems.length > 0,
-        drawing: imageGen.provider !== "off" && history?.drawnOn !== today,
-      },
-      history?.recent ?? []
-    )
-  );
+  const available: Record<GiftKind, boolean> = {
+    trinket: true,
+    game: true,
+    place: ctx.places.length > 0,
+    weather: ctx.here !== null,
+    link: /https?:\/\//.test(g.findings),
+    memory: userMems.length > 0,
+    drawing: imageGen.provider !== "off" && history?.drawnOn !== today,
+  };
+  const choices = (Object.keys(GIFTS) as GiftKind[]).filter((k) => available[k]).map((k) => ({ key: k, label: GIFTS[k].label, hint: GIFTS[k].hint }));
+  const log = (history?.log ?? []).map((l) => `- ${l.day} ${GIFTS[l.kind]?.label ?? l.kind}`).join("\n");
+  const chosen = (await chooseAmong("walk_gift", "이번 산책에서 사용자에게 가져갈 선물 종류", choices, [
+    section("최근 가져간 선물", log),
+    section("이번에 알아본 것", g.findings.slice(0, 600)),
+  ], memories, signal).catch(() => null)) as GiftKind | null;
+  if (signal.aborted) return;
+  g.kind = chosen && available[chosen] ? chosen : rollGift(giftWeights(available, history?.recent ?? []));
   try {
     if (g.kind === "place") {
       g.place = pick(ctx.places);
@@ -323,6 +329,7 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
     .set(HISTORY_KEY, JSON.stringify({
       recent: [...(history?.recent ?? []), g.kind].slice(-5),
       drawnOn: g.kind === "drawing" ? today : history?.drawnOn,
+      log: [...(history?.log ?? []), { kind: g.kind, day: today }].slice(-10),
     } satisfies GiftHistory))
     .catch(() => {});
   if (signal.aborted) return;
@@ -365,8 +372,9 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
     drawing_prompt: str(p?.drawing_prompt),
     next_wonder: str(p?.next_wonder),
   };
-  // 다음에 궁금한 것: 노트로 남겨 다음 산책의 재료가 된다(관심이 이어지게)
-  if (g.report.next_wonder) void noteWonder(g.report.next_wonder, memories).catch(() => {});
+  // 다음에 궁금한 것: 노트로 남겨 다음 산책의 재료가 된다(관심이 이어지게). 이번 보고가 사용자 기억(선물 재료 memory)을 봤으면
+  // 남기지 않는다 — 노트는 웹을 도는 다음 산책 주제의 재료라, 웹 글에 심긴 지시가 그 기억을 실어 내보내지 못하게
+  if (g.report.next_wonder && g.kind !== "memory") void noteWonder(g.report.next_wonder, memories).catch(() => {});
 
   // 3-1. 주운 것·기념품 그림: 이름이 정해진 뒤 따로 그린다(gift-draw.ts). signal 을 안 넘긴다 — 서둘러 돌아와도 그림은 마저 그린다
   if (g.kind === "trinket" || g.kind === "place") {

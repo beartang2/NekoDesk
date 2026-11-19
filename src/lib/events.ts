@@ -22,6 +22,8 @@ interface EventMap {
   startGame: StartGamePayload;
   /** 포모도로·커스텀 타이머가 끝났다. 네코가 할 말. */
   timerDone: string;
+  /** 네코가 먼저 건네는 한마디(돌아온 사용자에게, agent/neko-mind takeGreeting). 네코 자리의 말풍선으로만 — 채팅엔 안 넣는다 */
+  nekoSays: string;
   /** 네코에게 주는 순간 신호(useNekoDirector 가 꼬리 물음표로): 새 대화, 파일 첨부 */
   nekoHint: { kind: "newChat" | "attach" };
   /** 동기화가 다른 기기에서 받아 왔다(lib/sync.ts). 바뀐 종류: todo·event·memory·… — 그 목록을 보여 주는 화면이 다시 읽는다 */
