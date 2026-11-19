@@ -67,11 +67,19 @@ function dropHover(): void {
   new MutationObserver(run).observe(document.head, { childList: true });
 }
 
-/** 손짓으로 여닫는 두 장: 대화 목록(왼쪽에서)과 설정(오른쪽에서). 열림 상태는 App 이 갖는다. */
+/**
+ * 대화 목록(폰의 왼쪽 장)이 열려 있나. React 상태가 아니라 html 의 `data-drawer` 하나다 — App 상태로 두면 여닫을 때마다
+ * App 전체가 다시 그려져(대화가 길면 수십 ms) 미는 움직임이 버벅였고, 끌다 놓으면 다시 그리는 동안 장이 잠깐 거꾸로 갔다.
+ */
+export const drawer = {
+  isOpen: () => document.documentElement.hasAttribute("data-drawer"),
+  set: (open: boolean) => { document.documentElement.toggleAttribute("data-drawer", open); },
+  toggle: () => { document.documentElement.toggleAttribute("data-drawer"); },
+};
+
+/** 손짓으로 여닫는 두 장: 대화 목록(왼쪽에서, 위의 `drawer`)과 설정(오른쪽에서, 열림 상태는 App 이 갖는다). */
 export interface Panels {
-  drawerOpen: boolean;
   sheetOpen: boolean;
-  setDrawer(open: boolean): void;
   setSheet(open: boolean): void;
 }
 let panels: (() => Panels) | null = null;
@@ -125,8 +133,8 @@ function watchEdgeDrags(root: HTMLElement): void {
     const side = t.clientX <= EDGE ? "left" : t.clientX >= window.innerWidth - EDGE || onScrim ? "right" : null;
     if (!side) return;
     const pick = side === "left"
-      ? (p.sheetOpen ? { kind: "sheet" as const, opening: false } : !p.drawerOpen ? { kind: "drawer" as const, opening: true } : null)
-      : (p.drawerOpen ? { kind: "drawer" as const, opening: false } : !p.sheetOpen ? { kind: "sheet" as const, opening: true } : null);
+      ? (p.sheetOpen ? { kind: "sheet" as const, opening: false } : !drawer.isOpen() ? { kind: "drawer" as const, opening: true } : null)
+      : (drawer.isOpen() ? { kind: "drawer" as const, opening: false } : !p.sheetOpen ? { kind: "sheet" as const, opening: true } : null);
     if (!pick) return;
     const w = pick.kind === "drawer" ? drawerWidth() : window.innerWidth;
     drag = { ...pick, dir: side === "left" ? 1 : -1, w, x0: t.clientX, y0: t.clientY, locked: false, open: pick.opening ? 0 : w, lastX: t.clientX, lastT: e.timeStamp, v: 0 };
@@ -166,7 +174,7 @@ function watchEdgeDrags(root: HTMLElement): void {
       root.classList.remove("drag-drawer");
       root.style.removeProperty("--drawer-x");
       root.style.removeProperty("--scrim");
-      p?.setDrawer(open);
+      drawer.set(open);
       return;
     }
     if (open) { // 남은 거리를 전환이 간다

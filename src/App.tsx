@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
 import { PairLinkPrompt } from "./components/PairLink";
-import { bindPanels, type Panels } from "./lib/phone";
+import { bindPanels, drawer, type Panels } from "./lib/phone";
 import { IS_PHONE } from "./lib/platform";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
@@ -1987,11 +1987,10 @@ export default function App() {
   } = useLayout();
 
   // 폰: 대화 목록(사이드바)은 제목을 눌러 여닫는 덮개다. 대화를 고르면 닫힌다.
-  const [drawer, setDrawer] = useState(false);
-  useEffect(() => setDrawer(false), [activeId]);
+  useEffect(() => { if (IS_PHONE) drawer.set(false); }, [activeId]);
   // 폰: 왼쪽 끝에서 밀면 대화 목록, 오른쪽 끝에서 밀면 설정. 장이 손가락을 따라 움직이고 놓을 때 정해진다(lib/phone.ts).
-  const panelsRef = useRef<Panels>({ drawerOpen: false, sheetOpen: false, setDrawer, setSheet: setMenuOpen });
-  panelsRef.current = { drawerOpen: drawer, sheetOpen: menuOpen, setDrawer, setSheet: setMenuOpen };
+  const panelsRef = useRef<Panels>({ sheetOpen: false, setSheet: setMenuOpen });
+  panelsRef.current = { sheetOpen: menuOpen, setSheet: setMenuOpen };
   useEffect(() => (IS_PHONE ? bindPanels(() => panelsRef.current) : undefined), []);
 
   // 예전 버전이 화면 저장소에 남긴 API 키를 키체인으로 옮긴다(한 번이면 끝).
@@ -2099,7 +2098,7 @@ export default function App() {
   }, [themePref, rightPanelVisible, sessions, activeId]);
 
   return (
-    <div className={`app${isDragging ? " app--resizing" : ""}`} style={appStyle} data-drawer={drawer ? "" : undefined}>
+    <div className={`app${isDragging ? " app--resizing" : ""}`} style={appStyle}>
       <BootSplash />
       <TitleBar
         sessionTitle={activeSession?.title ?? ""}
@@ -2108,7 +2107,7 @@ export default function App() {
         onThemeToggle={cycleTheme}
         rightPanelVisible={rightPanelVisible}
         onToggleRightPanel={() => setRightPanelVisible((v) => !v)}
-        onSessions={IS_PHONE ? () => setDrawer((v) => !v) : undefined}
+        onSessions={IS_PHONE ? drawer.toggle : undefined}
       />
       {menuMounted && (
         <MenuModal
@@ -2126,7 +2125,7 @@ export default function App() {
       <UpdatePrompt />
       {IS_PHONE && <PairLinkPrompt />}
 
-      {IS_PHONE && <div className="drawer-scrim" onClick={() => setDrawer(false)} aria-hidden="true" />}
+      {IS_PHONE && <div className="drawer-scrim" onClick={() => drawer.set(false)} aria-hidden="true" />}
       <ErrorBoundary label="사이드바">
       <Sidebar
         onNew={handleNew}

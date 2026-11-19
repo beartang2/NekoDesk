@@ -1857,8 +1857,12 @@ html.phone .sidebar {
   visibility: hidden;
   transition: transform var(--soft-dur) var(--soft), visibility 0s var(--soft-dur);
 }
-html.phone .app[data-drawer] .sidebar { transform: translateX(var(--drawer-x, 0px)); visibility: visible; transition-delay: 0s; }
+html.phone[data-drawer] .sidebar { transform: translateX(var(--drawer-x, 0px)); visibility: visible; transition-delay: 0s; }
 html.phone.drag-drawer .sidebar { transition: none; visibility: visible; }
+/* 미는 동안 합성 층에서만 움직이게 하고, 뒤에서 도는 오로라는 장이 열려 있거나 끄는 동안 멈춘다(흐린 막이 프레임마다 뒤를 다시 흐리지 않게) */
+html.phone .sidebar { will-change: transform; }
+html.phone .drawer-scrim { will-change: opacity; }
+html.phone[data-drawer] .chat-aurora__lobe, html.phone.drag-drawer .chat-aurora__lobe, html.phone.drag-sheet .chat-aurora__lobe { animation-play-state: paused; }
 html.phone.drag-drawer .drawer-scrim { transition: none; }
 .drawer-scrim {
   position: fixed;
@@ -1872,7 +1876,7 @@ html.phone.drag-drawer .drawer-scrim { transition: none; }
   pointer-events: none;
   transition: opacity 0.36s ease;
 }
-.app[data-drawer] .drawer-scrim { opacity: var(--scrim, 1); pointer-events: auto; }
+html[data-drawer] .drawer-scrim { opacity: var(--scrim, 1); pointer-events: auto; }
 html.phone .session-item { min-height: 44px; }
 html.phone .session-item__delete { opacity: 1; min-width: 44px; }
 /* 채팅 바는 얇게: 한 줄일 때 38pt */
