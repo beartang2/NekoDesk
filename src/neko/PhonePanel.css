@@ -1,0 +1,37 @@
+/* 폰: 네코 꾸미기·선물함 한 장(설정 위). 오른쪽에서 밀려 들어온다 */
+.phone-panel {
+  position: fixed;
+  inset: 0 0 auto;
+  height: var(--vvh, 100%);
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  animation: phone-panel-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes phone-panel-in {
+  from { transform: translateX(100%); }
+  to { transform: none; }
+}
+.phone-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 0 4px 0 16px;
+}
+.phone-panel__title { margin: 0; font-size: 15px; font-weight: 600; }
+.phone-panel__close {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+}
+.phone-panel__body { flex: 1; min-height: 0; display: flex; }
+/* 안의 내용은 창을 채우게 만든 것(100vh)이라, 이 장의 남은 높이에 맞춘다 */
+.phone-panel__body > .neko-cz--window { height: auto; flex: 1; min-height: 0; }

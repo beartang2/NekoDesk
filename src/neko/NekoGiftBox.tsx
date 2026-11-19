@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { openNekoPanel } from "./panel";
 import { invoke } from "@tauri-apps/api/core";
 import { AlertDialog } from "radix-ui";
 import { Trash2 } from "lucide-react";
@@ -96,7 +97,7 @@ function GiftScale({ g, at }: { g: NekoGift; at: NekoPlacement }) {
 export function NekoGiftBox() {
   const count = useNekoGifts((s) => s.gifts.length);
   useEffect(() => { void useNekoGifts.getState().load(); }, []);
-  const open = () => void invoke("panel_open", { kind: "neko-gifts" }).catch(() => {});
+  const open = () => openNekoPanel("neko-gifts");
 
   return (
     <div className="neko-gifts">

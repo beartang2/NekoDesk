@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
+import { PhonePanel } from "./neko/PhonePanel";
 import { AlertDialog } from "radix-ui";
 import { PairLinkPrompt } from "./components/PairLink";
 import { bindPanels, drawer, type Panels } from "./lib/phone";
@@ -2186,6 +2187,7 @@ export default function App() {
         </AlertDialog.Root>
       )}
       {IS_PHONE && <PairLinkPrompt />}
+      {IS_PHONE && <PhonePanel />}
 
       {IS_PHONE && <div className="drawer-scrim" onClick={() => drawer.set(false)} aria-hidden="true" />}
       <ErrorBoundary label="사이드바">

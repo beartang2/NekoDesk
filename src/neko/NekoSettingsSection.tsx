@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { openNekoPanel } from "./panel";
 import { PLACE_NAME } from "./gifts";
 import { IS_PHONE } from "../lib/platform";
 import { Segmented, SwitchRow, type Option } from "../components/ui";
@@ -51,7 +52,7 @@ export function NekoSettingsSection() {
       <div className="neko-settings__summary">
         <i className="cat-skin-swatch" style={{ background: coatSwatch(a) }} />
         <span className="neko-settings__summary-text">{summarizeAppearance(a)}</span>
-        <button type="button" className="settings-btn" onClick={() => void invoke("panel_open", { kind: "neko-customize" }).catch(() => {})}>네코 꾸미기</button>
+        <button type="button" className="settings-btn" onClick={() => openNekoPanel("neko-customize")}>네코 꾸미기</button>
       </div>
 
       <Segmented value={placement} onChange={setPlacement} options={PLACES} />

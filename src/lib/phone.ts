@@ -124,7 +124,8 @@ function watchEdgeDrags(root: HTMLElement): void {
   document.addEventListener("touchstart", (e) => {
     drag = null;
     const p = panels?.();
-    if (!p || e.touches.length !== 1) return;
+    // 네코 꾸미기·선물함이 떠 있으면 그 밑의 장을 끌지 않는다
+    if (!p || e.touches.length !== 1 || document.querySelector(".phone-panel")) return;
     const t = e.touches[0];
     const target = e.target as Element | null;
     const onScrim = target?.classList?.contains("drawer-scrim");

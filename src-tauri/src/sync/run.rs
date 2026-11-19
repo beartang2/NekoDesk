@@ -145,6 +145,12 @@ struct Changed {
     first: bool,
 }
 
+/// 앱이 앞에 있나(자주 맞춘다). 폰은 창 포커스를 알려 주지 않아 늘 뒤에 있는 것으로 쳐서 5분마다만 맞췄다 —
+/// 맥에서 나간 산책·방금 쓴 대화가 폰에 한참 뒤에 보였다. 폰은 뒤로 가면 iOS 가 앱을 멈추니, 돌고 있으면 앞이다.
+fn in_front(app: &AppHandle) -> bool {
+    cfg!(target_os = "ios") || app.get_webview_window("main").and_then(|w| w.is_focused().ok()).unwrap_or(false)
+}
+
 fn tick(app: &AppHandle) {
     let db = app.state::<DbState>();
     let srv = match db.0.lock().map_err(AppError::from).and_then(|c| server(&c)) {
@@ -157,7 +163,7 @@ fn tick(app: &AppHandle) {
             return;
         }
     };
-    let focused = app.get_webview_window("main").and_then(|w| w.is_focused().ok()).unwrap_or(false);
+    let focused = in_front(app);
     let result = tauri::async_runtime::block_on(round(&db.0, &srv, if focused { now_ms() } else { 0 }));
     let Ok(c) = db.0.lock() else { return };
     match result {
@@ -188,8 +194,7 @@ pub fn start(app: AppHandle) {
         let _ = rx.recv_timeout(Duration::from_secs(3));
         loop {
             tick(&app);
-            let focused = app.get_webview_window("main").and_then(|w| w.is_focused().ok()).unwrap_or(false);
-            let wait = Duration::from_secs(if focused { 15 } else { 300 });
+            let wait = Duration::from_secs(if in_front(&app) { 15 } else { 300 });
             match rx.recv_timeout(wait) {
                 // 연달아 쓴 것(질문·답 저장)을 한 번에 올린다
                 Ok(()) => {
