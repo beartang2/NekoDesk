@@ -118,6 +118,32 @@ assert.equal((await call("POST", "/v1/devices", { name: "도둑", pair_code: kep
 // 한 번에 20개까지
 assert.equal((await call("POST", "/v1/sync", { since: 0, push: Array.from({ length: 21 }, (_, i) => rec("todo", `${run}-${i}`, now)) }, A.token)).status, 413);
 
+// 산책: 한 번에 한 기기만. 그사이 다른 기기가 나갔으면(내가 아는 지난 산책이 낡았으면) 진다
+{
+  const C = await ok("POST", "/v1/devices", { name: "산책 2", pair_code: (await ok("POST", "/v1/pair", {}, A.token)).code });
+  const known = (await sync(A.token, 0)).walk?.start ?? 0;
+  const t0 = Date.now() - 2 * 3600_000; // 두 시간 전에 나가 30분 걷고 온 산책
+  let w = await ok("POST", "/v1/walk/claim", { start: t0, end: t0 + 1800_000, prev: known }, A.token);
+  assert.equal(w.ok, true);
+  assert.deepEqual(w.walk, { start: t0, end: t0 + 1800_000, device: A.device_id });
+  assert.deepEqual((await sync(C.token, 0)).walk, w.walk, "다른 기기는 동기화 응답으로 안다");
+  // 같은 지난 산책을 보고 둘이 동시에 나가려 한다: 먼저 온 쪽만 된다
+  const t1 = Date.now();
+  const [x, y] = await Promise.all([A, C].map((d) => ok("POST", "/v1/walk/claim", { start: t1, end: t1 + 1800_000, prev: t0 }, d.token)));
+  assert.equal([x.ok, y.ok].filter(Boolean).length, 1, "둘 중 하나만");
+  const winner = x.ok ? A : C, loser = x.ok ? C : A;
+  // 산책 중엔 지난 산책을 제대로 알아도 못 나간다
+  assert.equal((await ok("POST", "/v1/walk/claim", { start: t1 + 5, end: t1 + 1800_000, prev: t1 }, loser.token)).ok, false);
+  // 끝 시각은 나간 기기만 고친다(서둘러 돌아옴). 끝나면 다음 기기가 나갈 수 있다
+  assert.equal((await ok("POST", "/v1/walk/end", { start: t1, end: t1 + 1 }, loser.token)).walk.end, t1 + 1800_000);
+  assert.equal((await ok("POST", "/v1/walk/end", { start: t1, end: t1 + 1 }, winner.token)).walk.end, t1 + 1);
+  assert.equal((await ok("POST", "/v1/walk/claim", { start: t1 + 10, end: t1 + 20, prev: t1 }, loser.token)).ok, true);
+  // 터무니없는 값은 거절
+  assert.equal((await call("POST", "/v1/walk/claim", { start: t1, end: t1 + 99 * 3600_000, prev: 0 }, A.token)).status, 400);
+  assert.equal((await call("POST", "/v1/walk/claim", { start: "x", end: 1, prev: 0 }, A.token)).status, 400);
+  await ok("DELETE", `/v1/devices/${C.device_id}`, undefined, A.token);
+}
+
 // 열쇠 바꾸기(reset): 기록을 비우고, 그 전 순번에서 멈춘 기기는 처음부터 다시 받으라고(reset) 듣는다
 const before = (await sync(A.token, 0)).seq;
 const oldCode = (await ok("POST", "/v1/pair", {}, A.token)).code; // 옛 열쇠가 든 짝 문자열

@@ -587,6 +587,31 @@ struct SyncResp {
     rejected: Vec<Rejected>,
     #[serde(default)]
     reset: bool,
+    /// 기기들이 나눠 쓰는 마지막 산책(시작·끝·나간 기기). 옛 서버는 안 준다
+    #[serde(default)]
+    walk: Option<SharedWalk>,
+}
+
+/// 마지막 산책 하나를 기기들이 같이 본다(§5.4): 한 기기가 나가 있으면 다른 기기는 안 나가고, 다음 산책 시각도 이걸로 잰다.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct SharedWalk {
+    pub start: i64,
+    pub end: i64,
+    pub device: String,
+}
+
+/// 받은 산책을 적는다. 바뀌었으면 true(화면에 알린다)
+pub fn store_walk(conn: &Connection, walk: Option<&SharedWalk>) -> AppResult<bool> {
+    let next = walk.map(|w| serde_json::to_string(w).unwrap_or_default()).unwrap_or_default();
+    if state(conn, "walk")?.unwrap_or_default() == next {
+        return Ok(false);
+    }
+    set_state(conn, "walk", &next)?;
+    Ok(true)
+}
+
+pub fn stored_walk(conn: &Connection) -> AppResult<Option<SharedWalk>> {
+    Ok(state(conn, "walk")?.and_then(|s| serde_json::from_str(&s).ok()))
 }
 
 pub(crate) fn client() -> &'static reqwest::Client {
@@ -682,6 +707,10 @@ fn settle(conn: &Connection, srv: &Server, push: &[Record], resp: &SyncResp, ch:
     }
     ch.colls.extend(got.colls);
     ch.sessions.extend(got.sessions);
+    // 옛 서버(walk 를 안 줌)면 적어 둔 것을 지우지 않는다
+    if resp.walk.is_some() && store_walk(conn, resp.walk.as_ref())? {
+        ch.colls.insert("walk".into());
+    }
     let again = resp.reset || repull;
     set_state(conn, "since", &(if again { 0 } else { resp.seq }).to_string())?;
     set_state(conn, "last_sync", &now_ms().to_string())?;

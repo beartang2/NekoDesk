@@ -692,6 +692,17 @@ cron 이 10분마다 깬다. 아래가 다 맞을 때만 나간다.
 - **끼어드는 기기는 설정을 양보한다**(`yield_settings`): 연결 코드로 들어오는 기기는 외형·이름·성격·프로필을 올리지 않고 받는 쪽이 이긴다. 정한 적 없는 기본 외형은 DB 에 적지도 않는다. 0.1.15 는 새 기기의 기본 외형이 더 새것이라 쓰던 기기의 외형을 덮을 수 있었다.
 - **기기 이름**은 기기 모델(`Mac16,12`·`iPhone14,4`). **dev 빌드**는 키체인의 동기화 이름에 `_dev` 를 붙여 배포 버전 것을 안 덮는다.
 
+### 12.1.1 산책을 기기들이 나눠 쓴다 (0.1.16, §5.4 를 앞당김)
+
+폰이 생기자 맥과 폰이 따로 산책 조건을 재서 끼니마다 두 번 나갔다(비용·선물·일지가 두 벌).
+
+- 서버는 **마지막 산책 하나**(시작·끝·나간 기기)를 `meta` 의 `walk` 에 둔다. 표를 더하지 않아 D1 에 붙일 SQL 은 없다. 대화 내용은 없고 시각과 기기 번호뿐이다.
+- `POST /v1/walk/claim { start, end, prev }`: 나가기 직전에 부른다. `prev` 는 이 기기가 아는 지난 산책의 시작. 서버는 "지난 산책이 그것이고 이미 끝났을 때만" 한 문장으로 바꾼다 — 둘이 동시에 불러도 하나만 된다. `POST /v1/walk/end { start, end }`: 나간 기기가 끝 시각을 고친다(서둘러 돌아옴·도착). `/v1/sync` 응답에 `walk` 가 실린다.
+- **언제 나갈지는 기기가 정한다**(끼니 시간대·2시간 간격, `lib/walk` `nextWalkAt`). §5.4 의 끼니 칸(slot)은 안 만들었다 — '지난 산책'을 이 기기 것과 같이 보는 것 중 늦게 나간 쪽으로 잡으면(`lastWalkWith`) 같은 규칙이 그대로 선다.
+- 다른 기기가 나가 있는 동안은 이 기기의 네코도 자리에 없다(산책 중 그림, 지도는 나간 기기에만). 동기화 주기(앞에 있으면 15초, 아니면 5분)만큼 늦게 안다.
+- 동기화를 안 쓰거나 서버에 못 닿으면(오프라인·옛 Worker) 전처럼 혼자 나간다. 옛 앱(0.1.15)은 선점하지 않아 여전히 따로 나간다.
+- **배포**: Worker 코드를 다시 붙여야 켜진다(`server/` 에서 `./node_modules/.bin/esbuild src/index.ts --bundle --format=esm --target=es2022`). 안 붙이면 앱은 전처럼 혼자 나간다.
+
 ### 12.2 빌드·설치
 
 - 준비(한 번): Xcode 에서 `src-tauri/gen/apple/nekodesk.xcodeproj` › Signing & Capabilities › Team 을 고른다(무료 계정은 Personal Team). 팀 ID 를 `src-tauri/gen/apple/.team` 에 적는다(git 제외). `brew install xcodegen libimobiledevice cocoapods`, `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.

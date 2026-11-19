@@ -493,6 +493,77 @@ pub async fn sync_rekey(db: State<'_, DbState>) -> Result<(), AppError> {
     revoke_others(&srv).await
 }
 
+// ── 산책: 기기들이 같은 산책 하나를 나눠 쓴다(§5.4) ─────────────────────────────
+
+/// 화면에 주는 마지막 산책. mine = 이 기기가 나간 것
+#[derive(Serialize)]
+pub struct WalkSeen {
+    start: i64,
+    end: i64,
+    mine: bool,
+}
+
+fn seen(conn: &Connection) -> AppResult<Option<WalkSeen>> {
+    let me = state(conn, "device")?.unwrap_or_default();
+    Ok(stored_walk(conn)?.map(|w| WalkSeen { start: w.start, end: w.end, mine: w.device == me }))
+}
+
+/// 기기들이 같이 보는 마지막 산책(동기화가 받아 둔 것). 동기화를 안 쓰면 None
+#[tauri::command(async)]
+pub fn walk_shared(db: State<'_, DbState>) -> Result<Option<WalkSeen>, AppError> {
+    let c = db.0.lock()?;
+    if !enabled(&c) {
+        return Ok(None);
+    }
+    seen(&c)
+}
+
+#[derive(Serialize)]
+pub struct Claimed {
+    /// 나가도 된다. false 면 다른 기기가 먼저 나갔다(walk 가 그 산책)
+    ok: bool,
+    walk: Option<WalkSeen>,
+}
+
+/// 나가기 전에 서버에 선점한다. 동기화를 안 쓰거나 서버에 못 닿으면(오프라인·옛 서버) 혼자 나간다 — 전과 같다.
+#[tauri::command]
+pub async fn walk_claim(db: State<'_, DbState>, start: i64, end: i64) -> Result<Claimed, AppError> {
+    let (srv, prev) = {
+        let c = db.0.lock()?;
+        match server(&c)? {
+            Some(srv) => (srv, stored_walk(&c)?.map(|w| w.start).unwrap_or(0)),
+            None => return Ok(Claimed { ok: true, walk: None }),
+        }
+    };
+    #[derive(Deserialize)]
+    struct Resp {
+        ok: bool,
+        walk: Option<SharedWalk>,
+    }
+    let body = serde_json::json!({ "start": start, "end": end, "prev": prev });
+    let Ok(resp) = call::<Resp>(reqwest::Method::POST, &srv.url, "/v1/walk/claim", Some(&srv.token), &body).await else {
+        return Ok(Claimed { ok: true, walk: None });
+    };
+    let c = db.0.lock()?;
+    store_walk(&c, resp.walk.as_ref())?;
+    Ok(Claimed { ok: resp.ok, walk: seen(&c)? })
+}
+
+/// 나간 기기가 끝 시각을 고친다(서둘러 돌아옴·도착). 못 알려도 그만이다 — 적어 둔 끝 시각에 끝난 것으로 친다.
+#[tauri::command]
+pub async fn walk_end(db: State<'_, DbState>, start: i64, end: i64) -> Result<(), AppError> {
+    let Some(srv) = server(&*db.0.lock()?)? else { return Ok(()) };
+    #[derive(Deserialize)]
+    struct Resp {
+        walk: Option<SharedWalk>,
+    }
+    let body = serde_json::json!({ "start": start, "end": end });
+    if let Ok(resp) = call::<Resp>(reqwest::Method::POST, &srv.url, "/v1/walk/end", Some(&srv.token), &body).await {
+        store_walk(&*db.0.lock()?, resp.walk.as_ref())?;
+    }
+    Ok(())
+}
+
 // ── 세션 목록(화면의 sessionStore) ───────────────────────────────────────────
 
 #[tauri::command(async)]

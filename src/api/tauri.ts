@@ -288,6 +288,12 @@ export const syncApi = {
   pairJoin: (pairing: string) => invoke<void>("sync_pair_join", { pairing }),
   /** 맥: 짝 문자열을 QR(SVG 글)로. 폰 카메라로 찍으면 앱이 열린다 */
   pairQr: (pairing: string) => invoke<string>("sync_pair_qr", { pairing }),
+  /** 기기들이 같이 보는 마지막 산책(동기화를 안 쓰면 null) */
+  walkShared: () => invoke<{ start: number; end: number; mine: boolean } | null>("walk_shared"),
+  /** 나가기 전에 선점한다. ok 가 false 면 다른 기기가 먼저 나갔다. 동기화를 안 쓰거나 서버에 못 닿으면 ok */
+  walkClaim: (start: number, end: number) => invoke<{ ok: boolean; walk: { start: number; end: number; mine: boolean } | null }>("walk_claim", { start, end }),
+  /** 나간 기기가 끝 시각을 고친다(서둘러 돌아옴·도착) */
+  walkEnd: (start: number, end: number) => invoke<void>("walk_end", { start, end }),
   /** 앱 안에서 찍은 QR 주소 → 짝 문자열과 서버(호스트·포트). 연결 주소가 아니면 null */
   pairCheck: (link: string) => invoke<[pairing: string, host: string] | null>("sync_pair_check", { link }),
   /** 폰: 카메라로 찍어 온 짝 문자열과 그 서버(백엔드가 해석한 호스트·포트). 한 번 가져가면 비워진다 */

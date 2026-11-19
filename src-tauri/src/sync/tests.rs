@@ -221,7 +221,7 @@ fn records_sealed_with_another_key_are_skipped_and_counted() {
     let recs = push_all(&a, "A");
     // B 는 다른 암호 키를 들고 있다(dev 빌드가 키체인의 열쇠를 덮은 뒤 연결된 기기처럼)
     let srv = Server { url: String::new(), token: String::new(), device: "B".into(), key: [7u8; 32] };
-    let resp = SyncResp { records: recs.clone(), seq: 9, more: false, rejected: Vec::new(), reset: false };
+    let resp = SyncResp { records: recs.clone(), seq: 9, more: false, rejected: Vec::new(), reset: false, walk: None };
     settle(&b, &srv, &[], &resp, &mut Changes::default()).unwrap();
     assert!(todos::list_open(&b).unwrap().is_empty(), "못 푼 기록은 적용되지 않는다");
     assert_eq!(state_i64(&b, "skipped").unwrap(), recs.len() as i64, "건너뛴 수를 남긴다(설정이 알린다)");
@@ -231,6 +231,24 @@ fn records_sealed_with_another_key_are_skipped_and_counted() {
     settle(&b, &ok, &[], &resp, &mut Changes::default()).unwrap();
     assert_eq!(state_i64(&b, "skipped").unwrap(), 0);
     assert_eq!(todos::list_open(&b).unwrap().len(), 1);
+}
+
+#[test]
+fn the_shared_walk_from_the_server_is_kept_and_reported_once() {
+    let c = db();
+    let srv = Server { url: String::new(), token: String::new(), device: "B".into(), key: KEY };
+    let walk = SharedWalk { start: 1000, end: 2000, device: "A".into() };
+    let with = |w: Option<SharedWalk>| SyncResp { records: Vec::new(), seq: 1, more: false, rejected: Vec::new(), reset: false, walk: w };
+    let mut ch = Changes::default();
+    settle(&c, &srv, &[], &with(Some(walk.clone())), &mut ch).unwrap();
+    assert!(ch.colls.contains("walk"), "다른 기기의 산책을 화면에 알린다");
+    assert_eq!(stored_walk(&c).unwrap(), Some(walk.clone()));
+    // 같은 산책이면 다시 알리지 않고, 옛 서버(walk 없음)면 적어 둔 것을 지우지 않는다
+    let mut again = Changes::default();
+    settle(&c, &srv, &[], &with(Some(walk.clone())), &mut again).unwrap();
+    settle(&c, &srv, &[], &with(None), &mut again).unwrap();
+    assert!(again.colls.is_empty());
+    assert_eq!(stored_walk(&c).unwrap(), Some(walk));
 }
 
 #[test]

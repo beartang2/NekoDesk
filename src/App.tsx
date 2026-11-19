@@ -39,14 +39,14 @@ import { UpdatePrompt } from "./components/Update";
 import { openViewer, imageName, nowStamp } from "./components/Viewer";
 import { maskHome } from "./lib/home";
 import { useCatRpg } from "./hooks/useCatRpg";
-import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi, mapApi, SYNC_CHANGED, type SyncChanged } from "./api/tauri";
+import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi, mapApi, SYNC_CHANGED, type SyncChanged, syncApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
 import { removeSession, useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { isClaudeActive, nekoNameOf, useSettingsStore } from "./stores/settingsStore";
 import { budgetBlockReason } from "./stores/claudeBudget";
 import { startWalkBrain, type WalkBefore, type WalkBrain } from "./agent/walk";
 import { useNekoController } from "./neko/nekoHost";
-import { buildPath, EXTRA_WAIT_MS, fallbackLegs, hurryHome, nextWalkAt, pickPlaces, routineName, positionAt, toLatLon, toMeters, walkEnd, walkStart, WALK_MS, type Pt, type Walk } from "./lib/walk";
+import { buildPath, EXTRA_WAIT_MS, fallbackLegs, hurryHome, lastWalkWith, walkingElsewhere, nextWalkAt, pickPlaces, routineName, positionAt, toLatLon, toMeters, walkEnd, walkStart, WALK_MS, type Pt, type SharedWalk, type Walk } from "./lib/walk";
 import { hereOnce } from "./components/WalkMap";
 import { DEFAULT_SIDEBAR_W, useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
@@ -1779,8 +1779,25 @@ export default function App() {
   // 경로는 떠날 때 다 정해 저장한다 — 자리는 시각만으로 나와서 껐다 켜도 이어 걷는다(lib/walk).
   const [walk, setWalk] = useState<Walk | null>(null);
   const [away, setAway] = useState(false);
+  // 기기들이 같이 보는 마지막 산책(동기화). 다른 기기가 나가 있으면 여기 네코도 자리에 없고, 이 기기는 안 나간다
+  const [shared, setShared] = useState<SharedWalk | null>(null);
+  const [elsewhere, setElsewhere] = useState(false);
+  useEffect(() => {
+    const read = () => void syncApi.walkShared().then(setShared).catch(() => {});
+    read();
+    return appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("walk")) read(); });
+  }, []);
+  useEffect(() => {
+    const on = walkingElsewhere(shared, Date.now());
+    setElsewhere(on);
+    if (!on || !shared) return;
+    const id = window.setTimeout(() => setElsewhere(false), shared.end - Date.now());
+    return () => window.clearTimeout(id);
+  }, [shared]);
+  /** 자리에 없다: 이 기기가 산책 중이거나 다른 기기에서 산책 중 */
+  const gone = away || elsewhere;
   // 모니터 화면 자리면 화면 창을 띄운다(산책 중엔 숨긴다)
-  useNekoScreen(away, !!walk?.music);
+  useNekoScreen(gone, !!walk?.music);
   const brainRef = useRef<WalkBrain | null>(null);
   // 쉬는지는 네코 감독의 '앱을 쓰는 중'(useNekoApp.lastActiveAt: 입력·클릭·스크롤·밥·놀이)으로 본다.
   // 감독이 재우는 때(SLEEPY_MS)부터 졸고, 다시 쓰면 서둘러 온다. 구독으로 봐서 App 은 졸기 시작·깰 때만 다시 그린다.
@@ -1842,6 +1859,7 @@ export default function App() {
       (game.phase !== "idle" && game.phase !== "done") ||
       (wordChain.phase !== "idle" && wordChain.phase !== "done");
     if (away) return "이미 산책 중";
+    if (elsewhere) return "다른 기기에서 산책 중";
     if (midGame) return "게임 중";
     // 밥 먹는 중(대화 요약·쉴 때 기억 정리): 다 먹고 나서 나간다(아래 효과가 feeding 이 풀리면 다시 잰다)
     if (useNekoApp.getState().feeding) return "밥 먹는 중";
@@ -1850,7 +1868,7 @@ export default function App() {
     if (blocked) return blocked;
     if (walk && !walk.done) return "지난 산책 보고를 기다리는 중";
     // 정기 산책(아침·점심·저녁)이면 간격을 안 보고, 아니면 지난 산책 끝나고 2시간(lib/walk nextWalkAt)
-    const plan = nextWalkAt({ dozeAt: Date.now(), lastWalk: lastWalkOf(walk), extraWait: 0 });
+    const plan = nextWalkAt({ dozeAt: Date.now(), lastWalk: lastWalkWith(lastWalkOf(walk), shared), extraWait: 0 });
     if (plan.at > Date.now() + 1000) {
       return plan.routine
         ? `다음 산책: ${new Date(plan.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} ${routineName(plan.at) ?? ""} 산책`.replace("  ", " ")
@@ -1873,6 +1891,10 @@ export default function App() {
     const route = legs ?? fallbackLegs();
     const dwell = route.slice(1).map(() => (2 + Math.random() * 3) * 60_000);
     const w: Walk = { home, onMap: !!legs, places: legs ? stops : found, path: buildPath(route, Date.now(), WALK_MS, dwell), ...(before.music ? { music: true as const } : {}) };
+    // 나가기 직전에 서버에 선점한다: 다른 기기가 방금 나갔으면 이 기기는 안 나간다(동기화를 안 쓰거나 오프라인이면 혼자 나간다)
+    const claim = await syncApi.walkClaim(walkStart(w), walkEnd(w)).catch(() => null);
+    if (claim?.walk) setShared(claim.walk);
+    if (claim && !claim.ok) return "다른 기기가 먼저 나감";
     saveWalk(w);
     setAway(true);
     brainRef.current = startWalkBrain({ places: w.places, here: home, before });
@@ -1891,11 +1913,11 @@ export default function App() {
   const dozing = idle && !isRunning;
   const eating = useNekoApp((s) => !!s.feeding);
   useEffect(() => {
-    if (!dozing || away || eating || (walk && !walk.done)) return;
-    const plan = nextWalkAt({ dozeAt: dozeRef.current.at, lastWalk: lastWalkOf(walk), extraWait: dozeRef.current.extraWait });
+    if (!dozing || gone || eating || (walk && !walk.done)) return;
+    const plan = nextWalkAt({ dozeAt: dozeRef.current.at, lastWalk: lastWalkWith(lastWalkOf(walk), shared), extraWait: dozeRef.current.extraWait });
     const id = window.setTimeout(() => void departRef.current(), Math.max(0, plan.at - Date.now()));
     return () => window.clearTimeout(id);
-  }, [dozing, away, eating, walk]);
+  }, [dozing, gone, eating, walk, shared]);
 
   // 산책 중에 사용자가 돌아오면 남은 길을 버리고 1–2분 안에 곧장 온다. 머리도 그때까지 알아낸 것으로 정리한다.
   const hurryingRef = useRef(false);
@@ -1916,7 +1938,9 @@ export default function App() {
         ]).catch(() => undefined)
       : Promise.resolve(undefined);
     void quick.then((route) => {
-      saveWalk({ ...w, path: hurryHome(w.path, Date.now(), route) });
+      const sooner = { ...w, path: hurryHome(w.path, Date.now(), route) };
+      saveWalk(sooner);
+      void syncApi.walkEnd(walkStart(sooner), walkEnd(sooner)).catch(() => {}); // 다른 기기도 일찍 돌아온 줄 알게
       hurryingRef.current = false;
     });
   };
@@ -1943,6 +1967,7 @@ export default function App() {
       ]);
       conversationApi.save(sid, "assistant", report.content, undefined, serializeMeta({ prompt })).catch(() => {});
       saveWalk({ ...w, done: true, pin: report.gift?.place });
+      void syncApi.walkEnd(walkStart(w), walkEnd(w)).catch(() => {});
       playAction();
       nekoGameEmotion("happy", 5000); // 감독의 게임 층: 행복 + 꼬리 떨기
     }, Math.max(0, walkEnd(w) - Date.now()));
@@ -2147,8 +2172,8 @@ export default function App() {
         contextTokens={promptTokens}
         modelContextLength={modelContextLength}
         gameMode={game.phase !== "idle" ? game : null}
-        away={away}
-        walk={walk}
+        away={gone}
+        walk={elsewhere ? null : walk}
         isDark={isDark}
       />
       </ErrorBoundary>
@@ -2258,7 +2283,7 @@ export default function App() {
 
       {/* '채팅 바 아래' 네코 자리: 창 맨 아래 한 줄, 사이드바부터 오른쪽 패널 끝까지(.app 셋째 줄).
           채팅 칸 안(.chat-dock)에 두면 대화 폭만큼만 생겼다. --dock-h 는 이제 입력창만 잰다. */}
-      <NekoSlot placement="dock" onRubPet={handlePet} away={away} walk={walk} isDark={isDark} />
+      <NekoSlot placement="dock" onRubPet={handlePet} away={gone} walk={elsewhere ? null : walk} isDark={isDark} />
     </div>
   );
 }

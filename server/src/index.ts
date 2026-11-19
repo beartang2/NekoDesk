@@ -204,7 +204,49 @@ async function sync(req: Request, env: Env, device: string): Promise<Response> {
     records.push(r);
     seq = r.seq!;
   }
-  return json({ records, seq, more, rejected });
+  return json({ records, seq, more, rejected, walk: await walkNow(db) });
+}
+
+// ── 산책: 기기들이 같은 산책 하나를 나눠 쓴다(docs/neko-sync.md §5.4) ─────────────
+// 기기마다 따로 나가면 끼니마다 두 번 나가고 비용·선물·일지가 두 벌이 된다. 마지막 산책 하나(시작·끝·나간 기기)를
+// meta 의 'walk' 에 둔다(표를 더하지 않는다). 대화 내용은 없다 — 시각과 기기 번호뿐이다.
+// 언제 나갈지는 기기가 정하고(끼니·2시간 간격, lib/walk nextWalkAt), 서버는 둘이 같이 나가는 것만 막는다.
+interface Walk { start: number; end: number; device: string }
+
+async function walkNow(db: D1Database): Promise<Walk | null> {
+  const raw = (await db.prepare("SELECT value FROM meta WHERE key = 'walk'").first<{ value: string }>())?.value;
+  try { return raw ? (JSON.parse(raw) as Walk) : null; } catch { return null; }
+}
+
+const whole = (v: unknown): number | null => (Number.isSafeInteger(v) && (v as number) >= 0 ? (v as number) : null);
+/** 산책 한 번의 상한(기기는 30분 남짓). 끝 시각을 터무니없이 멀리 적어 다른 기기를 묶어 두지 못하게 */
+const WALK_MAX_MS = 3 * 60 * 60_000;
+
+/** 나가기 전에 선점한다. prev = 이 기기가 아는 지난 산책의 시작(없으면 0). 그사이 다른 기기가 나갔으면(prev 가 낡았거나 아직 산책 중) 진다. */
+async function walkClaim(req: Request, env: Env, device: string): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as { start?: unknown; end?: unknown; prev?: unknown } | null;
+  const start = whole(body?.start), end = whole(body?.end), prev = whole(body?.prev);
+  if (start === null || end === null || prev === null || end <= start || end - start > WALK_MAX_MS) return fail(400, "walk");
+  const next = JSON.stringify({ start, end, device } satisfies Walk);
+  // 한 문장으로 견주고 바꾼다: 없으면 넣고, 있으면 지난 산책이 내가 아는 그것이고 이미 끝났을 때만 바꾼다
+  const res = await env.DB.prepare(
+    `INSERT INTO meta (key, value) VALUES ('walk', ?1)
+     ON CONFLICT (key) DO UPDATE SET value = excluded.value
+     WHERE CAST(json_extract(meta.value, '$.start') AS INTEGER) = ?2 AND CAST(json_extract(meta.value, '$.end') AS INTEGER) <= ?3`,
+  ).bind(next, prev, Date.now()).run();
+  return json({ ok: res.meta.changes > 0, walk: await walkNow(env.DB) });
+}
+
+/** 나간 기기가 끝 시각을 고친다(서둘러 돌아옴·도착). 다른 기기의 산책이나 지난 산책은 못 고친다. */
+async function walkEnd(req: Request, env: Env, device: string): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as { start?: unknown; end?: unknown } | null;
+  const start = whole(body?.start), end = whole(body?.end);
+  if (start === null || end === null || end < start || end - start > WALK_MAX_MS) return fail(400, "walk");
+  await env.DB.prepare(
+    `UPDATE meta SET value = json_set(value, '$.end', ?1)
+     WHERE key = 'walk' AND CAST(json_extract(value, '$.start') AS INTEGER) = ?2 AND json_extract(value, '$.device') = ?3`,
+  ).bind(end, start, device).run();
+  return json({ walk: await walkNow(env.DB) });
 }
 
 async function route(req: Request, env: Env): Promise<Response> {
@@ -217,6 +259,8 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (!device) return fail(401, "token");
 
   if (method === "POST" && path === "/v1/sync") return sync(req, env, device);
+  if (method === "POST" && path === "/v1/walk/claim") return walkClaim(req, env, device);
+  if (method === "POST" && path === "/v1/walk/end") return walkEnd(req, env, device);
   if (method === "POST" && path === "/v1/pair") {
     const code = randomToken(16), expires = Date.now() + PAIR_MS;
     // 기기당 살아 있는 코드는 하나: 새로 만들면 그 기기의 이전 코드는 지운다

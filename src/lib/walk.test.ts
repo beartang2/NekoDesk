@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPath, fallbackLegs, hurryHome, nextWalkAt, pickPlaces, positionAt, toLatLon, toMeters, type TimedPt } from "./walk";
+import { buildPath, fallbackLegs, hurryHome, nextWalkAt, pickPlaces, positionAt, toLatLon, toMeters, type TimedPt, lastWalkWith, walkingElsewhere } from "./walk";
 
 /** 시드 고정 난수(mulberry32) — 대체 경로가 매번 같게. */
 function seeded(seed: number) {
@@ -111,5 +111,24 @@ describe("nextWalkAt: 정기 산책(아침·점심·저녁) + 추가 산책(2시
   });
   it("오늘 정기 산책이 다 지났으면 추가 산책 규칙대로(내일 아침은 그보다 늦다)", () => {
     expect(nextWalkAt({ dozeAt: t(21, 0), lastWalk: null, extraWait: wait })).toEqual({ at: t(21, 10), routine: false });
+  });
+});
+
+describe("기기들이 같이 보는 산책", () => {
+  it("지난 산책은 이 기기 것과 같이 보는 것 중 늦게 나간 쪽", () => {
+    const mine = { start: 100, end: 200 }, other = { start: 300, end: 400, mine: false };
+    expect(lastWalkWith(null, null)).toBeNull();
+    expect(lastWalkWith(mine, null)).toEqual(mine);
+    expect(lastWalkWith(null, other)).toEqual({ start: 300, end: 400 });
+    expect(lastWalkWith(mine, other)).toEqual({ start: 300, end: 400 });
+    expect(lastWalkWith({ start: 500, end: 600 }, other)).toEqual({ start: 500, end: 600 });
+  });
+  it("다른 기기가 나가 있는 동안만 '다른 데서 산책 중'", () => {
+    const other = { start: 300, end: 400, mine: false };
+    expect(walkingElsewhere(other, 350)).toBe(true);
+    expect(walkingElsewhere(other, 400)).toBe(false);
+    expect(walkingElsewhere(other, 299)).toBe(false);
+    expect(walkingElsewhere({ ...other, mine: true }, 350)).toBe(false);
+    expect(walkingElsewhere(null, 350)).toBe(false);
   });
 });
