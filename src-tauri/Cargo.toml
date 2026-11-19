@@ -36,11 +36,18 @@ ignore = "0.4"
 globset = "0.4"
 regex = "1"
 tauri-plugin-notification = "2"
+# 기기 간 동기화(sync/): 기록마다 XChaCha20-Poly1305 로 잠근다. 암호를 손으로 짜지 않는다(docs/neko-sync.md §3.1).
+chacha20poly1305 = "0.10"
+
+# 데스크탑 전용 플러그인(빠른 질문 단축키·보관함 끌어내기·자동 업데이트). 폰(iOS) 빌드에는 없다.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-drag = "2.1.1"
 tauri-plugin-updater = "2"
-# 기기 간 동기화(sync/): 기록마다 XChaCha20-Poly1305 로 잠근다. 암호를 손으로 짜지 않는다(docs/neko-sync.md §3.1).
-chacha20poly1305 = "0.10"
+
+# API 키·DB 열쇠·동기화 열쇠를 키체인에 둔다(secrets.rs). 업데이트 쪽이 이미 lock 에 올려둔 버전이다. iOS 키체인도 같은 API.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+security-framework = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # NSHapticFeedbackManager 호출용. tauri 가 이미 쓰는 버전이라 추가 빌드 비용 없음.
@@ -52,5 +59,3 @@ objc2-core-location = { version = "0.3", default-features = false, features = ["
 objc2-map-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-location", "MKAnnotation", "MKDirections", "MKDirectionsRequest", "MKDirectionsResponse", "MKDirectionsTypes", "MKGeometry", "MKLocalSearch", "MKLocalSearchRequest", "MKLocalSearchResponse", "MKMapItem", "MKMapSnapshot", "MKMapSnapshotOptions", "MKMapSnapshotter", "MKMultiPoint", "MKPlacemark", "MKPointOfInterestCategory", "MKPointOfInterestFilter", "MKPolyline", "MKShape", "MKTypes"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAppearance", "NSBitmapImageRep", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep"] }
 block2 = "0.6"
-# API 키를 키체인에 둔다(secrets.rs). 업데이트 쪽이 이미 lock 에 올려둔 버전이다.
-security-framework = "3"

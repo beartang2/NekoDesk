@@ -1,0 +1,17 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "NekoDesk",
+        "theme": "Dark",
+        "backgroundColor": "#0f0f11"
+      }
+    ]
+  },
+  "bundle": {
+    "iOS": {
+      "minimumSystemVersion": "15.0"
+    }
+  }
+}
