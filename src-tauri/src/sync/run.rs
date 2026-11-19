@@ -16,6 +16,8 @@ static KICK: OnceLock<mpsc::Sender<()>> = OnceLock::new();
 static SYNCED: AtomicBool = AtomicBool::new(false);
 
 const PAIR_PREFIX: &str = "nekosync1:";
+/// 서버의 기기 목록에 보이는 이름
+const DEVICE_NAME: &str = if cfg!(target_os = "ios") { "iPhone" } else { "Mac" };
 
 /// 곧 맞춘다(로컬에서 쓴 직후, 창이 앞으로 왔을 때). 꺼져 있으면 아무 일도 없다.
 pub fn kick() {
@@ -213,7 +215,7 @@ fn save(db: &DbState, url: &str, reg: Registered, key: &Key) -> AppResult<()> {
 #[tauri::command]
 pub async fn sync_setup(db: State<'_, DbState>, url: String, setup_token: String) -> Result<(), AppError> {
     let url = check_url(&url)?;
-    let reg = register(&url, serde_json::json!({ "name": "Mac", "setup_token": setup_token.trim() })).await?;
+    let reg = register(&url, serde_json::json!({ "name": DEVICE_NAME, "setup_token": setup_token.trim() })).await?;
     let mut key = [0u8; 32];
     OsRng.fill_bytes(&mut key);
     save(&db, &url, reg, &key)
@@ -224,36 +226,45 @@ struct Pairing {
     u: String,
     c: String,
     k: String,
+    /// Claude API 키(고르면 싣는다, §6.4). 폰에서 긴 키를 치지 않게 — 받는 기기가 자기 키체인에 넣는다
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    a: Option<String>,
 }
 
-/// 짝 문자열: 서버 주소 + 1회용 짝 코드(10분) + 동기화 열쇠. 화면에 잠깐 보이고 서버엔 안 올라간다(§3.2).
-/// ponytail: Claude API 키 싣기(§6.4)는 폰이 생기는 3단계에서.
+/// 짝 문자열: 서버 주소 + 1회용 짝 코드(10분) + 동기화 열쇠(+ `with_claude` 면 Claude API 키).
+/// 화면에 잠깐 보이고 서버엔 안 올라간다(§3.2).
 #[tauri::command]
-pub async fn sync_pair_make(db: State<'_, DbState>) -> Result<String, AppError> {
+pub async fn sync_pair_make(db: State<'_, DbState>, with_claude: Option<bool>) -> Result<String, AppError> {
     let srv = creds(&*db.0.lock()?)?.ok_or("먼저 서버에 이 맥을 등록해줘.")?;
+    let a = if with_claude.unwrap_or(false) { crate::secrets::get("anthropic_api_key")?.filter(|k| !k.is_empty()) } else { None };
     #[derive(Deserialize)]
     struct Code {
         code: String,
     }
     let code: Code = call(reqwest::Method::POST, &srv.url, "/v1/pair", Some(&srv.token), &serde_json::json!({})).await?;
-    let json = serde_json::to_string(&Pairing { u: srv.url, c: code.code, k: hex(&srv.key) }).map_err(|e| AppError::msg(e.to_string()))?;
+    let json = serde_json::to_string(&Pairing { u: srv.url, c: code.code, k: hex(&srv.key), a }).map_err(|e| AppError::msg(e.to_string()))?;
     Ok(format!("{PAIR_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json)))
 }
 
-fn parse_pairing(s: &str) -> AppResult<(String, String, Key)> {
+fn parse_pairing(s: &str) -> AppResult<(String, String, Key, Option<String>)> {
     let bad = || AppError::msg("짝 문자열 모양이 아니야. 다시 복사해줘.");
     let body = s.trim().strip_prefix(PAIR_PREFIX).ok_or_else(bad)?;
     let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(body).map_err(|_| bad())?;
     let p: Pairing = serde_json::from_slice(&raw).map_err(|_| bad())?;
-    Ok((check_url(&p.u)?, p.c, unhex(&p.k).ok_or_else(bad)?))
+    Ok((check_url(&p.u)?, p.c, unhex(&p.k).ok_or_else(bad)?, p.a.filter(|a| !a.trim().is_empty())))
 }
 
-/// 다른 기기에서 만든 짝 문자열로 이 기기를 등록한다(같은 열쇠).
+/// 다른 기기에서 만든 짝 문자열로 이 기기를 등록한다(같은 열쇠). Claude API 키가 실려 왔으면 등록된 뒤
+/// 이 기기 키체인에 넣는다.
 #[tauri::command]
 pub async fn sync_pair_join(db: State<'_, DbState>, pairing: String) -> Result<(), AppError> {
-    let (url, code, key) = parse_pairing(&pairing)?;
-    let reg = register(&url, serde_json::json!({ "name": "Mac", "pair_code": code })).await?;
-    save(&db, &url, reg, &key)
+    let (url, code, key, claude) = parse_pairing(&pairing)?;
+    let reg = register(&url, serde_json::json!({ "name": DEVICE_NAME, "pair_code": code })).await?;
+    save(&db, &url, reg, &key)?;
+    if let Some(k) = claude {
+        crate::secrets::set("anthropic_api_key", &k)?;
+    }
+    Ok(())
 }
 
 // ── 기기 목록·끊기·열쇠 바꾸기 ───────────────────────────────────────────────
@@ -393,10 +404,15 @@ mod tests {
     #[test]
     fn pairing_string_round_trips_and_rejects_junk() {
         let key = [7u8; 32];
-        let json = serde_json::to_string(&Pairing { u: "https://sync.example.com".into(), c: "code".into(), k: hex(&key) }).unwrap();
-        let s = format!("{PAIR_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json));
-        let (u, c, k) = parse_pairing(&format!("  {s}\n")).unwrap();
-        assert_eq!((u.as_str(), c.as_str(), k), ("https://sync.example.com", "code", key));
+        let json = serde_json::to_string(&Pairing { u: "https://sync.example.com".into(), c: "code".into(), k: hex(&key), a: None }).unwrap();
+        let s = format!("{PAIR_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&json));
+        let (u, c, k, a) = parse_pairing(&format!("  {s}\n")).unwrap();
+        assert_eq!((u.as_str(), c.as_str(), k, a), ("https://sync.example.com", "code", key, None));
+        // Claude API 키는 골랐을 때만 실린다. 안 실린 문자열엔 그 칸 자체가 없다(0.1.15 가 만든 것과 같은 모양)
+        assert!(!json.contains("\"a\""));
+        let with = serde_json::to_string(&Pairing { u: "https://sync.example.com".into(), c: "code".into(), k: hex(&key), a: Some("sk-test".into()) }).unwrap();
+        let s = format!("{PAIR_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(with));
+        assert_eq!(parse_pairing(&s).unwrap().3.as_deref(), Some("sk-test"));
         assert!(parse_pairing("nekosync1:!!!").is_err());
         assert!(parse_pairing("hello").is_err());
         // http 는 로컬 시험 서버만

@@ -1229,6 +1229,10 @@ function SyncSection() {
   const [setup, setSetup] = useState("");
   const [pasted, setPasted] = useState("");
   const [pairing, setPairing] = useState("");
+  // 짝 문자열에 Claude API 키도 싣는다(아이폰은 긴 키를 치기 어렵다). 키가 있을 때만 고를 수 있다
+  const [hasClaude, setHasClaude] = useState(false);
+  const [withClaude, setWithClaude] = useState(true);
+  useEffect(() => { secretsApi.has("anthropic_api_key").then(setHasClaude).catch(() => {}); }, []);
   const [devices, setDevices] = useState<{ devices: SyncDevice[]; me: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -1275,13 +1279,19 @@ function SyncSection() {
             {st.last_error ? ` · 못 맞춤: ${st.last_error}` : ""}
           </p>
           <div className="settings-row">
-            <button className="settings-btn" disabled={busy} onClick={() => void run(async () => setPairing(await syncApi.pairMake()))}>
+            <button className="settings-btn" disabled={busy} onClick={() => void run(async () => setPairing(await syncApi.pairMake(hasClaude && withClaude)))}>
               짝 문자열 만들기
             </button>
             <button className="settings-btn settings-btn--ghost" disabled={busy || !st.enabled} onClick={() => void run(() => syncApi.now())}>
               지금 맞추기
             </button>
           </div>
+          {hasClaude && (
+            <label className="settings-section__desc">
+              <input type="checkbox" checked={withClaude} onChange={(e) => setWithClaude(e.target.checked)} />
+              {" "}짝 문자열에 Claude API 키도 싣기(아이폰에서 키를 따로 안 넣어도 된다)
+            </label>
+          )}
           <div className="settings-row">
             <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void loadDevices()}>기기 목록</button>
             <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void rekey()}>열쇠 바꾸기</button>

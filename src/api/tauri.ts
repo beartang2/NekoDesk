@@ -283,7 +283,8 @@ export const syncApi = {
   /** 첫 기기: 배포 때 정한 SETUP_TOKEN 으로 등록 */
   setup: (url: string, setupToken: string) => invoke<void>("sync_setup", { url, setupToken }),
   /** 다른 기기에 붙여넣을 짝 문자열(10분) */
-  pairMake: () => invoke<string>("sync_pair_make"),
+  /** `withClaude`: Claude API 키도 싣는다(받는 기기가 자기 키체인에 넣는다 — 폰에서 긴 키를 안 쳐도 되게). */
+  pairMake: (withClaude = false) => invoke<string>("sync_pair_make", { withClaude }),
   pairJoin: (pairing: string) => invoke<void>("sync_pair_join", { pairing }),
   devices: () => invoke<{ devices: SyncDevice[]; me: string }>("sync_devices"),
   revoke: (id: string) => invoke<void>("sync_revoke", { id }),
