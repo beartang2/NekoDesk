@@ -2772,9 +2772,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const r = (A.r = easelRect());
       A.paint = document.createElement("canvas"); A.paint.width = 180; A.paint.height = 160;
       A.plan = planPainting(); A.si = 0; A.d = 0; A.hold = -1; A.travel = 0; A.tip = null;
-      kit.back(() => [r.cx, floorY], () => drawEasel(r, A.paint, 1));
+      kit.back(() => [A.r.cx, floorY], () => drawEasel(A.r, A.paint, 1));
       burst(r.cx, r.cy);
     },
+    // 무대가 바뀌었다: 그리던 그림(획·종이)은 그대로 두고 이젤만 새 자리·새 배율로. 붓은 다음 점에서 다시 잡는다
+    restage(A) { A.r = easelRect(); A.tip = [A.r.cx, A.r.cy]; A.from = A.tip; A.travel = 0; },
     step: paintStep,
     pose(A, ramp) {
       const done = A.hold >= 0;
@@ -4285,7 +4287,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       RX = 0; RY = 0; RW = W; RH = H;
       setBacking(W, H);
     }
-    if (W0 > 1 && (S !== S0 || W !== W0 || floorY !== F0)) rescaleWorld(W0, S0, F0);
+    if (W0 > 1 && (S !== S0 || W !== W0 || floorY !== F0)) { rescaleWorld(W0, S0, F0); if (!WORLD) restageSoon(S0, W0); }
     refreshDecorK();
     if (AWAY) AWAY.drawn = false; // 캔버스 크기가 바뀌면 지워지니 팻말을 다시 그린다
     // 화면 모드는 다른 모니터로 건너가는 중일 수 있어 창 폭으로 가두지 않는다(옮기기는 shiftWorld)
@@ -4309,6 +4311,45 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
    * 안 맞았다. 고양이 자리는 무대 폭에 대한 비율을 지키고(사이드바 → 채팅 바 아래로 옮기면 왼쪽 끝에 붙어 있었다),
    * 나머지는 '고양이에서 얼마나 떨어졌나'와 '바닥에서 얼마나 떴나'를 k 배 한다 — 소품마다 따로 고치지 않는다.
    */
+  /*
+   * 무대가 크게 바뀌면(폰 가로↔세로, 방↔거실, 방 높이 끌기) 진행 중인 활동을 새 무대 기준으로 다시 편다. rescaleWorld 는
+   * x 를 가진 소품만 옮겨, 이젤(cx)·붓 끝(tip)처럼 다른 칸에 둔 소품은 옛 자리·옛 배율로 남고 붓이 늘어났다(사용자, 폰 가로).
+   * 끌기·돌리기 동안 여러 번 오니 멈춘 뒤 한 번(RESTAGE_MS), 배율이나 폭이 5% 넘게 바뀌었을 때만. 화면 모드는 창이 곧 세계라 안 한다
+   */
+  const RESTAGE_MS = 200;
+  let restageT = 0, staged = null; // staged = 이번에 바뀌기 시작하기 전 무대(S·W)
+  function restageSoon(S0, W0) {
+    if (!staged) staged = { S: S0, W: W0 };
+    clearTimeout(restageT);
+    restageT = setTimeout(restage, RESTAGE_MS);
+  }
+  function restage() {
+    const base = staged; staged = null;
+    if (!base || (Math.abs(S / base.S - 1) < 0.05 && Math.abs(W / base.W - 1) < 0.05)) return;
+    const c = cat;
+    effects.length = 0; leftovers.length = 0; // 옛 기준 음표·말풍선·사라지는 소품
+    if (c.mode === "walk" || c.mode === "idle" || c.mode === "act" || POSE_MODES.has(c.mode)) {
+      c.x = clearOfGifts(clamp(c.x, walkLo(), walkHi()));
+      c.target = c.x; c.vx = 0;
+    }
+    if (GROUND.has(c.mode)) c.y = floorY - standH() * S;
+    for (const j of c.jig) j.init = false;
+    c.tailRoot.init = false;
+    const A = c.act, spec = A && actOf(A.key);
+    if (spec && spec.restage) spec.restage(A);
+    else if (A) { startAct(A.key); leftovers.length = 0; } // 새 무대에서 처음부터(소품이 새 자리·새 배율로 '뿅')
+  }
+  /** 고양이가 바닥 선물을 덮지 않는 가장 가까운 자리(없으면 그대로) */
+  function clearOfGifts(x) {
+    const half = 45 * S, boxes = decor.filter((d) => !d.hidden && d.surface === "floor").map((d) => {
+      const { x: gx } = giftPos(d), w = decorDims(d.shape, d.k).w; return [gx - w / 2, gx + w / 2];
+    });
+    const free = (cx) => boxes.every(([a, b]) => cx + half <= a || cx - half >= b);
+    if (free(x)) return x;
+    const lo = walkLo(), hi = walkHi();
+    for (let d = 4; d < W; d += 4) for (const cx of [x - d, x + d]) if (cx >= lo && cx <= hi && free(cx)) return cx;
+    return x;
+  }
   function rescaleWorld(W0, S0, F0) {
     // 화면 모드는 세계 좌표가 곧 화면 좌표라 창 크기가 바뀌어도(다른 모니터로 옮겨 붙음) 자리를 그대로 둔다 — 옮기는 건 shiftWorld
     const c = cat, k = S / S0, ax0 = c.x, ax1 = WORLD ? c.x : (c.x / W0) * W;
@@ -4796,7 +4837,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     pause() { paused = true; cancelAnimationFrame(raf); clearTimeout(timer); raf = 0; timer = 0; },
     resume() { if (paused) { paused = false; last = performance.now(); schedule(); } },
     destroy() {
-      cancelAnimationFrame(raf); clearTimeout(timer); raf = 0; timer = 0; paused = true; listeners.clear(); ro.disconnect();
+      cancelAnimationFrame(raf); clearTimeout(timer); clearTimeout(restageT); raf = 0; timer = 0; paused = true; listeners.clear(); ro.disconnect();
       window.removeEventListener("resize", resize); dprMq?.removeEventListener("change", onDpr); document.removeEventListener("visibilitychange", onVisible);
     },
     // 화면 모드(docs/neko-screen-mode.md §9): E2 크기 고정 · E3 바닥

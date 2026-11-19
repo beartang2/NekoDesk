@@ -1132,6 +1132,41 @@ try {
     }
   }
 
+  // 9-z) 무대가 바뀌면 다시 편다(폰 가로↔세로·방↔거실·방 높이): 그리던 이젤·붓은 새 자리·새 배율로(그림은 이어서),
+  //      다른 활동은 새 무대에서 처음부터, 옛 음표·말풍선은 지운다, 고양이는 바닥 선물을 덮지 않는다. 빠르게 여러 번 돌려도 된다
+  {
+    const p = await open(`?w=280&h=200&scale=height`, { width: 1000, height: 600 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage");
+      const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+      const size = (w, h) => { cv.style.width = w + "px"; cv.style.height = h + "px"; n.resize(); };
+      n.pause(); n.setWander(false); n.setMood("idle");
+      const shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "blue" }] };
+      n.setDecor([{ id: "g", surface: "floor", u: 0.3, size: "small", shape }]);
+      n.act("draw"); n.step(120 * 6);
+      const si0 = c.act.si, h0 = c.act.r.h, S0 = n.S;
+      size(724, 340); n.step(2); size(280, 200); n.step(2); size(724, 340); // 빠르게 돌림
+      await wait(300); n.step(30); n.draw();
+      const A = c.act, S = n.S, easelGap = Math.abs(A.r.cx - c.x), tipOff = A.tip ? Math.hypot(A.tip[0] - A.r.cx, A.tip[1] - A.r.cy) : 0;
+      const out = {
+        act: n.activity, kept: A.si >= si0, easelScale: +(A.r.h / h0).toFixed(2), sRatio: +(S / S0).toFixed(2),
+        easelNear: easelGap < 80 * S, tipNear: tipOff < A.r.w * 1.2, catIn: c.x >= 0 && c.x <= n.W,
+      };
+      // 고양이가 바닥 선물을 덮지 않는다
+      const gx = 16 * S + 0.3 * (n.W - 32 * S);
+      out.offGift = Math.abs(c.x - gx) > 45 * S;
+      // 털실: 새 무대에서 처음부터 — 공이 새 배율
+      n.act("yarn"); n.step(60); const r0 = c.act.ball.r;
+      size(280, 200); await wait(300); n.step(10);
+      out.yarnBall = +(c.act.ball.r / r0).toFixed(2); out.sBack = +(n.S / S).toFixed(2);
+      n.act(null);
+      return out;
+    });
+    check("무대가 바뀌면 다시 편다: 이젤·붓은 새 자리·배율로 그림은 이어서, 털실은 새 배율로, 고양이는 선물을 덮지 않음", JSON.stringify(r),
+      r.act === "draw" && r.kept && Math.abs(r.easelScale - r.sRatio) < 0.05 && r.easelNear && r.tipNear && r.offGift && Math.abs(r.yarnBall - r.sBack) < 0.05);
+    await p.close();
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {
