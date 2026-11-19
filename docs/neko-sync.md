@@ -711,7 +711,8 @@ cron 이 10분마다 깬다. 아래가 다 맞을 때만 나간다.
 - **자동 재설치**(launchd 사용자 에이전트): `scripts/ios-reinstall-agent.sh install` 이 등록하고 `uninstall` 이 푼다(`status` 로 상태).
   - 날마다 04:30 에 `ios-reinstall.sh --auto` 를 낮은 우선순위(nice 15)로 돌린다. 맥이 자고 있었으면 깰 때 돈다. 서명이 3일 넘게 남은 날은 아무것도 안 한다 — 실제 빌드는 4일에 한 번쯤.
   - 다시 설치했거나 못 했으면(폰이 안 보임·빌드 실패) 맥 알림을 띄운다. 못 한 날은 다음 날 또 해 보고 또 알린다.
-  - 등록이 만드는 것(내장 디스크): `~/Library/LaunchAgents/com.nekodesk.ios-reinstall.plist`, `~/Library/Application Support/NekoDesk/ios-reinstall-agent.sh`(PATH 를 적어 둔 실행 파일), `ios-expiry`(만료 시각). 외장 디스크가 빠져 있으면 건너뛰고, 만료가 3일 안일 때만 알린다.
+  - 등록이 만드는 것(내장 디스크): `~/Library/LaunchAgents/com.nekodesk.ios-reinstall.plist`, `~/Library/Application Support/NekoDesk/` 아래 `ios-reinstall-agent.sh`(PATH 를 적어 둔 실행 파일)·`NekoDeskPhoneReinstall.app`(그걸 부르는 작은 앱)·`ios-expiry`(만료 시각).
+  - launchd 가 `/bin/sh` 로 외장 디스크의 스크립트를 바로 부르면 macOS 가 묻지도 않고 막는다(이동식 볼륨 권한, exit 126 `Operation not permitted`). 그래서 작은 앱으로 감싼다 — 처음 돌 때 "NekoDeskPhoneReinstall 이(가) 이동식 볼륨의 파일에 접근하려고 합니다"를 묻고, 허용하면 그 뒤로 된다. launchd 가 받은 오류는 `~/Library/Logs/nekodesk-ios-reinstall.err`. 외장 디스크가 빠져 있으면 건너뛰고, 만료가 3일 안일 때만 알린다.
   - 한 일은 `/Volumes/BREAD/MyProject/GitHub/NekoDesk-ios-reinstall.log`(돌 때마다 덮어쓰고 끝 200줄).
   - 손으로 풀기: `launchctl bootout gui/$(id -u)/com.nekodesk.ios-reinstall`. 다시 걸기: `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nekodesk.ios-reinstall.plist`.
   - 폰은 맥과 같은 Wi-Fi 에 있거나 케이블로 연결돼 있어야 하고 잠금이 풀려 있어야 한다.
