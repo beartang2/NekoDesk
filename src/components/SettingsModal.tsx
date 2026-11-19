@@ -1912,8 +1912,6 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
           )}
           {tab === "connect" && (
             <>
-              {/* 폰에서 처음 할 일이 기기 연결이라 맨 위에 둔다 */}
-              {IS_PHONE && <SyncSection />}
               {/* ── 날씨와 위치 ──────────────────────────────────────── */}
               <WeatherSection />
 
@@ -1936,7 +1934,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
               <McpSection />
 
               {/* ── 기기 간 동기화 ───────────────────────────────────── */}
-              {!IS_PHONE && <SyncSection />}
+              <SyncSection />
             </>
           )}
           {tab === "tools" && <ToolsSection />}
