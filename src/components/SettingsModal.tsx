@@ -1369,6 +1369,13 @@ function SyncSection() {
           </p>
           <div className="settings-row">
             <input className="settings-input" type="password" value={pasted} placeholder="nekosync1:…" onChange={(e) => setPasted(e.target.value)} />
+            {/* 폰: 긴 코드를 손으로 칠 수는 없다. 길게 눌러 붙여넣기를 못 찾아도 한 번에 붙게(iOS 가 붙여넣기 허용을 묻는다) */}
+            {IS_PHONE && (
+              <button className="settings-btn settings-btn--ghost" disabled={busy}
+                onClick={() => void navigator.clipboard.readText().then((t) => { if (t.trim()) setPasted(t.trim()); else setErr("복사해 둔 기기 연결 코드가 없어요. 맥에서 코드를 복사한 뒤 다시 눌러 주세요."); }).catch(() => setErr("붙여넣지 못했어요. 입력 칸을 길게 눌러 붙여넣어 주세요."))}>
+                붙여넣기
+              </button>
+            )}
             <button className="settings-btn settings-btn--ghost" disabled={busy || !pasted} onClick={() => void run(() => syncApi.pairJoin(pasted).then(() => setPasted("")))}>
               연결하기
             </button>

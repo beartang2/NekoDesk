@@ -1817,6 +1817,8 @@ html.phone .app {
 /* 손가락: 누른 자리의 회색 네모·글자 고르기·길게 눌러 뜨는 메뉴를 끈다 */
 html.phone { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
 html.phone button, html.phone [role="tab"], html.phone .session-item, html.phone .titlebar { -webkit-user-select: none; user-select: none; }
+/* 입력 칸은 길게 눌러 붙여넣기·고르기가 그대로 돼야 한다 */
+html.phone input, html.phone textarea { -webkit-touch-callout: default; -webkit-user-select: text; user-select: text; }
 html.phone .titlebar { padding: 0 8px 0 14px; }
 html.phone .titlebar__name,
 html.phone .titlebar__sep,
