@@ -1139,7 +1139,7 @@ function MemoriesSection() {
       <SwitchRow label="쉴 때 정리하기" checked={tidy} onChange={setTidy} />
       <p className="settings-section__desc">
         {josa(name, "이/가")} 졸 때 하루 한 번 밥을 먹으며 같은 내용을 여러 번 적은 기억을 한 줄로 합쳐요.
-        내용이 다른 기억은 지우지 않아요. Claude 프로필일 때만, 산책 중이 아닐 때만 해요.
+        일정·할 일처럼 바로 찾아볼 수 있는 기억은 지워요. Claude 프로필일 때만, 산책 중이 아닐 때만 해요.
       </p>
       {tidyLog.length > 0 && (
         <details className="memory-tidy-log">
@@ -1151,6 +1151,12 @@ function MemoriesSection() {
                 <div key={i} className="memory-tidy-log__merge">
                   <span className="memory-tidy-log__from">{m.from.join(" · ")}</span>
                   <span className="memory-tidy-log__to">→ {m.to}</span>
+                </div>
+              ))}
+              {r.drops?.map((d, i) => (
+                <div key={`d${i}`} className="memory-tidy-log__merge">
+                  <span className="memory-tidy-log__from">{d}</span>
+                  <span className="memory-tidy-log__to">→ 지움(찾아볼 수 있어서)</span>
                 </div>
               ))}
             </div>
