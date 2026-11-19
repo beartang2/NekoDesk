@@ -28,7 +28,7 @@ mod place;
 mod capture;
 #[cfg(target_os = "macos")]
 mod location;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod map;
 mod secrets;
 mod claude;
@@ -1669,11 +1669,11 @@ pub fn run() {
             commands::window_boot_done,
             #[cfg(target_os = "macos")]
             commands::location_current,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             map::map_snapshot,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             map::map_places,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             map::map_walk_route,
             #[cfg(desktop)]
             commands::shelf_list,
