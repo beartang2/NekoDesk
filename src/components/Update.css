@@ -141,6 +141,18 @@
   color: var(--bg-base);
 }
 
+/* 되돌릴 수 없는 확인(선물 버리기·기기 끊기·암호 키 재설정): primary 와 같은 꼴, 빨강 */
+.update-dialog__btn--danger {
+  background: var(--error);
+  color: var(--bg-base);
+  font-weight: 600;
+}
+
+.update-dialog__btn--danger:hover {
+  background: color-mix(in oklab, var(--error) 88%, var(--text-primary));
+  color: var(--bg-base);
+}
+
 /* 설정 '업데이트' 칸. 상태가 글자보다 색으로 먼저 읽히게. */
 .update-status {
   display: flex;

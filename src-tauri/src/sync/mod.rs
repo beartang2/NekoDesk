@@ -93,7 +93,7 @@ pub fn unseal(key: &Key, r: &Record) -> AppResult<Vec<u8>> {
     let (nonce, ct) = raw.split_at(24);
     XChaCha20Poly1305::new(key.into())
         .decrypt(XNonce::from_slice(nonce), Payload { msg: ct, aad: aad(r).as_bytes() })
-        .map_err(|_| AppError::msg("기록을 풀지 못했어(열쇠가 다르거나 바뀐 기록)"))
+        .map_err(|_| AppError::msg("기록을 풀지 못했어요. 암호 키가 다르거나 기록이 바뀌었어요."))
 }
 
 // ── 로컬 표 ──────────────────────────────────────────────────────────────────
@@ -609,9 +609,9 @@ pub(crate) async fn call<T: serde::de::DeserializeOwned>(
     let res = req.send().await?;
     match res.status().as_u16() {
         200 => Ok(res.json().await?),
-        401 => Err(AppError::msg("서버가 이 기기를 모른다고 해(끊겼거나 토큰이 바뀜). 다시 짝을 맞춰줘.")),
-        403 => Err(AppError::msg("서버가 거절했어(설정 토큰이나 짝 코드가 틀렸거나 지났어).")),
-        s => Err(AppError::msg(format!("동기화 서버 오류({s})"))),
+        401 => Err(AppError::msg("서버가 이 기기를 알아보지 못했어요. 연결이 끊겼을 수 있어요. 기기 연결 코드로 다시 연결해 주세요.")),
+        403 => Err(AppError::msg("서버가 요청을 거절했어요. 설정 토큰이나 기기 연결 코드가 틀렸거나 만료됐어요.")),
+        s => Err(AppError::msg(format!("서버에서 오류가 났어요({s}). 서버 설정을 확인해 주세요."))),
     }
 }
 
