@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { memoryApi, secretsApi, settingsApi, syncApi, type SyncDevice, type SyncStatus } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import {
-  X, Zap, Pencil, Trash2, Settings, Plus, RefreshCw, MapPin, Loader2, ChevronRight, ArrowUpRight, Info, Copy,
+  X, Zap, Pencil, Trash2, Settings, Plus, RefreshCw, MapPin, Loader2, ChevronRight, ChevronUp, ChevronDown, ArrowUpRight, Info, Copy,
 } from "lucide-react";
 import { Accordion, AlertDialog, Popover } from "radix-ui";
 import { AnimatePresence, Reorder, motion, useDragControls } from "motion/react";
@@ -1069,6 +1069,26 @@ const MEMORY_KIND_LABELS: Record<string, string> = {
   neko: "산책",
 };
 
+/** 기억·정리 기록은 5개씩 넘겨 본다. 지워서 줄면 마지막 쪽으로 당긴다(쪽 번호를 그릴 때 자른다) */
+const PAGE = 5;
+function usePage<T>(items: T[]) {
+  const [want, setPage] = useState(0);
+  const last = Math.max(0, Math.ceil(items.length / PAGE) - 1);
+  const page = Math.min(want, last);
+  return { page, last, setPage, shown: items.slice(page * PAGE, page * PAGE + PAGE), total: items.length };
+}
+
+function Pager({ page, last, setPage, total }: ReturnType<typeof usePage>) {
+  if (total <= PAGE) return null;
+  return (
+    <div className="memory-pager">
+      <span className="memory-pager__at">{page * PAGE + 1}–{Math.min(total, page * PAGE + PAGE)} / {total}</span>
+      <IconButton label="이전 5개" disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronUp size={12} /></IconButton>
+      <IconButton label="다음 5개" disabled={page === last} onClick={() => setPage(page + 1)}><ChevronDown size={12} /></IconButton>
+    </div>
+  );
+}
+
 /**
  * 고양이가 기억해둔 것들. 지우는 수단이 없으면 기억은 무섭기만 하다 — 무엇을
  * 알고 있는지 보이고 지울 수 있어야 한다.
@@ -1102,6 +1122,9 @@ function MemoriesSection() {
   const name = useSettingsStore(nekoNameOf);
   const [tidyLog, setTidyLog] = useState<TidyRecord[]>([]);
   useEffect(() => { void loadTidyLog().then(setTidyLog); }, []);
+  // 목록은 최근 저장한 것이 위(memory_list 가 created_at DESC 로 준다)
+  const memPage = usePage(memories);
+  const logPage = usePage(tidyLog);
 
   async function remove(id: number) {
     await memoryApi.delete(id).catch(() => {});
@@ -1119,7 +1142,7 @@ function MemoriesSection() {
       ) : (
         <div className="rule-list">
           <AnimatePresence mode="popLayout" initial={false}>
-            {memories.map((m) => (
+            {memPage.shown.map((m) => (
               // layout="position": 펼칠 때 크기까지 늘려 그리면 글자가 잠깐 찌그러진다. 아래 줄만 미끄러지게
               <motion.div className={`rule-row${open.has(m.id) ? " memory-row--open" : ""}`} key={m.id} {...listItem} layout="position">
                 <span className="memory-row__kind">{MEMORY_KIND_LABELS[m.kind] ?? m.kind}</span>
@@ -1132,6 +1155,7 @@ function MemoriesSection() {
           </AnimatePresence>
         </div>
       )}
+      <Pager {...memPage} />
       <SwitchRow label="쉴 때 정리하기" checked={tidy} onChange={setTidy} />
       <p className="settings-section__desc">
         {josa(name, "이/가")} 졸 때 하루 한 번 겹치는 기억을 합치고, 일정·할 일처럼 바로 찾아볼 수 있는 기억은 지웁니다.
@@ -1140,7 +1164,7 @@ function MemoriesSection() {
       {tidyLog.length > 0 && (
         <details className="memory-tidy-log">
           <summary>최근 정리 {tidyLog.length}번</summary>
-          {tidyLog.map((r) => (
+          {logPage.shown.map((r) => (
             <div key={r.at} className="memory-tidy-log__day">
               <div className="memory-tidy-log__at">{TIDY_AT.format(new Date(r.at))}</div>
               {r.merges.map((m, i) => (
@@ -1157,6 +1181,7 @@ function MemoriesSection() {
               ))}
             </div>
           ))}
+          <Pager {...logPage} />
         </details>
       )}
     </section>
