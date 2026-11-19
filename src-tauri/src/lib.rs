@@ -1223,6 +1223,22 @@ mod commands {
         crate::ambient::music(&app)
     }
 
+    /// 폰: 가로로 돌려 네코만 볼 때 홈 막대(화면 아래 가운데 줄)를 숨긴다. iOS 는 손을 대지 않는 동안만 숨겨 준다 —
+    /// 화면을 건드리면 잠깐 다시 나온다. tao 의 뷰 컨트롤러가 이 설정을 받는다.
+    #[cfg(target_os = "ios")]
+    #[tauri::command]
+    pub fn phone_standby(window: tauri::WebviewWindow, on: bool) -> Result<(), AppError> {
+        window.with_webview(move |webview| unsafe {
+            use objc2::msg_send;
+            use objc2::runtime::{AnyObject, Bool};
+            let controller = webview.view_controller() as *mut AnyObject;
+            if !controller.is_null() {
+                let _: () = msg_send![controller, setPrefersHomeIndicatorAutoHidden: Bool::new(on)];
+            }
+        })?;
+        Ok(())
+    }
+
     /// 폰: 클립보드의 글(기기 연결 코드 붙여넣기 버튼). 동기 커맨드라 main thread 에서 돈다.
     #[cfg(target_os = "ios")]
     #[tauri::command]
@@ -1725,6 +1741,8 @@ pub fn run() {
             commands::ambient_music,
             #[cfg(target_os = "ios")]
             commands::paste_text,
+            #[cfg(target_os = "ios")]
+            commands::phone_standby,
             #[cfg(target_os = "macos")]
             commands::ambient_track,
             #[cfg(target_os = "macos")]

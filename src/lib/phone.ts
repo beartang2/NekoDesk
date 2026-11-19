@@ -3,6 +3,7 @@
  * 배치 규칙은 App.css 의 `html.phone`.
  */
 
+import { invoke } from "@tauri-apps/api/core";
 import { useNekoStore, type NekoPlacement } from "../neko/nekoStore";
 
 const KBD_KEY = "nekodesk_phone_kbd_h";
@@ -212,6 +213,8 @@ function watchStandby(root: HTMLElement): void {
   const apply = () => {
     const on = landscape.matches;
     root.classList.toggle("standby", on);
+    // 홈 막대를 숨긴다(손을 대지 않는 동안)
+    void invoke("phone_standby", { on }).catch(() => {});
     const stage = useNekoStore.getState().stage;
     if (on) {
       before ??= stage.placement;

@@ -1911,7 +1911,8 @@ html.phone .menu-modal .settings-section { background: var(--bg-surface); box-sh
 html.phone .menu-modal__tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 html.phone .menu-modal__tabs::-webkit-scrollbar { display: none; }
 /* 폰을 가로로: 네코만 보는 화면(lib/phone.ts watchStandby). 거실이 화면을 채우고 나머지는 걷는다 */
-html.phone.standby .app { grid-template-rows: minmax(0, 1fr); }
+/* 안전 영역 여백을 두지 않는다: 네코가 화면 끝(노치·둥근 모서리 쪽)까지 걸어가도 잘리지 않게 화면 전체에 그린다 */
+html.phone.standby .app { grid-template-rows: minmax(0, 1fr); padding: 0; }
 html.phone.standby .titlebar,
 html.phone.standby .main,
 html.phone.standby .sidebar,
