@@ -105,6 +105,18 @@ const lastWalkOf = (w: Walk | null) => (w?.done ? { start: walkStart(w), end: wa
 
 // ── Title bar ─────────────────────────────────────────────────────────────────
 
+/** CSS 색(oklch 등)을 0–1 RGB 로(캔버스가 풀어 준다) */
+function cssRgb(color: string): [number, number, number] {
+  const c = document.createElement("canvas");
+  c.width = c.height = 1;
+  const x = c.getContext("2d");
+  if (!x) return [0, 0, 0];
+  x.fillStyle = color.trim() || "#000";
+  x.fillRect(0, 0, 1, 1);
+  const [r, g, b] = x.getImageData(0, 0, 1, 1).data;
+  return [r / 255, g / 255, b / 255];
+}
+
 function useTheme() {
   const pref = useThemePref((s) => s.pref);
   const setPref = useThemePref((s) => s.setPref);
@@ -112,7 +124,18 @@ function useTheme() {
   // setTheme(null) 뒤에도 다크라고 답해서, 라이트 맥에서 시스템으로 둬도 다크로 켜졌다.
   // 첫 값은 깜빡임을 줄이려는 어림값이고, 아래 theme() 가 곧 바로잡는다.
   const [systemDark, setSystemDark] = useState(() => systemDarkQuery().matches);
+  const prefRef = useRef(pref);
+  prefRef.current = pref;
   useEffect(() => {
+    if (IS_PHONE) {
+      // 폰: 창 테마(Tauri)는 iOS 에서 오지 않는다 — 웹 표준으로 읽는다. 밝게·어둡게로 박아 둔 동안엔 창에 건 값(phone_theme)이
+      // 오니 시스템 값으로 받지 않는다. 낮밤 자동 전환은 앱을 쓰는 중이면 바로, 뒤에 있었으면 앞으로 올 때 맞춘다
+      const q = systemDarkQuery();
+      const on = () => { if (prefRef.current === "system" && !document.hidden) setSystemDark(q.matches); };
+      q.addEventListener("change", on);
+      document.addEventListener("visibilitychange", on);
+      return () => { q.removeEventListener("change", on); document.removeEventListener("visibilitychange", on); };
+    }
     // macOS 설정이 바뀌면 온다. 라이트·다크로 박아 둔 동안엔 그 값이 오지만 그땐 쓰지 않는다.
     const off = getCurrentWindow().onThemeChanged(({ payload }) => setSystemDark(payload === "dark"));
     return () => void off.then((f) => f()).catch(() => {});
@@ -120,6 +143,7 @@ function useTheme() {
   const isDark = pref === "system" ? systemDark : pref === "dark";
 
   useEffect(() => {
+    if (IS_PHONE) return;
     const w = getCurrentWindow();
     w.setTheme(windowTheme(pref))
       .then(() => (pref === "system" ? w.theme() : null))
@@ -135,6 +159,16 @@ function useTheme() {
     const t = setTimeout(() => root.classList.remove("theme-transitioning"), 250);
     return () => clearTimeout(t);
   }, [isDark]);
+
+  // 폰: 고른 테마를 창에 건다 — 상태 막대 글자·키보드 색이 따라오고, 웹뷰·창 바탕을 앱 바탕색으로 칠해 바뀌는 사이
+  // 흰 바탕이 비치지 않게 한다. 시스템이면 창은 iOS 를 따른다. 답은 iOS 자체 값(창에 건 값과 상관없음) — 시스템으로 돌아갈 때 맞는 값이 있게 늘 받는다
+  useEffect(() => {
+    if (!IS_PHONE) return;
+    const style = pref === "system" ? 0 : pref === "dark" ? 2 : 1;
+    invoke<boolean>("phone_theme", { style, bg: cssRgb(getComputedStyle(document.documentElement).getPropertyValue("--bg-base")) })
+      .then(setSystemDark)
+      .catch(() => {});
+  }, [pref, isDark]);
 
   return { isDark, pref, cycle: () => setPref(THEME_NEXT[pref]) };
 }

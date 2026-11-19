@@ -58,11 +58,23 @@ function hideCaretWhileLifting(): void {
 /**
  * 키보드: 높이 하나(--kbd, 대화 칸 .main 에)로만 반영한다. 채팅 바는 그만큼 transform 으로 올라가고(합성 층에서만, 전환이
  * 키보드와 같이 간다) 대화 목록은 아래 여백이 한 번 바뀐다 — 화면 높이를 줄이며 매 프레임 다시 배치하던 때는 올라오며 버벅였다.
- * 맨 아래를 보고 있었으면 맨 아래에 다시 맞춘다(안 그러면 최근 답이 키보드 뒤에 가렸다).
+ * 맨 아래를 보고 있었으면 맨 아래에 다시 맞춘다(안 그러면 최근 답이 키보드 뒤에 가렸다). 위쪽을 보고 있었으면 그 자리 그대로.
+ * 키보드는 입력 칸을 잡고 있을 때만 떠 있다: 칸을 놓으면 0 이다. 웹킷이 키보드가 내려간 뒤 보이는 높이를 늦게·덜 알려,
+ * 그 값으로 여백을 다시 키워 대화가 아래를 비운 채 떠 있었다.
  * 위에 뜬 장(설정·선물함)은 보이는 높이(--vvh)까지만 쓴다 — 그 안의 입력 칸이 키보드에 깔리지 않게.
  * 키보드가 올라오는 걸 기다리지 않고 지난번 높이로 먼저 올려 채팅 바가 키보드와 같이 올라간다.
  */
+let pinTimer = 0, touchedAt = 0;
+/** 맨 아래에 맞춘다. 여백이 바뀐 배치가 늦게 끝나도(채팅 바 전환 0.28s) 맨 아래에 남게 끝날 때 한 번 더 — 그사이 손가락으로 굴렸으면 그대로 둔다 */
+function pinBottom(sc: HTMLElement): void {
+  const at = Date.now();
+  sc.scrollTop = sc.scrollHeight;
+  clearTimeout(pinTimer);
+  pinTimer = window.setTimeout(() => { if (touchedAt < at) sc.scrollTop = sc.scrollHeight; }, 320);
+}
+
 function fitKeyboard(root: HTMLElement): void {
+  document.addEventListener("touchstart", () => { touchedAt = Date.now(); }, { capture: true, passive: true });
   const vv = window.visualViewport;
   if (!vv) return;
   // 지금까지 본 가장 큰 높이 = 키보드가 없을 때. innerHeight 는 iOS 버전에 따라 같이 줄어 못 믿는다
@@ -76,7 +88,9 @@ function fitKeyboard(root: HTMLElement): void {
     const atBottom = !!sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
     hideCaretWhileLifting();
     document.querySelector<HTMLElement>(".main")?.style.setProperty("--kbd", `${k}px`);
-    if (sc && atBottom) sc.scrollTop = sc.scrollHeight;
+    if (sc && atBottom) pinBottom(sc);
+    // 내려간 뒤 문서가 밀린 채 남지 않게(웹킷이 키보드를 피하려 민 것)
+    if (!k) window.scrollTo(0, 0);
     // 문서 맨 위에 변수를 바꾸면 화면 전체가 다시 계산된다 — 위에 뜬 장이 있을 때만
     if (k && document.querySelector(".menu-backdrop, .phone-panel")) root.style.setProperty("--vvh", `${tallest - k}px`);
     else root.style.removeProperty("--vvh");
@@ -92,7 +106,7 @@ function fitKeyboard(root: HTMLElement): void {
   };
   const fit = () => {
     tallest = Math.max(tallest, vv.height);
-    const k = tallest - vv.height;
+    const k = isField(document.activeElement) ? tallest - vv.height : 0;
     apply(k);
     if (k > 120) { localStorage.setItem(KBD_KEY, String(Math.round(k))); showField(); }
   };
