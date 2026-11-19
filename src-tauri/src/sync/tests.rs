@@ -215,6 +215,25 @@ fn a_joining_device_takes_the_groups_settings_instead_of_overwriting_them() {
 }
 
 #[test]
+fn records_sealed_with_another_key_are_skipped_and_counted() {
+    let (a, b) = (db(), db());
+    todos::add(&a, "다른 열쇠로 올린 것", None).unwrap();
+    let recs = push_all(&a, "A");
+    // B 는 다른 암호 키를 들고 있다(dev 빌드가 키체인의 열쇠를 덮은 뒤 연결된 기기처럼)
+    let srv = Server { url: String::new(), token: String::new(), device: "B".into(), key: [7u8; 32] };
+    let resp = SyncResp { records: recs.clone(), seq: 9, more: false, rejected: Vec::new(), reset: false };
+    settle(&b, &srv, &[], &resp, &mut Changes::default()).unwrap();
+    assert!(todos::list_open(&b).unwrap().is_empty(), "못 푼 기록은 적용되지 않는다");
+    assert_eq!(state_i64(&b, "skipped").unwrap(), recs.len() as i64, "건너뛴 수를 남긴다(설정이 알린다)");
+    // 처음부터 다시 받아 다 풀리면 0 으로 돌아온다
+    set_state(&b, "since", "0").unwrap();
+    let ok = Server { key: KEY, ..srv };
+    settle(&b, &ok, &[], &resp, &mut Changes::default()).unwrap();
+    assert_eq!(state_i64(&b, "skipped").unwrap(), 0);
+    assert_eq!(todos::list_open(&b).unwrap().len(), 1);
+}
+
+#[test]
 fn same_memory_from_two_devices_is_merged_into_the_smaller_id() {
     let (a, b) = (db(), db());
     memories::save(&a, "fact", "생일은 3월 2일").unwrap();

@@ -400,6 +400,11 @@ pub fn yield_settings(conn: &Connection) -> AppResult<()> {
     Ok(())
 }
 
+/// 이번에 받은 것이 처음부터(since 0) 받은 것인가
+fn since_was_zero(conn: &Connection) -> AppResult<bool> {
+    Ok(state_i64(conn, "since")? == 0)
+}
+
 // ── 적용 ─────────────────────────────────────────────────────────────────────
 
 /// 사용자가 지운 세션(cut 없는 지움 표시)은 늘 이기고 되살릴 수 없다. 자동 삭제는 cut 이 있다.
@@ -657,11 +662,19 @@ fn settle(conn: &Connection, srv: &Server, push: &[Record], resp: &SyncResp, ch:
         count_push(conn, push.len())?;
     }
     let mut got = Changes::default();
+    let mut skipped = 0i64;
     for r in &resp.records {
         // 하나 못 풀었다고 나머지를 멈추지 않는다
         if let Err(e) = apply(conn, &srv.device, &srv.key, r, &mut got) {
             log::warn!("동기화: {} {} 적용 못 함: {e}", r.coll, r.id);
+            skipped += 1;
         }
+    }
+    // 못 받은 기록 수를 남긴다(설정 › 동기화가 알린다). 조용히 건너뛰기만 하면 다른 암호 키로 올라간 기록(선물·대화)이
+    // 왜 안 보이는지 알 길이 없었다. 처음부터 다시 받을 때는 새로 센다
+    if skipped > 0 || since_was_zero(conn)? {
+        let before = if since_was_zero(conn)? { 0 } else { state_i64(conn, "skipped")? };
+        set_state(conn, "skipped", &(before + skipped).to_string())?;
     }
     // 받을 때도 세션당 상한으로 자른다(§9) — 새 기기가 서버의 긴 대화를 다 받아도 다른 기기와 같은 만큼만
     for id in &got.sessions {

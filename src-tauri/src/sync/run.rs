@@ -178,7 +178,11 @@ pub fn sync_status(db: State<'_, DbState>) -> Result<Status, AppError> {
         url: state(&c, "url")?,
         device: state(&c, "device")?,
         last_sync: state(&c, "last_sync")?.and_then(|v| v.parse().ok()),
-        last_error: state(&c, "last_error")?.filter(|e| !e.is_empty()),
+        // 풀지 못해 건너뛴 기록이 있으면 그것부터 알린다(동기화 자체는 됐다고 나와도 일부가 안 보인다)
+        last_error: match state(&c, "skipped")?.and_then(|n| n.parse::<i64>().ok()).filter(|n| *n > 0) {
+            Some(n) => Some(format!("기록 {n}개를 받지 못했어요. 다른 암호 키로 올라간 기록이에요 — 맥에서 '암호 키 재설정'을 한 뒤 이 기기를 다시 연결해 주세요.")),
+            None => state(&c, "last_error")?.filter(|e| !e.is_empty()),
+        },
     })
 }
 
