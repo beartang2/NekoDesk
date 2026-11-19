@@ -111,23 +111,32 @@ fn check_sync(name: &str) -> Result<(), AppError> {
     if SYNC_NAMES.contains(&name) { Ok(()) } else { Err(AppError::msg(format!("동기화 비밀 이름이 아니야: {name}"))) }
 }
 
+/// 키체인에 적는 이름. dev 빌드는 뒤에 `_dev` 를 붙인다 — dev 와 배포 버전은 DB 가 따로인데(nekodesk-dev) 키체인 이름이
+/// 같아서, dev 에서 동기화를 등록하면 배포 버전의 토큰·열쇠를 덮어 그쪽 동기화가 끊겼다. 배포 쪽 이름은 그대로라
+/// 이미 등록한 사용자는 영향이 없다.
+fn sync_account(name: &str, dev: bool) -> String {
+    if dev { format!("{name}_dev") } else { name.to_owned() }
+}
+
 /// 동기화 비밀을 꺼낸다(실행당 한 번만 키체인에 묻는다 — `get` 과 같은 캐시).
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub fn sync_get(name: &str) -> Result<Option<String>, AppError> {
     check_sync(name)?;
-    if let Some(hit) = cache().lock()?.get(name) {
+    let account = sync_account(name, cfg!(debug_assertions));
+    if let Some(hit) = cache().lock()?.get(&account) {
         return Ok(hit.clone());
     }
-    let value = keychain_get(SERVICE, name)?;
-    cache().lock()?.insert(name.to_owned(), value.clone());
+    let value = keychain_get(SERVICE, &account)?;
+    cache().lock()?.insert(account, value.clone());
     Ok(value)
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub fn sync_set(name: &str, value: &str) -> Result<(), AppError> {
     check_sync(name)?;
-    keychain_set(SERVICE, name, value)?;
-    cache().lock()?.insert(name.to_owned(), (!value.trim().is_empty()).then(|| value.trim().to_owned()));
+    let account = sync_account(name, cfg!(debug_assertions));
+    keychain_set(SERVICE, &account, value)?;
+    cache().lock()?.insert(account, (!value.trim().is_empty()).then(|| value.trim().to_owned()));
     Ok(())
 }
 
@@ -187,6 +196,10 @@ mod tests {
         // 동기화 비밀은 화면 쪽 이름(KEYS)이 아니다
         assert!(!is_secret("sync_key") && !is_secret("sync_token"));
         assert!(sync_get("db_key").is_err());
+        // dev 빌드는 배포 버전의 동기화 토큰·열쇠와 다른 이름을 쓴다. 배포 쪽 이름은 예전 그대로
+        assert_eq!(sync_account("sync_token", false), "sync_token");
+        assert_eq!(sync_account("sync_token", true), "sync_token_dev");
+        assert_ne!(sync_account("sync_key", true), sync_account("sync_key", false));
     }
 
     /// 진짜 키체인에 넣고 꺼내고 지운다(테스트 전용 서비스 이름). 키체인이 잠긴 CI 에선 못 돌아

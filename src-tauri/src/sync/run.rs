@@ -16,8 +16,32 @@ static KICK: OnceLock<mpsc::Sender<()>> = OnceLock::new();
 static SYNCED: AtomicBool = AtomicBool::new(false);
 
 const PAIR_PREFIX: &str = "nekosync1:";
-/// 서버의 기기 목록에 보이는 이름
-const DEVICE_NAME: &str = if cfg!(target_os = "ios") { "iPhone" } else { "Mac" };
+/// 서버의 기기 목록에 보이는 이름: 기기 모델(예: `Mac16,12`·`iPhone14,4`)이라 맥 두 대·폰 두 대가 구분된다.
+/// 사용자가 붙인 기기 이름("○○의 MacBook")은 쓰지 않는다 — 사람 이름이 들어 있기 쉽고 서버에 평문으로 남는다.
+/// 모델을 못 읽으면 종류만. 이미 등록한 기기의 이름은 그대로다(등록할 때만 보낸다).
+fn device_name() -> String {
+    let kind = if cfg!(target_os = "ios") { "iPhone" } else { "Mac" };
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if let Some(model) = hw_model().filter(|m| m.len() <= 32 && m.chars().all(|c| c.is_ascii_alphanumeric() || c == ',')) {
+        return model;
+    }
+    kind.to_owned()
+}
+
+/// `sysctl hw.model`(맥)·`hw.machine`(폰). 권한이 필요 없다.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn hw_model() -> Option<String> {
+    use std::ffi::{c_char, c_int, c_void};
+    extern "C" {
+        fn sysctlbyname(name: *const c_char, oldp: *mut c_void, oldlenp: *mut usize, newp: *mut c_void, newlen: usize) -> c_int;
+    }
+    let key = if cfg!(target_os = "ios") { c"hw.machine" } else { c"hw.model" };
+    let mut buf = [0u8; 64];
+    let mut len = buf.len();
+    let ok = unsafe { sysctlbyname(key.as_ptr(), buf.as_mut_ptr().cast(), &mut len, std::ptr::null_mut(), 0) } == 0;
+    let text = std::str::from_utf8(buf.get(..len)?).ok()?.trim_end_matches('\0').to_owned();
+    (ok && !text.is_empty()).then_some(text)
+}
 
 /// 곧 맞춘다(로컬에서 쓴 직후, 창이 앞으로 왔을 때). 꺼져 있으면 아무 일도 없다.
 pub fn kick() {
@@ -228,7 +252,7 @@ fn save(db: &DbState, url: &str, reg: Registered, key: &Key, joining: bool) -> A
 #[tauri::command]
 pub async fn sync_setup(db: State<'_, DbState>, url: String, setup_token: String) -> Result<(), AppError> {
     let url = check_url(&url)?;
-    let reg = register(&url, serde_json::json!({ "name": DEVICE_NAME, "setup_token": setup_token.trim() })).await?;
+    let reg = register(&url, serde_json::json!({ "name": device_name(), "setup_token": setup_token.trim() })).await?;
     let mut key = [0u8; 32];
     OsRng.fill_bytes(&mut key);
     save(&db, &url, reg, &key, false)
@@ -323,7 +347,7 @@ fn parse_pairing(s: &str) -> AppResult<(String, String, Key, Option<String>)> {
 #[tauri::command]
 pub async fn sync_pair_join(db: State<'_, DbState>, pairing: String) -> Result<(), AppError> {
     let (url, code, key, claude) = parse_pairing(&pairing)?;
-    let reg = register(&url, serde_json::json!({ "name": DEVICE_NAME, "pair_code": code })).await?;
+    let reg = register(&url, serde_json::json!({ "name": device_name(), "pair_code": code })).await?;
     save(&db, &url, reg, &key, true)?;
     if let Some(k) = claude {
         crate::secrets::set("anthropic_api_key", &k)?;
@@ -478,6 +502,9 @@ mod tests {
         let s = format!("{PAIR_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(with));
         assert_eq!(parse_pairing(&s).unwrap().3.as_deref(), Some("sk-test"));
         assert!(parse_pairing("nekosync1:!!!").is_err());
+        // 기기 이름은 모델(이 맥이면 Mac…,…)이고 사람 이름이 들어갈 글자가 없다
+        let name = device_name();
+        assert!(name.starts_with("Mac") && name.chars().all(|c| c.is_ascii_alphanumeric() || c == ','), "{name}");
         // 카메라로 찍은 주소: 짝 문자열로 되돌아오고, 모양이 아니거나 다른 주소면 버린다
         let link = format!("{PAIR_LINK}{}", s.trim_start_matches(PAIR_PREFIX));
         assert_eq!(pairing_from_link(&link).as_deref(), Some(s.as_str()));
