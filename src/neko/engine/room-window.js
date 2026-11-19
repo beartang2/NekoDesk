@@ -5,6 +5,10 @@
  * - 방(sidebar): 왼쪽에서 1/4 지점에 세로로 긴 창 하나. 벽(바닥 이음매 위) 안에서 위쪽에
  * - 거실(dock): 높이가 낮아 가로로 긴 창 두 개. 왼쪽 1/4·오른쪽 1/4 지점(가운데는 비워 둔다)
  */
+/** 창 칸 바깥으로 그리는 여백: 커튼 봉·커튼이 옆과 위로(PAD), 창턱이 아래로(SILL) 나온다. 벽에 건 선물이 피할 때도 쓴다 */
+export const WINDOW_PAD = 7;
+export const WINDOW_SILL = 6;
+
 export function roomWindows(place, W, H) {
   if (!(W > 0 && H > 0) || (place !== "sidebar" && place !== "dock")) return [];
   const floorY = H - 6; // 엔진 resize 와 같다(투명 무대, 바닥은 아래에서 6px)

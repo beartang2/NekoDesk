@@ -2355,7 +2355,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   const decorM = () => DD.decorM(S);
   const wallSpan = (h) => DD.wallSpan(h, geomNow());
   /** 자리(면·비율) → 그릴 자리(가운데 x, 바닥 y) */
-  const decorAt = (d, h) => DD.decorAt(d, h, geomNow());
+  const decorAt = (d, h) => DD.decorAt(d, h, geomNow(), decorDims(d.shape, d.k).w); // 벽에 건 것은 날씨 창문을 피한다
   /** 무대의 한 점(물건 가운데 x, 바닥 y) → 자리(면·비율). 바닥 가까이면 바닥, 높이 띄우면 벽 */
   const spotOf = (x, bottom, h) => DD.spotOf(x, bottom, h, geomNow());
   /** 물건 하나를 그릴 자리·크기(무대 px). 끄는 중이면 손을 따라, 놀다 옮겨졌으면 그 자리 */

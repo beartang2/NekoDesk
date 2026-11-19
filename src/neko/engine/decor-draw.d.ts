@@ -25,7 +25,11 @@ export function decorK(shape: GiftShape, size: unknown, scale: unknown, at: "sid
 export function decorDims(shape: GiftShape, k: number, S: number): DecorBox;
 export function decorM(S: number): number;
 export function wallSpan(h: number, g: DecorGeom): number;
-export function decorAt(d: { surface: "floor" | "wall"; u: number; v?: number }, h: number, g: DecorGeom): [number, number];
+/** 벽에 건 것(at 이 방·거실, 폭 w 를 줄 때)은 날씨 창문과 겹치면 창턱 아래로 내려 그린다 */
+export function decorAt(d: { surface: "floor" | "wall"; u: number; v?: number; at?: string }, h: number, g: DecorGeom, w?: number): [number, number];
+/** 고양이보다 높은 거실(폰 가로 화면)의 기준 바닥 높이와 그때 선물 배율(고양이 대비 70%) */
+export const TALL_DOCK_Y: number;
+export const TALL_DOCK_K: number;
 export function spotOf(x: number, bottom: number, h: number, g: DecorGeom): NekoDecorSpot;
 export function paintDecor(g: CanvasRenderingContext2D, shape: GiftShape, L: DecorBox & { x: number; bottom: number; onFloor: boolean }, geom: DecorGeom,
   o?: { shadow?: string; sc?: [number, number]; rot?: number; wob?: number; edge?: number }): void;
