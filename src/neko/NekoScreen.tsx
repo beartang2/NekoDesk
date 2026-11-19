@@ -6,6 +6,7 @@ import { createNeko, type NekoController, type NekoEvents, type NekoMood, type N
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { useNekoStore } from "./nekoStore";
 import type { NekoCmd, NekoEvt } from "./remoteNeko";
+import { useKeepInside } from "./keepInside";
 import "./NekoScreen.css";
 
 /**
@@ -64,6 +65,7 @@ export function NekoScreen() {
   // 고양이면 누른 자리에 '숨기기'(마당을 숨긴다 — 이 앱이 맨 앞으로 오면 다시 보인다). 다른 데 누르거나 몇 초 뒤 닫힌다
   const [menu, setMenu] = useState<{ id?: string; x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
+  useKeepInside(menuRef, menu); // 화면 가장자리에서 열어도 창 안에 다 보이게
   // 개발 빌드 캣타워 표시(켰을 때만): 발판(초록)·벽(파랑)·창마다 빠진 까닭을 화면에 그린다
   const [debug, setDebug] = useState<{ wins: PerchDebug[]; p: Perches } | null>(null);
   const debugOn = useRef(false);

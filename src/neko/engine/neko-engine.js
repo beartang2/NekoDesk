@@ -2320,7 +2320,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     return b.h < b.w * 0.5 ? "sit_on" : Math.abs(b.w - b.h) < b.w * 0.2 ? "roll" : "bat";
   }
   let decor = [];          // { id, surface, u, v, shape, t0, box }
-  let decorDrag = null;    // { id, pointerId, dx, dy, x, bottom } 끄는 중(무대 px)
+  let decorDrag = null;    // { id, pointerId, dx, dy, x, bottom, hold? } 끄는 중(무대 px). hold = 터치 꾹 누르기 재는 중
   function setDecor(items) {
     // 갖고 노는 중인 물건(굴러가는 자리·입에 문 상태)은 다시 넣어도 이어 간다
     const prev = new Map(decor.map((d) => [d.id, d]));
@@ -4458,6 +4458,18 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     } else if (hitDecor(x, y)) { // 놓아 둔 물건: 잡고 끌어 옮긴다(고양이 뒤에 있으니 고양이 다음에 본다)
       const d = decor.find((o) => o.id === hitDecor(x, y)), b = d.box;
       decorDrag = { id: d.id, pointerId: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x: b.x + b.w / 2, bottom: b.y + b.h, el };
+      // 터치·펜으로 꾹 누르면(HOLD_MS 동안 HOLD_SLOP 안) 끌기를 접고 우클릭처럼 '정리' 메뉴. iOS 웹뷰엔 contextmenu 가
+      // 안 온다. 마우스는 우클릭만 — 누른 채 잠깐 있다 끄는 손버릇을 막지 않게
+      if (e.pointerType !== "mouse") {
+        const hold = { x, y, t: 0 };
+        hold.t = setTimeout(() => {
+          if (!decorDrag || decorDrag.hold !== hold) return;
+          const g = decorDrag; decorDrag = null; // 놓지 않고 접는다 — decorMove 없이 제자리로
+          g.el.classList.remove("dragging");
+          decorMenuOf(decor.find((o) => o.id === g.id));
+        }, HOLD_MS);
+        decorDrag.hold = hold;
+      }
       try { el.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터: 캡처 없이도 끌린다 */ }
       el.classList.add("dragging"); e.preventDefault();
     } else if (y > floorY - 160 * S && cat.pose === "stand" && (!cat.act || cat.act.key === "butterfly")) walkTo(x);
@@ -4468,6 +4480,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (!mouseActive() && cat.mood !== "sleepy" && cat.pose === "stand" && !cat.act && cat.mode !== "grabbed" && !cat.tailEp) startTailEp("up", 2.6);
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
     if (decorDrag && e.pointerId === decorDrag.pointerId) { // 바닥 아래로는 안 내려가고 무대 위로도 안 나간다
+      const hold = decorDrag.hold; // 꾹 누르기 중 손가락이 움직이면 그냥 끌기
+      if (hold && Math.hypot(x - hold.x, y - hold.y) > HOLD_SLOP) { clearTimeout(hold.t); decorDrag.hold = null; }
       const d = decor.find((o) => o.id === decorDrag.id), h = d ? decorDims(d.shape, d.k).h : 0;
       [decorDrag.x, decorDrag.bottom] = DD.clampDrag(h, geomNow(), x - decorDrag.dx, y - decorDrag.dy);
       return;
@@ -4482,6 +4496,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
   function endPress(e) {
     if (decorDrag && e.pointerId === decorDrag.pointerId) { // 놓은 자리를 면·비율로 바꿔 알린다(저장은 호스트)
+      if (decorDrag.hold) clearTimeout(decorDrag.hold.t);
       const d = decor.find((o) => o.id === decorDrag.id);
       if (d) {
         const spot = spotOf(decorDrag.x, decorDrag.bottom, decorDims(d.shape, d.k).h);
@@ -4496,13 +4511,17 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (press.grabbing) { press.el.classList.remove("dragging"); release(); emit("drop"); } else tap();
     press = null;
   }
-  // 우클릭: 놓아 둔 물건이면 바로 치우지 않고, 호스트가 그 오른쪽 위에 '정리' 버튼을 띄우게 자리를 알린다.
-  // 그 밖에선 기본 메뉴를 막지 않는다
+  // 우클릭(또는 터치로 꾹 누르기): 놓아 둔 물건이면 바로 치우지 않고, 호스트가 그 오른쪽 위에 '정리' 버튼을 띄우게
+  // 자리를 알린다. 그 밖에선 기본 메뉴를 막지 않는다
+  const HOLD_MS = 500, HOLD_SLOP = 8;
+  function decorMenuOf(d) {
+    if (!d || !d.box) return false;
+    emit("decorMenu", { id: d.id, x: d.box.x + d.box.w, y: d.box.y });
+    return true;
+  }
   function onContextMenu(e) {
-    const [x, y] = toStage(e), id = hitDecor(x, y), d = id && decor.find((o) => o.id === id);
-    if (!d || !d.box) return;
-    e.preventDefault();
-    emit("decorMenu", { id, x: d.box.x + d.box.w, y: d.box.y });
+    const [x, y] = toStage(e), id = hitDecor(x, y);
+    if (decorMenuOf(id && decor.find((o) => o.id === id))) e.preventDefault();
   }
   canvas.addEventListener("pointerdown", onPointerDown);
   canvas.addEventListener("pointermove", onPointerMove);

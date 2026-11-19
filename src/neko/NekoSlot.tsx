@@ -8,6 +8,7 @@ import { Map as MapIcon } from "lucide-react";
 import { LastWalkModal, WalkMap } from "../components/WalkMap";
 import type { Walk } from "../lib/walk";
 import { useNekoGifts } from "./gifts";
+import { useKeepInside } from "./keepInside";
 import "./NekoSlot.css";
 
 /**
@@ -47,8 +48,11 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
   // 산책 중엔 그릴 자리가 없다
   useLayoutEffect(() => { if (active && away) ctrl?.pause(); }, [ctrl, active, away]);
 
-  // 놓아 둔 선물을 우클릭하면 그 오른쪽 위에 '정리' 버튼. 누르면 선물함으로, 다른 데를 누르거나 Esc 면 닫는다
+  // 놓아 둔 선물을 우클릭하거나 꾹 누르면(터치) 그 오른쪽 위에 '정리' 버튼. 누르면 선물함으로, 다른 데를 누르거나 Esc 면 닫는다.
+  // 자리 가장자리에서 열어도 버튼이 자리 안에 다 보이게 당긴다
   const [decorMenu, setDecorMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const tidyRef = useRef<HTMLButtonElement>(null);
+  useKeepInside(tidyRef, decorMenu);
   useEffect(() => (ctrl && active ? ctrl.on("decorMenu", setDecorMenu) : undefined), [ctrl, active]);
   useEffect(() => {
     if (!decorMenu) return;
@@ -141,6 +145,7 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
       {lastWalkOpen && walk && <LastWalkModal walk={walk} isDark={isDark} onClose={() => setLastWalkOpen(false)} />}
       {decorMenu && active && !away && (
         <button
+          ref={tidyRef}
           type="button"
           className="neko-slot__tidy"
           style={{ left: decorMenu.x + 2, top: Math.max(2, decorMenu.y - 4) }}

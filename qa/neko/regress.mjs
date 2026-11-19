@@ -303,6 +303,34 @@ try {
     await p.close();
   }
 
+  // 9-f2) 터치로 꾹 누르기(iOS 웹뷰엔 contextmenu 가 안 온다): 0.5초 가만히 누르면 끌기를 접고 '정리' 메뉴(decorMove 없음),
+  //       누르는 중 8px 넘게 움직이면 그냥 끌기(decorMove, 메뉴 없음). 마우스는 오래 눌러도 메뉴가 안 뜬다
+  {
+    const p = await open(`?w=320&h=240&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, cv = document.getElementById("stage"), ev = [];
+      n.on("decorMove", (e) => ev.push("move")); n.on("decorMenu", (e) => ev.push("menu"));
+      n.setWander(false); n.cat.x = n.W * 0.8; n.step(60);
+      n.setDecor([{ id: "g", surface: "floor", u: 0.1, size: "small", scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]);
+      n.step(90); n.draw();
+      const boxOf = () => { for (let y = 0; y < n.floorY; y += 2) for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, y)) return [x, y]; return null; };
+      const R = cv.getBoundingClientRect(), [x0, y0] = boxOf().map((v) => v + 4), wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+      const fire = (type, pointerType, dx = 0, dy = 0) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x0 + dx, clientY: R.top + y0 + dy, pointerId: 9, pointerType, bubbles: true }));
+      const run = async (pointerType, dx) => {
+        ev.length = 0;
+        fire("pointerdown", pointerType); fire("pointermove", pointerType, dx, 0); await wait(650);
+        fire("pointerup", pointerType, dx, 0); await wait(30);
+        return ev.join(",");
+      };
+      // 끌기는 물건을 옮기므로 맨 끝에
+      const hold = await run("touch", 3), mouse = await run("mouse", 3), drag = await run("touch", 30);
+      return { hold, mouse, drag };
+    });
+    check("놓아 둔 선물: 터치로 꾹 누르면 정리 메뉴, 움직이면 끌기, 마우스는 오래 눌러도 메뉴 없음",
+      `꾹 ${r.hold || "-"} · 끌기 ${r.drag || "-"} · 마우스 ${r.mouse || "-"}`, r.hold === "menu" && r.drag === "move" && r.mouse === "move");
+    await p.close();
+  }
+
   // 9-g) 선물 갖고 놀기(docs/neko-gifts.md §5): 노는 방식마다 다가가서 논다. 굴리기·물고 옮기기는 자리가 바뀌어 decorMove,
   //      끝나면 물건이 숨지 않고 바닥에 있다. 벽에 건 건 올려다본다
   {

@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { decorBoxes, dragDecor, drawDecor, hitDecorAt, type DecorItem } from "./engine/decor-draw";
 import { onShapeImage } from "./engine/gift-shape";
 import type { NekoDecorSpot } from "./engine/neko-engine";
+import { useKeepInside } from "./keepInside";
 import "./NekoScreen.css";
 
 /**
@@ -29,6 +30,7 @@ export function NekoDecorScreen() {
   const ref = useRef<HTMLCanvasElement>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  useKeepInside(menuRef, menu); // 화면 가장자리에서 열어도 창 안에 다 보이게
   // 메뉴 버튼 칸도 Rust 에 알려야 누를 수 있다(렌더 뒤에 잰다)
   const menuBox = useRef<Box | null>(null);
   const sendBoxes = useRef<() => void>(() => {});

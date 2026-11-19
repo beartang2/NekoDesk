@@ -93,7 +93,7 @@ export interface NekoEvents {
   decorPlayed: { id: string; at: number };
   /** 놓아 둔 물건을 끌어 옮김 */
   decorMove: { id: string } & NekoDecorSpot;
-  /** 놓아 둔 물건을 우클릭함: (x, y) = 그 물건 오른쪽 위(무대 px). 호스트가 거기에 '정리' 버튼을 띄운다 */
+  /** 놓아 둔 물건을 우클릭하거나 터치로 꾹 누름: (x, y) = 그 물건 오른쪽 위(무대 px). 호스트가 거기에 '정리' 버튼을 띄운다 */
   decorMenu: { id: string; x: number; y: number };
   /**
    * 화면 모드(world)만: 엔진이 지금 그리는 선물 id 전부(입에 묾·뒤에 숨기·굴림·옮김·흔들림·끌기). 바뀔 때만, 처음엔 없음.
