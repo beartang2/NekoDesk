@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { IS_PHONE } from "../lib/platform";
 import { invoke } from "@tauri-apps/api/core";
 import { memoryApi, secretsApi, settingsApi, syncApi, type SyncDevice, type SyncStatus } from "../api/tauri";
 import { appEvents } from "../lib/events";
@@ -1834,6 +1835,8 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
           )}
           {tab === "connect" && (
             <>
+              {/* 폰에서 처음 할 일이 기기 연결이라 맨 위에 둔다 */}
+              {IS_PHONE && <SyncSection />}
               {/* ── 날씨와 위치 ──────────────────────────────────────── */}
               <WeatherSection />
 
@@ -1856,7 +1859,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
               <McpSection />
 
               {/* ── 기기 간 동기화 ───────────────────────────────────── */}
-              <SyncSection />
+              {!IS_PHONE && <SyncSection />}
             </>
           )}
           {tab === "tools" && <ToolsSection />}

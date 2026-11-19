@@ -48,8 +48,9 @@ export function NekoSettingsSection() {
         <button type="button" className="settings-btn" onClick={() => void invoke("panel_open", { kind: "neko-customize" }).catch(() => {})}>네코 꾸미기</button>
       </div>
 
-      <Segmented value={placement} onChange={setPlacement} options={PLACES} />
-      <p className="settings-section__desc">{placeDesc(placement, name)}</p>
+      {/* 폰의 네코 자리는 '거실' 하나라 고를 게 없다 */}
+      {!IS_PHONE && <Segmented value={placement} onChange={setPlacement} options={PLACES} />}
+      {!IS_PHONE && <p className="settings-section__desc">{placeDesc(placement, name)}</p>}
       {placement === "screen" && (
         <>
           <SwitchRow label="항상 위에 두기" checked={onTop} onChange={(v) => setScreen({ screenOnTop: v })} />

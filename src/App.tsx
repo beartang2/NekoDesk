@@ -1698,6 +1698,13 @@ export default function App() {
   }, []);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  // 설정을 닫을 때 연결 안내가 떠 있으면 다시 확인한다 — 설정에서 키를 넣었거나(폰은 기기 연결 코드로 키가 온다) 서버를 켰으면 안내를 거둔다.
+  useEffect(() => {
+    if (menuOpen || !connectError) return;
+    const active = loadProfiles().profiles[0];
+    if (active && !active.config) void probe(profileUrl(active), 3000).then((alive) => { if (alive !== null) setConnectError(null); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuOpen]);
   // 닫혀도 퇴장 애니메이션이 끝날 때까지 붙여둔다.
   const [menuMounted, setMenuMounted] = useState(false);
   if (menuOpen && !menuMounted) setMenuMounted(true);
