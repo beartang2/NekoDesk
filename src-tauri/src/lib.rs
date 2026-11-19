@@ -869,6 +869,7 @@ mod commands {
 
     /// 팝업을 메인 창이 있는 모니터에 보인다. 이미 그 모니터에 있으면 사용자가 둔 자리 그대로,
     /// 다른 모니터(또는 처음 띄워 주 모니터 자리)면 그 모니터 가운데로.
+    #[cfg(desktop)]
     fn bring_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) -> Result<(), AppError> {
         let main = app.get_webview_window("main");
         let on = main.as_ref().map_or(crate::place::Screen::Cursor, crate::place::Screen::Of);
@@ -1514,6 +1515,8 @@ pub fn run() {
             // 예전 버전이 표에 적어 둔 API 키를 키체인으로 옮긴다.
             secrets::migrate(&conn);
             app.manage(DbState(Mutex::new(conn)));
+            // 기기 이름을 main thread 에서 한 번 읽어 둔다(폰은 UIKit)
+            let _ = sync::run::device_name();
             sync::run::start(app.handle().clone());
             #[cfg(target_os = "ios")]
             if let Some(main) = app.get_webview_window("main") {

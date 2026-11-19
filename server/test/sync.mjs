@@ -118,6 +118,17 @@ assert.equal((await call("POST", "/v1/devices", { name: "도둑", pair_code: kep
 // 한 번에 20개까지
 assert.equal((await call("POST", "/v1/sync", { since: 0, push: Array.from({ length: 21 }, (_, i) => rec("todo", `${run}-${i}`, now)) }, A.token)).status, 413);
 
+// 기기 이름: 동기화할 때 같이 보내면 고쳐지고, 안 보내면 그대로다(옛 앱)
+{
+  const names = async () => Object.fromEntries((await ok("GET", "/v1/devices", undefined, A.token)).devices.map((d) => [d.id, d.name]));
+  assert.equal((await names())[A.device_id], "맥");
+  await ok("POST", "/v1/sync", { since: 0, push: [], name: "  다희의 MacBook Air  " }, A.token);
+  assert.equal((await names())[A.device_id], "다희의 MacBook Air");
+  await sync(A.token, 0);
+  await ok("POST", "/v1/sync", { since: 0, push: [], name: "   " }, A.token);
+  assert.equal((await names())[A.device_id], "다희의 MacBook Air", "안 보내거나 비면 그대로");
+}
+
 // 산책: 한 번에 한 기기만. 그사이 다른 기기가 나갔으면(내가 아는 지난 산책이 낡았으면) 진다
 {
   const C = await ok("POST", "/v1/devices", { name: "산책 2", pair_code: (await ok("POST", "/v1/pair", {}, A.token)).code });

@@ -150,7 +150,7 @@ function writes(db: D1, r: Rec, i: number): D1Stmt[] {
 const REC_COLS = "coll, id, parent, ts, device, deleted, cut, blob, seq";
 
 async function sync(req: Request, env: Env, device: string): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as { since?: unknown; push?: unknown; active_at?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as { since?: unknown; push?: unknown; active_at?: unknown; name?: unknown } | null;
   const since = Number.isSafeInteger(body?.since) ? (body!.since as number) : 0;
   const push = Array.isArray(body?.push) ? body!.push : [];
   if (push.length > PUSH_MAX) return fail(413, `push ≤ ${PUSH_MAX}`);
@@ -168,8 +168,10 @@ async function sync(req: Request, env: Env, device: string): Promise<Response> {
   }
 
   const active = Number.isSafeInteger(body?.active_at) ? Math.min(body!.active_at as number, now) : 0;
+  const name = typeof body?.name === "string" && body.name.trim() ? body.name.trim().slice(0, 80) : null;
   const stmts: D1Stmt[] = [
-    db.prepare("UPDATE devices SET last_seen = ?2, last_active = MAX(COALESCE(last_active, 0), ?3) WHERE id = ?1").bind(device, now, active),
+    // name: 기기가 지금 이름을 같이 보낸다(등록 뒤 이름이 바뀌었거나, 예전에 종류 이름으로만 등록한 기기). 안 보내면 그대로
+    db.prepare("UPDATE devices SET last_seen = ?2, last_active = MAX(COALESCE(last_active, 0), ?3), name = COALESCE(?4, name) WHERE id = ?1").bind(device, now, active, name),
   ];
   good.forEach((r, i) => stmts.push(...writes(db, r, i)));
   if (good.length) stmts.push(db.prepare("UPDATE meta SET value = CAST(value AS INTEGER) + ?1 WHERE key = 'seq'").bind(good.length));
