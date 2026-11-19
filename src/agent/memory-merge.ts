@@ -85,7 +85,7 @@ function justCreated(text: string): boolean {
   return created.some((c) => c.at >= since && overlap(mine, c.grams) >= 0.6);
 }
 
-async function lookupable(text: string): Promise<boolean> {
+export async function lookupable(text: string): Promise<boolean> {
   const answer = await fetchCompletion(
     [
       { role: "system", content: KEEP_SYSTEM },

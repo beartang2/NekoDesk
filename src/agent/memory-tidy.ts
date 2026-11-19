@@ -1,5 +1,6 @@
 import { memoryApi, settingsApi } from "../api/tauri";
 import { fetchCompletionMessage } from "./llm-client";
+import { lookupable } from "./memory-merge";
 import type { Memory, OpenAiToolSchema } from "./types";
 
 /**
@@ -31,6 +32,8 @@ export const TIDY_LOG_KEY = "neko_memory_tidy_log";
 const LOG_MAX = 30;
 /** 합친 줄 길이 상한. 모델이 묶음을 줄글로 풀어 쓰지 않게 */
 const MAX_LEN = 400;
+/** 한 번에 지우는 기억 상한. 산책 기억(웹에서 온 글)이 같은 목록에 있어 그 글이 지우라고 꾀어도 크게 못 지우게 */
+const DROP_MAX = 5;
 
 const TIDY_TOOL = {
   type: "function",
@@ -124,8 +127,13 @@ export async function tidyMemories(signal?: AbortSignal): Promise<TidyRecord | n
     for (const id of m.ids) if (id !== saved.id) await memoryApi.delete(id).catch(() => false);
     done.push({ from: m.ids.map((id) => byId.get(id)!.content), to: saved.content });
   }
+  // 목록 전체를 본 모델 말만 믿지 않고, 하나씩 저장 때 쓰는 좁은 판정에 다시 묻는다. 판정이 안 되면 남긴다
   const dropped: string[] = [];
-  for (const id of drops) if (await memoryApi.delete(id).catch(() => false)) dropped.push(byId.get(id)!.content);
+  for (const id of drops.slice(0, DROP_MAX)) {
+    const content = byId.get(id)!.content;
+    if (!(await lookupable(content).catch(() => false))) continue;
+    if (await memoryApi.delete(id).catch(() => false)) dropped.push(content);
+  }
   const record: TidyRecord = { at: new Date().toISOString(), merges: done, ...(dropped.length ? { drops: dropped } : {}) };
   const log = await loadTidyLog();
   await settingsApi.set(TIDY_LOG_KEY, JSON.stringify([record, ...log].slice(0, LOG_MAX))).catch(() => {});

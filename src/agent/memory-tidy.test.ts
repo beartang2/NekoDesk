@@ -19,6 +19,7 @@ vi.mock("../api/tauri", () => ({
     set: async (k: string, v: string) => void db.settings.set(k, v),
   },
 }));
+vi.mock("./memory-merge", () => ({ lookupable: async (t: string) => { if (t.includes("판정 실패")) throw new Error("x"); return t.includes("예약"); } }));
 vi.mock("./llm-client", () => ({
   fetchCompletionMessage: async () => ({ text: "", toolCalls: [{ name: "memory_tidy", params: { merges: db.reply, drops: db.drops } }] }),
 }));
@@ -76,12 +77,20 @@ describe("쉴 때 기억 정리", () => {
   });
 
   it("도구로 찾아볼 수 있는 기억을 지우고 기록에 남긴다", async () => {
-    db.memories.push(mem(5, "사용자는 11월 20일 치과 예약이 있다"));
+    db.memories.push(mem(5, "사용자는 11월 20일 치과 예약이 있다"), mem(6, "판정 실패 예약"));
     db.reply = [];
-    db.drops = [5, 4];
+    db.drops = [5, 4, 3, 6]; // 3 은 판정이 저장, 6 은 판정 실패 — 둘 다 남는다
     const rec = await tidyMemories();
     expect(rec?.drops).toEqual(["사용자는 11월 20일 치과 예약이 있다"]);
-    expect(db.memories.map((m) => m.id)).toEqual([1, 2, 3, 4]); // 산책 기억 4 는 남는다
+    expect(db.memories.map((m) => m.id)).toEqual([1, 2, 3, 4, 6]); // 산책 기억 4 는 남는다
     expect((await loadTidyLog())[0].drops).toEqual(["사용자는 11월 20일 치과 예약이 있다"]);
+  });
+
+  it("한 번에 5개까지만 지운다", async () => {
+    for (let i = 10; i < 18; i++) db.memories.push(mem(i, `예약 ${i}`));
+    db.reply = [];
+    db.drops = [10, 11, 12, 13, 14, 15, 16, 17];
+    expect((await tidyMemories())?.drops).toHaveLength(5);
+    expect(db.memories.filter((m) => m.id >= 10).map((m) => m.id)).toEqual([15, 16, 17]);
   });
 });
