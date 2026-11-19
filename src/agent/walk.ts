@@ -10,6 +10,7 @@ import type { Memory, OpenAiToolSchema, ToolName } from "./types";
 import { validateShape, type GiftShape } from "../neko/engine/gift-shape";
 import { useNekoGifts } from "../neko/gifts";
 import { drawGift, type DrawnGift } from "./gift-draw";
+import { chooseWalkTopic, noteWonder } from "./neko-mind";
 
 /** 산책에서 가져올 수 있는 선물 종류. */
 export type GiftKind = "trinket" | "place" | "weather" | "link" | "memory" | "drawing" | "game";
@@ -135,6 +136,7 @@ const REPORT_TOOL = {
         gift_body: { type: "string", description: "선물에 붙이는 한두 문장. 재료에 없는 사실은 지어내지 마" },
         gift_url: { type: "string", description: "선물이 링크면 알아본 것에 나온 URL 그대로" },
         drawing_prompt: { type: "string", description: "선물이 그림일 때만. 그릴 장면을 영어로 자세히" },
+        next_wonder: { type: "string", description: "다음 산책에서 궁금한 것 한 줄(있으면)" },
       },
       required: ["learned", "diary", "gift_title", "gift_body"],
     },
@@ -148,6 +150,7 @@ interface Structured {
   gift_body: string;
   gift_url: string;
   drawing_prompt: string;
+  next_wonder: string;
 }
 
 /** 산책하며 모은 것. abort 되면 그 순간의 이것으로 보고한다. */
@@ -267,6 +270,11 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
   if (signal.aborted) return;
   const mood = section("나가기 전 네 상태(참고만 — 딴 데로 새도 돼)", before ? beforeText(before, vibe) : "");
 
+  // 0. 생각하기(docs/neko-mind.md §6.1): 네코가 노트·알아본 주제(횟수·날짜)·기억을 보고 이번 주제를 고른다. 하위 에이전트에는
+  //    그 한 줄만 간다(사용자 기억은 안 간다 — 사용자 사실이 섞인 주제는 버린다). 안 되면 지금처럼 하위 에이전트가 스스로 고른다
+  const topic = await chooseWalkTopic(memories, signal).catch(() => null);
+  if (signal.aborted) return;
+
   // 1. 스스로 알아보기 — 격리된 하위 에이전트. 과정은 버리고 요약만 받는다.
   const task = [
     `너는 사용자가 쉬는 동안 산책 나온 고양이 ${name}.`,
@@ -275,7 +283,9 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
     mood,
     // 지난 산책에서 오래 기억해 둔 것 — 같은 주제를 또 파지 않게.
     section("전에 산책하며 알아본 것", memories.filter((m) => m.kind === "neko").slice(0, 5).map((m) => `- ${m.content}`).join("\n")),
-    "지금 네가 궁금한 걸 하나 골라 검색해 알아보고, 알게 된 걸 출처와 함께 짧게 알려줘. 건넬 만한 읽을거리가 있으면 그 URL 도 남겨.",
+    topic
+      ? `이번엔 '${topic}'${josa(topic, "이/가").slice(topic.length)} 궁금해서 나왔어. 그걸 검색해 알아보고, 알게 된 걸 출처와 함께 짧게 알려줘. 건넬 만한 읽을거리가 있으면 그 URL 도 남겨.`
+      : "지금 네가 궁금한 걸 하나 골라 검색해 알아보고, 알게 된 걸 출처와 함께 짧게 알려줘. 건넬 만한 읽을거리가 있으면 그 URL 도 남겨.",
   ].filter(Boolean).join("\n\n");
   g.findings = await runSubagent(task, signal, WALK_TOOLS).catch(() => "");
   if (signal.aborted) return;
@@ -353,7 +363,10 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
     gift_body: str(p?.gift_body),
     gift_url: str(p?.gift_url),
     drawing_prompt: str(p?.drawing_prompt),
+    next_wonder: str(p?.next_wonder),
   };
+  // 다음에 궁금한 것: 노트로 남겨 다음 산책의 재료가 된다(관심이 이어지게)
+  if (g.report.next_wonder) void noteWonder(g.report.next_wonder, memories).catch(() => {});
 
   // 3-1. 주운 것·기념품 그림: 이름이 정해진 뒤 따로 그린다(gift-draw.ts). signal 을 안 넘긴다 — 서둘러 돌아와도 그림은 마저 그린다
   if (g.kind === "trinket" || g.kind === "place") {

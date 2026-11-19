@@ -11,6 +11,7 @@ import { Accordion, AlertDialog, Popover } from "radix-ui";
 import { AnimatePresence, Reorder, motion, useDragControls } from "motion/react";
 import type { Memory } from "../agent/types";
 import { loadTidyLog, type TidyRecord } from "../agent/memory-tidy";
+import { forgetNote, loadMind, type MindNote, type NoteKind } from "../agent/neko-mind";
 import { Collapse, EASE, IconButton, SavedLabel, Segmented, Select, SwitchRow, Switch, listItem } from "./ui";
 import {
   getMcpTools,
@@ -1195,6 +1196,50 @@ function MemoriesSection() {
 
 const TIDY_AT = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
 
+const MIND_KIND: Record<NoteKind, string> = { wonder: "궁금", want: "하고 싶음", chose: "고름" };
+const MIND_AT = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric" });
+
+/**
+ * 네코의 속마음(agent/neko-mind, docs/neko-mind.md): 네코가 고르며 남긴 짧은 노트. 맥·폰이 같이 본다(동기화 설정 neko_mind).
+ * 최근 것이 위, 5개씩 넘긴다. 하나씩 지울 수 있다
+ */
+function MindNotesSection() {
+  const name = useSettingsStore(nekoNameOf);
+  const [notes, setNotes] = useState<MindNote[]>([]);
+  const refresh = useCallback(() => { void loadMind().then((m) => setNotes([...m.notes].reverse())); }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("setting")) refresh(); }), [refresh]);
+  const page = usePage(notes);
+  async function remove(n: MindNote) {
+    const m = await forgetNote(n);
+    setNotes([...m.notes].reverse());
+  }
+  return (
+    <section className="settings-section">
+      <h3 className="settings-section__title">{name}의 속마음</h3>
+      <p className="settings-section__desc">
+        {josa(name, "이/가")} 산책 주제를 고르며 남긴 짧은 노트입니다. 궁금한 것, 하고 싶은 것, 고른 까닭이 다음 선택의 재료가 됩니다.
+        맥과 폰이 같이 씁니다.
+      </p>
+      {notes.length === 0 ? (
+        <div className="settings-empty">아직 남긴 노트가 없습니다.</div>
+      ) : (
+        <div className="rule-list">
+          {page.shown.map((n) => (
+            <div className="rule-row" key={`${n.at}${n.text}`}>
+              <span className="memory-row__kind">{MIND_KIND[n.kind]}</span>
+              <span className="rule-row__key mind-row__text">{n.text}{n.why ? ` — ${n.why}` : ""}</span>
+              <span className="mind-row__at">{MIND_AT.format(new Date(n.at))}</span>
+              <IconButton label="지우기" danger onClick={() => void remove(n)}><Trash2 size={12} /></IconButton>
+            </div>
+          ))}
+        </div>
+      )}
+      <Pager {...page} />
+    </section>
+  );
+}
+
 // ── Image generation section ──────────────────────────────────────────────────
 
 /** dev 빌드 전용. 키는 화면에 안 오니 누를 때 키체인에서 꺼내 복사한다(빌드한 앱에선 꺼내 주지 않는다). */
@@ -1988,6 +2033,7 @@ export function SettingsModal({ onClose, isDark, asTab, tab = "neko" }: Settings
 
               {/* ── 기억 ──────────────────────────────────────────────── */}
               <MemoriesSection />
+              <MindNotesSection />
 
               {/* ── 개발자(개발 빌드에서만 — 배포 빌드엔 칸이 없다) ──────── */}
               {import.meta.env.DEV && <NekoDevSection />}

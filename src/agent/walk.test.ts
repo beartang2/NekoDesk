@@ -2,10 +2,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { LlmMessage } from "./types";
 
-const { completion, subagent, save } = vi.hoisted(() => ({
+const { completion, subagent, save, topic, wonder } = vi.hoisted(() => ({
   completion: vi.fn(),
   subagent: vi.fn(),
   save: vi.fn(async () => ({})),
+  topic: vi.fn(async (): Promise<string | null> => null),
+  wonder: vi.fn(async () => {}),
 }));
 
 vi.mock("./llm-client", () => ({
@@ -14,6 +16,8 @@ vi.mock("./llm-client", () => ({
 }));
 vi.mock("./subagent", () => ({ runSubagent: (...a: unknown[]) => subagent(...a) }));
 vi.mock("./memory-merge", () => ({ saveMemory: (...a: unknown[]) => save(...(a as [])) }));
+// 생각하기(neko-mind)는 따로 시험한다. 여기선 고른 주제가 하위 에이전트에 어떻게 가는지만
+vi.mock("./neko-mind", () => ({ chooseWalkTopic: (...a: unknown[]) => topic(...(a as [])), noteWonder: (...a: unknown[]) => wonder(...(a as [])) }));
 vi.mock("./tool-registry", () => ({ getTool: () => ({ execute: vi.fn(async () => "맑음") }) }));
 vi.mock("../api/tauri", () => ({
   memoryApi: { list: vi.fn(async () => []) },
@@ -35,6 +39,8 @@ beforeEach(() => {
   completion.mockReset();
   subagent.mockReset();
   save.mockClear();
+  topic.mockReset(); topic.mockResolvedValue(null);
+  wonder.mockClear();
 });
 
 describe("선물 굴리기", () => {
@@ -102,6 +108,28 @@ describe("산책 머리", () => {
     const task = subagent.mock.calls[0][0] as string;
     expect(task).not.toContain("비밀 프로젝트");
     expect(task).toContain("16시간");
+  });
+
+  it("네코가 고른 주제는 한 줄만 하위 에이전트에 가고, 다음에 궁금한 것은 노트로 남긴다", async () => {
+    vi.mocked(memoryApi.list).mockResolvedValueOnce([
+      { id: 1, kind: "fact", content: "사용자의 동생 이름은 김하린이다", created_at: "", use_count: 0 },
+    ]);
+    topic.mockResolvedValueOnce("비 오는 날 새들의 쉼터");
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b", next_wonder: "새 둥지는 젖을까" }));
+    await startWalkBrain({ places: [], here: null }).result;
+    const task = subagent.mock.calls[0][0] as string;
+    expect(task).toContain("이번엔 '비 오는 날 새들의 쉼터'가 궁금해서 나왔어");
+    expect(task).not.toContain("김하린");
+    expect(wonder).toHaveBeenCalledWith("새 둥지는 젖을까", expect.any(Array));
+  });
+
+  it("주제를 못 고르면(생각하기 실패) 지금처럼 하위 에이전트가 스스로 고른다", async () => {
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b" }));
+    await startWalkBrain({ places: [], here: null }).result;
+    expect(subagent.mock.calls[0][0]).toContain("지금 네가 궁금한 걸 하나 골라");
+    expect(wonder).not.toHaveBeenCalled();
   });
 
   it("듣던 곡 제목은 하위 에이전트·보고에 안 들어가고, 느낌 한 줄만 간다", async () => {

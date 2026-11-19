@@ -19,9 +19,9 @@ pub mod terms;
 /// 바꾸면 이미 배포된 마이그레이션 4번은 그대로 두고, 트리거를 새 마이그레이션에서 다시 만든다.
 /// 비밀(키체인·API 키), 경로·권한·실행 관련 키(fs_write_roots 등), 모델 프로필, 예산·장부는 절대 넣지 않는다 —
 /// 연결된 다른 기기가 이 맥의 권한을 넓힐 수 있게 된다. 받을 때도 이 목록 밖은 버린다(crate::sync::apply).
-pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention", "neko_needs", "neko_walk_view", "neko_here", "cat_rpg_state"];
+pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention", "neko_needs", "neko_walk_view", "neko_here", "cat_rpg_state", "neko_mind"];
 /// 트리거용 같은 목록(SQL 글). concat! 은 상수를 못 받아 따로 적고, 테스트가 둘이 같은지 본다.
-macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention', 'neko_needs', 'neko_walk_view', 'neko_here', 'cat_rpg_state')" } }
+macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention', 'neko_needs', 'neko_walk_view', 'neko_here', 'cat_rpg_state', 'neko_mind')" } }
 
 /// 지금 시각(ms). SQLite 의 julianday 는 ms 까지 준다
 macro_rules! now_ms { () => { "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)" } }
@@ -238,6 +238,13 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         "INSERT INTO sync_meta (coll, uid, local_key, ts) SELECT 'setting', key, key, ", now_ms!(), " FROM settings WHERE key = 'cat_rpg_state'
              ON CONFLICT (coll, uid) DO UPDATE SET dirty = 1;"
     ),
+    // 10 — 맞추는 설정 키에 neko_mind(네코의 속마음 노트·알아본 주제, 0.1.20, docs/neko-mind.md)를 더한다. 6–9번과 같이 설정
+    // 트리거를 지금 목록으로 다시 만든다. 이미 있는 값은 없다(새 키). 옛 버전은 모르는 키를 받으면 버린다
+    concat!(
+        "DROP TRIGGER IF EXISTS sync_setting_ins; DROP TRIGGER IF EXISTS sync_setting_upd; DROP TRIGGER IF EXISTS sync_setting_del;",
+        sync_named_triggers!("setting", "settings", "key", concat!("NEW.key IN ", synced_keys!()), "OLD.value IS NOT NEW.value"),
+        sync_tombstone!("setting", "settings", "OLD.key", concat!("OLD.key IN ", synced_keys!())),
+    ),
 ];
 
 /// 스키마를 최신으로 올린다. 앱 시작 시 1회 호출.
@@ -311,6 +318,16 @@ mod tests {
         assert_eq!(marked("neko_needs"), 1, "바꾸면 다시 올린다(새 트리거)");
         c.execute("UPDATE settings SET value = '{\"a\":1}' WHERE key = 'neko_stage'", []).unwrap();
         assert_eq!(marked("neko_stage"), 0, "자리 설정은 이 기기에만");
+    }
+
+    #[test]
+    fn neko_mind_syncs_after_upgrading_from_version_9() {
+        let c = Connection::open_in_memory().unwrap();
+        run_migrations(&c, &MIGRATIONS[..9]).unwrap();
+        init_schema(&c).unwrap();
+        c.execute("INSERT INTO settings (key, value) VALUES ('neko_mind', '{}')", []).unwrap();
+        let n: i64 = c.query_row("SELECT count(*) FROM sync_meta WHERE coll = 'setting' AND uid = 'neko_mind' AND dirty = 1", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1, "새 노트를 올린다");
     }
 
     #[test]
