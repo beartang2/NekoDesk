@@ -10,6 +10,7 @@ import { LastWalkModal, WalkMap } from "../components/WalkMap";
 import type { Walk } from "../lib/walk";
 import { useNekoGifts } from "./gifts";
 import { useKeepInside } from "./keepInside";
+import { useNekoApp } from "./director/stores";
 import "./NekoSlot.css";
 
 /**
@@ -105,10 +106,19 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
     el.addEventListener("pointercancel", up);
   }, [height, placement, setStageHeight]);
 
+  // 산책 중(이 기기에서 나간 산책): 자리를 누르거나 '불러오기'를 누르면 부른 것이다 — 서둘러 온다(App, walkWatch).
+  // 다른 기기에서 나간 산책은 walk 가 없어 부르지 않는다. 높이 손잡이를 끈 건 누르기가 아니다
+  const calling = active && away && !!walk && !walk.done;
+  const callHome = () => useNekoApp.getState().callHome();
+
   // 사이드바 방은 네코가 거실·마당에 가 있어도 같은 높이로 남는다(빈 방: 배경·방에 놓인 선물만). 거실 자리는 그때 없앤다
   if (!active && placement !== "sidebar") return null;
   return (
-    <div className={`neko-slot neko-slot--${placement}`} style={{ height }}>
+    <div
+      className={`neko-slot neko-slot--${placement}`}
+      style={{ height }}
+      onClick={calling ? (e) => { if (!(e.target as Element).closest?.(".neko-slot__handle")) callHome(); } : undefined}
+    >
       <div
         className="neko-slot__handle"
         onPointerDown={onHandleDown}
@@ -141,6 +151,11 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
             onMouseLeave={onBodyLeave}
           />
         </>
+      )}
+      {calling && (
+        <button type="button" className="neko-slot__call-btn" onClick={(e) => { e.stopPropagation(); callHome(); }} title="지금 돌아오게 부릅니다">
+          불러오기
+        </button>
       )}
       {active && !away && walk && (
         <button type="button" className="neko-slot__map-btn" onClick={() => setLastWalkOpen(true)} title="지난 산책 지도" aria-label="지난 산책 지도">

@@ -89,6 +89,26 @@
   inset: 6px;
 }
 
+/* 산책 중: 부르기 버튼(오른쪽 아래, 지도 위). 누르면 서둘러 돌아온다 — 정리 버튼과 같은 모양 */
+.neko-slot__call-btn {
+  position: absolute;
+  z-index: 3;
+  right: 12px;
+  bottom: 12px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.neko-slot__call-btn:hover { border-color: var(--accent); }
+.neko-slot:has(.neko-slot__call-btn) { cursor: pointer; }
+
 /* 다녀온 뒤 남는 지난 산책 지도 버튼. 오른쪽 위(왼쪽 위는 방의 날씨 액자) */
 .neko-slot__map-btn {
   position: absolute;

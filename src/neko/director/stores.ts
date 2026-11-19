@@ -51,6 +51,12 @@ interface NekoAppStore {
   /** 게임 호환: 게임 훅의 onEmotionChange(감정, ms) 를 그대로 받는다 */
   setGameEmotion: (emotion: CatEmotion, ms?: number) => void;
   markActive: () => void;
+  /**
+   * 산책 중인 네코를 부른 때(채팅 보내기·빈 자리 누르기·산책 지도 '불러오기'). 이때만 서둘러 돌아온다(App, walkWatch).
+   * 그 밖에 앱을 만지는 건(lastActiveAt) 졸음 타이머에만 쓰고 산책을 끊지 않는다
+   */
+  calledAt: number;
+  callHome: () => void;
   notePet: () => void;
   /** 다른 앱 따라 하기(neko/ambient.ts). '앱을 쓰는 중'(lastActiveAt)은 건드리지 않는다 */
   outside: OutsideState;
@@ -90,5 +96,7 @@ export const useNekoApp = create<NekoAppStore>((set, get) => ({
     set({ game: emotion === "idle" ? null : { emotion, until: now + ms } });
   },
   markActive: () => set({ lastActiveAt: performance.now() }),
+  calledAt: 0,
+  callHome: () => { const now = performance.now(); set({ calledAt: now, lastActiveAt: now }); },
   notePet: () => set((s) => ({ pets: s.pets + 1, lastActiveAt: performance.now() })),
 }));

@@ -26,6 +26,7 @@ import { splitMarkdownBlocks } from "./lib/markdownBlocks";
 import { addPictureGift } from "./neko/pictureGift";
 import { useNekoDirector } from "./neko/useNekoDirector";
 import { useNekoApp } from "./neko/director/stores";
+import { watchWalkIdle } from "./neko/walkWatch";
 import { useNekoNeeds } from "./neko/director/needsStore";
 import { SLEEPY_MS } from "./neko/director/derive";
 import { useNekoStore } from "./neko/nekoStore";
@@ -1515,7 +1516,7 @@ export default function App() {
   }, [activeId, setAllMessages]);
 
   const handleSend = useCallback(async (text: string, files: AttachedFile[]) => {
-    markUserActivity();
+    useNekoApp.getState().callHome(); // 채팅을 보내면 앱을 쓰는 중이고, 산책 중이면 부른 것이다(서둘러 온다)
 
     // 네코가 일하는 중이면 줄 세운다(pool 이 한다). 게임 시작 같은 지름길은 건너뛴다 —
     // 답하는 도중에 게임이 열리면 안 된다.
@@ -1816,29 +1817,20 @@ export default function App() {
   useNekoScreen(gone, !!walk?.music);
   const brainRef = useRef<WalkBrain | null>(null);
   // 쉬는지는 네코 감독의 '앱을 쓰는 중'(useNekoApp.lastActiveAt: 입력·클릭·스크롤·밥·놀이)으로 본다.
-  // 감독이 재우는 때(SLEEPY_MS)부터 졸고, 다시 쓰면 서둘러 온다. 구독으로 봐서 App 은 졸기 시작·깰 때만 다시 그린다.
+  // 감독이 재우는 때(SLEEPY_MS)부터 졸고, 다시 쓰면 깬다. 산책 중엔 부를 때(callHome)만 서둘러 온다(neko/walkWatch).
+  // 구독으로 봐서 App 은 졸기 시작·깰 때만 다시 그린다.
   const [idle, setIdle] = useState(false);
   // 졸기 시작한 시각과 이번 졸음의 추가 산책 대기(5–20분, 졸 때마다 새로 뽑는다)
   const dozeRef = useRef({ at: Date.now(), extraWait: EXTRA_WAIT_MS[0] });
   const hurryHomeRef = useRef(() => {});
-  useEffect(() => {
-    let t: ReturnType<typeof setTimeout> | undefined;
-    const arm = (at: number) => {
-      clearTimeout(t);
-      setIdle(false);
-      t = setTimeout(() => {
-        dozeRef.current = { at: Date.now(), extraWait: EXTRA_WAIT_MS[0] + Math.random() * (EXTRA_WAIT_MS[1] - EXTRA_WAIT_MS[0]) };
-        setIdle(true);
-      }, at + SLEEPY_MS - performance.now());
-    };
-    arm(useNekoApp.getState().lastActiveAt);
-    const off = useNekoApp.subscribe((s, p) => {
-      if (s.lastActiveAt === p.lastActiveAt) return;
-      arm(s.lastActiveAt);
-      hurryHomeRef.current();
-    });
-    return () => { clearTimeout(t); off(); };
-  }, []);
+  useEffect(() => watchWalkIdle({
+    sleepyMs: SLEEPY_MS,
+    onIdle: (on) => {
+      if (on) dozeRef.current = { at: Date.now(), extraWait: EXTRA_WAIT_MS[0] + Math.random() * (EXTRA_WAIT_MS[1] - EXTRA_WAIT_MS[0]) };
+      setIdle(on);
+    },
+    onCall: () => hurryHomeRef.current(),
+  }), []);
 
   const saveWalk = useCallback((w: Walk) => {
     setWalk(w);
@@ -1935,10 +1927,11 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, [dozing, gone, eating, walk, shared]);
 
-  // 산책 중에 사용자가 돌아오면 남은 길을 버리고 1–2분 안에 곧장 온다. 머리도 그때까지 알아낸 것으로 정리한다.
+  // 산책 중에 사용자가 부르면(채팅 보내기·빈 자리 누르기·지도 '불러오기') 남은 길을 버리고 1–2분 안에 곧장 온다.
+  // 머리도 그때까지 알아낸 것으로 정리한다. 다른 기기에서 나간 산책은 이 기기에 away 가 없어 그대로 둔다.
   const hurryingRef = useRef(false);
   hurryHomeRef.current = () => {
-    // 이미 2분 안에 오는 중이면(서두르는 중 포함) 그대로 둔다 — 글자를 칠 때마다 불린다.
+    // 이미 2분 안에 오는 중이면(서두르는 중 포함) 그대로 둔다 — 채팅을 보낼 때마다 불린다.
     if (!away || !walk || hurryingRef.current || walkEnd(walk) - Date.now() <= 2 * 60_000) return;
     hurryingRef.current = true;
     brainRef.current?.abort();
