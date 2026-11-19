@@ -14,7 +14,12 @@ export function roomWindows(place, W, H) {
     const h = Math.round(Math.min(seam * 0.46, 120)), w = Math.round(h * 0.62), y = Math.round(seam * 0.14);
     return [{ x: Math.round(W * 0.25 - w / 2), y, w, h }];
   }
-  const h = Math.round(Math.min(H * 0.4, 72)), w = Math.round(Math.min(W * 0.3, h * 2.6)), y = Math.round(H * 0.12);
+  // 거실 높이는 보통 120~240 이고 그때 창 높이는 72 에서 멈춘다(높이 240 에서 30%). 그보다 높은 거실(폰을 가로로 돌린
+  // 화면, 높이 375 남짓)에서는 그 30% 를 그대로 이어 가 창이 거실과 같이 커진다 — 72 에 묶어 두면 벽에 비해 작았다.
+  // 폭도 창 모양(2.6:1)에 가깝게 남도록 조금 더 내준다. 높이 240 까지는 전과 똑같다.
+  const tall = H > 240;
+  const h = Math.round(tall ? H * 0.3 : Math.min(H * 0.4, 72));
+  const w = Math.round(Math.min(W * (tall ? 0.38 : 0.3), h * 2.6)), y = Math.round(H * 0.12);
   return [0.25, 0.75].map((k) => ({ x: Math.round(W * k - w / 2), y, w, h }));
 }
 
