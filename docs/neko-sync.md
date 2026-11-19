@@ -674,3 +674,36 @@ cron 이 10분마다 깬다. 아래가 다 맞을 때만 나간다.
 - 다른 기기: 맥에서 "짝 문자열 만들기" → 그 기기에 붙여넣기(10분, 한 번).
 
 로컬 확인: `cd server && npm run migrate:local && npm run dev`(다른 창), `npm test`, 그리고 `cd ../src-tauri && cargo test --lib sync::tests::live -- --ignored`.
+
+---
+
+## 12. 3단계 구현 메모 — 아이폰 앱 (2026-11-19)
+
+브랜치 `neko-ios`. 13 미니(iOS 18.6.2)에 설치해 켜지는 것까지 확인했다. 기기 연결·채팅·동기화 확인은 사용자가 한다.
+
+### 12.1 설계와 다르게 한 것·더한 것
+
+- **가르기**: Rust 는 `cfg(desktop)`(파일·코드 실행·로컬 모델·MCP stdio·캡처·빠른 질문·보관함·AirDrop·보안 점검·업데이트 등)와 `cfg(target_os = "macos")`(화면 모드·위치·지도). 화면은 `src/lib/platform.ts` 의 `IS_PHONE`(빌드 때 `TAURI_ENV_PLATFORM`) 하나. 폰 배치는 `App.css` 의 `html.phone`, 폰 준비(키보드·터치·손짓)는 `src/lib/phone.ts`.
+- **SQLCipher**: iOS 에서도 CommonCrypto 로 빌드·링크된다(§6.1 의 미확인 해소). 키체인도 같은 `security-framework` API 다.
+- **화면**(§6.2 와 다름, 사용자 실기기 피드백): 네코 거실은 대화 **위** 띠다(키보드가 아래에서 올라온다). 네코 자리는 방(대화 목록 안)·거실 둘을 고른다. 대화 목록은 왼쪽 끝에서, 설정은 오른쪽 끝에서 밀어 연다 — 장이 손가락을 따라오고 놓을 때 정해진다. 오른쪽 패널(할 일·일정)은 아직 없다.
+- **웹뷰**: 스크롤 뷰의 안전 영역 자동 보정을 끄고(안 끄면 iOS 18 에서 화면 아래가 비었다), 스크롤을 처음 자리에 묶는다(키보드가 올라올 때 문서가 통째로 밀렸다). `lib.rs` `ios_full_screen`·`ios_scroll`.
+- **따라 하기**: 폰은 입력 칸에 치면 같이 타이핑, 다른 앱에서 소리가 나오면 헤드폰(`AVAudioSession.isOtherAudioPlaying`). 곡 제목은 iOS 가 안 알려 준다.
+- **기기 연결**(§3.2): 코드에 Claude API 키를 싣는다(체크박스). 맥은 코드를 **QR** 로도 보이고, 폰은 앱 안의 'QR 찍기'(카메라 + jsQR)나 기본 카메라(`nekodesk://pair?d=…`)로 읽는다. 어느 길이든 서버 이름을 보여 주고 사용자가 '연결하기'를 눌러야 연결된다 — 그 주소는 아무 링크나 열 수 있다. 서버 주소는 주소 해석기로 확인한다(`check_url`).
+- **끼어드는 기기는 설정을 양보한다**(`yield_settings`): 연결 코드로 들어오는 기기는 외형·이름·성격·프로필을 올리지 않고 받는 쪽이 이긴다. 정한 적 없는 기본 외형은 DB 에 적지도 않는다. 0.1.15 는 새 기기의 기본 외형이 더 새것이라 쓰던 기기의 외형을 덮을 수 있었다.
+- **기기 이름**은 기기 모델(`Mac16,12`·`iPhone14,4`). **dev 빌드**는 키체인의 동기화 이름에 `_dev` 를 붙여 배포 버전 것을 안 덮는다.
+
+### 12.2 빌드·설치
+
+- 준비(한 번): Xcode 에서 `src-tauri/gen/apple/nekodesk.xcodeproj` › Signing & Capabilities › Team 을 고른다(무료 계정은 Personal Team). 팀 ID 를 `src-tauri/gen/apple/.team` 에 적는다(git 제외). `brew install xcodegen libimobiledevice cocoapods`, `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.
+- `scripts/ios-install.sh`: 이 폴더의 코드를 빌드해 연결된 아이폰에 덮어 설치.
+- `scripts/ios-reinstall.sh`: **release 브랜치**의 최신 코드를 따로 둔 작업 폴더에서 빌드해 설치(7일 만료 전에, `--days` 로 남은 날). 맥을 배포한 뒤 다음 재설치 때 폰도 같은 버전이 된다. 손으로 돌린다(launchd 는 아직).
+- Xcode 27 에서 걸린 것: swift-rs 1.0.9 이상(iOS 교차 빌드), `rustup component add llvm-tools`(없으면 릴리스 링크가 Undefined symbols), 지난 산출물이 남으면 tauri 가 옮기다 실패 — 스크립트가 처리한다.
+- 폰에서 처음: 설정 › 일반 › VPN 및 기기 관리 › 개발자 앱 신뢰.
+
+### 12.3 아직 안 한 것·한계
+
+- **iOS 27 기기에서는 켜자마자 꺼진다.** 최신 SDK 로 빌드한 앱은 iOS 27 에서 UIScene 방식이어야 하는데, tao 0.35.3 의 그 길에 해제된 객체를 돌려주는 버그가 있어(실기기 릴리스에서 SIGSEGV) `UIApplicationSceneManifest` 를 뺐다. tao 0.36(tauri 2.12)에서 고쳐졌다 — 올린 뒤 `Info.ios.plist` 에 다시 넣는다.
+- 폰에서 네코 꾸미기 창·선물함 열기, 할 일·일정 화면, 링크 열기, 현재 위치, 지도, 그림.
+- 문지르는 쓰다듬기(폰은 탭만).
+- 서버 산책·알림(4단계), launchd 재설치.
+- 맥과 폰 버전이 어긋나는 동안: 동기화 기록 형식을 바꿀 때는 옛 버전도 읽게 한다. 연결 코드의 새 칸(`a`)은 옛 버전이 무시한다.

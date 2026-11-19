@@ -18,6 +18,8 @@ if [ "${1:-}" != "--no-build" ]; then
   # 지난 산출물이 남아 있으면 tauri 가 옮기다 실패한다("Directory not empty")
   rm -rf "$APPLE/build/arm64" "$APPLE/build/nekodesk_iOS.xcarchive"
   npx tauri ios build --ci
+  # 빌드가 Xcode 프로젝트에 팀 ID 를 적어 넣는다. 계정마다 다른 값이라 커밋에 섞이지 않게 되돌린다
+  git checkout -- "$APPLE/nekodesk.xcodeproj" 2>/dev/null || true
 fi
 
 [ -f "$IPA" ] || { echo "$IPA 가 없어. --no-build 없이 다시 돌려줘." >&2; exit 1; }
