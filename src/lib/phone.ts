@@ -23,6 +23,39 @@ export function dismissKeyboard(): void {
 }
 
 /**
+ * 채팅 바가 키보드를 따라 transform 으로 움직이는 동안 그 안의 입력 커서를 숨긴다. iOS 는 커서를 웹 화면이 아니라 앱 쪽에
+ * 따로 그려서, transform 전환(합성 층)을 따라오지 않고 움직이기 전 자리에 남았다가 늦게 따라왔다. 다 움직이면 선택 범위를 한 번
+ * 다시 적어 커서가 지금 자리로 오게 하고(웹킷이 커서 자리를 다시 보낸다) 보이게 한다. 움직임은 그대로 transform 이라 버벅이지 않는다.
+ */
+let caretTimer = 0;
+function hideCaretWhileLifting(): void {
+  const dock = document.querySelector<HTMLElement>(".chat-dock");
+  const field = document.activeElement;
+  if (!dock || !(field instanceof HTMLTextAreaElement) || !dock.contains(field)) return;
+  field.style.caretColor = "transparent";
+  clearTimeout(caretTimer);
+  let done = false;
+  const show = () => {
+    if (done) return;
+    done = true;
+    dock.removeEventListener("transitionend", onEnd);
+    clearTimeout(caretTimer);
+    // 한 프레임 뒤(움직인 층이 화면에 올라간 뒤) 커서 자리를 다시 맞춘다
+    requestAnimationFrame(() => {
+      if (document.activeElement === field) {
+        const { selectionStart: a, selectionEnd: b, selectionDirection: d } = field;
+        field.setSelectionRange(a, b, d ?? undefined);
+      }
+      field.style.removeProperty("caret-color");
+    });
+  };
+  const onEnd = (e: TransitionEvent) => { if (e.target === dock && e.propertyName === "transform") show(); };
+  dock.addEventListener("transitionend", onEnd);
+  // 전환이 안 일어나거나(같은 자리) 끝 알림을 놓쳐도 커서가 숨은 채 남지 않게
+  caretTimer = window.setTimeout(show, 400);
+}
+
+/**
  * 키보드: 높이 하나(--kbd, 대화 칸 .main 에)로만 반영한다. 채팅 바는 그만큼 transform 으로 올라가고(합성 층에서만, 전환이
  * 키보드와 같이 간다) 대화 목록은 아래 여백이 한 번 바뀐다 — 화면 높이를 줄이며 매 프레임 다시 배치하던 때는 올라오며 버벅였다.
  * 맨 아래를 보고 있었으면 맨 아래에 다시 맞춘다(안 그러면 최근 답이 키보드 뒤에 가렸다).
@@ -41,6 +74,7 @@ function fitKeyboard(root: HTMLElement): void {
     kbdUp = k > 120;
     const sc = document.querySelector<HTMLElement>(".chat-messages");
     const atBottom = !!sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
+    hideCaretWhileLifting();
     document.querySelector<HTMLElement>(".main")?.style.setProperty("--kbd", `${k}px`);
     if (sc && atBottom) sc.scrollTop = sc.scrollHeight;
     // 문서 맨 위에 변수를 바꾸면 화면 전체가 다시 계산된다 — 위에 뜬 장이 있을 때만
