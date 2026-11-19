@@ -1564,6 +1564,7 @@ pub fn run() {
             sync::run::sync_setup,
             sync::run::sync_pair_make,
             sync::run::sync_pair_join,
+            sync::run::sync_pair_check,
             #[cfg(desktop)]
             sync::run::sync_pair_qr,
             #[cfg(target_os = "ios")]

@@ -57,5 +57,7 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>맥 화면에 뜬 기기 연결 QR 을 찍으려고 카메라를 써요.</string>
 </dict>
 </plist>

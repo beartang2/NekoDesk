@@ -280,6 +280,14 @@ pub fn pairing_from_link(url: &str) -> Option<String> {
     parse_pairing(&pairing).ok().map(|_| pairing)
 }
 
+/// 앱 안에서 찍은 QR 의 주소를 짝 문자열과 서버(해석한 호스트·포트)로. 연결 주소가 아니면 None — 화면은 이걸로 확인 창을 띄운다.
+#[tauri::command]
+pub fn sync_pair_check(link: String) -> Option<(String, String)> {
+    let pairing = pairing_from_link(link.trim())?;
+    let (url, ..) = parse_pairing(&pairing).ok()?;
+    Some((pairing, host_of(&url)))
+}
+
 /// 폰: 찍어 온 짝 문자열을 화면이 가져갈 때까지 들고 있는다(앱이 그 주소로 켜지면 화면이 아직 없다).
 #[cfg(target_os = "ios")]
 static LINKED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { QrScan } from "./QrScan";
 import { IS_PHONE } from "../lib/platform";
 import { invoke } from "@tauri-apps/api/core";
 import { memoryApi, secretsApi, settingsApi, syncApi, type SyncDevice, type SyncStatus } from "../api/tauri";
@@ -1247,6 +1248,8 @@ function SyncSection() {
   const [setup, setSetup] = useState("");
   const [pasted, setPasted] = useState("");
   const [pairing, setPairing] = useState("");
+  // 폰: 앱 안에서 QR 찍기
+  const [scanning, setScanning] = useState(false);
   // 맥: 코드를 QR 로도 보인다(폰에서는 긴 코드를 못 친다). 숨기면 같이 사라진다
   const [qr, setQr] = useState("");
   useEffect(() => {
@@ -1376,9 +1379,15 @@ function SyncSection() {
           )}
           <p className="settings-section__desc">
             {IS_PHONE
-              ? "맥의 설정 › 연동 › 동기화에서 '기기 연결 코드 만들기'를 누르고, 나온 QR 을 아이폰 카메라로 찍어 주세요. QR 이 안 보이면 코드를 복사해 아래에 붙여넣어 주세요."
+              ? "맥의 설정 › 연동 › 동기화에서 '기기 연결 코드 만들기'를 누르고, 나온 QR 을 찍어 주세요. QR 이 안 보이면 코드를 복사해 아래에 붙여넣어 주세요."
               : "다른 기기에서 이미 쓰고 있다면 그 기기에서 만든 기기 연결 코드를 붙여넣어 주세요."}
           </p>
+          {IS_PHONE && (
+            <div className="settings-row">
+              <button className="settings-btn" disabled={busy} onClick={() => setScanning(true)}>QR 찍기</button>
+            </div>
+          )}
+          {scanning && <QrScan onClose={() => setScanning(false)} />}
           <div className="settings-row">
             <input className="settings-input" type="password" value={pasted} placeholder="nekosync1:…" onChange={(e) => setPasted(e.target.value)} />
             {/* 폰: 긴 코드를 손으로 칠 수는 없다. 길게 눌러 붙여넣기를 못 찾아도 한 번에 붙게(iOS 가 붙여넣기 허용을 묻는다) */}

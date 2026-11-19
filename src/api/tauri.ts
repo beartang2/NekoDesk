@@ -288,6 +288,8 @@ export const syncApi = {
   pairJoin: (pairing: string) => invoke<void>("sync_pair_join", { pairing }),
   /** 맥: 짝 문자열을 QR(SVG 글)로. 폰 카메라로 찍으면 앱이 열린다 */
   pairQr: (pairing: string) => invoke<string>("sync_pair_qr", { pairing }),
+  /** 앱 안에서 찍은 QR 주소 → 짝 문자열과 서버(호스트·포트). 연결 주소가 아니면 null */
+  pairCheck: (link: string) => invoke<[pairing: string, host: string] | null>("sync_pair_check", { link }),
   /** 폰: 카메라로 찍어 온 짝 문자열과 그 서버(백엔드가 해석한 호스트·포트). 한 번 가져가면 비워진다 */
   pairLinked: () => invoke<[pairing: string, host: string] | null>("sync_pair_linked"),
   devices: () => invoke<{ devices: SyncDevice[]; me: string }>("sync_devices"),

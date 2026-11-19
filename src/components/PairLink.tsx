@@ -8,6 +8,9 @@ import "./Update.css";
  * 폰: 맥의 기기 연결 QR 을 카메라로 찍으면 앱이 열리고(nekodesk://pair?d=…), 여기서 서버 주소를 보여 주고 연결할지 묻는다.
  * 그 주소는 아무 앱·웹 링크나 열 수 있다 — 묻지 않고 연결하면 남의 서버로 대화가 올라갈 수 있다.
  */
+/** 앱 안에서 QR 을 찍었다(QrScan → 확인 창). detail: [짝 문자열, 서버] */
+export const PAIR_SCANNED = "neko-pair-scanned";
+
 export function PairLinkPrompt() {
   const [link, setLink] = useState<{ pairing: string; host: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21,7 +24,10 @@ export function PairLinkPrompt() {
     }).catch(() => {});
     take(); // 그 주소로 앱이 켜졌으면 화면보다 먼저 와 있다
     const off = listen("pair-link", take);
-    return () => { void off.then((f) => f()); };
+    // 앱 안에서 찍은 QR(QrScan)도 같은 확인 창을 거친다
+    const scanned = (e: Event) => { const [pairing, host] = (e as CustomEvent<[string, string]>).detail; setNote(""); setLink({ pairing, host }); };
+    window.addEventListener(PAIR_SCANNED, scanned);
+    return () => { void off.then((f) => f()); window.removeEventListener(PAIR_SCANNED, scanned); };
   }, []);
 
   async function join() {
