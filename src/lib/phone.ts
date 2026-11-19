@@ -100,8 +100,8 @@ function watchEdgeDrags(root: HTMLElement): void {
     cleanup = window.setTimeout(() => { pending?.(); pending = null; }, ms);
   };
   const flush = () => { clearTimeout(cleanup); pending?.(); pending = null; };
-  // 두 장의 보이는 폭은 같다(App.css 의 --panel-w 와 같은 식)
-  const panelWidth = () => Math.min(window.innerWidth * 0.86, 340);
+  // 대화 목록의 보이는 폭(App.css 의 --panel-w 와 같은 식). 설정은 화면 폭 전체다
+  const drawerWidth = () => Math.min(window.innerWidth * 0.86, 340);
 
   const paint = (d: Drag) => {
     if (d.kind === "drawer") {
@@ -128,7 +128,7 @@ function watchEdgeDrags(root: HTMLElement): void {
       ? (p.sheetOpen ? { kind: "sheet" as const, opening: false } : !p.drawerOpen ? { kind: "drawer" as const, opening: true } : null)
       : (p.drawerOpen ? { kind: "drawer" as const, opening: false } : !p.sheetOpen ? { kind: "sheet" as const, opening: true } : null);
     if (!pick) return;
-    const w = panelWidth();
+    const w = pick.kind === "drawer" ? drawerWidth() : window.innerWidth;
     drag = { ...pick, dir: side === "left" ? 1 : -1, w, x0: t.clientX, y0: t.clientY, locked: false, open: pick.opening ? 0 : w, lastX: t.clientX, lastT: e.timeStamp, v: 0 };
   }, { passive: true, capture: true });
 
