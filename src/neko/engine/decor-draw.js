@@ -21,11 +21,14 @@ export const CAT_H = 100;
 /**
  * 자리별 물건 높이 상한(px, 사용자 확정): 방(sidebar)은 방 높이의 80%, 거실(dock)은 띠 높이, 마당(screen)은 고양이 키의 3배.
  * g = { floorY, S }(floorY 는 무대 바닥 = 방·띠 높이쯤). 장소를 모르면 상한 없음
+ *
+ * 거실은 띠 높이로 고양이 크기가 정해져(S = floorY/240) 띠 높이 = 고양이 키의 2.4배다(맥 거실·폰 세로 거실 모두). 폰을 가로로
+ * 돌리면 띠가 높아도 고양이는 S 1.4 에서 멈춰 띠 높이가 고양이 키의 2.6배쯤이 되고 큰 선물이 더 커 보였다 — 고양이 키 2.4배도 넘지 않게
  */
 export function capPx(at, g) {
   if (at === "screen") return 3 * CAT_H * g.S;
   if (at === "sidebar") return 0.8 * g.floorY;
-  if (at === "dock") return g.floorY;
+  if (at === "dock") return Math.min(g.floorY, 2.4 * CAT_H * g.S);
   return Infinity;
 }
 /** 그릴 배율 k = 크기(소·중·대) × 사용자 배율, 그 자리 상한(높이)까지. capped = 상한에 걸렸나(저장값은 그대로) */

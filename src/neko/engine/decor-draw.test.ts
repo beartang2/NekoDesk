@@ -35,6 +35,10 @@ describe("decor-draw", () => {
     expect(room.capped).toBe(true);
     expect(decorDims(shape, room.k, g.S).h).toBeCloseTo(0.8 * 120, 6);
     expect(decorDims(shape, decorK(shape, "large", 4, "dock", g).k, g.S).h).toBeCloseTo(120, 6);
+    // 거실은 고양이 키의 2.4배도 넘지 않는다: 폰 가로(띠 369, 고양이는 S 1.4 에서 멈춤)도 세로(띠 114, S 0.475)·맥 거실과 같은 비율
+    for (const geo of [{ floorY: 369, S: 1.4 }, { floorY: 114, S: 114 / 240 }, { floorY: 164, S: 164 / 240 }]) {
+      expect(decorDims(shape, decorK(shape, "large", 3, "dock", geo).k, geo.S).h / (100 * geo.S)).toBeCloseTo(2.4, 6);
+    }
     expect(decorK(shape, "large", 4, "screen", { floorY: 1000, S: 1 })).toEqual({ k: 300 / 96, capped: true }); // 배율은 3 까지, 마당은 고양이 키 3배(300)에서 멈춘다
     expect(decorK(shape, "large", 2, "screen", { floorY: 1000, S: 1 })).toEqual({ k: 2.9, capped: false });
     expect(capPx("screen", { floorY: 1000, S: 0.8 })).toBeCloseTo(240, 6);
