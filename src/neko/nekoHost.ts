@@ -3,6 +3,7 @@ import { createNeko, type NekoController } from "./engine/neko-engine";
 import { useNekoStore } from "./nekoStore";
 import { getRemoteNeko, onRemoteNeko } from "./remoteNeko";
 import { decorItems, useNekoGifts } from "./gifts";
+import { onWeatherNow, weatherNowSnapshot } from "./weatherNow";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 
 /**
@@ -44,6 +45,11 @@ export function ensureNeko(): NekoController {
     ctrl.on("decorPlayed", ({ id, at }) => useNekoGifts.getState().played(id, at));
     useNekoGifts.subscribe((s, prev) => { if (s.gifts !== prev.gifts) decor(); });
     void useNekoGifts.getState().load().then(decor);
+    // 방·거실 벽의 날씨 창문: '창밖 구경'이 그 아래로 간다. 날씨가 없으면 커튼이 닫혀 있다(WeatherWindow)
+    const roomWin = () => { const p = useNekoStore.getState().stage.placement; ctrl?.setRoomWindow(p === "screen" ? null : p, !!weatherNowSnapshot()); };
+    useNekoStore.subscribe((s, prev) => { if (s.stage.placement !== prev.stage.placement) roomWin(); });
+    onWeatherNow(roomWin);
+    roomWin();
     subs.forEach((fn) => fn());
   }
   return ctrl;

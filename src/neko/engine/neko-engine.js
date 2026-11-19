@@ -16,6 +16,7 @@
 import { validateShape, shapeBounds, drawShape } from "./gift-shape.js";
 import { MIX, mixable, mergePose } from "./activity-mix.js";
 import * as DD from "./decor-draw.js";
+import { roomWindows } from "./room-window.js";
 
 export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 strict
   /* ============================================================
@@ -3430,14 +3431,55 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     ctx.fillStyle = "#eadfcd"; ctx.fillRect(cx - 1.5 * s, y0, 3 * s, h); ctx.fillRect(x0, cy - 1.5 * s, w, 3 * s); // 창살
     ctx.fillStyle = "#d8c9b0"; roundRect(ctx, x0 - 8 * s, y0 + h + 2 * s, w + 16 * s, 5 * s, 2 * s); ctx.fill(); // 창턱
   }
-  defineActivity("window", { // 창밖 새를 올려다보며 '깍깍'(채터링) 하고 꼬리 끝을 자주 까딱
-    name: "창밖 구경", label: "새 구경하는 중", room: 100,
+  /* 방·거실 벽의 진짜 창문(화면이 그린다, room-window.js). 호스트가 setRoomWindow 로 자리와 커튼(날씨가 있으면 열림)을 알린다.
+     창이 있으면 '창밖 구경'은 그 아래로 걸어가 올려다본다(돌아다니는 활동). 커튼이 닫혀 있으면 앞발로 커튼 쪽을 살짝 톡톡.
+     마당(화면 모드, 창 없음)은 예전처럼 고양이 앞에 창을 그려 새를 본다 */
+  let ROOM_PLACE = null, ROOM_OPEN = false;
+  /** 이번 구경의 창(시작할 때 고양이와 가까운 것, A.wi). 거실은 창이 둘 */
+  const roomWin = (A) => { const all = WORLD ? [] : roomWindows(ROOM_PLACE, W, H); return all[Math.min(A.wi || 0, all.length - 1)] || null; };
+  function nearestWindow() {
+    const all = WORLD ? [] : roomWindows(ROOM_PLACE, W, H), d = (r) => Math.abs(r.x + r.w / 2 - cat.x);
+    return all.reduce((best, r, i) => (d(r) < d(all[best]) ? i : best), 0);
+  }
+  function setRoomWindow(place, open) {
+    const p = place === "sidebar" || place === "dock" ? place : null;
+    ROOM_OPEN = !!open;
+    if (p === ROOM_PLACE) return;
+    ROOM_PLACE = p;
+    if (cat.act && cat.act.key === "window") endAct(); // 창 자리·방식이 바뀌었다: 하던 구경은 접는다(감독이 다시 고른다)
+    actOf("window").roam = !WORLD && !!p;
+  }
+  /** 창을 보고 앉을 자리: 창 가운데에서 고양이 쪽으로 조금 비켜(바로 밑에선 올려다보기 힘들다) */
+  function windowSpot(r) {
+    const cx = r.x + r.w / 2, dir = Math.sign(cx - cat.x) || cat.face;
+    return { cx, want: clamp(cx - dir * Math.min(r.w / 2, 24 * S), walkLo(), walkHi()) };
+  }
+  function goWindow(A) {
+    const c = cat, r = roomWin(A);
+    if (!r) return;
+    const { cx, want } = windowSpot(r);
+    if (c.mode === "walk") {
+      if (Math.abs(c.x - want) < 6 * S) { c.vx = 0; c.speed = 0; setMode("idle"); }
+      else if (Math.abs(want - c.target) > 10 * S) walkTo(want);
+      return;
+    }
+    if (Math.abs(c.x - want) > 12 * S && c.modeT > 0.25) { walkTo(want); return; }
+    const f = Math.sign(cx - c.x) || c.face;
+    if (f !== c.face && c.modeT > 0.3) { c.face = f; setMode("idle"); return; }
+    if (c.modeT > 0.3) { A.at = A.t; setMode("act"); }
+  }
+  defineActivity("window", { // 창밖 새를 올려다보며 '깍깍'(채터링) 하고 꼬리 끝을 자주 까딱. 방·거실은 벽의 창 아래로 가서 올려다본다
+    name: "창밖 구경", label: "창밖 구경하는 중", room: 100,
     start(A, kit) {
+      if (actOf("window").roam) { A.at = 0; A.wi = nearestWindow(); return; } // 방·거실: 소품 없이 벽의 창으로(가까운 창)
       const win = (A.win = makeWindow());
       kit.back(() => [win.cx, win.cy], () => drawWindow(win));
       burst(win.cx, win.cy);
     },
+    wander: goWindow,
+    look(A) { const r = roomWin(A); return r ? [r.x + r.w / 2, r.y + r.h / 2] : null; },
     step(A, dt) {
+      if (!A.win) return;
       const win = A.win, b = win.bird, chat = () => { if (Math.random() < 0.6) say("깍깍", cat.head.x + cat.face * 26 * S, cat.head.y - 34 * S); };
       if (b.away > 0) { // 날아갔다가 돌아온다
         b.away += dt;
@@ -3461,11 +3503,29 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       }
     },
     pose(A) {
+      if (!A.win) return roomPose(A);
       const b = A.win.bird;
       return { sit: true, ear: -0.15, lid: 0.02, expr: "idle", tt: -0.2, look: [b.x, b.y],
         tail: sitTail({ sway: 3, period: 4, still: 0.2, flick: [0.5, 1.3, 16, 0.25] }) }; // 바닥의 꼬리 끝만 파르르
     },
   });
+  /** 벽의 창 아래에서: 열려 있으면 창밖을 천천히 훑고(가끔 갸웃), 닫혀 있으면 커튼 아래 끝을 보다 앞발로 톡톡 */
+  function roomPose(A) {
+    const c = cat, r = roomWin(A);
+    if (!r) return { sit: true };
+    const u = A.t - (A.at || 0), tail = sitTail({ sway: 3, period: 4, still: 0.2, flick: [0.5, 1.3, 16, 0.25] });
+    if (ROOM_OPEN) {
+      const look = [r.x + r.w / 2 + Math.sin(u * 0.6) * r.w * 0.3, r.y + r.h * (0.45 + 0.12 * Math.sin(u * 0.37))];
+      return { sit: true, ear: -0.15, lid: 0.02, expr: "curious", tt: -0.2 + 0.12 * Math.sin(u * 0.5), look, tail };
+    }
+    // 커튼 톡톡: 4초마다 한 번, 얼굴 앞 위쪽(커튼 쪽)으로 앞발을 뻗어 허공을 두어 번 톡톡 하고 내린다. 창은 닿지 않는 높이라
+    // 닿는 데까지만 — 머리와 겹치면 검은 고양이는 발이 안 보여 얼굴 앞으로 낸다
+    const hem = [r.x + r.w / 2, r.y + r.h], k = u % 4 - 1.5;
+    const w = k > 0 && k < 1.1 ? Math.sin(Math.PI * k / 1.1) : 0;
+    const pt = [c.head.x + c.face * 30 * S, c.head.y + 8 * S + Math.sin(k * 13) * 3 * S];
+    return { sit: true, tilt: -0.3 * w, ear: -0.08, expr: "curious", tt: -0.25, look: hem, feetW: w, feet: w ? { [NEAR_FRONT]: () => pt } : null,
+      pawFront: w > 0.2 ? [NEAR_FRONT] : null, reach: { [NEAR_FRONT]: 1.4 }, tail };
+  }
 
 
 
@@ -4738,6 +4798,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     get towerOk() { return towerOk(); },
     towerWhy,
     /** 타이핑 쉼(다른 앱에서 타이핑을 잠깐 멈춤). 타이핑일 때만 듣고, 활동이 바뀌면 저절로 꺼진다 */
+    setRoomWindow,
     setRest(on) { if (cat.act && cat.act.key === "typing") cat.act.rest = !!on; },
     hit: hitCat,
     // 입에 물기(docs/neko-gifts.md §6)
@@ -4772,7 +4833,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     jump, walkTo, boing,
     // 시험용
     get cat() { return cat; },
-    get S() { return S; }, get floorY() { return floorY; }, get W() { return W; },
+    get S() { return S; }, get floorY() { return floorY; }, get W() { return W; }, get H() { return H; },
     coat: (seed) => { cat.seed = seed >>> 0; appearance.seed = cat.seed; generateCoat(); return cat.coatTex.grade; },
     draw, defineActivity,
     get activities() { return [...ACTIVITIES.keys()]; },

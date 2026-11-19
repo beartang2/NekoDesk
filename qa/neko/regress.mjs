@@ -1059,6 +1059,42 @@ try {
     await p.close();
   }
 
+  // 9-x) 창밖 구경: 방·거실은 벽의 날씨 창문(room-window.js) 아래로 걸어가 창을 보고 앉아 올려다본다. 커튼이 닫혀 있으면
+  //      앞발을 위로 뻗어 톡톡. 창 자리가 바뀌면 하던 구경을 접는다. 자리 정보가 없으면 예전처럼 앞에 창을 그린다
+  {
+    const look = async (q, vp, place, left) => {
+      const p = await open(q, vp);
+      const r = await p.evaluate(({ place, left }) => {
+        const n = window.__neko, c = n.cat, S = n.S;
+        n.setWander(false); n.setMood("idle");
+        n.setRoomWindow(place, true);
+        c.x = left ? 60 * S : n.W - 60 * S;
+        n.act("window"); n.step(120 * 8);
+        const out = { mode: c.mode, act: n.activity, x: c.x, face: c.face, floorY: n.floorY, S, W: n.W, H: n.H };
+        n.setRoomWindow(place, false);
+        let up = Infinity;
+        for (let s = 0; s < 120 * 5; s++) { n.step(1); up = Math.min(up, c.legs[3].footW[1]); }
+        out.pawUp = up; out.closedMode = c.mode;
+        n.setRoomWindow(place === "dock" ? "sidebar" : "dock", true);
+        out.after = n.activity;
+        return out;
+      }, { place, left });
+      await p.close();
+      return r;
+    };
+    const { roomWindows } = await import("../../src/neko/engine/room-window.js");
+    // 방은 창 하나(오른쪽 끝에서 걸어간다), 거실은 둘: 고양이와 가까운 창으로
+    const DOCK = ["?w=900&h=130&scale=height", { width: 1100, height: 400 }];
+    for (const [place, q, vp, left, wi] of [["sidebar", "?w=280&h=300&scale=height", { width: 600, height: 600 }, false, 0], ["dock", ...DOCK, true, 0], ["dock", ...DOCK, false, 1]]) {
+      const r = await look(q, vp, place, left), win = roomWindows(place, r.W, r.H)[wi], cx = win.x + win.w / 2;
+      check(`창밖 구경(${place}${left ? " 왼쪽" : " 오른쪽"}에서): 창 아래로 가서 창 쪽을 보고 앉고, 닫히면 앞발을 들고, 자리가 바뀌면 접는다`,
+        JSON.stringify({ x: Math.round(r.x), cx, face: r.face, mode: r.mode, pawUp: Math.round(r.floorY - r.pawUp), after: r.after }),
+        r.act === "window" && r.mode === "act" && Math.abs(r.x - cx) <= win.w && // 방 창은 왼쪽 벽 가까이라 걸을 수 있는 끝(EDGE)에 앉는다
+           Math.sign(cx - r.x) === r.face &&
+          r.closedMode === "act" && r.pawUp < r.floorY - 30 * r.S && r.after === null);
+    }
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {

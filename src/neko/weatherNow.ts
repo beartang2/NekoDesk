@@ -54,6 +54,13 @@ function start(location: string) {
   stop = () => { alive = false; clearInterval(t); };
 }
 
+/** 지금 받은 날씨(창문이 하나라도 떠 있을 때만 받는다)와 바뀔 때 알림. 엔진이 커튼이 열렸는지 볼 때(nekoHost) */
+export const weatherNowSnapshot = (): WeatherNow | null => now;
+export function onWeatherNow(f: () => void): () => void {
+  subs.add(f);
+  return () => { subs.delete(f); };
+}
+
 /** 지금 날씨. 위치가 없거나 못 가져오면 null. 30분 지나면 다시 본다 */
 export function useWeatherNow(): WeatherNow | null {
   const location = useSettingsStore((s) => s.weatherLocation.trim());
