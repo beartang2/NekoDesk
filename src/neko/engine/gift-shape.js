@@ -96,6 +96,24 @@ function partBox(p) {
   return [Math.min(...xs) - e, Math.min(...ys) - e, Math.max(...xs) + e, Math.max(...ys) + e];
 }
 
+/**
+ * 그린 모양의 맨 위 y(바닥 기준, 음수). shapeBounds 의 칸은 돌려도 안 넘치게 회전한 네모·타원을 둘레 원으로 잡아 실제보다
+ * 높다 — 벽에 건 선물의 압정은 이 값(실제로 칠한 맨 위)에 꽂는다. 크기 맞추기는 그대로 칸을 쓴다(크기가 바뀌지 않게)
+ */
+export function shapeTop(shape) {
+  let y0 = 0;
+  for (const p of shape.parts) {
+    let t;
+    if (p.t === "ellipse") { const s = Math.sin(p.rot || 0), c = Math.cos(p.rot || 0); t = p.y - Math.sqrt((p.rx * s) ** 2 + (p.ry * c) ** 2); }
+    else if (p.t === "rrect") { const s = Math.abs(Math.sin(p.rot || 0)), c = Math.abs(Math.cos(p.rot || 0)); t = p.y - ((p.w / 2) * s + (p.h / 2) * c); }
+    else t = partBox(p)[1];
+    y0 = Math.min(y0, t);
+  }
+  const im = shape.img;
+  if (im) y0 = Math.min(y0, im.y - im.h / 2);
+  return y0;
+}
+
 /** 모양이 차지하는 칸(바닥 기준). 크기 맞추기·누르기 판정에 쓴다. */
 export function shapeBounds(shape) {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity;

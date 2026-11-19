@@ -28,17 +28,18 @@ describe("decor-draw", () => {
     expect(hitDecorAt(items, { ...g, scale: 9 }, ax, ab - 1)).toBe("a"); // 배율은 1.4 로 묶인다
   });
 
-  it("배율: 크기 × 사용자 배율, 자리 상한(방 80%·거실 띠·마당 고양이 키 3배)까지만 그린다", () => {
+  it("배율: 크기 × 사용자 배율, 자리 상한(방 80%·거실 띠와 고양이 키 1.92배·마당 고양이 키 3배)까지만 그린다", () => {
     const g = { floorY: 120, S: 0.8 }; // 폭이 좁아 S 는 크고 높이는 낮은 방
     expect(decorK(shape, "small", 1.5, "sidebar", g)).toEqual({ k: 0.6 * 1.5, capped: false });
     const room = decorK(shape, "large", 4, "sidebar", g);
     expect(room.capped).toBe(true);
     expect(decorDims(shape, room.k, g.S).h).toBeCloseTo(0.8 * 120, 6);
     expect(decorDims(shape, decorK(shape, "large", 4, "dock", g).k, g.S).h).toBeCloseTo(120, 6);
-    // 거실은 고양이 키의 2.4배도 넘지 않는다: 폰 가로(띠 369, 고양이는 S 1.4 에서 멈춤)도 세로(띠 114, S 0.475)·맥 거실과 같은 비율
+    // 거실은 방과 같은 고양이 대비(키의 1.92배)에서 멈춘다: 폰 가로(띠 369, S 1.4)·폰 세로(띠 114, S 0.475)·맥 거실(띠 164)·맥 방(194) 모두
     for (const geo of [{ floorY: 369, S: 1.4 }, { floorY: 114, S: 114 / 240 }, { floorY: 164, S: 164 / 240 }]) {
-      expect(decorDims(shape, decorK(shape, "large", 3, "dock", geo).k, geo.S).h / (100 * geo.S)).toBeCloseTo(2.4, 6);
+      expect(decorDims(shape, decorK(shape, "large", 3, "dock", geo).k, geo.S).h / (100 * geo.S)).toBeCloseTo(1.92, 6);
     }
+    expect(decorDims(shape, decorK(shape, "large", 3, "sidebar", { floorY: 194, S: 194 / 240 }).k, 194 / 240).h / (100 * 194 / 240)).toBeCloseTo(1.92, 6);
     expect(decorK(shape, "large", 4, "screen", { floorY: 1000, S: 1 })).toEqual({ k: 300 / 96, capped: true }); // 배율은 3 까지, 마당은 고양이 키 3배(300)에서 멈춘다
     expect(decorK(shape, "large", 2, "screen", { floorY: 1000, S: 1 })).toEqual({ k: 2.9, capped: false });
     expect(capPx("screen", { floorY: 1000, S: 0.8 })).toBeCloseTo(240, 6);

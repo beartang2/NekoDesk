@@ -5,7 +5,7 @@
  * geom = { W, floorY, S }: 무대 폭(px)·바닥 y(px)·배율. 자리는 비율이다 — 바닥: u = 양끝 여백을 뺀 폭 비율,
  * 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율(0~1).
  */
-import { validateShape, shapeBounds, drawShape } from "./gift-shape.js";
+import { validateShape, shapeBounds, shapeTop, drawShape } from "./gift-shape.js";
 
 export const DECOR_SIZE = 96;  // 한 변(S 단위). 32 → 64 → 96: 사용자가 두 번 키웠다(아직 작다). 배율 0.5~3 은 이 기준
 export const WALL_GAP = 18;    // 바닥에서 이만큼(S) 넘게 띄워 놓으면 벽에 건다
@@ -22,13 +22,15 @@ export const CAT_H = 100;
  * 자리별 물건 높이 상한(px, 사용자 확정): 방(sidebar)은 방 높이의 80%, 거실(dock)은 띠 높이, 마당(screen)은 고양이 키의 3배.
  * g = { floorY, S }(floorY 는 무대 바닥 = 방·띠 높이쯤). 장소를 모르면 상한 없음
  *
- * 거실은 띠 높이로 고양이 크기가 정해져(S = floorY/240) 띠 높이 = 고양이 키의 2.4배다(맥 거실·폰 세로 거실 모두). 폰을 가로로
- * 돌리면 띠가 높아도 고양이는 S 1.4 에서 멈춰 띠 높이가 고양이 키의 2.6배쯤이 되고 큰 선물이 더 커 보였다 — 고양이 키 2.4배도 넘지 않게
+ * 방은 방 높이로 고양이 크기가 정해져(S = floorY/240) 방 높이의 80% = 고양이 키의 1.92배다. 거실도 같은 고양이 대비로 묶는다 —
+ * 띠 높이 전부(고양이 키 2.4배)까지 키우면 맥 방에서 보던 것보다 크고, 화면을 채운 폰 가로 거실에선 더 커 보였다(사용자).
+ * 맥 거실·폰 세로 거실·폰 가로 모두 큰 선물은 고양이 키의 1.92배에서 멈춘다(띠가 그보다 낮으면 띠 높이)
  */
+export const ROOM_CAP_CATS = (0.8 * 240) / CAT_H;
 export function capPx(at, g) {
   if (at === "screen") return 3 * CAT_H * g.S;
   if (at === "sidebar") return 0.8 * g.floorY;
-  if (at === "dock") return Math.min(g.floorY, 2.4 * CAT_H * g.S);
+  if (at === "dock") return Math.min(g.floorY, ROOM_CAP_CATS * CAT_H * g.S);
   return Infinity;
 }
 /** 그릴 배율 k = 크기(소·중·대) × 사용자 배율, 그 자리 상한(높이)까지. capped = 상한에 걸렸나(저장값은 그대로) */
@@ -80,9 +82,10 @@ export function paintDecor(g, shape, L, geom, o = {}) {
   g.translate(x, bottom); g.rotate(o.wob || 0); g.translate(-x, -bottom);
   drawShape(g, shape, x - ((bd.x0 + bd.x1) / 2) * u, bottom, u, o.edge ?? 4);
   g.restore();
-  if (!onFloor) { // 벽에 건 것: 위에 작은 압정
-    g.fillStyle = "#8f8a86"; g.beginPath(); g.arc(x, bottom - h + 1.5 * S, 1.8 * S, 0, Math.PI * 2); g.fill();
-    g.fillStyle = "rgba(255,255,255,0.6)"; g.beginPath(); g.arc(x - 0.5 * S, bottom - h + 1 * S, 0.7 * S, 0, Math.PI * 2); g.fill();
+  if (!onFloor) { // 벽에 건 것: 그린 모양의 맨 위 가장자리에 작은 압정. h(칸)는 회전한 네모·타원을 넉넉히 잡아 실제보다 높다
+    const top = bottom + shapeTop(shape) * u;
+    g.fillStyle = "#8f8a86"; g.beginPath(); g.arc(x, top + 1.5 * S, 1.8 * S, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "rgba(255,255,255,0.6)"; g.beginPath(); g.arc(x - 0.5 * S, top + 1 * S, 0.7 * S, 0, Math.PI * 2); g.fill();
   }
   g.restore();
 }

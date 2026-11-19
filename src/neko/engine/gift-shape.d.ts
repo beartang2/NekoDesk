@@ -31,6 +31,8 @@ export const DEFAULT_SHAPE: GiftShape;
 /** 모델이 적은 값을 그릴 수 있는 꼴로. 쓸 만한 도형이 없으면 DEFAULT_SHAPE */
 export function validateShape(raw: unknown): GiftShape;
 export function shapeBounds(shape: GiftShape): { x0: number; x1: number; top: number; w: number; h: number };
+/** 그린 모양의 맨 위 y(바닥 기준, 음수) — 벽 압정 자리. shapeBounds 의 칸보다 낮을 수 있다 */
+export function shapeTop(shape: GiftShape): number;
 /** img 의 data URL 길이 상한 */
 export const IMG_MAX: number;
 /** 그림(img)을 다 읽으면 부른다 — 한 번만 그리는 곳은 여기서 다시 그린다. 끄는 함수를 돌려준다 */

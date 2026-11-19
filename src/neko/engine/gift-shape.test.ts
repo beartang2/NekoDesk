@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_SHAPE, drawShape, validateShape } from "./gift-shape.js";
+import { DEFAULT_SHAPE, drawShape, shapeBounds, shapeTop, validateShape } from "./gift-shape.js";
 
 describe("validateShape", () => {
   it("멀쩡한 모양은 그대로 둔다", () => {
@@ -83,5 +83,20 @@ describe("빛(glow)", () => {
     log.length = 0;
     drawShape(ctx, validateShape(lamp), 50, 50, 2);
     expect(log).toEqual(["linear"]);
+  });
+});
+
+describe("shapeTop(벽 압정 자리)", () => {
+  it("칠한 맨 위 — 회전한 네모·타원을 둘레 원으로 잡는 칸보다 낮다", () => {
+    // 기본 모양: 타원(가로 9, 세로 6, y -6) → 맨 위 -12. 칸은 -15
+    expect(shapeTop(DEFAULT_SHAPE)).toBeCloseTo(-12, 6);
+    expect(shapeBounds(DEFAULT_SHAPE).top).toBeCloseTo(-15, 6);
+    // 낙서 액자: 26×22 네모(가운데 y -11) → 맨 위 -22. 칸은 대각선 반(17)만큼 위 -28
+    const frame = validateShape({ v: 1, parts: [{ t: "rrect", x: 0, y: -11, w: 26, h: 22, rad: 1, rot: 0, c: "brown" }] });
+    expect(shapeTop(frame)).toBeCloseTo(-22, 6);
+    expect(shapeBounds(frame).top).toBeLessThan(-27);
+    // 90° 돌린 네모는 가로가 세로가 된다
+    const turned = validateShape({ v: 1, parts: [{ t: "rrect", x: 0, y: -13, w: 26, h: 10, rad: 1, rot: Math.PI / 2, c: "brown" }] });
+    expect(shapeTop(turned)).toBeCloseTo(-26, 4);
   });
 });
