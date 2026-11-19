@@ -35,10 +35,11 @@ describe("decor-draw", () => {
     expect(room.capped).toBe(true);
     expect(decorDims(shape, room.k, g.S).h).toBeCloseTo(0.8 * 120, 6);
     expect(decorDims(shape, decorK(shape, "large", 4, "dock", g).k, g.S).h).toBeCloseTo(120, 6);
-    expect(decorK(shape, "large", 4, "screen", { floorY: 1000, S: 1 })).toEqual({ k: 1.45 * 3, capped: false }); // 배율은 3 까지, 마당은 고양이 키 3배 안
+    expect(decorK(shape, "large", 4, "screen", { floorY: 1000, S: 1 })).toEqual({ k: 300 / 96, capped: true }); // 배율은 3 까지, 마당은 고양이 키 3배(300)에서 멈춘다
+    expect(decorK(shape, "large", 2, "screen", { floorY: 1000, S: 1 })).toEqual({ k: 2.9, capped: false });
     expect(capPx("screen", { floorY: 1000, S: 0.8 })).toBeCloseTo(240, 6);
     expect(decorK(shape, "small", 0.01, undefined, g).k).toBeCloseTo(0.6 * 0.5, 6); // 0.5(예전 기본 크기) 아래로는 안 줄인다
-    expect(decorDims(shape, 1, 1).h).toBe(64); // 기본 한 변 64(예전 32 의 2배)
+    expect(decorDims(shape, 1, 1).h).toBe(96); // 기본 한 변 96
     // 그리기·누르기도 같은 배율(선물 창)
     const items: DecorItem[] = [{ id: "a", shape, surface: "floor", u: 0.5, scale: 2, at: "dock" }];
     expect(decorBoxes(items, { W: 1200, floorY: 600, scale: 0.8 })[0].h).toBeCloseTo(decorDims(shape, 2, 0.8).h, 6);

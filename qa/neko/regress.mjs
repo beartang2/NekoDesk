@@ -281,14 +281,14 @@ try {
       const n = window.__neko, cv = document.getElementById("stage"), rect = () => cv.getBoundingClientRect(), ev = [];
       n.on("decorMove", (e) => ev.push(["move", e])); n.on("decorMenu", (e) => ev.push(["menu", e]));
       n.setWander(false); n.cat.x = n.W * 0.8; n.step(60);
-      n.setDecor([{ id: "g", surface: "floor", u: 0.1, scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]); // 0.5 = 예전 기본 크기
+      n.setDecor([{ id: "g", surface: "floor", u: 0.1, size: "small", scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]); // 가장 작게(한 변 29)
       n.step(90); n.draw();
       const boxOf = () => { for (let y = 0; y < n.floorY; y += 2) for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, y)) return [x, y]; return null; };
       const at = boxOf(), R = rect(), fire = (type, x, y, extra = {}) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 7, bubbles: true, button: extra.button ?? 0 }));
       const [x0, y0] = [at[0] + 4, at[1] + 4];
       fire("pointerdown", x0, y0); fire("pointermove", x0 + 40, y0 - 90); fire("pointerup", x0 + 40, y0 - 90);
       const moved = ev[0] && ev[0][1];
-      n.setDecor([{ id: "g", scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] }, ...moved }]); n.step(60); n.draw();
+      n.setDecor([{ id: "g", size: "small", scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] }, ...moved }]); n.step(60); n.draw();
       const hitBefore = !!boxOf();
       cv.style.width = "900px"; cv.style.height = "150px"; n.resize(); n.step(60); n.draw();
       const b2 = boxOf(), span = n.floorY - (32 * n.S) - 10 * n.S, wallOk = !!b2 && moved && moved.surface === "wall";
@@ -314,7 +314,7 @@ try {
       for (const [play, surface] of [["roll", "floor"], ["bat", "floor"], ["sniff", "floor"], ["sit_on", "floor"], ["carry", "floor"], ["sniff", "wall"]]) {
         n.act(null); n.step(120); c.x = n.W * 0.75; c.vx = 0; n.step(60);
         let moves = 0; const off = n.on("decorMove", () => moves++);
-        n.setDecor([{ id: "g", surface, u: 0.25, v: 0.5, play, scale: 0.5, shape: play === "sit_on" ? shapes.flat : shapes.round }]); // 예전 기본 크기(굴리고 물 만한)
+        n.setDecor([{ id: "g", surface, u: 0.25, v: 0.5, play, size: play === "sit_on" ? undefined : "small", scale: 0.5, shape: play === "sit_on" ? shapes.flat : shapes.round }]); // 굴리고 물 만한 크기(가장 작게)
         n.act("giftplay");
         let acted = 0, minDx = 1e9;
         for (let i = 0; i < 120 * 25; i++) { n.step(1); if (c.mode === "act") acted++; if (i % 10 === 0) n.draw(); }
@@ -476,7 +476,7 @@ try {
       const width = (id) => { let a = null, b = null; for (let x = 0; x < n.W; x += 0.5) for (let y = n.floorY - 40 * n.S; y < n.floorY; y += 1) if (n.hitDecor(x, y) === id) { a ??= x; b = x; break; } return b - a; };
       return { s: width("s"), m: width("m"), l: width("l"), body: 100 * n.S };
     });
-    check("선물 크기: small < medium < large, 기본은 예전(32)의 2배 — medium 한 변이 몸길이의 64%쯤", `폭 ${r.s.toFixed(0)} · ${r.m.toFixed(0)} · ${r.l.toFixed(0)} (몸 ${r.body.toFixed(0)})`, r.s < r.m && r.m < r.l && r.m > 0.5 * r.body && r.m < 0.75 * r.body);
+    check("선물 크기: small < medium < large, 기본 한 변 96 — medium 이 몸길이쯤", `폭 ${r.s.toFixed(0)} · ${r.m.toFixed(0)} · ${r.l.toFixed(0)} (몸 ${r.body.toFixed(0)})`, r.s < r.m && r.m < r.l && r.m > 0.8 * r.body && r.m < 1.1 * r.body);
     await p.close();
   }
 
@@ -493,7 +493,7 @@ try {
       const rotation = played.slice(0, 3).sort().join(""), plays = {};
       n.act(null); n.step(30);
       for (const [size, play] of [["large", "carry"], ["large", "roll"], ["large", "lean"], ["large", "hide"], ["large", "scratch"], ["small", "scratch"]]) {
-        n.setDecor([{ id: size + play, surface: "floor", u: 0.3, size, play, shape }]);
+        n.setDecor([{ id: size + play, surface: "floor", u: 0.3, size, play, shape, ...(size === "small" ? { scale: 0.5 } : {}) }]); // 작은 것 = 가장 작게(한 변 29)
         n.act("giftplay"); n.step(1); const chosen = c.act && c.act.play;
         let acted = 0, done = 0; const off = n.on("decorPlayed", () => done++);
         for (let i = 0; i < 120 * 20 && !done; i++) { n.step(1); if (c.mode === "act") acted++; if (i % 12 === 0) n.draw(); }
@@ -538,7 +538,7 @@ try {
       n.step(60); n.draw();
       const still = { win: inked() > 100, engine: engineHit(), ev: heldEv.length };
       // 굴리기: 잡은 동안 선물 창은 빼고 그리고 엔진이 그린다(누를 수도 있다)
-      n.setDecor([{ id: "g", surface: "floor", u: 0.45, play: "roll", scale: 0.5, shape }]); n.step(10);
+      n.setDecor([{ id: "g", surface: "floor", u: 0.45, play: "roll", size: "small", scale: 0.5, shape }]); n.step(10);
       n.act("giftplay");
       let heldFrames = 0, swapOk = true, released = -1, graceDrawn = null;
       for (let i = 0; i < 120 * 30 && released < 0; i++) {
@@ -553,16 +553,16 @@ try {
       const after = { engine: engineHit(), win: inked() > 100, last: heldEv[heldEv.length - 1] };
       // 굴러가는 중에 사용자가 선물 창에서 끌어 놓음(호스트가 자리를 바꿔 다시 넣음): 굴러가던 자리를 버리고 사용자 자리에 둔다
       const moves = []; n.on("decorMove", (e) => moves.push(e.u));
-      n.setDecor([{ id: "u", surface: "floor", u: 0.45, play: "roll", scale: 0.5, shape }]); n.step(10);
+      n.setDecor([{ id: "u", surface: "floor", u: 0.45, play: "roll", size: "small", scale: 0.5, shape }]); n.step(10);
       n.act("giftplay");
       let rolling = false;
       for (let i = 0; i < 120 * 30 && !rolling; i++) { n.step(1); rolling = c.act && c.act.stage === "rolling"; }
       moves.length = 0;
-      n.setDecor([{ id: "u", surface: "floor", u: 0.9, play: "roll", scale: 0.5, shape }]);
+      n.setDecor([{ id: "u", surface: "floor", u: 0.9, play: "roll", size: "small", scale: 0.5, shape }]);
       n.act(null); n.step(30);
       const userWins = { rolling, overwritten: moves.some((u) => u !== 0.9) };
       // 물고 옮기다 목록에서 빠짐(다른 모니터로 건너감 등): 잡은 목록과 입에서 빠진다
-      n.setDecor([{ id: "m", surface: "floor", u: 0.45, play: "carry", scale: 0.5, shape }]); n.step(10);
+      n.setDecor([{ id: "m", surface: "floor", u: 0.45, play: "carry", size: "small", scale: 0.5, shape }]); n.step(10);
       n.act("giftplay");
       let carried = false;
       for (let i = 0; i < 120 * 30 && !carried; i++) { n.step(1); carried = n.carried().length > 0 && gw.held.includes("m"); }
