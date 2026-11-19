@@ -16,6 +16,7 @@
 import { validateShape, shapeBounds, drawShape } from "./gift-shape.js";
 import { MIX, mixable, mergePose } from "./activity-mix.js";
 import * as DD from "./decor-draw.js";
+import { roomWindows } from "./room-window.js";
 
 export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 strict
   /* ============================================================
@@ -2320,7 +2321,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     return b.h < b.w * 0.5 ? "sit_on" : Math.abs(b.w - b.h) < b.w * 0.2 ? "roll" : "bat";
   }
   let decor = [];          // { id, surface, u, v, shape, t0, box }
-  let decorDrag = null;    // { id, pointerId, dx, dy, x, bottom } 끄는 중(무대 px)
+  let decorDrag = null;    // { id, pointerId, dx, dy, x, bottom, hold? } 끄는 중(무대 px). hold = 터치 꾹 누르기 재는 중
   function setDecor(items) {
     // 갖고 노는 중인 물건(굴러가는 자리·입에 문 상태)은 다시 넣어도 이어 간다
     const prev = new Map(decor.map((d) => [d.id, d]));
@@ -3430,14 +3431,55 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     ctx.fillStyle = "#eadfcd"; ctx.fillRect(cx - 1.5 * s, y0, 3 * s, h); ctx.fillRect(x0, cy - 1.5 * s, w, 3 * s); // 창살
     ctx.fillStyle = "#d8c9b0"; roundRect(ctx, x0 - 8 * s, y0 + h + 2 * s, w + 16 * s, 5 * s, 2 * s); ctx.fill(); // 창턱
   }
-  defineActivity("window", { // 창밖 새를 올려다보며 '깍깍'(채터링) 하고 꼬리 끝을 자주 까딱
-    name: "창밖 구경", label: "새 구경하는 중", room: 100,
+  /* 방·거실 벽의 진짜 창문(화면이 그린다, room-window.js). 호스트가 setRoomWindow 로 자리와 커튼(날씨가 있으면 열림)을 알린다.
+     창이 있으면 '창밖 구경'은 그 아래로 걸어가 올려다본다(돌아다니는 활동). 커튼이 닫혀 있으면 앞발로 커튼 쪽을 살짝 톡톡.
+     마당(화면 모드, 창 없음)은 예전처럼 고양이 앞에 창을 그려 새를 본다 */
+  let ROOM_PLACE = null, ROOM_OPEN = false;
+  /** 이번 구경의 창(시작할 때 고양이와 가까운 것, A.wi). 거실은 창이 둘 */
+  const roomWin = (A) => { const all = WORLD ? [] : roomWindows(ROOM_PLACE, W, H); return all[Math.min(A.wi || 0, all.length - 1)] || null; };
+  function nearestWindow() {
+    const all = WORLD ? [] : roomWindows(ROOM_PLACE, W, H), d = (r) => Math.abs(r.x + r.w / 2 - cat.x);
+    return all.reduce((best, r, i) => (d(r) < d(all[best]) ? i : best), 0);
+  }
+  function setRoomWindow(place, open) {
+    const p = place === "sidebar" || place === "dock" ? place : null;
+    ROOM_OPEN = !!open;
+    if (p === ROOM_PLACE) return;
+    ROOM_PLACE = p;
+    if (cat.act && cat.act.key === "window") endAct(); // 창 자리·방식이 바뀌었다: 하던 구경은 접는다(감독이 다시 고른다)
+    actOf("window").roam = !WORLD && !!p;
+  }
+  /** 창을 보고 앉을 자리: 창 가운데에서 고양이 쪽으로 조금 비켜(바로 밑에선 올려다보기 힘들다) */
+  function windowSpot(r) {
+    const cx = r.x + r.w / 2, dir = Math.sign(cx - cat.x) || cat.face;
+    return { cx, want: clamp(cx - dir * Math.min(r.w / 2, 24 * S), walkLo(), walkHi()) };
+  }
+  function goWindow(A) {
+    const c = cat, r = roomWin(A);
+    if (!r) return;
+    const { cx, want } = windowSpot(r);
+    if (c.mode === "walk") {
+      if (Math.abs(c.x - want) < 6 * S) { c.vx = 0; c.speed = 0; setMode("idle"); }
+      else if (Math.abs(want - c.target) > 10 * S) walkTo(want);
+      return;
+    }
+    if (Math.abs(c.x - want) > 12 * S && c.modeT > 0.25) { walkTo(want); return; }
+    const f = Math.sign(cx - c.x) || c.face;
+    if (f !== c.face && c.modeT > 0.3) { c.face = f; setMode("idle"); return; }
+    if (c.modeT > 0.3) { A.at = A.t; setMode("act"); }
+  }
+  defineActivity("window", { // 창밖 새를 올려다보며 '깍깍'(채터링) 하고 꼬리 끝을 자주 까딱. 방·거실은 벽의 창 아래로 가서 올려다본다
+    name: "창밖 구경", label: "창밖 구경하는 중", room: 100,
     start(A, kit) {
+      if (actOf("window").roam) { A.at = 0; A.wi = nearestWindow(); return; } // 방·거실: 소품 없이 벽의 창으로(가까운 창)
       const win = (A.win = makeWindow());
       kit.back(() => [win.cx, win.cy], () => drawWindow(win));
       burst(win.cx, win.cy);
     },
+    wander: goWindow,
+    look(A) { const r = roomWin(A); return r ? [r.x + r.w / 2, r.y + r.h / 2] : null; },
     step(A, dt) {
+      if (!A.win) return;
       const win = A.win, b = win.bird, chat = () => { if (Math.random() < 0.6) say("깍깍", cat.head.x + cat.face * 26 * S, cat.head.y - 34 * S); };
       if (b.away > 0) { // 날아갔다가 돌아온다
         b.away += dt;
@@ -3461,11 +3503,29 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       }
     },
     pose(A) {
+      if (!A.win) return roomPose(A);
       const b = A.win.bird;
       return { sit: true, ear: -0.15, lid: 0.02, expr: "idle", tt: -0.2, look: [b.x, b.y],
         tail: sitTail({ sway: 3, period: 4, still: 0.2, flick: [0.5, 1.3, 16, 0.25] }) }; // 바닥의 꼬리 끝만 파르르
     },
   });
+  /** 벽의 창 아래에서: 열려 있으면 창밖을 천천히 훑고(가끔 갸웃), 닫혀 있으면 커튼 아래 끝을 보다 앞발로 톡톡 */
+  function roomPose(A) {
+    const c = cat, r = roomWin(A);
+    if (!r) return { sit: true };
+    const u = A.t - (A.at || 0), tail = sitTail({ sway: 3, period: 4, still: 0.2, flick: [0.5, 1.3, 16, 0.25] });
+    if (ROOM_OPEN) {
+      const look = [r.x + r.w / 2 + Math.sin(u * 0.6) * r.w * 0.3, r.y + r.h * (0.45 + 0.12 * Math.sin(u * 0.37))];
+      return { sit: true, ear: -0.15, lid: 0.02, expr: "curious", tt: -0.2 + 0.12 * Math.sin(u * 0.5), look, tail };
+    }
+    // 커튼 톡톡: 4초마다 한 번, 얼굴 앞 위쪽(커튼 쪽)으로 앞발을 뻗어 허공을 두어 번 톡톡 하고 내린다. 창은 닿지 않는 높이라
+    // 닿는 데까지만 — 머리와 겹치면 검은 고양이는 발이 안 보여 얼굴 앞으로 낸다
+    const hem = [r.x + r.w / 2, r.y + r.h], k = u % 4 - 1.5;
+    const w = k > 0 && k < 1.1 ? Math.sin(Math.PI * k / 1.1) : 0;
+    const pt = [c.head.x + c.face * 30 * S, c.head.y + 8 * S + Math.sin(k * 13) * 3 * S];
+    return { sit: true, tilt: -0.3 * w, ear: -0.08, expr: "curious", tt: -0.25, look: hem, feetW: w, feet: w ? { [NEAR_FRONT]: () => pt } : null,
+      pawFront: w > 0.2 ? [NEAR_FRONT] : null, reach: { [NEAR_FRONT]: 1.4 }, tail };
+  }
 
 
 
@@ -4458,6 +4518,18 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     } else if (hitDecor(x, y)) { // 놓아 둔 물건: 잡고 끌어 옮긴다(고양이 뒤에 있으니 고양이 다음에 본다)
       const d = decor.find((o) => o.id === hitDecor(x, y)), b = d.box;
       decorDrag = { id: d.id, pointerId: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x: b.x + b.w / 2, bottom: b.y + b.h, el };
+      // 터치·펜으로 꾹 누르면(HOLD_MS 동안 HOLD_SLOP 안) 끌기를 접고 우클릭처럼 '정리' 메뉴. iOS 웹뷰엔 contextmenu 가
+      // 안 온다. 마우스는 우클릭만 — 누른 채 잠깐 있다 끄는 손버릇을 막지 않게
+      if (e.pointerType !== "mouse") {
+        const hold = { x, y, t: 0 };
+        hold.t = setTimeout(() => {
+          if (!decorDrag || decorDrag.hold !== hold) return;
+          const g = decorDrag; decorDrag = null; // 놓지 않고 접는다 — decorMove 없이 제자리로
+          g.el.classList.remove("dragging");
+          decorMenuOf(decor.find((o) => o.id === g.id));
+        }, HOLD_MS);
+        decorDrag.hold = hold;
+      }
       try { el.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터: 캡처 없이도 끌린다 */ }
       el.classList.add("dragging"); e.preventDefault();
     } else if (y > floorY - 160 * S && cat.pose === "stand" && (!cat.act || cat.act.key === "butterfly")) walkTo(x);
@@ -4468,6 +4540,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (!mouseActive() && cat.mood !== "sleepy" && cat.pose === "stand" && !cat.act && cat.mode !== "grabbed" && !cat.tailEp) startTailEp("up", 2.6);
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
     if (decorDrag && e.pointerId === decorDrag.pointerId) { // 바닥 아래로는 안 내려가고 무대 위로도 안 나간다
+      const hold = decorDrag.hold; // 꾹 누르기 중 손가락이 움직이면 그냥 끌기
+      if (hold && Math.hypot(x - hold.x, y - hold.y) > HOLD_SLOP) { clearTimeout(hold.t); decorDrag.hold = null; }
       const d = decor.find((o) => o.id === decorDrag.id), h = d ? decorDims(d.shape, d.k).h : 0;
       [decorDrag.x, decorDrag.bottom] = DD.clampDrag(h, geomNow(), x - decorDrag.dx, y - decorDrag.dy);
       return;
@@ -4482,6 +4556,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
   function endPress(e) {
     if (decorDrag && e.pointerId === decorDrag.pointerId) { // 놓은 자리를 면·비율로 바꿔 알린다(저장은 호스트)
+      if (decorDrag.hold) clearTimeout(decorDrag.hold.t);
       const d = decor.find((o) => o.id === decorDrag.id);
       if (d) {
         const spot = spotOf(decorDrag.x, decorDrag.bottom, decorDims(d.shape, d.k).h);
@@ -4496,13 +4571,17 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (press.grabbing) { press.el.classList.remove("dragging"); release(); emit("drop"); } else tap();
     press = null;
   }
-  // 우클릭: 놓아 둔 물건이면 바로 치우지 않고, 호스트가 그 오른쪽 위에 '정리' 버튼을 띄우게 자리를 알린다.
-  // 그 밖에선 기본 메뉴를 막지 않는다
+  // 우클릭(또는 터치로 꾹 누르기): 놓아 둔 물건이면 바로 치우지 않고, 호스트가 그 오른쪽 위에 '정리' 버튼을 띄우게
+  // 자리를 알린다. 그 밖에선 기본 메뉴를 막지 않는다
+  const HOLD_MS = 500, HOLD_SLOP = 8;
+  function decorMenuOf(d) {
+    if (!d || !d.box) return false;
+    emit("decorMenu", { id: d.id, x: d.box.x + d.box.w, y: d.box.y });
+    return true;
+  }
   function onContextMenu(e) {
-    const [x, y] = toStage(e), id = hitDecor(x, y), d = id && decor.find((o) => o.id === id);
-    if (!d || !d.box) return;
-    e.preventDefault();
-    emit("decorMenu", { id, x: d.box.x + d.box.w, y: d.box.y });
+    const [x, y] = toStage(e), id = hitDecor(x, y);
+    if (decorMenuOf(id && decor.find((o) => o.id === id))) e.preventDefault();
   }
   canvas.addEventListener("pointerdown", onPointerDown);
   canvas.addEventListener("pointermove", onPointerMove);
@@ -4610,22 +4689,50 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   wanderOn = options.wander !== false && !reduced.matches;
   for (let i = 0; i < 30; i++) step(1 / 120); // 첫 화면부터 자연스럽게
 
-  let last = performance.now(), acc = 0, raf = 0, paused = false, minFrameMs = 0, lastDraw = 0;
-  const DT = 1 / 120;
+  /* ---------- 프레임 정책(docs/neko-perf.md §3) ----------
+     기본 30fps 상한(maxFps, 0 이면 화면 주사율 그대로). 졸거나 누워 있으면(움직이지 않는 동안) 15, 잡고 끄는 동안은 60.
+     상한이 있으면 rAF 를 매번 돌며 거르지 않고 setTimeout 으로 기다렸다가 rAF 한 번 — 기다리는 동안은 아무 일도 안 한다.
+     멈추거나(pause) 창이 숨으면(hidden) 다음 프레임을 아예 안 건다(예전엔 멈춘 엔진도 rAF 를 계속 돌았다).
+     '바뀐 게 없는 프레임 건너뛰기'는 안 한다: 숨쉬기·눈 깜빡·꼬리가 늘 조금씩 움직여 거를 프레임이 거의 없다 — 대신 졸 때 15 */
+  let last = performance.now(), acc = 0, raf = 0, timer = 0, paused = false, lastDraw = 0, frames = 0;
+  let maxFps = Number.isFinite(options.maxFps) ? Math.max(0, options.maxFps) : 30;
+  const DT = 1 / 120, SLEEP_FPS = 15, HELD_FPS = 60;
+  const BUSY = new Set(["walk", "air", "fall", "crouch", "land", "shake", "grabbed"]);
+  function fpsNow() {
+    const c = cat;
+    if (c.mode === "grabbed" || press) return maxFps ? Math.max(maxFps, HELD_FPS) : 0;
+    if (maxFps && (c.mood === "sleepy" || c.mode === "lie") && !BUSY.has(c.mode)) return Math.min(maxFps, SLEEP_FPS);
+    return maxFps;
+  }
+  function schedule() {
+    if (raf || timer || paused) return;
+    // rAF 는 기다린 뒤 다음 화면 갱신(최대 한 프레임 뒤)에 오니 반 프레임(8ms) 일찍 깬다
+    const fps = fpsNow(), wait = fps > 0 ? 1000 / fps - (performance.now() - lastDraw) - 8 : 0;
+    // 반 프레임 넘게 기다릴 때만 타이머(60 상한이면 rAF 바로 — 타이머를 끼우면 60 을 그대로 그리며 깨움만 늘었다, §5.2)
+    if (wait > 8) timer = setTimeout(() => { timer = 0; raf = requestAnimationFrame(frame); }, wait);
+    else raf = requestAnimationFrame(frame);
+  }
+  /** 기다리는 중이면 지금 상한으로 다시(잡기 시작·상한 바뀜 — 졸 때 15 로 기다리다 잡혀도 바로 60) */
+  function kick() { if (timer) { clearTimeout(timer); timer = 0; } schedule(); }
   function frame(now) {
-    raf = requestAnimationFrame(frame);
-    if (paused || document.hidden) { last = now; return; }
-    if (minFrameMs && now - lastDraw < minFrameMs - 1) return;
-    lastDraw = now;
+    raf = 0;
+    if (paused) return;
+    if (document.hidden) { last = now; return; } // 다시 보이면 visibilitychange 가 건다
+    lastDraw = performance.now(); frames++; // rAF 시각(now)은 화면 갱신 시각이라 실제보다 이를 수 있다
     acc += Math.min(0.1, (now - last) / 1000); last = now;
     try {
       while (acc >= DT) { step(DT); acc -= DT; }
       draw();
     } catch (err) { // 엔진 예외: 멈추고 알린다(앱 전체를 깨뜨리지 않게)
       paused = true; console.error("[neko]", err); emit("error", err);
+      return;
     }
+    schedule();
   }
-  raf = requestAnimationFrame(frame);
+  const onVisible = () => { if (!document.hidden) { last = performance.now(); schedule(); } };
+  document.addEventListener("visibilitychange", onVisible);
+  canvas.addEventListener("pointerdown", kick, true);
+  schedule();
 
   const on = (ev, fn) => { let s = listeners.get(ev); if (!s) listeners.set(ev, (s = new Set())); s.add(fn); return () => s.delete(fn); };
   return {
@@ -4672,11 +4779,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     setRig(onOff) { showRig = !!onOff; },
     // 환경
     setTheme(t) { if (t && "dark" in t) { themeDark = !!t.dark; readTheme(); } },
-    setMaxFps(fps) { minFrameMs = fps > 0 ? 1000 / fps : 0; },
+    /** 프레임 상한(0 이면 화면 주사율). 졸 때 15·잡힐 때 60 은 엔진이 알아서 */
+    setMaxFps(fps) { maxFps = Number.isFinite(fps) && fps > 0 ? fps : 0; kick(); },
     resize,
-    pause() { paused = true; },
-    resume() { if (paused) { paused = false; last = performance.now(); } },
-    destroy() { cancelAnimationFrame(raf); paused = true; listeners.clear(); ro.disconnect(); window.removeEventListener("resize", resize); dprMq?.removeEventListener("change", onDpr); },
+    pause() { paused = true; cancelAnimationFrame(raf); clearTimeout(timer); raf = 0; timer = 0; },
+    resume() { if (paused) { paused = false; last = performance.now(); schedule(); } },
+    destroy() {
+      cancelAnimationFrame(raf); clearTimeout(timer); raf = 0; timer = 0; paused = true; listeners.clear(); ro.disconnect();
+      window.removeEventListener("resize", resize); dprMq?.removeEventListener("change", onDpr); document.removeEventListener("visibilitychange", onVisible);
+    },
     // 화면 모드(docs/neko-screen-mode.md §9): E2 크기 고정 · E3 바닥
     setScale(v) { FIXED_S = Number.isFinite(v) ? clamp(v, 0.35, 1.4) : null; resize(); },
     setGround(y) { GROUND_Y = Number.isFinite(y) ? y : null; resize(); },
@@ -4687,6 +4798,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     get towerOk() { return towerOk(); },
     towerWhy,
     /** 타이핑 쉼(다른 앱에서 타이핑을 잠깐 멈춤). 타이핑일 때만 듣고, 활동이 바뀌면 저절로 꺼진다 */
+    setRoomWindow,
     setRest(on) { if (cat.act && cat.act.key === "typing") cat.act.rest = !!on; },
     hit: hitCat,
     // 입에 물기(docs/neko-gifts.md §6)
@@ -4721,11 +4833,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     jump, walkTo, boing,
     // 시험용
     get cat() { return cat; },
-    get S() { return S; }, get floorY() { return floorY; }, get W() { return W; },
+    get S() { return S; }, get floorY() { return floorY; }, get W() { return W; }, get H() { return H; },
     coat: (seed) => { cat.seed = seed >>> 0; appearance.seed = cat.seed; generateCoat(); return cat.coatTex.grade; },
     draw, defineActivity,
     get activities() { return [...ACTIVITIES.keys()]; },
     get leftovers() { return leftovers.length; },
+    get frames() { return frames; },
     step: (n) => { for (let i = 0; i < n; i++) step(DT); },
     debug: { bodyWorld, legSamples, tailSamples, L2W, H2W }, // 회귀 검사용(qa/neko)
   };

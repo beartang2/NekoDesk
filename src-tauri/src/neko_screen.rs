@@ -30,6 +30,12 @@ const LABEL: &str = "neko-screen";
 const TICK: Duration = Duration::from_millis(33);
 /// 이만큼(TICK 의 배수, 2초)마다 화면 크기·멈춤·전체화면 영상을 본다.
 const SLOW_TICKS: u32 = 60;
+/// 커서가 고양이·선물에서 멀면 이 간격으로만 읽고 화면 창엔 커서를 안 보낸다(CPU, docs/neko-perf.md §3 #4).
+const FAR_TICK: Duration = Duration::from_millis(100);
+/// 커서가 고양이(화면 창이 알린 자리)에서 이만큼(pt) 안이면 근처 — 30Hz 로 읽어 화면 창이 hit·쓰다듬기를 본다.
+const NEAR_CAT: f64 = 300.0;
+/// 선물 칸에서 이만큼 안이면 근처(올리자마자 눌러도 받게).
+const NEAR_GIFT: f64 = 120.0;
 /// 멈췄거나 숨긴 동안은 커서를 안 읽고 이 간격으로 멈춤 조건만 본다.
 const SLOW: Duration = Duration::from_secs(2);
 /// 화면 창이 '고양이 위'라고 마지막으로 알린 뒤 이만큼 지나면 클릭을 다시 흘린다. 화면 창이
@@ -623,8 +629,8 @@ fn poll(app: AppHandle) {
             survey(&app);
             watch_front(&app);
         }
+        let near = active && follow(&app, &mut sent, &mut away_sent);
         if active {
-            follow(&app, &mut sent, &mut away_sent);
             perch_tick(&app);
         } else {
             sent = None;
@@ -633,17 +639,24 @@ fn poll(app: AppHandle) {
             let _ = reveal(&app);
         }
         tick = tick.wrapping_add(1);
-        std::thread::sleep(if active { TICK } else { SLOW });
+        std::thread::sleep(if !active { SLOW } else if near { TICK } else { FAR_TICK });
     }
 }
 
 /// 커서를 화면 창에 보내고 클릭 통과를 맞춘다(고양이 창·선물 창). 커서가 다른 모니터면 고양이를 잡고 끄는
 /// 중엔 창을 그리로 옮기고, 아니면 한동안 머문 뒤 그쪽을 알린다(`neko-screen-away`).
-fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<Side>) {
-    let Some(win) = app.get_webview_window(LABEL) else { return };
-    let Ok(Some(p)) = on_main(app, || unsafe { macos::probe() }) else { return };
-    let Ok(mut st) = STATE.lock() else { return };
-    let Some(cur) = pick(&st.screens, st.at) else { return };
+/// 커서가 고양이나 선물 근처인가(이때만 30Hz). `cat`·`gifts` 는 전역 좌표. 고양이 자리를 아직 모르면 근처로 본다.
+fn cursor_near(mouse: [f64; 2], cat: Option<[f64; 2]>, mut gifts: impl Iterator<Item = [f64; 4]>) -> bool {
+    cat.map_or(true, |c| (c[0] - mouse[0]).hypot(c[1] - mouse[1]) < NEAR_CAT)
+        || gifts.any(|r| inside([r[0] - NEAR_GIFT, r[1] - NEAR_GIFT, r[2] + 2.0 * NEAR_GIFT, r[3] + 2.0 * NEAR_GIFT], mouse))
+}
+
+/// 반환: 다음에도 30Hz 로 읽을까(커서가 고양이·선물 근처거나 누르는·잡는 중).
+fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<Side>) -> bool {
+    let Some(win) = app.get_webview_window(LABEL) else { return true };
+    let Ok(Some(p)) = on_main(app, || unsafe { macos::probe() }) else { return true };
+    let Ok(mut st) = STATE.lock() else { return true };
+    let Some(cur) = pick(&st.screens, st.at) else { return true };
     // 누른 순간: 그 누름을 받지 않은 창(다른 데 누름)은 띄운 메뉴를 닫는다
     if p.down && !st.was_down {
         let took = if st.catching { Some(LABEL.to_string()) } else { st.decor_catching.clone() };
@@ -652,14 +665,21 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
     st.was_down = p.down;
     (st.grabbing, st.grab_cat) = grab_step(p.down, st.catching, st.grabbing, st.grab_cat, st.catch_cat);
     st.decor_grab = decor_grab_step(p.down, st.decor_grab.take(), st.decor_catching.clone());
-    // 선물 창에서 선물을 끄는 동안 고양이 창은 커서를 못 본다 — 끌던 선물로 고양이를 비벼도 쓰다듬기가 아니다
     let [ox, oy, ..] = cur.rect;
-    let cursor = (st.decor_grab.is_none() && inside(cur.rect, p.mouse)).then(|| [p.mouse[0] - ox, p.mouse[1] - oy]);
+    let under = st.screens.iter().find(|s| inside(s.rect, p.mouse)).copied();
+    // 고양이·선물에서 멀면 화면 창엔 커서를 안 보내고(hit·쓰다듬기 없음) 10Hz 로만 읽는다. 누르거나 잡는 중이면 늘 근처
+    let busy = p.down || st.grabbing || st.catching || st.decor_grab.is_some() || st.decor_catching.is_some();
+    let gifts = under.into_iter().flat_map(|s| {
+        let label = decor_label(&s.id);
+        st.boxes.iter().filter(move |(l, _)| *l == label).flat_map(move |(_, b)| b.iter().map(move |r| [s.rect[0] + r[0], s.rect[1] + r[1], r[2], r[3]]))
+    });
+    let near = busy || cursor_near(p.mouse, st.cat_at.map(|c| [ox + c[0], oy + c[1]]), gifts);
+    // 선물 창에서 선물을 끄는 동안 고양이 창은 커서를 못 본다 — 끌던 선물로 고양이를 비벼도 쓰다듬기가 아니다
+    let cursor = (near && st.decor_grab.is_none() && inside(cur.rect, p.mouse)).then(|| [p.mouse[0] - ox, p.mouse[1] - oy]);
     if cursor != *sent {
         *sent = cursor;
         let _ = app.emit_to(LABEL, "neko-screen-cursor", cursor);
     }
-    let under = st.screens.iter().find(|s| inside(s.rect, p.mouse)).copied();
     let mut other = if inside(cur.rect, p.mouse) { None } else { under };
     // 고양이를 끄는 중: 고양이(목덜미)가 다른 모니터에 들어가면 창을 옮긴다 — 경계에서 건너가 튀지 않는다
     if st.grabbing && st.grab_cat {
@@ -667,7 +687,7 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
         if let Some(to) = st.screens.iter().find(|s| s.rect != cur.rect && inside(s.rect, at)).copied() {
             drop(st);
             move_to(app, &win, to, drag_shift(cur.rect, to.rect));
-            return;
+            return true;
         }
     }
     // 마당 선물을 끄는 중(고양이 창 = 엔진이 잡은 선물, 아니면 선물 창): 선물은 그 창의 모니터 끝에서 멈추고, 고양이도
@@ -720,6 +740,7 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
         }
         st.decor_catching = target;
     }
+    near
 }
 
 /// 누름을 받지 않은 마당 창들(고양이 창·선물 창)에 다른 데를 눌렀다고 알린다.
@@ -1259,6 +1280,15 @@ mod tests {
         let stale = Some(([1500.0, 300.0], Instant::now() - Duration::from_secs(1)));
         assert_eq!(drag_point(stale, [0.0, 0.0], [1700.0, 50.0]), [1700.0, 50.0]);
         assert_eq!(drag_point(None, [0.0, 0.0], [1700.0, 50.0]), [1700.0, 50.0]);
+    }
+
+    #[test]
+    fn reads_fast_only_near_the_cat_or_a_gift() {
+        let gift = [[1000.0, 800.0, 40.0, 40.0]];
+        assert!(cursor_near([500.0, 500.0], Some([600.0, 600.0]), gift.into_iter())); // 고양이 141pt
+        assert!(!cursor_near([100.0, 100.0], Some([600.0, 600.0]), gift.into_iter()));
+        assert!(cursor_near([1100.0, 900.0], Some([100.0, 100.0]), gift.into_iter())); // 선물 120pt 안
+        assert!(cursor_near([0.0, 0.0], None, std::iter::empty())); // 고양이 자리를 모르면 근처로
     }
 
     #[test]

@@ -26,6 +26,8 @@ export interface Session {
   createdAt?: number;
   /** 수동 요약(상단 요약 바). 예전엔 localStorage nekodesk_compact_<id> */
   summary?: string;
+  /** 보고 있지 않을 때 답이 왔다(목록의 점). 열면 지운다 */
+  unread?: boolean;
 }
 
 const SESSIONS_KEY = "nekodesk_sessions";
@@ -62,6 +64,8 @@ interface SessionStore {
   setSessions: (updater: SessionsUpdater) => void;
   /** 수동 요약을 적고 그 세션의 DB 메시지를 지운다 */
   compact: (id: string, summary: string) => Promise<void>;
+  /** 답이 끝났다. 열려 있지 않은 세션이면 새 답 점을 단다 */
+  replied: (id: string) => void;
 }
 
 const COMPACT_KEY = (id: string) => `nekodesk_compact_${id}`;
@@ -75,6 +79,9 @@ function persistDiff(prev: Session[], next: Session[]) {
   }
 }
 
+/** 읽은 때는 DB 에만(앱을 다시 켜도 점이 남게). 실패하면 다음에 열 때 다시 적힌다 */
+const markRead = (id: string) => void sessionApi.read(id).catch(() => {});
+
 /** 사용자가 지운 세션: 메시지·요약과 함께 DB 에서 지운다(다른 기기에서도 지워진다). 목록에서 빼는 건 부른 쪽이 */
 export const removeSession = (id: string) => sessionApi.delete(id);
 
@@ -84,8 +91,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: initial.sessions,
   activeId: initial.activeId,
   setActiveId: (id) => {
+    const prev = get().activeId;
     localStorage.setItem(ACTIVE_SESSION_KEY, id);
-    set({ activeId: id });
+    // 떠나는 세션도 읽음으로 — 열어 둔 사이 온 답은 본 것이다
+    if (prev !== id) markRead(prev);
+    markRead(id);
+    set({ activeId: id, sessions: get().sessions.map((s) => (s.id === id && s.unread ? { ...s, unread: false } : s)) });
+  },
+  replied: (id) => {
+    if (id === get().activeId) return markRead(id);
+    set({ sessions: get().sessions.map((s) => (s.id === id ? { ...s, unread: true } : s)) });
   },
   setSessions: (updater) => {
     const next = typeof updater === "function" ? updater(get().sessions) : updater;
@@ -116,7 +131,10 @@ function applyRows(rows: SessionRow[]) {
     date: old.get(r.id)?.date ?? dateOf(r.created_at),
     createdAt: r.created_at,
     ...(r.summary ? { summary: r.summary } : {}),
+    // 열려 있는 세션엔 점을 달지 않는다(다른 기기에서 온 답도 지금 보고 있다)
+    ...(r.unread && r.id !== activeId ? { unread: true } : {}),
   }));
+  if (rows.some((r) => r.unread && r.id === activeId)) markRead(activeId);
   if (!sessions.length) {
     const fresh = makeSession();
     sessions = [fresh];

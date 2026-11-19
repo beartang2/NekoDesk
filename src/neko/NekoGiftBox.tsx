@@ -68,7 +68,7 @@ function GiftScale({ g, at }: { g: NekoGift; at: NekoPlacement }) {
   };
   return (
     <div className="neko-gifts__scale">
-      {scaleCapped({ ...g, scale: s }, at) && <span className="neko-gifts__cap">{PLACE_NAME[at]}에선 이보다 크게 안 보여</span>}
+      {scaleCapped({ ...g, scale: s }, at) && <span className="neko-gifts__cap">{PLACE_NAME[at]}에서는 이보다 크게 보이지 않습니다.</span>}
       <div className="neko-gifts__scale-row">
         <span>{fmtScale(s)}</span>
         {s !== 1 && <button type="button" className="neko-gifts__reset" onClick={() => commit(1)}>원래 크기</button>}
@@ -105,7 +105,7 @@ export function NekoGiftBox() {
         <span className="neko-gifts__count">{count}</span>
         {(count > 0 || import.meta.env.DEV) && <button type="button" className="settings-btn neko-gifts__open" onClick={open}>열기</button>}
       </div>
-      {count === 0 && <p className="settings-section__desc">아직 받은 선물이 없어요. 네코가 산책에서 주워 오면 여기에 쌓여요.</p>}
+      {count === 0 && <p className="settings-section__desc">받은 선물이 없습니다. 네코가 산책에서 주워 오면 여기에 모입니다.</p>}
     </div>
   );
 }
@@ -126,8 +126,8 @@ export function NekoGiftPanel() {
       <div className="neko-cz__body">
         {import.meta.env.DEV && <GiftLab />}
         <p className="settings-section__desc">
-          선물 {gifts.length}개. 지금 네코는 {PLACE_NAME[here]}에 있어. 놓기를 누르면 {PLACE_NAME[here]} 바닥에 놓이고, 놓인 선물은 칸에서 크기를 바꿀 수 있어.
-          {here !== "screen" && " 무대에선 끌어 옮기고(높이 두면 벽에 걸려), 우클릭하면 치울 수 있어."}
+          선물 {gifts.length}개. 지금 네코는 {PLACE_NAME[here]}에 있습니다. 놓기를 누르면 {PLACE_NAME[here]} 바닥에 놓이고, 놓인 선물은 칸에서 크기를 바꿀 수 있습니다.
+          {here !== "screen" && ` ${PLACE_NAME[here]}에서 끌어 옮길 수 있고, 높이 두면 벽에 걸립니다. 우클릭하면 치울 수 있습니다.`}
         </p>
         <ul className="neko-gifts__grid">
           {[...gifts].reverse().map((g) => {
@@ -136,7 +136,7 @@ export function NekoGiftPanel() {
               <li
                 key={g.id}
                 className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`}
-                title={`${g.body || g.title}\n${DAY.format(new Date(g.at))}에 받음${g.placed ? ` · ${PLACE_NAME[g.placed.at]}에 놓여 있어` : ""}`}
+                title={`${g.body || g.title}\n${DAY.format(new Date(g.at))}에 받음${g.placed ? ` · ${PLACE_NAME[g.placed.at]}에 놓여 있음` : ""}`}
               >
                 <button type="button" className="neko-gifts__drop" aria-label={`${g.title} 버리기`} title="버리기" onClick={() => setDrop(g)}>
                   <Trash2 size={12} />
@@ -158,12 +158,12 @@ export function NekoGiftPanel() {
           <AlertDialog.Overlay className="update-overlay">
             <AlertDialog.Content className="update-dialog">
               <AlertDialog.Title className="update-dialog__title">
-                {drop && `'${drop.title}'${josa(drop.title, "을/를").slice(drop.title.length)} 버릴까?`}
+                {drop && `'${drop.title}'${josa(drop.title, "을/를").slice(drop.title.length)} 버리시겠습니까?`}
               </AlertDialog.Title>
-              <AlertDialog.Description className="update-dialog__sub">되돌릴 수 없어.</AlertDialog.Description>
+              <AlertDialog.Description className="update-dialog__sub">되돌릴 수 없습니다.</AlertDialog.Description>
               <div className="update-dialog__actions">
                 <AlertDialog.Cancel className="update-dialog__btn">취소</AlertDialog.Cancel>
-                <AlertDialog.Action className="update-dialog__btn neko-gifts__drop-ok" onClick={() => drop && useNekoGifts.getState().remove(drop.id)}>
+                <AlertDialog.Action className="update-dialog__btn update-dialog__btn--danger" onClick={() => drop && useNekoGifts.getState().remove(drop.id)}>
                   버리기
                 </AlertDialog.Action>
               </div>

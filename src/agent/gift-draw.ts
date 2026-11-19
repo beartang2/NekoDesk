@@ -60,6 +60,7 @@ const DRAW_TOOL = {
           enum: PLAYS,
           description: "고양이가 그걸로 노는 방식. roll 굴리기(동근 것)·bat 앞발로 톡·sniff 냄새 맡기·sit_on 위에 앉기(납작한 것)·carry 물고 옮기기",
         },
+        gift_glow: { type: "string", enum: GIFT_COLORS, description: "스스로 빛나는 물건(등불·반딧불 병·별 조각)일 때만 빛 색. 아니면 빼" },
       },
       required: ["gift_shape"],
     },
@@ -196,11 +197,13 @@ export async function drawGift(title: string, about = "", signal?: AbortSignal):
   ).catch(() => null);
   const p = turn?.toolCalls.find((c) => c.name === "gift_draw")?.params;
   if (!p?.gift_shape || typeof p.gift_shape !== "object") return null;
-  const first = validateShape(p.gift_shape);
+  // 빛(glow)은 모양 칸에 붙인다. 고치기(gift_shape_fix)는 도형만 다시 내니 고친 모양에도 다시 붙인다
+  const glow = p.gift_glow;
+  const first = validateShape({ ...p.gift_shape, glow });
   const fixed = signal?.aborted ? null : await refineShape(title, first, signal);
   return {
     first,
-    shape: fixed ? validateShape(fixed) : first,
+    shape: fixed ? validateShape({ ...fixed, glow }) : first,
     ...(typeof p.gift_size === "string" ? { size: p.gift_size } : {}),
     ...(typeof p.gift_play === "string" ? { play: p.gift_play } : {}),
   };

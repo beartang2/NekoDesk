@@ -7,7 +7,7 @@
  */
 import { validateShape, shapeBounds, drawShape } from "./gift-shape.js";
 
-export const DECOR_SIZE = 64;  // 한 변(S 단위). 예전 32 는 너무 작았다(사용자) — 기본을 2배로, 예전 크기는 이제 가장 작게(배율 0.5)
+export const DECOR_SIZE = 96;  // 한 변(S 단위). 32 → 64 → 96: 사용자가 두 번 키웠다(아직 작다). 배율 0.5~3 은 이 기준
 export const WALL_GAP = 18;    // 바닥에서 이만큼(S) 넘게 띄워 놓으면 벽에 건다
 /** 물건 크기(실제 크기를 모델이 고름). 큰 것도 고양이 몸(길이 약 100)보다 작게 */
 export const SIZE_K = { small: 0.6, medium: 1, large: 1.45 };

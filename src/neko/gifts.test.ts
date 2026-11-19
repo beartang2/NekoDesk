@@ -113,7 +113,8 @@ describe("선물함", () => {
     const g = useNekoGifts.getState().gifts[0];
     expect(g.scale).toBe(3); // 3 까지
     expect(scaleCapped(g, "sidebar")).toBe(true);  // 큰 × 3 은 방 높이의 80% 를 넘는다
-    expect(scaleCapped(g, "screen")).toBe(false); // 마당은 고양이 키 3배까지라 안 걸린다
+    expect(scaleCapped(g, "screen")).toBe(true);  // 큰 × 3(한 변 418)은 마당 고양이 키 3배(300)도 넘는다
+    expect(scaleCapped({ ...g, scale: 1 }, "screen")).toBe(false);
   });
 
   it("배율: 0.5~3 으로 묶고 1 이면 칸을 뺀다, 끄는 동안(save=false)은 저장 안 함, 놓으면 저장", async () => {

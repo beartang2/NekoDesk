@@ -17,12 +17,18 @@ pub struct WeatherNow {
     /// 이름으로 찾은 자리. 위치 권한이 없을 때 네코 지도가 이 좌표를 가운데로 쓴다.
     pub lat: f64,
     pub lon: f64,
+    /// WMO 날씨 코드(방 창문이 맑음·구름·비·눈·천둥·안개로 나눠 그린다). 모르면 -1
+    pub code: i64,
+    pub is_day: bool,
+    /// 오늘 해 뜨고 지는 때(유닉스 초). 창밖 하늘색이 따른다. 극지방처럼 없으면 None
+    pub sunrise: Option<i64>,
+    pub sunset: Option<i64>,
 }
 
 pub async fn now(location: &str) -> Result<WeatherNow, AppError> {
     let (lat, lon, place) = geocode(location).await?;
     let url = format!(
-        "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code,is_day&timezone=auto"
+        "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code,is_day&daily=sunrise,sunset&forecast_days=1&timeformat=unixtime&timezone=auto"
     );
     let w: serde_json::Value = client().get(&url).send().await?.json().await?;
     let cur = &w["current"];
@@ -37,6 +43,10 @@ pub async fn now(location: &str) -> Result<WeatherNow, AppError> {
         timezone: w["timezone"].as_str().unwrap_or("").to_string(),
         lat,
         lon,
+        code,
+        is_day: !night,
+        sunrise: w["daily"]["sunrise"][0].as_i64(),
+        sunset: w["daily"]["sunset"][0].as_i64(),
     })
 }
 

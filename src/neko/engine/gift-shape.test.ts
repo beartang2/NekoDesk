@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_SHAPE, validateShape } from "./gift-shape.js";
+import { DEFAULT_SHAPE, drawShape, validateShape } from "./gift-shape.js";
 
 describe("validateShape", () => {
   it("멀쩡한 모양은 그대로 둔다", () => {
@@ -54,5 +54,34 @@ describe("validateShape", () => {
     expect(validateShape(null)).toBe(DEFAULT_SHAPE);
     expect(validateShape({ parts: "x" })).toBe(DEFAULT_SHAPE);
     expect(validateShape({ parts: [{ t: "dot", x: 0, y: -2, c: "red" }] })).toBe(DEFAULT_SHAPE);
+  });
+});
+
+describe("빛(glow)", () => {
+  const lamp = { parts: [{ t: "rrect", x: 0, y: -8, w: 10, h: 14, rad: 2, rot: 0, c: "orange" }] };
+
+  it("팔레트 이름이면 남기고, 잘못된 색·프로토타입 이름·글자가 아닌 값은 버린다(회색으로 바꾸지 않는다)", () => {
+    expect(validateShape({ ...lamp, glow: "yellow.light" }).glow).toBe("yellow.light");
+    expect(validateShape({ ...lamp, glow: "gold" }).glow).toBe("gold");
+    for (const glow of ["#ff0", "neon", "yellow.bright", "red.dark.x", "constructor", "toString", 3, null, {}]) {
+      expect(validateShape({ ...lamp, glow })).not.toHaveProperty("glow");
+    }
+    expect(validateShape(lamp)).not.toHaveProperty("glow");
+  });
+
+  it("빛나는 물건은 둘레에 빛무리(radial gradient)를 도형보다 먼저 그리고, 아니면 안 그린다", () => {
+    const log: string[] = [];
+    const grad = { addColorStop: () => {} };
+    const ctx = new Proxy({} as Record<string, unknown>, {
+      get: (_, k: string) => (k === "createRadialGradient" ? () => { log.push("radial"); return grad; }
+        : k === "createLinearGradient" ? () => { log.push("linear"); return grad; }
+        : () => {}),
+      set: () => true,
+    }) as unknown as CanvasRenderingContext2D;
+    drawShape(ctx, validateShape({ ...lamp, glow: "yellow" }), 50, 50, 2);
+    expect(log).toEqual(["radial", "linear"]);
+    log.length = 0;
+    drawShape(ctx, validateShape(lamp), 50, 50, 2);
+    expect(log).toEqual(["linear"]);
   });
 });

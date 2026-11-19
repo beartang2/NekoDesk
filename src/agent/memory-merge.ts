@@ -29,17 +29,19 @@ function bigrams(s: string): Set<string> {
   return out;
 }
 
+/** 짧은 쪽 조각 중 몇이 겹치나(0~1). */
+function overlap(mine: Set<string>, theirs: Set<string>): number {
+  let shared = 0;
+  for (const b of theirs) if (mine.has(b)) shared++;
+  return shared / Math.max(1, Math.min(mine.size, theirs.size));
+}
+
 /** 두 글자 조각이 겹치는 정도가 큰 순으로 후보. 하나도 안 겹치면 뺀다. */
 export function similarMemories(content: string, all: Memory[], limit = CANDIDATES): Memory[] {
   const mine = bigrams(content);
   return all
     .filter((m) => m.content !== content)
-    .map((m) => {
-      const theirs = bigrams(m.content);
-      let shared = 0;
-      for (const b of theirs) if (mine.has(b)) shared++;
-      return { m, score: shared / Math.max(1, Math.min(mine.size, theirs.size)) };
-    })
+    .map((m) => ({ m, score: overlap(mine, bigrams(m.content)) }))
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
@@ -57,9 +59,56 @@ async function replaces(older: string, newer: string): Promise<boolean> {
   return answer.trim().endsWith("대체");
 }
 
-/** 저장하고, 새 기억이 대신하게 된 예전 기억은 지운다. 판정이 안 되면 그냥 저장만. */
-export async function saveMemory(content: string, kind: string): Promise<Memory & { replaced: string[] }> {
+/*
+ * 도구로 바로 찾아볼 수 있는 건(일정·할 일·파일·설정·기기 상태) 기억하지 않는다. "일정 등록해 줘" 한 내용이
+ * 취향 기억으로 남으면 일정이 바뀌거나 지워져도 기억은 옛 것을 떠올린다. 시스템 프롬프트를 늘리지 않고
+ * 저장할 때 생각 끈 작은 판정으로 거른다. 판정이 안 되면(꺼짐·시간 초과) 저장한다 — 잃는 쪽으로 틀리지 않게.
+ */
+const KEEP_SYSTEM =
+  '기억으로 남길지 정해. 일정·할 일·미리 알림·파일·앱 설정·지금 기기 상태처럼 도구로 바로 찾아볼 수 있는 거면 "안함", ' +
+  '취향·습관·이름·관계·진행 중인 일처럼 찾아볼 수 없는 거면 "저장"으로만 답해.';
+const KEEP_GRAMMAR = 'root ::= "저장" | "안함"';
+const KEEP_TIMEOUT_MS = 8000;
+export const SKIP_LOOKUP = "도구로 찾아볼 수 있는 건 기억하지 않아";
+
+/** 방금 만든 일정·할 일. 같은 내용을 기억하려 하면 판정 없이 막는다. */
+const RECENT_MS = 30 * 60_000;
+const created: { at: number; grams: Set<string> }[] = [];
+export function noteCreated(text: string): void {
+  const grams = bigrams(text);
+  if (grams.size >= 2) created.push({ at: Date.now(), grams });
+  if (created.length > 20) created.shift();
+}
+// ponytail: 대화 구분 없이 30분 안에 만든 것. 다른 창에서 같은 걸 기억하려 해도 막히지만 그것도 찾아볼 수 있는 내용이다
+function justCreated(text: string): boolean {
+  const mine = bigrams(text), since = Date.now() - RECENT_MS;
+  return created.some((c) => c.at >= since && overlap(mine, c.grams) >= 0.6);
+}
+
+export async function lookupable(text: string): Promise<boolean> {
+  const answer = await fetchCompletion(
+    [
+      { role: "system", content: KEEP_SYSTEM },
+      { role: "user", content: text },
+    ],
+    { max_tokens: 8, temperature: 0, grammar: KEEP_GRAMMAR },
+    undefined,
+    AbortSignal.timeout(KEEP_TIMEOUT_MS),
+  );
+  return answer.trim().endsWith("안함");
+}
+
+export type SaveResult = (Memory & { replaced: string[] }) | { skipped: string; content: string };
+
+/**
+ * 저장하고, 새 기억이 대신하게 된 예전 기억은 지운다. 판정이 안 되면 그냥 저장만.
+ * 사용자 기억이 도구로 찾아볼 수 있는 거면 저장하지 않고 skipped 를 돌려준다(산책 기억은 거르지 않는다).
+ */
+export async function saveMemory(content: string, kind: string): Promise<SaveResult> {
   const text = content.trim();
+  if (kind !== "neko" && (justCreated(text) || (await lookupable(text).catch(() => false)))) {
+    return { skipped: SKIP_LOOKUP, content: text };
+  }
   const stale: Memory[] = [];
   try {
     // 산책 기억(neko)은 웹에서 온 것이라 사용자 기억을 대신하지 못하게 같은 쪽끼리만 견준다.

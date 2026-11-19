@@ -16,7 +16,7 @@ import { getFile, getStoredFileNames } from "./file-store";
 import { drawTraceMap, traceLineArt } from "./line-trace";
 import { useMessageStore } from "../stores/messageStore";
 import { buildSkillIndex, readKnowledge } from "./knowledge";
-import { saveMemory } from "./memory-merge";
+import { noteCreated, saveMemory, type SaveResult } from "./memory-merge";
 import { claudeWebSearch } from "./llm-transport";
 import { timeZone } from "../lib/time";
 import type {
@@ -180,11 +180,11 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: false,
     changes: true,
-    execute: async (p) =>
-      todosApi.add(
-        p["content"] as string,
-        (p["due_at"] as string | null | undefined) ?? null
-      ),
+    execute: async (p) => {
+      const todo = await todosApi.add(p["content"] as string, (p["due_at"] as string | null | undefined) ?? null);
+      noteCreated(p["content"] as string);
+      return todo;
+    },
     summarize: (r) => `할 일 추가됨: ${(r as Todo).id}`,
   },
 
@@ -240,8 +240,11 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     },
     readOnly: false,
     changes: true,
-    execute: async (p) =>
-      scheduleApi.add(p["title"] as string, p["start_at"] as string, (p["end_at"] as string | undefined) || null),
+    execute: async (p) => {
+      const ev = await scheduleApi.add(p["title"] as string, p["start_at"] as string, (p["end_at"] as string | undefined) || null);
+      noteCreated(p["title"] as string);
+      return ev;
+    },
     summarize: (r) => `일정 추가됨: ${(r as ScheduleEvent).title}`,
   },
 
@@ -763,7 +766,9 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     changes: true,
     execute: async (p) => saveMemory(p["content"] as string, (p["kind"] as string | undefined) ?? "fact"),
     summarize: (r) => {
-      const { content, replaced } = r as Awaited<ReturnType<typeof saveMemory>>;
+      const res = r as SaveResult;
+      if ("skipped" in res) return `기억 안 함: ${res.skipped} (${res.content})`;
+      const { content, replaced } = res;
       return replaced.length
         ? `기억했어: ${content}\n(예전 기억을 이걸로 바꿨어: ${replaced.join(" / ")})`
         : `기억했어: ${content}`;

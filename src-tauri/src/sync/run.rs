@@ -161,7 +161,7 @@ pub fn sync_enable(db: State<'_, DbState>, on: bool) -> Result<(), AppError> {
     {
         let c = db.0.lock()?;
         if on && state(&c, "device")?.is_none() {
-            return Err(AppError::msg("먼저 서버에 이 맥을 등록하거나 짝 문자열을 붙여넣어줘."));
+            return Err(AppError::msg("먼저 서버에 이 맥을 등록하거나 기기 연결 코드를 붙여넣어 주세요."));
         }
         set_state(&c, "enabled", if on { "1" } else { "0" })?;
     }
@@ -181,7 +181,7 @@ fn check_url(url: &str) -> AppResult<String> {
     if url.starts_with("https://") || local {
         Ok(url)
     } else {
-        Err(AppError::msg("서버 주소는 https:// 로 시작해야 해."))
+        Err(AppError::msg("서버 주소는 https:// 로 시작해야 해요."))
     }
 }
 
@@ -241,7 +241,7 @@ pub async fn sync_pair_make(db: State<'_, DbState>) -> Result<String, AppError> 
 }
 
 fn parse_pairing(s: &str) -> AppResult<(String, String, Key)> {
-    let bad = || AppError::msg("짝 문자열 모양이 아니야. 다시 복사해줘.");
+    let bad = || AppError::msg("기기 연결 코드 형식이 아니에요. 다시 복사해 주세요.");
     let body = s.trim().strip_prefix(PAIR_PREFIX).ok_or_else(bad)?;
     let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(body).map_err(|_| bad())?;
     let p: Pairing = serde_json::from_slice(&raw).map_err(|_| bad())?;
@@ -289,7 +289,7 @@ pub async fn sync_devices(db: State<'_, DbState>) -> Result<Devices, AppError> {
 pub async fn sync_revoke(db: State<'_, DbState>, id: String) -> Result<(), AppError> {
     let srv = registered(&db)?;
     if id == srv.device {
-        return Err(AppError::msg("이 맥은 여기서 못 끊어. 동기화를 끄면 돼."));
+        return Err(AppError::msg("이 맥은 여기서 끊을 수 없어요. 동기화를 끄면 돼요."));
     }
     let _: Value = call(reqwest::Method::DELETE, &srv.url, &format!("/v1/devices/{id}"), Some(&srv.token), &Value::Null).await?;
     Ok(())
@@ -347,6 +347,11 @@ pub fn session_put(db: State<'_, DbState>, id: String, title: String, created_at
 #[tauri::command(async)]
 pub fn session_import(db: State<'_, DbState>, sessions: Vec<SessionRow>) -> Result<(), AppError> {
     super::session_import(&*db.0.lock()?, &sessions)
+}
+
+#[tauri::command(async)]
+pub fn session_read(db: State<'_, DbState>, id: String, at: i64) -> Result<(), AppError> {
+    super::session_read(&*db.0.lock()?, &id, at)
 }
 
 #[tauri::command(async)]

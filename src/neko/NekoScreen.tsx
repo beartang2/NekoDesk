@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { createNeko, type NekoController, type NekoEvents, type NekoMood } from "./engine/neko-engine";
+import { createNeko, type NekoController, type NekoEvents, type NekoMood, type NekoPose } from "./engine/neko-engine";
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { useNekoStore } from "./nekoStore";
 import type { NekoCmd, NekoEvt } from "./remoteNeko";
+import { useKeepInside } from "./keepInside";
 import "./NekoScreen.css";
 
 /**
@@ -30,6 +31,12 @@ interface PerchDebugFrame { wins: PerchDebug[]; perches: Perches }
 
 /** 잡고 끄는 동안은 설정과 상관없이 60. 졸 때는 설정의 절반 */
 const HELD_FPS = 60;
+/** 졸거나 식빵·누워 자는 동안(가만히 있다). 설정 fps 보다 낮을 때만 */
+const REST_FPS = 15;
+/** 쉬는 중이라도 이만큼은 설정 fps 로(창에서 떨어짐·쓰다듬기·활동 바뀜) */
+const WAKE_MS = 2000;
+/** 커서가 이 화면에 없고 잡혀 있지 않으면 이 간격으로만 본다(커서는 Rust 가 고양이 근처일 때만 보낸다) */
+const IDLE_CHECK_MS = 200;
 /** 놓은 뒤 떨어지는 동안은 부드럽게 */
 const FALL_MS = 1500;
 /** 고양이 위에 있는 동안 이 간격으로 Rust 에 다시 알린다(Rust 는 0.25초 안에 소식이 없으면 클릭을 흘린다) */
@@ -58,6 +65,7 @@ export function NekoScreen() {
   // 고양이면 누른 자리에 '숨기기'(마당을 숨긴다 — 이 앱이 맨 앞으로 오면 다시 보인다). 다른 데 누르거나 몇 초 뒤 닫힌다
   const [menu, setMenu] = useState<{ id?: string; x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
+  useKeepInside(menuRef, menu); // 화면 가장자리에서 열어도 창 안에 다 보이게
   // 개발 빌드 캣타워 표시(켰을 때만): 발판(초록)·벽(파랑)·창마다 빠진 까닭을 화면에 그린다
   const [debug, setDebug] = useState<{ wins: PerchDebug[]; p: Perches } | null>(null);
   const debugOn = useRef(false);
@@ -89,10 +97,24 @@ export function NekoScreen() {
     ctrlRef.current = ctrl;
 
     let mood: NekoMood = "idle";
+    let pose: NekoPose = "stand";
     let held = false;
     let fallTimer: ReturnType<typeof setTimeout> | undefined;
     let maxFps: number = useNekoStore.getState().stage.screenFps; // 곧 메인 창 설정값이 온다(neko-screen-fps)
-    const fps = () => ctrl.setMaxFps(held ? HELD_FPS : mood === "sleepy" ? maxFps / 2 : maxFps);
+    // 잡힌 동안 60, 졸거나 식빵·누워 자는 동안 15(CPU, docs/neko-perf.md §3 #4). 쉬는 중이라도 창에서 떨어지거나 쓰다듬거나
+    // 활동이 바뀌면 WAKE_MS 동안은 설정 fps 로 — 움직임이 뚝뚝 끊기지 않게
+    let wakeUntil = 0;
+    let wakeTimer: ReturnType<typeof setTimeout> | undefined;
+    const fps = () => {
+      const resting = (mood === "sleepy" || pose === "loaf" || pose === "lie") && performance.now() >= wakeUntil;
+      ctrl.setMaxFps(held ? HELD_FPS : resting ? Math.min(maxFps, REST_FPS) : maxFps);
+    };
+    const wake = () => {
+      wakeUntil = performance.now() + WAKE_MS;
+      clearTimeout(wakeTimer);
+      wakeTimer = setTimeout(fps, WAKE_MS);
+      fps();
+    };
     fps();
 
     // 커서 → 고양이 위인지
@@ -111,6 +133,7 @@ export function NekoScreen() {
       const [x, y] = cursor ?? [0, 0];
       const o = !active || !cursor ? null : ctrl.hit(x, y) ? "cat" : ctrl.hitDecor(x, y) !== null || overMenu(x, y) ? "other" : null;
       if (o === over && !(o && now - sentAt > CATCH_EVERY_MS)) return;
+      if (o === "cat" && over !== "cat") wake(); // 쓰다듬기 시작
       over = o;
       sentAt = now;
       void invoke("neko_screen_catch", { on: o !== null, cat: o === "cat" }).catch(() => {});
@@ -124,7 +147,6 @@ export function NekoScreen() {
       outAt = now;
       ctrl.walkOut(away);
     };
-    // ponytail: 커서가 이 화면에 있는 동안은 늘 30Hz 로 hit 를 본다. 에너지가 문제면 고양이 둘레에 있을 때만
     // 잡힌 목덜미 자리를 Rust 에 알린다(바뀔 때만, 놓으면 null). 끌어 건너갈 때 창은 커서가 아니라 고양이가 다른 모니터에
     // 들어갈 때 옮긴다 — 빠르게 끌면 고양이가 커서보다 한참 뒤라, 커서 기준이면 고양이가 옛 화면에서 사라져 튀었다
     let heldSent: string | null = null;
@@ -142,6 +164,7 @@ export function NekoScreen() {
       const win = ctrl.perch ? Number(ctrl.perch.split(":")[0]) : null, perch = Number.isFinite(win) ? win : null;
       const moved = !catSent || Math.hypot(at[0] - catSent[0], at[1] - catSent[1]) > CAT_AT_STEP;
       if (!moved && perch === perchSent) return;
+      if (perch !== perchSent) wake(); // 창에 올라타거나 떨어짐
       if (moved) catSent = at;
       perchSent = perch;
       void invoke("neko_screen_cat", { at: moved ? at : null, perch }).catch(() => {});
@@ -154,7 +177,14 @@ export function NekoScreen() {
       towerSent = ok;
       void emitTo("main", "neko-screen-tower", ok).catch(() => {});
     };
-    const timer = setInterval(() => { reportHeld(); reportCat(); reportTower(); if (cursor) check(); else followAway(); }, CHECK_EVERY_MS);
+    // 커서가 이 화면(고양이 근처)에 있거나 잡혀 있으면 30Hz, 아니면 IDLE_CHECK_MS 로만
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      reportHeld(); reportCat(); reportTower();
+      if (cursor) check(); else followAway();
+      timer = setTimeout(tick, cursor || held ? CHECK_EVERY_MS : IDLE_CHECK_MS);
+    };
+    timer = setTimeout(tick, CHECK_EVERY_MS);
     const whyTimer = import.meta.env.DEV
       ? setInterval(() => { if (debugOn.current) setTowerWhy(new Map(ctrl.towerWhy().map((w) => [w.win, w] as const))); }, 500)
       : undefined;
@@ -213,6 +243,8 @@ export function NekoScreen() {
         if (LOCAL_ONLY.has(m) || typeof fn !== "function") return;
         (fn as (...a: unknown[]) => unknown).apply(ctrl, args);
         if (m === "setMood") { mood = args[0] as NekoMood; fps(); }
+        if (m === "setPose") { pose = args[0] as NekoPose; fps(); }
+        if (m === "act") wake();
       }),
       me.listen<[number, number] | null>("neko-screen-cursor", ({ payload }) => {
         const prev = cursor;
@@ -270,7 +302,8 @@ export function NekoScreen() {
     void Promise.all(offs).then(() => emitTo("main", "neko-screen-ready")).catch(() => {});
 
     return () => {
-      clearInterval(timer);
+      clearTimeout(timer);
+      clearTimeout(wakeTimer);
       clearInterval(whyTimer);
       clearTimeout(fallTimer);
       offEdge();

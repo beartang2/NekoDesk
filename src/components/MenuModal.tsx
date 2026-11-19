@@ -58,8 +58,8 @@ function ExecHistoryPanel() {
   if (items.length === 0) {
     return (
       <div className="menu-empty">
-        <span>아직 실행 이력이 없어요.</span>
-        <span className="menu-empty__sub">에이전트에게 코드 실행을 요청하면 여기에 쌓여요.</span>
+        <span>실행 이력이 없습니다.</span>
+        <span className="menu-empty__sub">코드 실행을 요청하면 여기에 기록됩니다.</span>
       </div>
     );
   }

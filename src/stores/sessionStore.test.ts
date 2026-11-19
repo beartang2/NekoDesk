@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prune = vi.fn(async (_days: number, _keep: string[]) => ["old"]);
-const db = { failImport: false, rows: [] as { id: string; title: string; created_at: number; summary: string | null }[], deleted: [] as string[], put: [] as string[] };
+const db = { failImport: false, rows: [] as { id: string; title: string; created_at: number; summary: string | null; unread?: boolean }[], deleted: [] as string[], put: [] as string[], read: [] as string[] };
 vi.mock("../api/tauri", () => ({
   conversationApi: { prune: (d: number, k: string[]) => prune(d, k) },
   sessionApi: {
@@ -10,6 +10,7 @@ vi.mock("../api/tauri", () => ({
     import: async (rows: typeof db.rows) => { if (db.failImport) throw new Error("앱이 꺼졌다"); db.rows = rows; },
     put: async (id: string) => { db.put.push(id); },
     delete: async (id: string) => { db.deleted.push(id); },
+    read: async (id: string) => { db.read.push(id); },
     compact: async () => {},
   },
 }));
@@ -21,7 +22,7 @@ const DAY = 86_400_000;
 beforeEach(() => {
   localStorage.clear();
   prune.mockClear();
-  db.rows = []; db.deleted = []; db.put = []; db.failImport = false;
+  db.rows = []; db.deleted = []; db.put = []; db.read = []; db.failImport = false;
   useSessionStore.setState({
     sessions: [{ id: "open", title: "a", date: "" }, { id: "old", title: "b", date: "" }],
     activeId: "open",
@@ -68,6 +69,30 @@ describe("세션 목록 DB", () => {
     useSessionStore.getState().setSessions((prev) => [{ id: "new", title: "새", date: "" }, { ...prev[0], title: "고친 제목" }]);
     expect(db.put.sort()).toEqual(["new", "open"]);
     expect(db.deleted).toEqual([]);
+  });
+});
+
+describe("새 답 점", () => {
+  const unread = () => useSessionStore.getState().sessions.filter((s) => s.unread).map((s) => s.id);
+
+  it("열려 있지 않은 대화에 답이 끝나면 점, 열면 지우고 읽은 때를 적는다(떠난 대화도)", () => {
+    const { replied, setActiveId } = useSessionStore.getState();
+    replied("open");
+    expect(unread()).toEqual([]);
+    expect(db.read).toEqual(["open"]);
+    replied("old");
+    expect(unread()).toEqual(["old"]);
+    setActiveId("old");
+    expect(unread()).toEqual([]);
+    expect(db.read).toEqual(["open", "open", "old"]);
+  });
+
+  it("DB 목록의 새 답은 열린 대화만 빼고 단다(열린 대화는 읽음으로 적는다)", async () => {
+    localStorage.setItem("nekodesk_sessions_in_db", "1");
+    db.rows = [{ id: "open", title: "a", created_at: 2, summary: null, unread: true }, { id: "old", title: "b", created_at: 1, summary: null, unread: true }];
+    await hydrateSessions();
+    expect(unread()).toEqual(["old"]);
+    expect(db.read).toEqual(["open"]);
   });
 });
 

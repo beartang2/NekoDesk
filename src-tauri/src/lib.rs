@@ -14,6 +14,9 @@ mod exec;
 mod llama;
 mod skills;
 mod quick;
+// 창을 어느 모니터 가운데에 띄울지(마우스·메인 창 모니터). 폰엔 창이 하나라 데스크탑만
+#[cfg(desktop)]
+mod place;
 #[cfg(target_os = "macos")]
 mod capture;
 mod location;
@@ -695,17 +698,17 @@ mod commands {
             win.set_title(&title)?;
             let _ = app.emit_to("viewer", "viewer-open", ());
             let _ = win.unminimize();
-            win.show()?;
-            win.set_focus()?;
+            bring_popup(&app, &win)?;
             return Ok(());
         }
         let (w, h) = if is_image { (960.0, 680.0) } else { (780.0, 600.0) };
-        tauri::WebviewWindowBuilder::new(&app, "viewer", tauri::WebviewUrl::App("index.html".into()))
+        let win = tauri::WebviewWindowBuilder::new(&app, "viewer", tauri::WebviewUrl::App("index.html".into()))
             .title(&title)
             .inner_size(w, h)
             .min_inner_size(360.0, 260.0)
-            .center()
+            .visible(false)
             .build()?;
+        bring_popup(&app, &win)?;
         Ok(())
     }
 
@@ -719,16 +722,25 @@ mod commands {
         };
         if let Some(win) = app.get_webview_window(&kind) {
             let _ = win.unminimize();
-            win.show()?;
-            win.set_focus()?;
-            return Ok(());
+            return bring_popup(&app, &win);
         }
-        tauri::WebviewWindowBuilder::new(&app, &kind, tauri::WebviewUrl::App("index.html".into()))
+        let win = tauri::WebviewWindowBuilder::new(&app, &kind, tauri::WebviewUrl::App("index.html".into()))
             .title(title)
             .inner_size(w, h)
             .min_inner_size(min_w, min_h)
-            .center()
+            .visible(false)
             .build()?;
+        bring_popup(&app, &win)
+    }
+
+    /// 팝업을 메인 창이 있는 모니터에 보인다. 이미 그 모니터에 있으면 사용자가 둔 자리 그대로,
+    /// 다른 모니터(또는 처음 띄워 주 모니터 자리)면 그 모니터 가운데로.
+    fn bring_popup(app: &tauri::AppHandle, win: &tauri::WebviewWindow) -> Result<(), AppError> {
+        let main = app.get_webview_window("main");
+        let on = main.as_ref().map_or(crate::place::Screen::Cursor, crate::place::Screen::Of);
+        crate::place::center(win, on, true);
+        win.show()?;
+        win.set_focus()?;
         Ok(())
     }
 
@@ -1352,6 +1364,10 @@ pub fn run() {
                 if let Some(win) = app.get_webview_window("quick") {
                     quick::install_panel(&win);
                 }
+                // 메인 창은 보이기 전에 마우스가 있는 모니터 가운데로(설정의 center 는 주 모니터)
+                if let Some(win) = app.get_webview_window("main") {
+                    place::center(&win, place::Screen::Cursor, false);
+                }
                 if let Err(e) = app
                     .global_shortcut()
                     .register(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyN))
@@ -1403,6 +1419,7 @@ pub fn run() {
             sync::run::session_list,
             sync::run::session_put,
             sync::run::session_import,
+            sync::run::session_read,
             sync::run::session_delete,
             sync::run::session_compact,
             sync::run::sync_devices,

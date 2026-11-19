@@ -3,6 +3,7 @@ import { conversationApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { notifyIfAway, toNotificationBody } from "../lib/notify";
 import { useMessageStore } from "../stores/messageStore";
+import { useSessionStore } from "../stores/sessionStore";
 import { runAgentLoop, runTextTask } from "../agent/agent-loop";
 import type {
   AgentStep,
@@ -104,6 +105,9 @@ function nowTime(): string {
  * 태그가 글자로 보였다. 강조하려던 뜻은 살려 굵게로 바꾼다. 저장 전에 바꿔야 대화
  * 기록으로 돌아가 모델이 따라 쓰지 않는다.
  */
+/** 흘러나오는 답·생각을 화면에 고치는 간격(ms). 토큰마다 고치지 않는다 */
+export const STREAM_FLUSH_MS = 66;
+
 export function cleanAnswer(text: string): string {
   return text
     .replace(/\[\[PET_STATE:\w+\]\]/g, "")
@@ -553,7 +557,25 @@ export function useAgentPool() {
       // done·error 에서 저장했는가. 아니면(중단) 루프가 끝난 뒤 그때까지의 것이라도 남긴다.
       let saved = false;
 
+      // 글자·생각 토큰은 버퍼에만 쌓고 화면은 STREAM_FLUSH_MS 에 한 번 고친다. 토큰마다 고치면 답이 길수록
+      // 마크다운을 매번 처음부터 다시 그려 CPU 를 크게 먹는다(docs/neko-perf.md §3-3). 다른 사건이 오거나
+      // 루프가 끝나면 먼저 남은 것을 바로 고친다(마지막 토큰이 빠지지 않게).
+      let flushTimer: number | undefined;
+      let dirtyText = false, dirtyThinking = false;
+      function flush() {
+        window.clearTimeout(flushTimer);
+        flushTimer = undefined;
+        if (!dirtyText && !dirtyThinking) return;
+        const patch: Partial<ChatMessage> = {};
+        if (dirtyText) patch.content = cleanAnswer(streamBuffer).trimStart();
+        if (dirtyThinking) patch.thinking = thinkingBuffer.trimStart();
+        dirtyText = dirtyThinking = false;
+        patchSessionMessages(sessionId, (prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)));
+      }
+      const scheduleFlush = () => { if (flushTimer === undefined) flushTimer = window.setTimeout(flush, STREAM_FLUSH_MS); };
+
       function handleEvent(event: LoopEvent) {
+        if (event.type !== "streaming_token" && event.type !== "thinking_token") flush();
         switch (event.type) {
           case "step_start":
             signal(sessionId, { type: "thinking" });
@@ -566,11 +588,8 @@ export function useAgentPool() {
           case "thinking_token":
             thinkingBuffer += event.token;
             signal(sessionId, { type: "thinking" }); // 네코는 '생각 중'(단계가 바뀔 때만 보낸다)
-            patchSessionMessages(sessionId, (prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, thinking: thinkingBuffer.trimStart() } : m
-              )
-            );
+            dirtyThinking = true;
+            scheduleFlush();
             break;
 
           case "tool_start":
@@ -674,16 +693,8 @@ export function useAgentPool() {
           case "streaming_token":
             streamBuffer += event.token;
             signal(sessionId, { type: "answering" });
-            patchSessionMessages(sessionId, (prev) =>
-              prev.map((m) =>
-                m.id === assistantId
-                  ? {
-                      ...m,
-                      content: cleanAnswer(streamBuffer).trimStart(),
-                    }
-                  : m
-              )
-            );
+            dirtyText = true;
+            scheduleFlush();
             break;
 
           case "confirm_needed":
@@ -753,7 +764,9 @@ export function useAgentPool() {
                 notice: event.notice,
                 model,
               }))
-              .catch(() => {});
+              .catch(() => {})
+              // 적은 뒤에 — 읽은 때가 답보다 앞서면 다시 켰을 때 본 답에 점이 붙는다
+              .finally(() => useSessionStore.getState().replied(sessionId));
             appEvents.emit("agentDone");
             void notifyIfAway(nekoNameOf(useSettingsStore.getState()), toNotificationBody(clean));
             void autoCompact(sessionId);
@@ -765,7 +778,8 @@ export function useAgentPool() {
             saved = true;
             conversationApi
               .save(sessionId, "assistant", `연결 실패: ${event.message}`, undefined, serializeMeta({ steps: finalSteps, model }))
-              .catch(() => {});
+              .catch(() => {})
+              .finally(() => useSessionStore.getState().replied(sessionId));
             signal(sessionId, { type: "loop_error" });
             setRunning(sessionId, false);
             setPendingConfirm(null);
@@ -787,6 +801,8 @@ export function useAgentPool() {
         if (controller.signal.aborted) break;
         handleEvent(event);
       }
+      // 중단·끝: 아직 안 그린 토큰을 그린다(아래 부분 저장도 화면 글을 읽는다)
+      flush();
 
       // 중단하면 done 이 안 온다. 예전엔 그래서 답이 통째로 안 남았다.
       if (!saved) {

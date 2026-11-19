@@ -99,11 +99,36 @@ fn migration_4_survives_odd_dates_and_rolls_back_if_cut_off() {
     assert_eq!(up.len(), 2, "이상한 시각의 기억도 지금 시각으로 올라간다");
     assert!(up.iter().all(|r| r.ts > 0));
     // 세션 옮기기는 여러 번 불려도 안전하다(중간에 꺼졌다 다시)
-    let rows = vec![SessionRow { id: "s1".into(), title: "옛 대화".into(), created_at: 1, summary: Some("요약".into()) }];
+    let rows = vec![SessionRow { id: "s1".into(), title: "옛 대화".into(), created_at: 1, summary: Some("요약".into()), unread: false }];
     session_import(&c, &rows[..0]).unwrap();
     session_import(&c, &rows).unwrap();
     session_import(&c, &rows).unwrap();
     assert_eq!(session_list(&c).unwrap(), rows);
+}
+
+#[test]
+fn a_reply_after_the_last_read_marks_the_session_and_stays_on_this_device() {
+    let (a, b) = (db(), db());
+    let unread = |c: &Connection| session_list(c).unwrap().into_iter().map(|s| (s.id, s.unread)).collect::<Vec<_>>();
+    session_put(&a, "s", "s", 1).unwrap();
+    conversations::save(&a, "s", "user", "질문", None, None).unwrap();
+    assert_eq!(unread(&a), [("s".into(), false)], "내 말만으로는 새 답이 아니다");
+    conversations::save(&a, "s", "assistant", "답", None, None).unwrap();
+    assert_eq!(unread(&a), [("s".into(), true)]);
+    // 다른 기기에서 온 세션도 열기 전엔 새 답
+    apply_all(&b, "B", &push_all(&a, "A"));
+    assert_eq!(unread(&b), [("s".into(), true)]);
+    // 읽음은 이 기기에만: 올릴 거리가 생기지 않고, 받은 기록이 지우지도 않는다
+    session_read(&a, "s", now_ms()).unwrap();
+    assert_eq!(unread(&a), [("s".into(), false)]);
+    assert_eq!(dirty(&a), 0);
+    session_put(&b, "s", "새 제목", 1).unwrap();
+    apply_all(&a, "A", &push_all(&b, "B"));
+    assert_eq!(session_list(&a).unwrap()[0].title, "새 제목");
+    assert_eq!(unread(&a), [("s".into(), false)]);
+    // 더 이른 시각으로 되돌리지 않는다
+    session_read(&a, "s", 0).unwrap();
+    assert_eq!(unread(&a), [("s".into(), false)]);
 }
 
 #[test]

@@ -93,7 +93,7 @@ export interface NekoEvents {
   decorPlayed: { id: string; at: number };
   /** 놓아 둔 물건을 끌어 옮김 */
   decorMove: { id: string } & NekoDecorSpot;
-  /** 놓아 둔 물건을 우클릭함: (x, y) = 그 물건 오른쪽 위(무대 px). 호스트가 거기에 '정리' 버튼을 띄운다 */
+  /** 놓아 둔 물건을 우클릭하거나 터치로 꾹 누름: (x, y) = 그 물건 오른쪽 위(무대 px). 호스트가 거기에 '정리' 버튼을 띄운다 */
   decorMenu: { id: string; x: number; y: number };
   /**
    * 화면 모드(world)만: 엔진이 지금 그리는 선물 id 전부(입에 묾·뒤에 숨기·굴림·옮김·흔들림·끌기). 바뀔 때만, 처음엔 없음.
@@ -116,6 +116,8 @@ export interface NekoOptions {
   /** 기본 "height": 무대 높이로 크기를 정한다 */
   scaleMode?: "height" | "stage";
   maxDpr?: number;
+  /** 프레임 상한(기본 30, 0 이면 화면 주사율). 졸거나 누워 있을 땐 15, 잡고 끄는 동안 60 은 엔진이 알아서 */
+  maxFps?: number;
   dark?: boolean;
   /** 산책(무작위로 걷기·점프). 기본 true */
   wander?: boolean;
@@ -154,6 +156,7 @@ export interface NekoController {
 
   setTheme(t: { dark: boolean }): void;
   /** 0 이면 제한 없음 */
+  /** 프레임 상한(0 이면 화면 주사율). 졸 때 15·잡힐 때 60 은 엔진이 알아서 바꾼다 — 호스트는 사용자 설정값만 넘긴다 */
   setMaxFps(fps: number): void;
   resize(): void;
   pause(): void;
@@ -205,6 +208,11 @@ export interface NekoController {
    * 타이핑일 때만 듣고(다른 활동은 무시) 활동이 바뀌면 저절로 꺼진다
    */
   setRest(on: boolean): void;
+  /**
+   * 방·거실 벽의 날씨 창문(room-window.js). place = 지금 자리("sidebar"·"dock", 그 밖은 창 없음), open = 커튼이 열렸나(날씨가 있나).
+   * 창이 있으면 '창밖 구경'은 창 아래로 걸어가 올려다보고, 닫혀 있으면 앞발로 커튼 쪽을 톡톡. 없으면(마당) 고양이 앞에 창을 그린다
+   */
+  setRoomWindow(place: string | null, open: boolean): void;
   /** 입에 문다. 같은 id 면 바꾼다. 여럿이면 최대 3장이 겹쳐 보인다 */
   carry(items: NekoCarryItem | NekoCarryItem[]): void;
   /** 입에서 뺀다(id 없으면 전부). 뺀 것을 돌려준다 */

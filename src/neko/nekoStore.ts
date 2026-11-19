@@ -104,7 +104,8 @@ export function normalizeStage(raw: unknown): NekoStageSettings {
     dockH: clampH(Number.isFinite(s.dockH) ? (s.dockH as number) : DOCK_H.def, DOCK_H),
     screenScale: clampScale(Number.isFinite(s.screenScale) ? (s.screenScale as number) : SCREEN_SCALE.def),
     screenOnTop: s.screenOnTop !== false,
-    screenFps: s.screenFps === 30 ? 30 : 60,
+    // 기본 30(CPU, docs/neko-perf.md §3 #4). 60 을 저장해 둔 사용자는 그대로(직접 고른 값)
+    screenFps: s.screenFps === 60 ? 60 : 30,
   };
 }
 

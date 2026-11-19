@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Memory } from "./types";
 
-const db = vi.hoisted(() => ({ memories: [] as Memory[], settings: new Map<string, string>(), reply: null as unknown }));
+const db = vi.hoisted(() => ({ memories: [] as Memory[], settings: new Map<string, string>(), reply: null as unknown, drops: null as unknown }));
 vi.mock("../api/tauri", () => ({
   memoryApi: {
     list: async () => db.memories.slice(),
@@ -19,11 +19,12 @@ vi.mock("../api/tauri", () => ({
     set: async (k: string, v: string) => void db.settings.set(k, v),
   },
 }));
+vi.mock("./memory-merge", () => ({ lookupable: async (t: string) => { if (t.includes("판정 실패")) throw new Error("x"); return t.includes("예약"); } }));
 vi.mock("./llm-client", () => ({
-  fetchCompletionMessage: async () => ({ text: "", toolCalls: [{ name: "memory_tidy", params: { merges: db.reply } }] }),
+  fetchCompletionMessage: async () => ({ text: "", toolCalls: [{ name: "memory_tidy", params: { merges: db.reply, drops: db.drops } }] }),
 }));
 
-import { checkMerges, loadTidyLog, tidyMemories } from "./memory-tidy";
+import { checkDrops, checkMerges, loadTidyLog, tidyMemories } from "./memory-tidy";
 
 const mem = (id: number, content: string, kind = "fact"): Memory => ({ id, kind, content, created_at: "", use_count: 0 });
 
@@ -36,6 +37,7 @@ beforeEach(() => {
   ];
   db.settings.clear();
   db.reply = null;
+  db.drops = null;
 });
 
 describe("쉴 때 기억 정리", () => {
@@ -67,5 +69,28 @@ describe("쉴 때 기억 정리", () => {
     expect(await tidyMemories()).toBeNull();
     expect(db.memories).toHaveLength(4);
     expect(await loadTidyLog()).toEqual([]);
+  });
+
+  it("지울 번호는 있는 사용자 기억만, 합치는 묶음에 든 건 빼고 받는다", () => {
+    expect(checkDrops([3, 3, 4, 99, 1], db.memories, new Set([1]))).toEqual([3]);
+    expect(checkDrops("엉뚱", db.memories, new Set())).toEqual([]);
+  });
+
+  it("도구로 찾아볼 수 있는 기억을 지우고 기록에 남긴다", async () => {
+    db.memories.push(mem(5, "사용자는 11월 20일 치과 예약이 있다"), mem(6, "판정 실패 예약"));
+    db.reply = [];
+    db.drops = [5, 4, 3, 6]; // 3 은 판정이 저장, 6 은 판정 실패 — 둘 다 남는다
+    const rec = await tidyMemories();
+    expect(rec?.drops).toEqual(["사용자는 11월 20일 치과 예약이 있다"]);
+    expect(db.memories.map((m) => m.id)).toEqual([1, 2, 3, 4, 6]); // 산책 기억 4 는 남는다
+    expect((await loadTidyLog())[0].drops).toEqual(["사용자는 11월 20일 치과 예약이 있다"]);
+  });
+
+  it("한 번에 5개까지만 지운다", async () => {
+    for (let i = 10; i < 18; i++) db.memories.push(mem(i, `예약 ${i}`));
+    db.reply = [];
+    db.drops = [10, 11, 12, 13, 14, 15, 16, 17];
+    expect((await tidyMemories())?.drops).toHaveLength(5);
+    expect(db.memories.filter((m) => m.id >= 10).map((m) => m.id)).toEqual([15, 16, 17]);
   });
 });

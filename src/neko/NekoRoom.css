@@ -1,4 +1,4 @@
-/* 네코 방 배경(RoomBackdrop): 방(.cat-room)을 채운다. 햇빛(.cat-panel__sun)보다 뒤 */
+/* 네코 방 배경(RoomBackdrop): 방(.cat-room)을 채운다. 네코 자리보다 뒤 */
 .neko-room {
   position: absolute;
   inset: 0;
@@ -25,24 +25,23 @@
 :root:not(.light) .neko-room__floor-near { stop-color: color-mix(in oklab, var(--bg-surface) 62%, #7d6553); }
 :root:not(.light) .neko-room__rug { fill: color-mix(in oklab, var(--accent) 20%, var(--bg-surface)); }
 
-/* 날씨 액자: 나무 테, 밝은 속지 */
-.neko-room__frame-wood { fill: #c9a57c; }
-.neko-room__frame-shadow { fill: rgb(40 28 20 / 0.12); }
-.neko-room__frame-mat { fill: #fffaf1; }
-.neko-room__nail { fill: #8f8a86; }
-:root:not(.light) .neko-room__frame-wood { fill: #7b6450; }
-:root:not(.light) .neko-room__frame-shadow { fill: rgb(0 0 0 / 0.3); }
-:root:not(.light) .neko-room__frame-mat { fill: #2c2833; }
-.neko-room__frame-emoji,
-.neko-room__frame-temp {
-  dominant-baseline: central;
-  text-anchor: middle;
+/* 날씨 창문(WeatherWindow): 자리를 채우는 상자 안에 창 크기만 한 캔버스, 창턱 아래 기온 */
+.weather-window {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
-.neko-room__frame-emoji { font-size: 14px; }
-.neko-room__frame-temp {
-  font: 600 10px var(--font-ui, system-ui);
-  fill: var(--text-primary);
+.weather-window__cv {
+  position: absolute;
+  display: block;
+}
+.weather-window__temp {
+  position: absolute;
+  transform: translateX(-50%);
+  font: 600 9.5px/1 var(--font-ui, system-ui);
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* 네코가 다른 자리에 가 있을 때 방에 놓인 선물(RoomGifts) */

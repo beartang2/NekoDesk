@@ -127,16 +127,7 @@
   color: var(--error);
   background: color-mix(in oklab, var(--error) 14%, transparent);
 }
-/* 확인 창의 '버리기'(update-dialog__btn--primary 와 같은 꼴, 빨강) */
-.neko-gifts__drop-ok {
-  background: var(--error);
-  color: var(--bg-base);
-  font-weight: 600;
-}
-.neko-gifts__drop-ok:hover {
-  background: color-mix(in oklab, var(--error) 88%, var(--text-primary));
-  color: var(--bg-base);
-}
+
 
 /* 선물 그림 시험(개발 빌드) */
 .gift-lab {

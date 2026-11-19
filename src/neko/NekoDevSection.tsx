@@ -34,10 +34,10 @@ export function NekoDevSection() {
   return (
     <section className="settings-section">
       <h3 className="settings-section__title">개발자</h3>
-      <p className="settings-section__desc">개발 빌드에서만 보여요.</p>
+      <p className="settings-section__desc">개발 빌드에서만 보입니다.</p>
 
       <SwitchRow label="캣타워 표시" checked={perchDebug} onChange={setPerchDebug} />
-      <p className="settings-section__desc">마당에서 창마다 발판(초록)·벽(파랑)과 빠진 까닭을 화면에 그려요.</p>
+      <p className="settings-section__desc">마당에서 창마다 발판(초록)·벽(파랑)과 빠진 이유를 화면에 표시합니다.</p>
 
       <div className="ui-switch-row">
         <span>산책</span>

@@ -23,6 +23,10 @@
   height: 100%;
   touch-action: none;
   outline: none;
+  /* 꾹 누르기('정리' 메뉴)에 iOS 돋보기·텍스트 선택·기본 길게 누르기 메뉴가 끼지 않게 */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .neko-canvas.can-grab { cursor: grab; }
 .neko-canvas.dragging { cursor: grabbing; }

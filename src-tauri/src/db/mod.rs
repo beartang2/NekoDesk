@@ -195,6 +195,11 @@ pub(crate) const MIGRATIONS: &[&str] = &[
             SELECT 'setting', key, key, ", now_ms!(), " FROM settings WHERE ", "key IN ", synced_keys!(), ";
         "
     ),
+    // 5 — 세션을 마지막으로 연 때(ms). 이보다 늦은 답이 있으면 목록에 '새 답' 점을 단다.
+    //
+    // 이 기기에만 둔다: 동기화 기록(sync::TABLES 의 cols)에 없고, 세션 트리거는 제목·요약이 바뀔 때만 돈다.
+    // 비어 있으면(다른 기기에서 막 온 세션) 답이 하나라도 있으면 새 답이다. 지금 있는 세션은 다 읽은 것으로.
+    concat!("ALTER TABLE sessions ADD COLUMN read_at INTEGER; UPDATE sessions SET read_at = ", now_ms!(), ";"),
 ];
 
 /// 스키마를 최신으로 올린다. 앱 시작 시 1회 호출.

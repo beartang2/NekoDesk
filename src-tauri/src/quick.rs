@@ -120,16 +120,6 @@ pub fn install_panel(win: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "macos"))]
 pub fn install_panel(_win: &tauri::WebviewWindow) {}
 
-/// 화면(메뉴 막대·Dock 을 뺀 영역) 안에서 창을 가운데 둘 원점.
-///
-/// 전부 AppKit 의 **포인트** 좌표(왼쪽 아래가 원점)다. 예전엔 tao 의 cursor_position
-/// 을 썼는데, 그건 주 모니터 배율을 곱한 물리 픽셀을 주고 monitor_from_point 는
-/// 포인트를 받는다. 레티나에선 좌표가 두 배로 어긋나 다른 모니터를 못 찾았다.
-fn centered_origin(visible: (f64, f64, f64, f64), win_size: (f64, f64)) -> (f64, f64) {
-    let (x, y, w, h) = visible;
-    ((x + (w - win_size.0) / 2.0).round(), (y + (h - win_size.1) / 2.0).round())
-}
-
 fn clip(s: String) -> Option<String> {
     let t = s.trim();
     if t.is_empty() {
@@ -310,33 +300,7 @@ pub(crate) mod macos {
 
     /// 마우스가 있는 화면 가운데에 띄우고 키 입력을 받게 한다. 앱은 활성화하지 않는다.
     pub unsafe fn present_on_cursor_screen(window: *mut AnyObject) {
-        let (Some(event_cls), Some(screen_cls)) = (AnyClass::get(c"NSEvent"), AnyClass::get(c"NSScreen")) else {
-            return;
-        };
-        let mouse: CGPoint = msg_send![event_cls, mouseLocation];
-        let screens: *mut AnyObject = msg_send![screen_cls, screens];
-        let count: usize = msg_send![screens, count];
-
-        for i in 0..count {
-            let screen: *mut AnyObject = msg_send![screens, objectAtIndex: i];
-            let frame: CGRect = msg_send![screen, frame];
-            let inside = mouse.x >= frame.origin.x
-                && mouse.x < frame.origin.x + frame.size.width
-                && mouse.y >= frame.origin.y
-                && mouse.y < frame.origin.y + frame.size.height;
-            if !inside {
-                continue;
-            }
-            let visible: CGRect = msg_send![screen, visibleFrame];
-            let win_frame: CGRect = msg_send![window, frame];
-            let (x, y) = super::centered_origin(
-                (visible.origin.x, visible.origin.y, visible.size.width, visible.size.height),
-                (win_frame.size.width, win_frame.size.height),
-            );
-            let _: () = msg_send![window, setFrameOrigin: CGPoint { x, y }];
-            break;
-        }
-
+        crate::place::macos::center(window, None, false);
         let _: () = msg_send![window, orderFrontRegardless];
         let _: () = msg_send![window, makeKeyWindow];
         // 숨겨진 채 계산된 그림자는 네모로 남을 수 있다. 보인 뒤에 다시 읽힌다.
@@ -464,18 +428,6 @@ pub(crate) mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn centers_inside_the_visible_frame_of_the_screen() {
-        // 오른쪽 외장 모니터: 왼쪽 끝 x=1512, 아래 Dock 70pt 위부터 1010pt 높이(포인트).
-        assert_eq!(centered_origin((1512.0, 70.0, 1920.0, 1010.0), (640.0, 128.0)), (1512.0 + 640.0, 70.0 + 441.0));
-    }
-
-    #[test]
-    fn works_for_screens_left_of_or_below_the_primary() {
-        // 주 모니터 왼쪽에 둔 모니터는 x 가 음수다.
-        assert_eq!(centered_origin((-1920.0, -200.0, 1920.0, 1080.0), (640.0, 128.0)), (-1280.0, 276.0));
-    }
 
     #[test]
     fn blank_context_is_dropped() {

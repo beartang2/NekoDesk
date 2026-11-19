@@ -48,8 +48,13 @@ if (!isQuick && !isCapture && !isViewer && !isGlow && !isNekoScreen && !isNekoDe
   startNekoWindowSync();
   // 쉴 때 기억 정리(설정 › 네코가 기억하는 것). 졸 때 하루 한 번
   startMemoryTidy();
-  // 다른 앱 따라 하기(설정 › 고양이)
+  // 다른 앱 따라 하기(늘 켜짐)
   startAmbient();
+  // 창이 비활성이거나 안 보이면 html[data-idle] — 오로라 CSS 애니메이션(App.css)과 날씨 창문(WeatherWindow)을 멈춘다
+  const idle = () => document.documentElement.toggleAttribute("data-idle", document.hidden || !document.hasFocus());
+  for (const ev of ["focus", "blur"]) window.addEventListener(ev, idle);
+  document.addEventListener("visibilitychange", idle);
+  idle();
 }
 
 // Tab 은 입력창 사이만 오간다. 버튼까지 돌면 포커스가 어디 있는지 안 보여 헤맨다.

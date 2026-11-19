@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { drawShape, onShapeImage } from "./engine/gift-shape";
 import { decorDims, decorK } from "./engine/decor-draw";
 import { decorItems, useNekoGifts } from "./gifts";
-import { useSettingsStore } from "../stores/settingsStore";
-import { setTimeZone } from "../lib/time";
+import { WeatherWindow } from "./WeatherWindow";
 import "./NekoRoom.css";
 
 /**
- * 네코 방(사이드바 자리)의 겉모습: 벽·바닥·러그와 벽에 건 날씨 액자(RoomBackdrop), 네코가 다른 자리에 가 있을 때
+ * 네코 방(사이드바 자리)의 겉모습: 벽·바닥·러그와 벽의 날씨 창문(RoomBackdrop, 창문은 WeatherWindow), 네코가 다른 자리에 가 있을 때
  * 방에 놓인 선물만 그린 정지 그림(RoomGifts). 엔진은 앱에 하나라 빈 방엔 엔진을 띄우지 않는다.
  *
  * 색은 벽을 패널 바탕과 거의 같은 밝기로 둬 고양이 대비를 지금처럼 지킨다 — 라이트에선 조금 어둡게(흰 고양이),
@@ -37,44 +35,8 @@ function useSize<T extends Element>() {
   return [ref, size] as const;
 }
 
-export interface WeatherNow {
-  place: string;
-  label: string;
-  emoji: string;
-  temp: number;
-  /** IANA 시간대("Asia/Seoul"). 앱의 시각 표시가 이걸 따른다(lib/time). */
-  timezone: string;
-}
-
-const WEATHER_STALE_MS = 30 * 60 * 1000;
-
-/** 지금 날씨. 30분 지나면 다시 본다. 못 가져오면 null. */
-function useWeatherNow(): WeatherNow | null {
-  const location = useSettingsStore((s) => s.weatherLocation.trim());
-  const [now, setNow] = useState<WeatherNow | null>(null);
-  useEffect(() => {
-    setNow(null);
-    if (!location) { setTimeZone(undefined); return; }
-    let alive = true;
-    let fetchedAt = 0;
-    const load = () => {
-      fetchedAt = Date.now();
-      invoke<WeatherNow>("weather_now", { location })
-        .then((w) => { if (alive) { setNow(w); setTimeZone(w.timezone); } })
-        .catch(() => {});
-    };
-    load();
-    // 30분짜리 타이머는 잠자는 동안 멈춰서, 밤새 자고 깨도 30분을 더 기다린다.
-    // 1분마다 벽시계로 오래됐는지만 본다 — 깨고 1분 안에 새로 받는다.
-    const t = setInterval(() => { if (Date.now() - fetchedAt > WEATHER_STALE_MS) load(); }, 60 * 1000);
-    return () => { alive = false; clearInterval(t); };
-  }, [location]);
-  return now;
-}
-
-/** 방 배경. 방(.cat-room = 사이드바 네코 자리 높이)을 채우고, 햇빛(.cat-panel__sun)이 그 위에 든다. */
+/** 방 배경. 방(.cat-room = 사이드바 네코 자리 높이)을 채운다. 창문은 벽 위, 네코 자리 아래 */
 export function RoomBackdrop() {
-  const weather = useWeatherNow();
   const [ref, { w, h }] = useSize<HTMLDivElement>();
   const { floorY, S } = stageMetrics(w, h);
   const seam = seamOf(floorY, S);
@@ -93,25 +55,10 @@ export function RoomBackdrop() {
           <rect x={0} y={seam} width={w} height={h - seam} fill="url(#neko-room-floor)" />
           <rect className="neko-room__base" x={0} y={seam - 3 * S} width={w} height={3 * S} />
           <ellipse className="neko-room__rug" cx={w * 0.52} cy={floorY - 1} rx={w * 0.3} ry={Math.max(3, 5 * S)} />
-          {weather && <WeatherFrame w={weather} />}
         </svg>
       )}
+      <WeatherWindow place="sidebar" />
     </div>
-  );
-}
-
-/** 벽에 건 날씨 액자(왼쪽 위). 나무 테 안에 날씨 그림과 기온 */
-function WeatherFrame({ w }: { w: WeatherNow }) {
-  const X = 10, Y = 12, FW = 54, FH = 30;
-  return (
-    <g className="neko-room__frame">
-      <rect className="neko-room__frame-shadow" x={X + 1.5} y={Y + 2} width={FW} height={FH} rx={4} />
-      <rect className="neko-room__frame-wood" x={X} y={Y} width={FW} height={FH} rx={4} />
-      <rect className="neko-room__frame-mat" x={X + 3.5} y={Y + 3.5} width={FW - 7} height={FH - 7} rx={2} />
-      <circle className="neko-room__nail" cx={X + FW / 2} cy={Y - 3} r={1.6} />
-      <text className="neko-room__frame-emoji" x={X + 17} y={Y + FH / 2 + 0.5}>{w.emoji}</text>
-      <text className="neko-room__frame-temp" x={X + 38} y={Y + FH / 2 + 0.5}>{`${Math.round(w.temp)}°`}</text>
-    </g>
   );
 }
 

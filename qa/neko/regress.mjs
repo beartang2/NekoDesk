@@ -281,14 +281,14 @@ try {
       const n = window.__neko, cv = document.getElementById("stage"), rect = () => cv.getBoundingClientRect(), ev = [];
       n.on("decorMove", (e) => ev.push(["move", e])); n.on("decorMenu", (e) => ev.push(["menu", e]));
       n.setWander(false); n.cat.x = n.W * 0.8; n.step(60);
-      n.setDecor([{ id: "g", surface: "floor", u: 0.1, scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]); // 0.5 = 예전 기본 크기
+      n.setDecor([{ id: "g", surface: "floor", u: 0.1, size: "small", scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]); // 가장 작게(한 변 29)
       n.step(90); n.draw();
       const boxOf = () => { for (let y = 0; y < n.floorY; y += 2) for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, y)) return [x, y]; return null; };
       const at = boxOf(), R = rect(), fire = (type, x, y, extra = {}) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 7, bubbles: true, button: extra.button ?? 0 }));
       const [x0, y0] = [at[0] + 4, at[1] + 4];
       fire("pointerdown", x0, y0); fire("pointermove", x0 + 40, y0 - 90); fire("pointerup", x0 + 40, y0 - 90);
       const moved = ev[0] && ev[0][1];
-      n.setDecor([{ id: "g", scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] }, ...moved }]); n.step(60); n.draw();
+      n.setDecor([{ id: "g", size: "small", scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] }, ...moved }]); n.step(60); n.draw();
       const hitBefore = !!boxOf();
       cv.style.width = "900px"; cv.style.height = "150px"; n.resize(); n.step(60); n.draw();
       const b2 = boxOf(), span = n.floorY - (32 * n.S) - 10 * n.S, wallOk = !!b2 && moved && moved.surface === "wall";
@@ -303,6 +303,34 @@ try {
     await p.close();
   }
 
+  // 9-f2) 터치로 꾹 누르기(iOS 웹뷰엔 contextmenu 가 안 온다): 0.5초 가만히 누르면 끌기를 접고 '정리' 메뉴(decorMove 없음),
+  //       누르는 중 8px 넘게 움직이면 그냥 끌기(decorMove, 메뉴 없음). 마우스는 오래 눌러도 메뉴가 안 뜬다
+  {
+    const p = await open(`?w=320&h=240&scale=height&transparent=1`, { width: 1000, height: 600 }, 1);
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, cv = document.getElementById("stage"), ev = [];
+      n.on("decorMove", (e) => ev.push("move")); n.on("decorMenu", (e) => ev.push("menu"));
+      n.setWander(false); n.cat.x = n.W * 0.8; n.step(60);
+      n.setDecor([{ id: "g", surface: "floor", u: 0.1, size: "small", scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]);
+      n.step(90); n.draw();
+      const boxOf = () => { for (let y = 0; y < n.floorY; y += 2) for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, y)) return [x, y]; return null; };
+      const R = cv.getBoundingClientRect(), [x0, y0] = boxOf().map((v) => v + 4), wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+      const fire = (type, pointerType, dx = 0, dy = 0) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x0 + dx, clientY: R.top + y0 + dy, pointerId: 9, pointerType, bubbles: true }));
+      const run = async (pointerType, dx) => {
+        ev.length = 0;
+        fire("pointerdown", pointerType); fire("pointermove", pointerType, dx, 0); await wait(650);
+        fire("pointerup", pointerType, dx, 0); await wait(30);
+        return ev.join(",");
+      };
+      // 끌기는 물건을 옮기므로 맨 끝에
+      const hold = await run("touch", 3), mouse = await run("mouse", 3), drag = await run("touch", 30);
+      return { hold, mouse, drag };
+    });
+    check("놓아 둔 선물: 터치로 꾹 누르면 정리 메뉴, 움직이면 끌기, 마우스는 오래 눌러도 메뉴 없음",
+      `꾹 ${r.hold || "-"} · 끌기 ${r.drag || "-"} · 마우스 ${r.mouse || "-"}`, r.hold === "menu" && r.drag === "move" && r.mouse === "move");
+    await p.close();
+  }
+
   // 9-g) 선물 갖고 놀기(docs/neko-gifts.md §5): 노는 방식마다 다가가서 논다. 굴리기·물고 옮기기는 자리가 바뀌어 decorMove,
   //      끝나면 물건이 숨지 않고 바닥에 있다. 벽에 건 건 올려다본다
   {
@@ -314,7 +342,7 @@ try {
       for (const [play, surface] of [["roll", "floor"], ["bat", "floor"], ["sniff", "floor"], ["sit_on", "floor"], ["carry", "floor"], ["sniff", "wall"]]) {
         n.act(null); n.step(120); c.x = n.W * 0.75; c.vx = 0; n.step(60);
         let moves = 0; const off = n.on("decorMove", () => moves++);
-        n.setDecor([{ id: "g", surface, u: 0.25, v: 0.5, play, scale: 0.5, shape: play === "sit_on" ? shapes.flat : shapes.round }]); // 예전 기본 크기(굴리고 물 만한)
+        n.setDecor([{ id: "g", surface, u: 0.25, v: 0.5, play, size: play === "sit_on" ? undefined : "small", scale: 0.5, shape: play === "sit_on" ? shapes.flat : shapes.round }]); // 굴리고 물 만한 크기(가장 작게)
         n.act("giftplay");
         let acted = 0, minDx = 1e9;
         for (let i = 0; i < 120 * 25; i++) { n.step(1); if (c.mode === "act") acted++; if (i % 10 === 0) n.draw(); }
@@ -476,7 +504,7 @@ try {
       const width = (id) => { let a = null, b = null; for (let x = 0; x < n.W; x += 0.5) for (let y = n.floorY - 40 * n.S; y < n.floorY; y += 1) if (n.hitDecor(x, y) === id) { a ??= x; b = x; break; } return b - a; };
       return { s: width("s"), m: width("m"), l: width("l"), body: 100 * n.S };
     });
-    check("선물 크기: small < medium < large, 기본은 예전(32)의 2배 — medium 한 변이 몸길이의 64%쯤", `폭 ${r.s.toFixed(0)} · ${r.m.toFixed(0)} · ${r.l.toFixed(0)} (몸 ${r.body.toFixed(0)})`, r.s < r.m && r.m < r.l && r.m > 0.5 * r.body && r.m < 0.75 * r.body);
+    check("선물 크기: small < medium < large, 기본 한 변 96 — medium 이 몸길이쯤", `폭 ${r.s.toFixed(0)} · ${r.m.toFixed(0)} · ${r.l.toFixed(0)} (몸 ${r.body.toFixed(0)})`, r.s < r.m && r.m < r.l && r.m > 0.8 * r.body && r.m < 1.1 * r.body);
     await p.close();
   }
 
@@ -493,7 +521,7 @@ try {
       const rotation = played.slice(0, 3).sort().join(""), plays = {};
       n.act(null); n.step(30);
       for (const [size, play] of [["large", "carry"], ["large", "roll"], ["large", "lean"], ["large", "hide"], ["large", "scratch"], ["small", "scratch"]]) {
-        n.setDecor([{ id: size + play, surface: "floor", u: 0.3, size, play, shape }]);
+        n.setDecor([{ id: size + play, surface: "floor", u: 0.3, size, play, shape, ...(size === "small" ? { scale: 0.5 } : {}) }]); // 작은 것 = 가장 작게(한 변 29)
         n.act("giftplay"); n.step(1); const chosen = c.act && c.act.play;
         let acted = 0, done = 0; const off = n.on("decorPlayed", () => done++);
         for (let i = 0; i < 120 * 20 && !done; i++) { n.step(1); if (c.mode === "act") acted++; if (i % 12 === 0) n.draw(); }
@@ -538,7 +566,7 @@ try {
       n.step(60); n.draw();
       const still = { win: inked() > 100, engine: engineHit(), ev: heldEv.length };
       // 굴리기: 잡은 동안 선물 창은 빼고 그리고 엔진이 그린다(누를 수도 있다)
-      n.setDecor([{ id: "g", surface: "floor", u: 0.45, play: "roll", scale: 0.5, shape }]); n.step(10);
+      n.setDecor([{ id: "g", surface: "floor", u: 0.45, play: "roll", size: "small", scale: 0.5, shape }]); n.step(10);
       n.act("giftplay");
       let heldFrames = 0, swapOk = true, released = -1, graceDrawn = null;
       for (let i = 0; i < 120 * 30 && released < 0; i++) {
@@ -553,16 +581,16 @@ try {
       const after = { engine: engineHit(), win: inked() > 100, last: heldEv[heldEv.length - 1] };
       // 굴러가는 중에 사용자가 선물 창에서 끌어 놓음(호스트가 자리를 바꿔 다시 넣음): 굴러가던 자리를 버리고 사용자 자리에 둔다
       const moves = []; n.on("decorMove", (e) => moves.push(e.u));
-      n.setDecor([{ id: "u", surface: "floor", u: 0.45, play: "roll", scale: 0.5, shape }]); n.step(10);
+      n.setDecor([{ id: "u", surface: "floor", u: 0.45, play: "roll", size: "small", scale: 0.5, shape }]); n.step(10);
       n.act("giftplay");
       let rolling = false;
       for (let i = 0; i < 120 * 30 && !rolling; i++) { n.step(1); rolling = c.act && c.act.stage === "rolling"; }
       moves.length = 0;
-      n.setDecor([{ id: "u", surface: "floor", u: 0.9, play: "roll", scale: 0.5, shape }]);
+      n.setDecor([{ id: "u", surface: "floor", u: 0.9, play: "roll", size: "small", scale: 0.5, shape }]);
       n.act(null); n.step(30);
       const userWins = { rolling, overwritten: moves.some((u) => u !== 0.9) };
       // 물고 옮기다 목록에서 빠짐(다른 모니터로 건너감 등): 잡은 목록과 입에서 빠진다
-      n.setDecor([{ id: "m", surface: "floor", u: 0.45, play: "carry", scale: 0.5, shape }]); n.step(10);
+      n.setDecor([{ id: "m", surface: "floor", u: 0.45, play: "carry", size: "small", scale: 0.5, shape }]); n.step(10);
       n.act("giftplay");
       let carried = false;
       for (let i = 0; i < 120 * 30 && !carried; i++) { n.step(1); carried = n.carried().length > 0 && gw.held.includes("m"); }
@@ -1006,6 +1034,65 @@ try {
     check("창을 옮겨 떨어질 때: 앉기·식빵·눕기·세수·타이핑·상자·신문·간식·꾹꾹이·음악·창 탐험 걷기 — 활동 정리·착지 뒤 안 이어짐·헤드폰 그대로·목·다리 안 늘어남",
       fails.length ? JSON.stringify(Object.fromEntries(fails)) : Object.entries(r).map(([k, v]) => `${k}${v.before.props ? `(소품 ${v.before.props})` : ""} 목${v.neck}·다리${v.leg}`).join(" · "), fails.length === 0);
     await p.close();
+  }
+
+  // 9-w) 프레임 정책(docs/neko-perf.md §3): 기본 30fps, 졸 때 15, 잡고 끌 때 60, 멈추면 한 프레임도 안 돈다, 상한 0 이면 화면 주사율
+  {
+    const p = await open(`?w=680&h=300&scale=height`, { width: 1000, height: 600 });
+    const rate = (ms) => p.evaluate((ms) => new Promise((ok) => { const n = window.__neko, f0 = n.frames, t0 = performance.now(); setTimeout(() => ok(((n.frames - f0) * 1000) / (performance.now() - t0)), ms); }), ms);
+    await p.evaluate(() => { window.__neko.setWander(false); window.__neko.setMood("idle"); });
+    const awake = await rate(1500);
+    await p.evaluate(() => window.__neko.setMood("sleepy"));
+    const sleepy = await rate(1500);
+    await p.evaluate(() => { window.__neko.setMood("idle"); window.__neko.pause(); });
+    const paused = await rate(800);
+    await p.evaluate(() => { window.__neko.resume(); window.__neko.setMaxFps(0); });
+    const free = await rate(1500);
+    await p.evaluate(() => window.__neko.setMaxFps(30));
+    const box = await p.locator("#stage").boundingBox(), h = await p.evaluate(() => [window.__neko.cat.head.x, window.__neko.cat.head.y]);
+    await p.mouse.move(box.x + h[0], box.y + h[1]); await p.mouse.down(); await p.mouse.move(box.x + h[0] + 10, box.y + h[1] - 40, { steps: 3 });
+    const held = await rate(1000);
+    await p.mouse.up();
+    const r = { awake: Math.round(awake), sleepy: Math.round(sleepy), paused: Math.round(paused), free: Math.round(free), held: Math.round(held) };
+    check("프레임: 기본 30·졸 때 15·잡고 끌 때 60·멈추면 0·상한 0 이면 화면 주사율", JSON.stringify(r),
+      Math.abs(r.awake - 30) <= 4 && Math.abs(r.sleepy - 15) <= 3 && r.paused === 0 && r.free >= 50 && r.held >= 50);
+    await p.close();
+  }
+
+  // 9-x) 창밖 구경: 방·거실은 벽의 날씨 창문(room-window.js) 아래로 걸어가 창을 보고 앉아 올려다본다. 커튼이 닫혀 있으면
+  //      앞발을 위로 뻗어 톡톡. 창 자리가 바뀌면 하던 구경을 접는다. 자리 정보가 없으면 예전처럼 앞에 창을 그린다
+  {
+    const look = async (q, vp, place, left) => {
+      const p = await open(q, vp);
+      const r = await p.evaluate(({ place, left }) => {
+        const n = window.__neko, c = n.cat, S = n.S;
+        n.setWander(false); n.setMood("idle");
+        n.setRoomWindow(place, true);
+        c.x = left ? 60 * S : n.W - 60 * S;
+        n.act("window"); n.step(120 * 8);
+        const out = { mode: c.mode, act: n.activity, x: c.x, face: c.face, floorY: n.floorY, S, W: n.W, H: n.H };
+        n.setRoomWindow(place, false);
+        let up = Infinity;
+        for (let s = 0; s < 120 * 5; s++) { n.step(1); up = Math.min(up, c.legs[3].footW[1]); }
+        out.pawUp = up; out.closedMode = c.mode;
+        n.setRoomWindow(place === "dock" ? "sidebar" : "dock", true);
+        out.after = n.activity;
+        return out;
+      }, { place, left });
+      await p.close();
+      return r;
+    };
+    const { roomWindows } = await import("../../src/neko/engine/room-window.js");
+    // 방은 창 하나(오른쪽 끝에서 걸어간다), 거실은 둘: 고양이와 가까운 창으로
+    const DOCK = ["?w=900&h=130&scale=height", { width: 1100, height: 400 }];
+    for (const [place, q, vp, left, wi] of [["sidebar", "?w=280&h=300&scale=height", { width: 600, height: 600 }, false, 0], ["dock", ...DOCK, true, 0], ["dock", ...DOCK, false, 1]]) {
+      const r = await look(q, vp, place, left), win = roomWindows(place, r.W, r.H)[wi], cx = win.x + win.w / 2;
+      check(`창밖 구경(${place}${left ? " 왼쪽" : " 오른쪽"}에서): 창 아래로 가서 창 쪽을 보고 앉고, 닫히면 앞발을 들고, 자리가 바뀌면 접는다`,
+        JSON.stringify({ x: Math.round(r.x), cx, face: r.face, mode: r.mode, pawUp: Math.round(r.floorY - r.pawUp), after: r.after }),
+        r.act === "window" && r.mode === "act" && Math.abs(r.x - cx) <= win.w && // 방 창은 왼쪽 벽 가까이라 걸을 수 있는 끝(EDGE)에 앉는다
+           Math.sign(cx - r.x) === r.face &&
+          r.closedMode === "act" && r.pawUp < r.floorY - 30 * r.S && r.after === null);
+    }
   }
 
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).

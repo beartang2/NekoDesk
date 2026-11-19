@@ -93,7 +93,7 @@ pub fn unseal(key: &Key, r: &Record) -> AppResult<Vec<u8>> {
     let (nonce, ct) = raw.split_at(24);
     XChaCha20Poly1305::new(key.into())
         .decrypt(XNonce::from_slice(nonce), Payload { msg: ct, aad: aad(r).as_bytes() })
-        .map_err(|_| AppError::msg("기록을 풀지 못했어(열쇠가 다르거나 바뀐 기록)"))
+        .map_err(|_| AppError::msg("기록을 풀지 못했어요. 암호 키가 다르거나 기록이 바뀌었어요."))
 }
 
 // ── 로컬 표 ──────────────────────────────────────────────────────────────────
@@ -601,9 +601,9 @@ pub(crate) async fn call<T: serde::de::DeserializeOwned>(
     let res = req.send().await?;
     match res.status().as_u16() {
         200 => Ok(res.json().await?),
-        401 => Err(AppError::msg("서버가 이 기기를 모른다고 해(끊겼거나 토큰이 바뀜). 다시 짝을 맞춰줘.")),
-        403 => Err(AppError::msg("서버가 거절했어(설정 토큰이나 짝 코드가 틀렸거나 지났어).")),
-        s => Err(AppError::msg(format!("동기화 서버 오류({s})"))),
+        401 => Err(AppError::msg("서버가 이 기기를 알아보지 못했어요. 연결이 끊겼을 수 있어요. 기기 연결 코드로 다시 연결해 주세요.")),
+        403 => Err(AppError::msg("서버가 요청을 거절했어요. 설정 토큰이나 기기 연결 코드가 틀렸거나 만료됐어요.")),
+        s => Err(AppError::msg(format!("서버에서 오류가 났어요({s}). 서버 설정을 확인해 주세요."))),
     }
 }
 
@@ -700,12 +700,31 @@ pub struct SessionRow {
     pub title: String,
     pub created_at: i64,
     pub summary: Option<String>,
+    /// 마지막으로 연 뒤에 온 답이 있다(읽기 전용 — 옮길 때는 무시)
+    #[serde(default)]
+    pub unread: bool,
 }
 
 pub fn session_list(conn: &Connection) -> AppResult<Vec<SessionRow>> {
-    let mut stmt = conn.prepare("SELECT id, title, created_at, summary FROM sessions ORDER BY created_at DESC, id")?;
-    let rows = stmt.query_map([], |r| Ok(SessionRow { id: r.get(0)?, title: r.get(1)?, created_at: r.get(2)?, summary: r.get(3)? }))?;
+    // 메시지 시각은 초 단위 글('YYYY-MM-DD HH:MM:SS', UTC)이라 초를 내려 ms 로 견준다
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.title, s.created_at, s.summary,
+                COALESCE(CAST(strftime('%s', m.last) AS INTEGER) * 1000 > COALESCE(s.read_at, 0), 0)
+         FROM sessions s
+         LEFT JOIN (SELECT session_id, MAX(created_at) AS last FROM conversation_messages
+                    WHERE role = 'assistant' GROUP BY session_id) m ON m.session_id = s.id
+         ORDER BY s.created_at DESC, s.id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(SessionRow { id: r.get(0)?, title: r.get(1)?, created_at: r.get(2)?, summary: r.get(3)?, unread: r.get(4)? })
+    })?;
     Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// 세션을 at(ms)까지 읽었다. 이 기기에만 남는다(동기화 안 함)
+pub fn session_read(conn: &Connection, id: &str, at: i64) -> AppResult<()> {
+    conn.execute("UPDATE sessions SET read_at = MAX(COALESCE(read_at, 0), ?2) WHERE id = ?1", params![id, at])?;
+    Ok(())
 }
 
 /// 없으면 만들고, 있으면 제목만 바꾼다(요약은 session_compact 로)
@@ -721,8 +740,9 @@ pub fn session_put(conn: &Connection, id: &str, title: &str, created_at: i64) ->
 pub fn session_import(conn: &Connection, rows: &[SessionRow]) -> AppResult<()> {
     for s in rows {
         conn.execute(
-            "INSERT INTO sessions (id, title, created_at, summary) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (id) DO NOTHING",
-            params![s.id, s.title, s.created_at, s.summary],
+            // 이 기기에 있던 대화라 다 읽은 것으로
+            "INSERT INTO sessions (id, title, created_at, summary, read_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (id) DO NOTHING",
+            params![s.id, s.title, s.created_at, s.summary, now_ms()],
         )?;
     }
     Ok(())

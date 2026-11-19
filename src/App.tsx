@@ -17,6 +17,7 @@ import { ChatEmptyState } from "./components/ChatEmptyState";
 import { NekoBootCat } from "./neko/NekoPortrait";
 import { NekoSlot } from "./neko/NekoSlot";
 import { RoomBackdrop } from "./neko/NekoRoom";
+import { splitMarkdownBlocks } from "./lib/markdownBlocks";
 import { addPictureGift } from "./neko/pictureGift";
 import { useNekoDirector } from "./neko/useNekoDirector";
 import { useNekoApp } from "./neko/director/stores";
@@ -267,6 +268,7 @@ function BootSplash() {
 function Sidebar({
   onNew,
   onDelete,
+  isRunning,
   rpg,
   onResizeStart,
   isResizing,
@@ -280,6 +282,8 @@ function Sidebar({
 }: {
   onNew: () => void;
   onDelete: (id: string) => void;
+  /** 답이 흐르는 중인 세션(목록 진행 표시) */
+  isRunning: (id: string) => boolean;
   away: boolean;
   walk: Walk | null;
   isDark: boolean;
@@ -321,10 +325,14 @@ function Sidebar({
         {sessions.map((s) => (
           <div
             key={s.id}
-            className={`session-item ${s.id === activeId ? "session-item--active" : ""}`}
+            className={`session-item ${s.id === activeId ? "session-item--active" : ""} ${s.unread ? "session-item--unread" : ""}`}
             onClick={() => onSelect(s.id)}
           >
             <span className="session-item__title">{s.title}</span>
+            {/* 열린 대화는 채팅 화면에 진행 표시가 있어 목록엔 안 띄운다 */}
+            {s.id !== activeId && isRunning(s.id) ? (
+              <span className="session-item__unread session-item__unread--running" role="img" aria-label="답하는 중" title="답하는 중" />
+            ) : s.unread && <span className="session-item__unread" role="img" aria-label="새 답" title="새 답" />}
             <span className="session-item__date">{s.date}</span>
             <button
               className="session-item__delete"
@@ -346,11 +354,9 @@ function Sidebar({
       {gameSpeech && <GameSpeechBubble text={gameSpeech} />}
 
       <div className="cat-panel">
-        {/* 네코 방: 배경(벽·바닥·날씨 액자) 위에 창가 햇빛, 그 위에 네코 자리. 네코가 다른 자리로 가도 빈 방으로 남는다 */}
+        {/* 네코 방: 배경(벽·바닥·날씨 창문) 위에 네코 자리. 네코가 다른 자리로 가도 빈 방으로 남는다 */}
         <div className="cat-room">
           <RoomBackdrop />
-          {/* 창가에 든 햇빛. reactbits 의 SideRays 를 WebGL 없이 기울인 그라데이션으로. 방 안에만 든다 */}
-          <div className="cat-panel__sun" aria-hidden="true" />
           <NekoSlot placement="sidebar" onRubPet={rpg.onPet} away={away} walk={walk} isDark={isDark} />
         </div>
         {/* 방 아래 얇은 띠: DAY·컨텍스트, 밥·놀이 게이지(누르면 밥 주기·놀아주기) */}
@@ -380,6 +386,36 @@ function Sidebar({
 
 /** 처음에 그리는 말풍선 수, 그리고 위로 올릴 때마다 더 붙이는 수. */
 const MESSAGE_PAGE = 60;
+
+const MD_PLUGINS = [remarkGfm];
+const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = {
+  table: ({ children }) => (
+    <div className="table-wrapper"><table>{children}</table></div>
+  ),
+  a: ({ href, children }) => (
+    // Tauri webview 는 <a> 클릭을 자기 창에서 처리해 브라우저를 안 띄운다.
+    // 가로채서 기본 브라우저로 연다(http/https 만, Rust 에서 재검증).
+    <a
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        if (href) invoke("open_external_url", { url: href }).catch(() => {});
+      }}
+    >
+      {children}
+    </a>
+  ),
+};
+
+/** 마크다운 한 덩이. 글이 같으면 다시 해석하지 않는다 */
+const MdBlock = React.memo(function MdBlock({ text }: { text: string }) {
+  return <ReactMarkdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>{text}</ReactMarkdown>;
+});
+
+function MessageMarkdown({ text, streaming }: { text: string; streaming: boolean }) {
+  if (!streaming) return <MdBlock text={text} />;
+  return <>{splitMarkdownBlocks(text).map((b, i) => <MdBlock key={i} text={b} />)}</>;
+}
 
 /**
  * 말풍선 하나. 메모라서 답이 흘러나오는 동안엔 그 말풍선만 다시 그린다 — 예전엔 글자 하나마다
@@ -447,29 +483,7 @@ const MessageItem = React.memo(function MessageItem({
             </details>
           )}
           {m.content && (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                table: ({ children }) => (
-                  <div className="table-wrapper"><table>{children}</table></div>
-                ),
-                a: ({ href, children }) => (
-                  // Tauri webview 는 <a> 클릭을 자기 창에서 처리해 브라우저를 안 띄운다.
-                  // 가로채서 기본 브라우저로 연다(http/https 만, Rust 에서 재검증).
-                  <a
-                    href={href}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      if (href) invoke("open_external_url", { url: href }).catch(() => {});
-                    }}
-                  >
-                    {children}
-                  </a>
-                ),
-              }}
-            >
-              {maskHome(stripThink(expanded && m.prompt ? m.prompt : m.content))}
-            </ReactMarkdown>
+            <MessageMarkdown text={maskHome(stripThink(expanded && m.prompt ? m.prompt : m.content))} streaming={!!m.isStreaming} />
           )}
           {m.role === "user" && m.prompt && (
             <button type="button" className="message__more" onClick={() => onToggle(m.id)}>
@@ -504,8 +518,8 @@ const MessageItem = React.memo(function MessageItem({
 
       <span className="message__meta">
         {m.time}
-        {m.tokensPerSecond !== undefined && ` | ${m.tokensPerSecond.toFixed(1)} tok/s`}
-        {m.notice && ` | ${m.notice}`}
+        {m.tokensPerSecond !== undefined && <span className="message__meta-part">{m.tokensPerSecond.toFixed(1)} tok/s</span>}
+        {m.notice && <span className="message__meta-part">{m.notice}</span>}
         {m.role === "assistant" && m.content && !m.isStreaming && (
           <CopyButton text={maskHome(stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim())} />
         )}
@@ -2103,6 +2117,7 @@ export default function App() {
       <Sidebar
         onNew={handleNew}
         onDelete={handleDelete}
+        isRunning={pool.isRunning}
         gameSpeech={gameSpeech}
         rpg={{
           dayCount,
