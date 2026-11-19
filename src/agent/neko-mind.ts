@@ -4,6 +4,8 @@ import { isClaudeActive, nekoNameOf, useSettingsStore } from "../stores/settings
 import { budgetBlockReason } from "../stores/claudeBudget";
 import { timeZone } from "../lib/time";
 import { useNekoNeeds } from "../neko/director/needsStore";
+import { SOLO_KEYS } from "../neko/director/needs";
+import type { NekoActivity } from "../neko/engine/neko-engine";
 import type { Memory, OpenAiToolSchema } from "./types";
 
 /**
@@ -31,7 +33,9 @@ export interface MindNote {
   why?: string;
 }
 export interface MindTopic { topic: string; at: string[] }
-export interface NekoMind { v: 1; notes: MindNote[]; topics: MindTopic[] }
+/** 요즘 기울기(3단계): 좋아하는 혼자 놀기·질린 것. 감독이 가중치로 읽는다(director/needs soloOdds) */
+export interface MindLean { at: string; like: NekoActivity[]; tired: NekoActivity[]; why?: string }
+export interface NekoMind { v: 1; notes: MindNote[]; topics: MindTopic[]; lean?: MindLean }
 
 const NOTES_MAX = 40;
 const TOPICS_MAX = 30;
@@ -39,7 +43,10 @@ const LINE_MAX = 60;
 export const TOPIC_MAX = 40;
 const THINK_MS = 20_000;
 
-const EMPTY: NekoMind = { v: 1, notes: [], topics: [] };
+const SOLO = new Set<string>(SOLO_KEYS);
+/** 보기(혼자 놀기) 안의 것만, 겹치지 않게, but 에 든 건 빼고, max 개까지 */
+const acts = (v: unknown, max: number, but: NekoActivity[] = []): NekoActivity[] =>
+  [...new Set((Array.isArray(v) ? v : []).filter((k): k is NekoActivity => typeof k === "string" && SOLO.has(k) && !but.includes(k as NekoActivity)))].slice(0, max);
 const line = (v: unknown, max = LINE_MAX) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
 
 /** 저장된 값을 읽는다. 모르는 칸·망가진 줄은 버린다 */
@@ -59,17 +66,32 @@ export function parseMind(raw: string | null): NekoMind {
     const topic = line(r.topic, TOPIC_MAX), at = (Array.isArray(r.at) ? r.at : []).filter((d): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d));
     return topic && at.length ? [{ topic, at }] : [];
   });
-  return { v: 1, notes: notes.slice(-NOTES_MAX), topics: topics.slice(-TOPICS_MAX) };
+  const l = ((o as { lean?: unknown }).lean ?? null) as Record<string, unknown> | null;
+  const leanAt = l && typeof l.at === "string" && !Number.isNaN(Date.parse(l.at)) ? l.at : "";
+  const like = acts(l?.like, 3), tired = acts(l?.tired, 2, like);
+  const lean: MindLean | undefined = leanAt && (like.length || tired.length) ? { at: leanAt, like, tired, ...(line(l?.why) ? { why: line(l?.why) } : {}) } : undefined;
+  return { v: 1, notes: notes.slice(-NOTES_MAX), topics: topics.slice(-TOPICS_MAX), ...(lean ? { lean } : {}) };
+}
+
+/** 마지막으로 읽거나 쓴 기울기(감독이 매번 저장소를 읽지 않게) */
+let leanCache: MindLean | undefined;
+const LEAN_TTL_MS = 24 * 3_600_000;
+/** 감독용: 하루 안에 정한 기울기만(오래되면 없음 — 가중치 1로 돌아간다) */
+export function currentLean(now = Date.now()): MindLean | null {
+  return leanCache && now - Date.parse(leanCache.at) < LEAN_TTL_MS ? leanCache : null;
 }
 
 export async function loadMind(): Promise<NekoMind> {
-  return parseMind(await settingsApi.get(MIND_KEY).catch(() => null));
+  const m = parseMind(await settingsApi.get(MIND_KEY).catch(() => null));
+  leanCache = m.lean;
+  return m;
 }
 
 /** 지금 저장된 값(다른 기기에서 받아 온 것 포함)을 읽어 고친 뒤 쓴다 */
 export async function updateMind(fn: (m: NekoMind) => NekoMind): Promise<NekoMind> {
   const next = fn(await loadMind());
-  const out: NekoMind = { v: 1, notes: next.notes.slice(-NOTES_MAX), topics: next.topics.slice(-TOPICS_MAX) };
+  const out: NekoMind = { v: 1, notes: next.notes.slice(-NOTES_MAX), topics: next.topics.slice(-TOPICS_MAX), ...(next.lean ? { lean: next.lean } : {}) };
+  leanCache = out.lean;
   await settingsApi.set(MIND_KEY, JSON.stringify(out)).catch(() => {});
   return out;
 }
@@ -165,7 +187,13 @@ const THINK_TOOL = {
   },
 } as OpenAiToolSchema;
 
-export interface Thought { pick: string; why: string; note?: { kind: "wonder" | "want"; text: string } }
+/** 이번 선택에만 더 받는 칸(기울기의 like·tired 등)을 붙인 neko_think */
+function withExtra(extra: Record<string, unknown>): OpenAiToolSchema {
+  const fn = (THINK_TOOL as unknown as { function: { parameters: { properties: Record<string, unknown> } } }).function;
+  return { ...THINK_TOOL, function: { ...fn, parameters: { ...fn.parameters, properties: { ...fn.parameters.properties, ...extra } } } } as unknown as OpenAiToolSchema;
+}
+
+export interface Thought { pick: string; why: string; note?: { kind: "wonder" | "want"; text: string }; extra?: Record<string, unknown> }
 
 function persona(): string {
   const p = useSettingsStore.getState().systemPrompt?.trim() ?? "";
@@ -176,7 +204,7 @@ function persona(): string {
  * 생각하기 한 번. ask = 이번에 고를 것(한 줄), material = 재료 덩이들. 도구 없이 neko_think 로 답하게 한다.
  * 20초 안에 답이 없거나 툴을 안 부르거나 고른 게 비면 null(지금 동작으로)
  */
-export async function think(ask: string, material: string[], signal?: AbortSignal, ms = THINK_MS): Promise<Thought | null> {
+export async function think(ask: string, material: string[], signal?: AbortSignal, ms = THINK_MS, extra?: Record<string, unknown>): Promise<Thought | null> {
   if (isClaudeActive() && budgetBlockReason()) return null; // 예산이 막혔으면 생각하지 않는다(지금 동작으로)
   const ctrl = new AbortController();
   const stop = () => ctrl.abort();
@@ -189,7 +217,7 @@ export async function think(ask: string, material: string[], signal?: AbortSigna
         { role: "system", content: [`너는 고양이 ${name}. neko_think 툴로 답해.`, me && `네 성격과 말투:\n${me}`].filter(Boolean).join("\n\n") },
         { role: "user", content: [...material, `## 고를 것\n${ask}`].join("\n\n") },
       ],
-      { tools: [THINK_TOOL] },
+      { tools: [extra ? withExtra(extra) : THINK_TOOL] },
       undefined,
       ctrl.signal,
     );
@@ -200,7 +228,7 @@ export async function think(ask: string, material: string[], signal?: AbortSigna
     const nr = (p?.note ?? null) as { kind?: unknown; text?: unknown } | null;
     const kind: "wonder" | "want" | null = nr?.kind === "wonder" ? "wonder" : nr?.kind === "want" ? "want" : null;
     const note = kind && line(nr?.text) ? { kind, text: line(nr?.text) } : undefined;
-    return { pick, why, ...(note ? { note } : {}) };
+    return { pick, why, ...(note ? { note } : {}), ...(extra && p ? { extra: p } : {}) };
   } catch {
     return null;
   } finally {
@@ -284,19 +312,65 @@ const readGreet = async (): Promise<Greeting | null> => {
   }
 };
 
+// ── 3단계: 요즘 한 놀이 셈(기울기 재료) ──────────────────────────────────────
+
+/** 이 기기에만: 날마다 혼자 놀기를 몇 번 시작했나(최근 이틀). 감독이 활동이 바뀔 때 센다(useNekoDirector) */
+const ACT_DAYS_KEY = "neko_activity_days";
+let actDays: Record<string, Record<string, number>> | null = null;
+let actSaveT: ReturnType<typeof setTimeout> | undefined;
+export const ACT_LABEL: Partial<Record<string, string>> = {
+  draw: "그림 그리기", music: "음악 듣기", butterfly: "나비 쫓기", snack: "간식", stretch: "기지개", reading: "신문 읽기", groom: "세수",
+  knead: "꾹꾹이", yarn: "털실 공놀이", giftplay: "선물 갖고 놀기", box: "상자", window: "창밖 구경", dig: "상자 뒤지기", climb: "벽 타기",
+  tower: "창 탐험", gaze: "쳐다보기",
+};
+async function readActDays(): Promise<Record<string, Record<string, number>>> {
+  if (actDays) return actDays;
+  try { actDays = JSON.parse((await settingsApi.get(ACT_DAYS_KEY).catch(() => null)) ?? "{}") ?? {}; } catch { actDays = {}; }
+  return actDays!;
+}
+/** 혼자 놀기 하나를 시작했다(1분 뒤 한 번에 저장) */
+export function noteActivity(key: string | null): void {
+  if (!key || !SOLO.has(key)) return;
+  void readActDays().then((d) => {
+    const day = ymd(new Date());
+    d[day] = { ...(d[day] ?? {}), [key]: (d[day]?.[key] ?? 0) + 1 };
+    for (const k of Object.keys(d).sort().slice(0, -2)) delete d[k];
+    clearTimeout(actSaveT);
+    actSaveT = setTimeout(() => void settingsApi.set(ACT_DAYS_KEY, JSON.stringify(d)).catch(() => {}), 60_000);
+  });
+}
+async function activityText(): Promise<string> {
+  const d = await readActDays(), sum: Record<string, number> = {};
+  for (const day of Object.values(d)) for (const [k, n] of Object.entries(day)) sum[k] = (sum[k] ?? 0) + n;
+  return Object.entries(sum).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${ACT_LABEL[k] ?? k}(${k}) ${n}번`).join(", ");
+}
+
+// ── 2·3단계: 쉴 때 생각하기(첫마디 + 기울기) ──────────────────────────────────
+
 /**
- * 졸기 시작할 때: 사용자가 돌아오면 먼저 건넬 말 한 줄을 미리 생각해 둔다(2시간에 한 번). 말풍선으로만 보이고 채팅 기록·
- * 모델 입력엔 안 들어간다(takeGreeting). 사용자에게만 보이는 말이라 사용자 기억이 섞여도 된다
+ * 졸기 시작할 때(greet)·산책에서 돌아왔을 때 한 번(2시간에 한 번): 요즘 좋아하는 혼자 놀기·질린 것(기울기, 감독 가중치)과,
+ * greet 면 사용자가 돌아오면 먼저 건넬 말 한 줄. 첫마디는 이 기기 말풍선으로만(takeGreeting), 채팅 기록·모델 입력엔 안 들어간다.
+ * 첫마디를 생각할 땐 사용자 사실도 본다 — 그래서 함께 나온 까닭 글은 사실 조각이 있으면 노트에 안 남긴다
  */
-export async function prepareGreeting(signal?: AbortSignal): Promise<void> {
+export async function restThink(o: { greet: boolean }, signal?: AbortSignal): Promise<void> {
   const prev = await readGreet();
   if (prev && Date.now() - prev.askedAt < GREET_EVERY_MS) return;
   await settingsApi.set(GREET_KEY, JSON.stringify({ text: prev?.text ?? "", at: prev?.at ?? 0, askedAt: Date.now() })).catch(() => {});
   const memories = await memoryApi.list().catch((): Memory[] => []);
-  // 이 기기 말풍선으로만 쓰고 노트에 안 남기니 사실도 본다
-  const t = await think("사용자가 돌아오면 먼저 건넬 말 한 줄(네 말투로, 짧게). why 엔 그렇게 말하는 까닭", mindMaterial(await loadMind(), memories, { facts: true }), signal);
+  const mind = await loadMind(), played = await activityText();
+  const options = SOLO_KEYS.map((k) => `${k}(${ACT_LABEL[k] ?? k})`).join(", ");
+  const ask = (o.greet ? "pick 엔 사용자가 돌아오면 먼저 건넬 말 한 줄(네 말투로, 짧게)" : "pick 엔 요즘 네 기분 한 줄")
+    + `. like 엔 요즘 하고 싶은 혼자 놀기 1–3개, tired 엔 좀 질린 것 0–2개를 보기에서(영어 이름으로): ${options}. why 엔 그 까닭`;
+  const t = await think(ask, [...mindMaterial(mind, memories, { facts: o.greet }), played ? `## 최근 이틀 한 혼자 놀기\n${played}` : ""].filter(Boolean), signal, THINK_MS, {
+    like: { type: "array", items: { type: "string", enum: SOLO_KEYS }, description: "요즘 하고 싶은 혼자 놀기 1–3개" },
+    tired: { type: "array", items: { type: "string", enum: SOLO_KEYS }, description: "좀 질린 것 0–2개(없으면 빈 배열)" },
+  });
   if (!t) return;
-  await settingsApi.set(GREET_KEY, JSON.stringify({ text: t.pick, at: Date.now(), askedAt: Date.now() })).catch(() => {});
+  if (o.greet) await settingsApi.set(GREET_KEY, JSON.stringify({ text: t.pick, at: Date.now(), askedAt: Date.now() })).catch(() => {});
+  const like = acts(t.extra?.like, 3), tired = acts(t.extra?.tired, 2, like);
+  if (!like.length && !tired.length) return;
+  const why = t.why && !leaksFact(t.why, memories) ? t.why : "";
+  await updateMind((m) => ({ ...m, lean: { at: new Date().toISOString(), like, tired, ...(why ? { why } : {}) } }));
 }
 
 /** 사용자가 돌아왔다: 생각해 둔 말이 6시간 안 것이면 꺼내고 지운다(한 번만 보인다) */

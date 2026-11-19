@@ -87,8 +87,16 @@ export function score(s: Needs, fills: Partial<Needs> | undefined, play?: number
 /** 혼자 놀기 후보(MIX 의 solo). 놓인 선물로 노는 giftplay 는 선물이 있을 때만, 창 탐험 tower 는 갈 창이 있을 때만(ctrl.towerOk) */
 export const SOLO_KEYS = Object.entries(MIX as Record<string, { solo?: boolean }>).filter(([, d]) => d.solo).map(([k]) => k as NekoActivity);
 
-/** last = 직전 혼자 놀기, recent = 그 앞의 것들(연달아 같은 걸 안 하게), play = 보이는 놀이 게이지 */
-export interface SoloWhere { last: NekoActivity | null; recent?: NekoActivity[]; hasGifts: boolean; towerOk?: boolean; play?: number }
+/**
+ * last = 직전 혼자 놀기, recent = 그 앞의 것들(연달아 같은 걸 안 하게), play = 보이는 놀이 게이지.
+ * like·tired = 네코가 정한 요즘 기울기(agent/neko-mind restThink): 좋아하는 건 LIKE_K, 질린 건 TIRED_K 배
+ */
+export interface SoloWhere {
+  last: NekoActivity | null; recent?: NekoActivity[]; hasGifts: boolean; towerOk?: boolean; play?: number;
+  like?: NekoActivity[]; tired?: NekoActivity[];
+}
+/** 기울기 손잡이(docs/neko-mind.md §6.3) */
+export const LIKE_K = 1.6, TIRED_K = 0.5;
 
 /**
  * 후보마다 확률(합 1). 최근에 한 것(직전·그 앞)은 빼고, 선물 놀이는 놓인 선물이 있을 때만, 갈 창이 없으면 tower 는 뺀다
@@ -98,7 +106,7 @@ export function soloOdds(s: Needs, o: SoloWhere): { key: NekoActivity; p: number
   const recent = new Set([o.last, ...(o.recent ?? [])]);
   const w = SOLO_KEYS
     .filter((k) => !recent.has(k) && (k !== "giftplay" || o.hasGifts) && (k !== "tower" || !!o.towerOk))
-    .map((key) => ({ key, w: score(s, fillsOf(key), o.play) }));
+    .map((key) => ({ key, w: score(s, fillsOf(key), o.play) * (o.like?.includes(key) ? LIKE_K : o.tired?.includes(key) ? TIRED_K : 1) }));
   const sum = w.reduce((a, b) => a + b.w, 0) || 1;
   return w.map(({ key, w: x }) => ({ key, p: x / sum }));
 }

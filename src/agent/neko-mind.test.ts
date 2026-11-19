@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Memory } from "./types";
 
 /** 네코의 마음 1단계(docs/neko-mind.md): 노트 저장, 사용자 사실이 새는지, 생각하기 실패 처리, 산책 주제 */
-const h = vi.hoisted(() => ({ kv: new Map<string, string>(), reply: null as unknown, fail: false, slow: false }));
+const h = vi.hoisted(() => ({ kv: new Map<string, string>(), reply: null as unknown, fail: false, slow: false, mems: [] as unknown[] }));
 vi.hoisted(() => {
   const kv = new Map<string, string>();
   globalThis.localStorage = { getItem: (k: string) => kv.get(k) ?? null, setItem: (k: string, v: string) => void kv.set(k, v), removeItem: (k: string) => void kv.delete(k) } as Storage;
 });
 vi.mock("../api/tauri", () => ({
-  memoryApi: { list: async () => [] },
+  memoryApi: { list: async () => h.mems },
   settingsApi: { get: async (k: string) => h.kv.get(k) ?? null, set: async (k: string, v: string) => void h.kv.set(k, v) },
 }));
 vi.mock("./llm-client", () => ({
@@ -20,7 +20,7 @@ vi.mock("./llm-client", () => ({
   },
 }));
 
-import { chooseAmong, chooseWalkTopic, forgetNote, leaksFact, loadMind, mindMaterial, noteWonder, parseMind, prepareGreeting, takeGreeting, think } from "./neko-mind";
+import { chooseAmong, chooseWalkTopic, forgetNote, leaksFact, loadMind, mindMaterial, noteWonder, parseMind, restThink, takeGreeting, think, currentLean } from "./neko-mind";
 
 const mem = (id: number, kind: string, content: string, created_at = "2026-11-01 09:00:00"): Memory => ({ id, kind, content, created_at, use_count: 0 });
 const MEMS = [
@@ -30,7 +30,7 @@ const MEMS = [
   mem(4, "neko", "산책하다 알게 됨: 고양이는 하루 16시간 잔다"),
 ];
 
-beforeEach(() => { h.kv.clear(); h.reply = null; h.fail = false; h.slow = false; });
+beforeEach(() => { h.kv.clear(); h.reply = null; h.fail = false; h.slow = false; h.mems = []; });
 
 describe("노트 읽기", () => {
   it("모르는 칸·망가진 줄은 버리고, 옛 값이 없으면 빈 마음", () => {
@@ -131,11 +131,35 @@ describe("2단계", () => {
   });
 
   it("첫마디: 졸 때 생각해 두고(2시간에 한 번), 깨면 한 번만 꺼낸다", async () => {
-    h.reply = { pick: "다녀왔어? 창밖에 비 와", why: "비가 와서" };
-    await prepareGreeting();
+    h.reply = { pick: "다녀왔어? 창밖에 비 와", why: "비가 와서", like: ["window"], tired: [] };
+    await restThink({ greet: true });
     h.reply = { pick: "또 생각함", why: "" };
-    await prepareGreeting(); // 2시간 안 — 다시 안 부른다
+    await restThink({ greet: true }); // 2시간 안 — 다시 안 부른다
     expect(await takeGreeting()).toBe("다녀왔어? 창밖에 비 와");
     expect(await takeGreeting()).toBeNull();
+  });
+});
+
+describe("3단계: 기울기", () => {
+  it("쉴 때 생각하기가 좋아하는 것·질린 것(보기 안의 것만)을 정하고 감독이 하루 동안 읽는다", async () => {
+    h.reply = { pick: "털실이 재밌어", why: "어제 털실이 잘 굴러서", like: ["yarn", "window", "nope", "yarn"], tired: ["box", "yarn", "giftplay", "dig"] };
+    await restThink({ greet: false });
+    const lean = currentLean()!;
+    expect(lean.like).toEqual(["yarn", "window"]);
+    expect(lean.tired).toEqual(["box", "giftplay"]); // 좋아하는 것과 겹친 건 빼고 둘까지
+    expect((await loadMind()).lean?.why).toBe("어제 털실이 잘 굴러서");
+    expect(currentLean(Date.now() + 25 * 3_600_000)).toBeNull(); // 하루 지나면 없음(가중치 1)
+    expect(await takeGreeting()).toBeNull(); // greet 아니면 첫마디 안 남김
+  });
+
+  it("까닭에 사용자 사실이 섞이면 기울기는 남기고 까닭은 버린다. 망가진 기울기는 안 읽는다", async () => {
+    h.kv.set("neko_greeting", JSON.stringify({ text: "", at: 0, askedAt: 0 }));
+    h.reply = { pick: "기분 좋아", why: "김하린이 와서", like: ["groom"], tired: [] };
+    h.mems = MEMS;
+    await restThink({ greet: false });
+    const m = await loadMind();
+    expect(m.lean?.like).toEqual(["groom"]);
+    expect(m.lean?.why).toBeUndefined();
+    expect(parseMind(JSON.stringify({ lean: { at: "x", like: ["yarn"] } })).lean).toBeUndefined();
   });
 });

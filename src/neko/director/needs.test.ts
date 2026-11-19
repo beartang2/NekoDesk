@@ -61,6 +61,14 @@ describe("숨은 게이지(docs/neko-activity-mix.md 2부)", () => {
     expect(pickByNeeds(START, { last: null, hasGifts: false }, 0)).toBe(odds.filter((x) => x.key !== "giftplay")[0].key);
   });
 
+  it("기울기: 네코가 좋아한다는 건 더, 질렸다는 건 덜 고른다(나머지 비율은 그대로)", () => {
+    const base = soloOdds(START, { last: null, hasGifts: true });
+    const lean = soloOdds(START, { last: null, hasGifts: true, like: ["window"], tired: ["box"] });
+    const p = (o: typeof base, k: string) => o.find((x) => x.key === k)!.p;
+    expect(p(lean, "window") / p(lean, "groom")).toBeCloseTo((p(base, "window") / p(base, "groom")) * 1.6);
+    expect(p(lean, "box") / p(lean, "groom")).toBeCloseTo((p(base, "box") / p(base, "groom")) * 0.5);
+  });
+
   it("놀이 게이지: 심심하면 뛰노는 놀이(털실·선물), 차 있으면 다른 걸 더 고른다", () => {
     const p = (play: number, k: string) => soloOdds(START, { last: null, hasGifts: true, play }).find((x) => x.key === k)!.p;
     expect(p(40, "yarn")).toBeGreaterThan(p(95, "yarn"));

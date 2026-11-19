@@ -3,6 +3,7 @@ import type { NekoActivity } from "./engine/neko-engine";
 import { ONE_SHOT } from "./director/toolActivity";
 import { useDevTools } from "./devTools";
 import { maybeDraw } from "../agent/neko-drawing";
+import { currentLean, loadMind, noteActivity } from "../agent/neko-mind";
 import { appEvents } from "../lib/events";
 import { DEEP_SLEEP_MS, deriveNeko, SLEEPY_MS } from "./director/derive";
 import { CHASE_BELOW, pickByNeeds } from "./director/needs";
@@ -106,8 +107,10 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
           // 놓아 둔 선물이 있으면 그걸 갖고 노는 것도 고른다(docs/neko-gifts.md §5)
           // 창 탐험은 화면 모드에서 갈 창이 있을 때만(엔진 towerOk — 대리는 화면 창이 알린 값)
           const c = ctrl as { decorCount?: number; towerOk?: boolean };
+          const lean = currentLean(); // 네코가 정한 요즘 기울기(하루 안 것만, docs/neko-mind.md §6.3)
           const kind = pickByNeeds(useNekoNeeds.getState().needs, {
             last: lastSolo, recent: olderSolo ? [olderSolo] : [], hasGifts: !!c.decorCount, towerOk: c.towerOk === true, play: needsRef.current.play,
+            like: lean?.like, tired: lean?.tired,
           });
           olderSolo = lastSolo; lastSolo = kind;
           box = { since: performance.now(), kind };
@@ -179,8 +182,12 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
     let shown: NekoActivity | null = ctrl.activity;
     offs.push(ctrl.on("activity", (a) => {
       if (shown && shown !== a && ONE_SHOT.has(shown)) useNekoNeeds.getState().oneShotDone(shown);
+      if (a && a !== shown) noteActivity(a); // 기울기 재료: 최근 이틀 한 혼자 놀기 셈
       shown = a;
     }));
+    // 기울기는 맥·폰이 같이(neko_mind): 처음 한 번, 다른 기기에서 바뀌면 다시 읽는다
+    void loadMind().catch(() => {});
+    offs.push(appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("setting")) void loadMind().catch(() => {}); }));
     const needsTimer = setInterval(() => {
       const app = useNekoApp.getState();
       const idleFor = performance.now() - Math.max(app.lastActiveAt, app.outside.at);

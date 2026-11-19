@@ -27,7 +27,7 @@ import { addPictureGift } from "./neko/pictureGift";
 import { useNekoDirector } from "./neko/useNekoDirector";
 import { useNekoApp } from "./neko/director/stores";
 import { watchWalkIdle } from "./neko/walkWatch";
-import { prepareGreeting, takeGreeting } from "./agent/neko-mind";
+import { restThink, takeGreeting } from "./agent/neko-mind";
 import { useNekoNeeds } from "./neko/director/needsStore";
 import { SLEEPY_MS } from "./neko/director/derive";
 import { useNekoStore } from "./neko/nekoStore";
@@ -1892,8 +1892,9 @@ export default function App() {
     sleepyMs: SLEEPY_MS,
     onIdle: (on) => {
       if (on) dozeRef.current = { at: Date.now(), extraWait: EXTRA_WAIT_MS[0] + Math.random() * (EXTRA_WAIT_MS[1] - EXTRA_WAIT_MS[0]) };
-      // 네코의 마음(docs/neko-mind.md §6.2): 졸기 시작하면 돌아올 사용자에게 건넬 말을 생각해 두고(2시간에 한 번), 깨면 말풍선으로
-      if (on) void prepareGreeting().catch(() => {});
+      // 네코의 마음(docs/neko-mind.md §6.2·6.3): 졸기 시작하면 돌아올 사용자에게 건넬 말과 요즘 기울기를 생각해 두고(2시간에 한 번),
+      // 깨면 말풍선으로
+      if (on) void restThink({ greet: true }).catch(() => {});
       else void takeGreeting().then((t) => { if (t) appEvents.emit("nekoSays", t); }).catch(() => {});
       setIdle(on);
     },
@@ -2037,6 +2038,7 @@ export default function App() {
       arrivingRef.current = w;
       setAway(false);
       useNekoNeeds.getState().walked(); // 숨은 게이지: 호기심 가득, 조금 꼬질·지침
+      void restThink({ greet: false }).catch(() => {}); // 다녀와서 요즘 기울기(2시간에 한 번, docs/neko-mind.md §6.3)
       const brain = brainRef.current ?? startWalkBrain({ places: w.places, here: w.home });
       brainRef.current = null;
       const report = await brain.result;
