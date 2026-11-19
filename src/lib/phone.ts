@@ -5,39 +5,68 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { useNekoStore, type NekoPlacement } from "../neko/nekoStore";
+import { usePhonePanel } from "../neko/panel";
 
 const KBD_KEY = "nekodesk_phone_kbd_h";
 
-/** 키보드: 보이는 높이(--vvh)만큼만 쓴다. 올라오는 걸 기다리지 않고 지난번 키보드 높이로 먼저 줄여 입력 칸이 키보드와 같이 올라온다. */
+/** 키보드가 올라와 있나(120px 넘게 가렸나) — 이때는 끝에서 미는 손짓을 받지 않는다 */
+let kbdUp = false;
+export const keyboardUp = (): boolean => kbdUp;
+
+const isField = (t: EventTarget | null): boolean =>
+  t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && !/^(checkbox|radio|range|button|color|file)$/.test(t.type));
+
+/** 치고 있던 칸을 놓아 키보드를 내린다(대화 목록·설정·선물함을 열 때) */
+export function dismissKeyboard(): void {
+  const el = document.activeElement;
+  if (isField(el)) (el as HTMLElement).blur();
+}
+
+/**
+ * 키보드: 높이 하나(--kbd, 대화 칸 .main 에)로만 반영한다. 채팅 바는 그만큼 transform 으로 올라가고(합성 층에서만, 전환이
+ * 키보드와 같이 간다) 대화 목록은 아래 여백이 한 번 바뀐다 — 화면 높이를 줄이며 매 프레임 다시 배치하던 때는 올라오며 버벅였다.
+ * 맨 아래를 보고 있었으면 맨 아래에 다시 맞춘다(안 그러면 최근 답이 키보드 뒤에 가렸다).
+ * 위에 뜬 장(설정·선물함)은 보이는 높이(--vvh)까지만 쓴다 — 그 안의 입력 칸이 키보드에 깔리지 않게.
+ * 키보드가 올라오는 걸 기다리지 않고 지난번 높이로 먼저 올려 채팅 바가 키보드와 같이 올라간다.
+ */
 function fitKeyboard(root: HTMLElement): void {
   const vv = window.visualViewport;
   if (!vv) return;
   // 지금까지 본 가장 큰 높이 = 키보드가 없을 때. innerHeight 는 iOS 버전에 따라 같이 줄어 못 믿는다
-  let tallest = 0;
-  const apply = (h: number) => {
-    root.style.setProperty("--vvh", `${h}px`);
-    root.classList.toggle("kbd", tallest - h > 120);
+  let tallest = 0, last = -1;
+  const apply = (k: number) => {
+    k = Math.max(0, Math.round(k));
+    if (k === last) return;
+    last = k;
+    kbdUp = k > 120;
+    const sc = document.querySelector<HTMLElement>(".chat-messages");
+    const atBottom = !!sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
+    document.querySelector<HTMLElement>(".main")?.style.setProperty("--kbd", `${k}px`);
+    if (sc && atBottom) sc.scrollTop = sc.scrollHeight;
+    // 문서 맨 위에 변수를 바꾸면 화면 전체가 다시 계산된다 — 위에 뜬 장이 있을 때만
+    if (k && document.querySelector(".menu-backdrop, .phone-panel")) root.style.setProperty("--vvh", `${tallest - k}px`);
+    else root.style.removeProperty("--vvh");
   };
-  const isField = (t: EventTarget | null) => t instanceof HTMLTextAreaElement || (t instanceof HTMLInputElement && !/^(checkbox|radio|range|button|color|file)$/.test(t.type));
-  // 치는 칸이 키보드에 가리지 않게: 화면이 줄어든 뒤, 그 칸을 감싼 스크롤 칸(설정 등) 안에서 보이는 자리로 올린다
+  // 위에 뜬 장 안의 칸이면, 장이 줄어든 뒤 그 칸이 보이는 자리로 올린다
   let reveal = 0;
   const showField = () => {
     clearTimeout(reveal);
     reveal = window.setTimeout(() => {
       const el = document.activeElement;
-      if (isField(el)) (el as HTMLElement).scrollIntoView({ block: "center", behavior: "smooth" });
+      if (isField(el) && (el as HTMLElement).closest(".menu-backdrop, .phone-panel")) (el as HTMLElement).scrollIntoView({ block: "center", behavior: "smooth" });
     }, 280);
   };
   const fit = () => {
     tallest = Math.max(tallest, vv.height);
-    apply(vv.height);
-    if (tallest - vv.height > 120) { localStorage.setItem(KBD_KEY, String(Math.round(tallest - vv.height))); showField(); }
+    const k = tallest - vv.height;
+    apply(k);
+    if (k > 120) { localStorage.setItem(KBD_KEY, String(Math.round(k))); showField(); }
   };
   let settle = 0;
   const guess = (open: boolean) => {
     const h = Number(localStorage.getItem(KBD_KEY));
-    if (open && h > 120) apply(tallest - h);
-    else if (!open) apply(tallest);
+    if (open && h > 120) apply(h);
+    else if (!open) apply(0);
     // 짐작이 틀렸으면(외장 키보드 등) 실제 높이로 되돌린다
     clearTimeout(settle);
     settle = window.setTimeout(fit, 700);
@@ -76,8 +105,11 @@ function dropHover(): void {
  */
 export const drawer = {
   isOpen: () => document.documentElement.hasAttribute("data-drawer"),
-  set: (open: boolean) => { document.documentElement.toggleAttribute("data-drawer", open); },
-  toggle: () => { document.documentElement.toggleAttribute("data-drawer"); },
+  set: (open: boolean) => {
+    if (open) dismissKeyboard();
+    document.documentElement.toggleAttribute("data-drawer", open);
+  },
+  toggle: () => drawer.set(!drawer.isOpen()),
 };
 
 /** 손짓으로 여닫는 두 장: 대화 목록(왼쪽에서, 위의 `drawer`)과 설정(오른쪽에서, 열림 상태는 App 이 갖는다). */
@@ -93,17 +125,18 @@ export function bindPanels(get: () => Panels): () => void {
 
 /**
  * 끝에서 미는 손짓: 장이 손가락을 따라 움직이고, 손을 뗄 때 정해진다(절반 못 미쳐도 빠르게 밀면 넘어간다).
- *   왼쪽 끝 → 오른쪽: 설정이 열려 있으면 설정을 닫고, 아니면 대화 목록을 연다.
- *   오른쪽 끝(또는 대화 목록 옆 가림막) → 왼쪽: 대화 목록이 열려 있으면 닫고, 아니면 설정을 연다.
- * 그리는 건 CSS 변수로 한다(App.css): --drawer-x·--scrim(대화 목록), --sheet-x·--sheet-p(설정). 뒤 화면은 열린 만큼 흐려진다. 끄는 동안은 html 에
- * drag-drawer / drag-sheet 를 붙여 전환을 끄고, 놓으면 떼어 남은 거리를 전환이 마저 간다.
+ *   왼쪽 끝 → 오른쪽: 맨 위에 뜬 장(선물함·꾸미기, 그다음 설정)을 닫는다. 아무것도 없으면 대화 목록을 연다 — 아이폰의 뒤로 가기 손짓.
+ *   오른쪽 끝(또는 대화 목록 옆 가림막) → 왼쪽: 대화 목록이 열려 있으면 닫고, 아무것도 없으면 설정을 연다.
+ * 키보드가 올라와 있거나, 무대에서 물건을 잡고 있으면(html[data-holding]) 받지 않는다.
+ * 끄는 동안은 움직이는 장 하나에 transform(가림막은 opacity)만 바로 적는다 — 문서 맨 위의 변수로 그리면 프레임마다 화면 전체가
+ * 다시 계산돼 버벅였다. html 의 drag-* 는 끄는 동안 전환을 끄고, 놓으면 떼어 남은 거리를 전환이 마저 간다.
  */
 function watchEdgeDrags(root: HTMLElement): void {
   const EDGE = 28, LOCK = 10, FLICK = 0.4; // px, px, px/ms
-  type Drag = { kind: "drawer" | "sheet"; opening: boolean; dir: 1 | -1; w: number; x0: number; y0: number; locked: boolean; open: number; lastX: number; lastT: number; v: number };
+  type Kind = "drawer" | "sheet" | "panel";
+  type Drag = { kind: Kind; opening: boolean; dir: 1 | -1; w: number; x0: number; y0: number; locked: boolean; open: number; lastX: number; lastT: number; v: number };
   let drag: Drag | null = null;
-  // 놓은 뒤 치울 것(끄는 동안 붙인 클래스·변수). 다음 손짓이 먼저 시작되면 그때 바로 치운다 — 타이머만 지우면
-  // 설정을 끌다 놓고 곧바로 대화 목록을 끌 때 설정의 자리 값이 남아, 다음에 설정을 누르면 반쯤 나온 채 멈췄다
+  // 놓은 뒤 치울 것. 다음 손짓이 먼저 시작되면 그때 바로 치운다(타이머만 지우면 자리 값이 남아 장이 반쯤 나온 채 멈췄다)
   let cleanup = 0;
   let pending: (() => void) | null = null;
   const later = (ms: number, fn: () => void) => {
@@ -111,24 +144,48 @@ function watchEdgeDrags(root: HTMLElement): void {
     cleanup = window.setTimeout(() => { pending?.(); pending = null; }, ms);
   };
   const flush = () => { clearTimeout(cleanup); pending?.(); pending = null; };
-  // 대화 목록의 보이는 폭(App.css 의 --panel-w 와 같은 식). 설정은 화면 폭 전체다
+  // 대화 목록의 보이는 폭(App.css 의 --panel-w 와 같은 식). 설정·선물함은 화면 폭 전체다
   const drawerWidth = () => Math.min(window.innerWidth * 0.86, 340);
+  const el = (sel: string) => document.querySelector<HTMLElement>(sel);
+  const SOFT = "transform var(--soft-dur) var(--soft)";
 
   const paint = (d: Drag) => {
+    const p = d.open / d.w;
     if (d.kind === "drawer") {
-      root.style.setProperty("--drawer-x", `${d.open - d.w}px`);
-      root.style.setProperty("--scrim", String(d.open / d.w));
+      const side = el(".sidebar"), scrim = el(".drawer-scrim");
+      if (side) side.style.transform = `translateX(${d.open - d.w}px)`;
+      if (scrim) scrim.style.opacity = String(p);
+    } else if (d.kind === "sheet") {
+      const modal = el(".menu-modal");
+      if (modal) {
+        modal.style.transform = `translateX(${d.w - d.open}px)`;
+        el(".menu-backdrop")?.style.setProperty("--sheet-p", String(p));
+      } else {
+        // 막 여는 중이라 아직 안 그려졌다: 그려질 때 이 자리에서 나오게 한 번만 맨 위에 적는다
+        root.style.setProperty("--sheet-x", `${d.w - d.open}px`);
+        root.style.setProperty("--sheet-p", String(p));
+      }
     } else {
-      root.style.setProperty("--sheet-x", `${d.w - d.open}px`);
-      root.style.setProperty("--sheet-p", String(d.open / d.w));
+      const panel = el(".phone-panel");
+      if (panel) panel.style.transform = `translateX(${d.w - d.open}px)`;
+    }
+  };
+  const unpaint = (kind: Kind) => {
+    if (kind === "drawer") {
+      el(".sidebar")?.style.removeProperty("transform");
+      el(".drawer-scrim")?.style.removeProperty("opacity");
+    } else if (kind === "sheet") {
+      el(".menu-modal")?.style.removeProperty("transform");
+      el(".menu-backdrop")?.style.removeProperty("--sheet-p");
+      root.style.removeProperty("--sheet-x");
+      root.style.removeProperty("--sheet-p");
     }
   };
 
   document.addEventListener("touchstart", (e) => {
     drag = null;
     const p = panels?.();
-    // 네코 꾸미기·선물함이 떠 있으면 그 밑의 장을 끌지 않는다
-    if (!p || e.touches.length !== 1 || document.querySelector(".phone-panel") || root.classList.contains("standby")) return;
+    if (!p || e.touches.length !== 1 || kbdUp || root.classList.contains("standby") || root.hasAttribute("data-holding")) return;
     const t = e.touches[0];
     const target = e.target as Element | null;
     const onScrim = target?.classList?.contains("drawer-scrim");
@@ -136,9 +193,11 @@ function watchEdgeDrags(root: HTMLElement): void {
     if (!onScrim && target?.closest?.("button, a, input, textarea, select, [role='tab']")) return;
     const side = t.clientX <= EDGE ? "left" : t.clientX >= window.innerWidth - EDGE || onScrim ? "right" : null;
     if (!side) return;
-    const pick = side === "left"
-      ? (p.sheetOpen ? { kind: "sheet" as const, opening: false } : !drawer.isOpen() ? { kind: "drawer" as const, opening: true } : null)
-      : (drawer.isOpen() ? { kind: "drawer" as const, opening: false } : !p.sheetOpen ? { kind: "sheet" as const, opening: true } : null);
+    const pick: { kind: Kind; opening: boolean } | null = el(".phone-panel")
+      ? (side === "left" ? { kind: "panel", opening: false } : null)
+      : side === "left"
+        ? (p.sheetOpen ? { kind: "sheet", opening: false } : !drawer.isOpen() ? { kind: "drawer", opening: true } : null)
+        : (drawer.isOpen() ? { kind: "drawer", opening: false } : !p.sheetOpen ? { kind: "sheet", opening: true } : null);
     if (!pick) return;
     const w = pick.kind === "drawer" ? drawerWidth() : window.innerWidth;
     drag = { ...pick, dir: side === "left" ? 1 : -1, w, x0: t.clientX, y0: t.clientY, locked: false, open: pick.opening ? 0 : w, lastX: t.clientX, lastT: e.timeStamp, v: 0 };
@@ -153,12 +212,14 @@ function watchEdgeDrags(root: HTMLElement): void {
       if (dx < LOCK) return;
       d.locked = true;
       flush();
-      root.classList.add(`drag-${d.kind}`);
+      if (d.kind !== "panel") root.classList.add(`drag-${d.kind}`);
+      else el(".phone-panel")?.style.removeProperty("transition");
+      if (d.kind === "drawer" && d.opening) dismissKeyboard();
       // 설정은 열려야 화면에 있다. 손가락 자리에서 시작하게 먼저 그리고 연다
       if (d.kind === "sheet" && d.opening) { paint(d); panels?.().setSheet(true); }
     }
     if (e.cancelable) e.preventDefault();
-    // 여는 손짓은 민 만큼 열리고, 닫는 손짓은 민 만큼 닫힌다. 손가락이 가는 쪽: 대화 목록·설정 닫기 = dir, 설정 열기·대화 목록 닫기도 dir
+    // 여는 손짓은 민 만큼 열리고, 닫는 손짓은 민 만큼 닫힌다
     d.open = Math.max(0, Math.min(d.w, d.opening ? dx : d.w - dx));
     const dt = e.timeStamp - d.lastT;
     if (dt > 0) d.v = ((t.clientX - d.lastX) * d.dir) / dt;
@@ -175,26 +236,33 @@ function watchEdgeDrags(root: HTMLElement): void {
     const forward = d.v > FLICK || (d.v > -FLICK && (d.opening ? d.open > d.w * 0.4 : d.open < d.w * 0.6));
     const open = d.opening ? forward : !forward;
     if (d.kind === "drawer") {
+      // 적어 둔 자리를 지우고 클래스를 떼면, 전환이 지금 자리에서 열림·닫힘 자리까지 간다
+      unpaint("drawer");
       root.classList.remove("drag-drawer");
-      root.style.removeProperty("--drawer-x");
-      root.style.removeProperty("--scrim");
       drawer.set(open);
       return;
     }
+    if (d.kind === "panel") {
+      const panel = el(".phone-panel");
+      if (!panel) return;
+      panel.style.transition = SOFT;
+      panel.style.transform = open ? "" : "translateX(100%)";
+      later(460, () => {
+        if (open) panel.style.removeProperty("transition");
+        else usePhonePanel.getState().close();
+      });
+      return;
+    }
     if (open) { // 남은 거리를 전환이 간다
+      unpaint("sheet");
       root.classList.remove("drag-sheet");
-      root.style.setProperty("--sheet-x", "0px");
-      root.style.setProperty("--sheet-p", "1");
       p?.setSheet(true);
-      later(520, () => { root.style.removeProperty("--sheet-x"); root.style.removeProperty("--sheet-p"); });
     } else { // 닫힘: 지금 자리에서 나가는 애니메이션(MenuModal.css menu-slide-out 의 --menu-from). 다 나갈 때까지 자리를 붙들어 둔다
-      root.style.setProperty("--menu-from", `${d.w - d.open}px`);
+      el(".menu-modal")?.style.setProperty("--menu-from", `${d.w - d.open}px`);
       p?.setSheet(false);
       later(400, () => {
         root.classList.remove("drag-sheet");
-        root.style.removeProperty("--sheet-x");
-        root.style.removeProperty("--sheet-p");
-        root.style.removeProperty("--menu-from");
+        unpaint("sheet");
       });
     }
   };

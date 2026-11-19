@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { IS_PHONE } from "../lib/platform";
 import { openNekoPanel } from "./panel";
 import { invoke } from "@tauri-apps/api/core";
 import { AlertDialog } from "radix-ui";
@@ -120,6 +121,8 @@ export function NekoGiftPanel() {
   const here = useNekoStore((s) => s.stage.placement);
   /** 버릴지 묻는 중인 선물 */
   const [drop, setDrop] = useState<NekoGift | null>(null);
+  /** 폰: 설명을 펼친 선물. 맥은 칸에 올려 두면 툴팁으로 보지만 폰엔 '올려 둠'이 없다 */
+  const [info, setInfo] = useState<NekoGift | null>(null);
   useEffect(() => { void useNekoGifts.getState().load(); }, []);
 
   return (
@@ -142,8 +145,17 @@ export function NekoGiftPanel() {
                 <button type="button" className="neko-gifts__drop" aria-label={`${g.title} 버리기`} title="버리기" onClick={() => setDrop(g)}>
                   <Trash2 size={12} />
                 </button>
-                <GiftThumb shape={g.shape} size={64} />
-                <span className="neko-gifts__title">{g.title}</span>
+                {IS_PHONE ? (
+                  <button type="button" className="neko-gifts__peek" onClick={() => setInfo(g)} aria-label={`${g.title} 설명 보기`}>
+                    <GiftThumb shape={g.shape} size={64} />
+                    <span className="neko-gifts__title">{g.title}</span>
+                  </button>
+                ) : (
+                  <>
+                    <GiftThumb shape={g.shape} size={64} />
+                    <span className="neko-gifts__title">{g.title}</span>
+                  </>
+                )}
                 {g.placed && <GiftScale g={g} at={g.placed.at} />}
                 <button type="button" className="settings-btn neko-gifts__btn" onClick={act.run}>
                   {act.label}
@@ -153,6 +165,23 @@ export function NekoGiftPanel() {
           })}
         </ul>
       </div>
+      {/* 폰: 선물 설명 카드. 선물함 장 안에 그려 왼쪽 끝 손짓으로 장을 닫을 때 같이 움직인다 */}
+      {info && (
+        <div className="gift-info" onClick={(e) => { if (e.target === e.currentTarget) setInfo(null); }}>
+          <div className="gift-info__card" role="dialog" aria-label={info.title}>
+            <GiftThumb shape={info.shape} size={96} />
+            <h3 className="gift-info__title">{info.title}</h3>
+            {info.body && <p className="gift-info__body">{info.body}</p>}
+            <p className="gift-info__meta">
+              {DAY.format(new Date(info.at))}에 받음{info.placed ? ` · ${PLACE_NAME[info.placed.at]}에 놓여 있음` : ""}
+            </p>
+            <div className="gift-info__actions">
+              <button type="button" className="update-dialog__btn update-dialog__btn--danger" onClick={() => { setDrop(info); setInfo(null); }}>버리기</button>
+              <button type="button" className="update-dialog__btn" onClick={() => setInfo(null)}>닫기</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* 버리기 확인. 처음 포커스는 취소, Esc 도 취소(Radix 가 Esc 를 먹어 창은 안 닫힌다). 버리면 windowSync 로 방·거실·마당에서도 빠진다 */}
       <AlertDialog.Root open={!!drop} onOpenChange={(open) => { if (!open) setDrop(null); }}>
         <AlertDialog.Portal>

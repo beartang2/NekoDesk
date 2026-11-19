@@ -148,3 +148,49 @@
 .gift-lab__real.is-picked { opacity: 1; }
 .gift-lab__foot { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 .gift-lab__foot > span { flex: 1; margin: 0; }
+
+/* 폰: 선물 칸을 누르면 설명 카드(맥은 툴팁). 버리기 버튼은 맥에서만 칸 위에(폰은 카드 안에) */
+.neko-gifts__peek {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+html.phone .neko-gifts__drop { display: none; }
+.gift-info {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in oklab, #000 35%, transparent);
+  animation: gift-info-in 0.18s ease-out;
+}
+@keyframes gift-info-in { from { opacity: 0; } }
+.gift-info__card {
+  width: min(320px, 100%);
+  max-height: 80%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 18px 16px;
+  border-radius: 18px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.gift-info__title { margin: 0; font-size: 16px; font-weight: 600; }
+.gift-info__body { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-primary); white-space: pre-wrap; }
+.gift-info__meta { margin: 0; font-size: 12px; color: var(--text-muted); }
+.gift-info__actions { display: flex; gap: 8px; width: 100%; margin-top: 6px; }
+.gift-info__actions > * { flex: 1; min-height: 44px; }
