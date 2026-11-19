@@ -176,15 +176,24 @@ pub fn sync_now() {
     kick();
 }
 
+/// 서버 주소를 주소 해석기로 읽어 확인하고 다듬는다: https 만(로컬 시험 `wrangler dev` 는 호스트가 정확히
+/// 127.0.0.1·localhost 인 http), 사용자 정보(`user@`)·질의·조각은 거절한다. 앞글자만 보면
+/// `http://localhost@evil.example`·`http://127.0.0.1.evil.example` 이 통과하고, 확인 창에 보이는 주소도 속일 수 있다.
 fn check_url(url: &str) -> AppResult<String> {
-    let url = url.trim().trim_end_matches('/').to_owned();
-    // 로컬 시험(wrangler dev)만 http 를 받는다
-    let local = url.starts_with("http://127.0.0.1") || url.starts_with("http://localhost");
-    if url.starts_with("https://") || local {
-        Ok(url)
-    } else {
-        Err(AppError::msg("서버 주소는 https:// 로 시작해야 해요."))
+    let bad = || AppError::msg("서버 주소는 https:// 로 시작해야 해요.");
+    let parsed = tauri::Url::parse(url.trim()).map_err(|_| bad())?;
+    let host = parsed.host_str().ok_or_else(bad)?;
+    let local = parsed.scheme() == "http" && (host == "127.0.0.1" || host == "localhost");
+    if !(parsed.scheme() == "https" || local) || !parsed.username().is_empty() || parsed.password().is_some() || parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(bad());
     }
+    let port = parsed.port().map(|p| format!(":{p}")).unwrap_or_default();
+    Ok(format!("{}://{host}{port}{}", parsed.scheme(), parsed.path().trim_end_matches('/')))
+}
+
+/// 확인 창에 보일 서버(호스트와 포트만). `check_url` 을 지난 주소에서만 부른다
+fn host_of(url: &str) -> String {
+    tauri::Url::parse(url).ok().and_then(|u| u.host_str().map(|h| match u.port() { Some(p) => format!("{h}:{p}"), None => h.to_owned() })).unwrap_or_default()
 }
 
 #[derive(Deserialize)]
@@ -284,13 +293,13 @@ pub fn link_opened(app: &AppHandle, url: &str) {
     let _ = app.emit("pair-link", ());
 }
 
-/// 폰: 찍어 온 짝 문자열과 그 서버 주소(확인 창에 보인다). 한 번 가져가면 비운다.
+/// 폰: 찍어 온 짝 문자열과 그 서버(해석한 호스트·포트 — 확인 창에 보인다). 한 번 가져가면 비운다.
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub fn sync_pair_linked() -> Option<(String, String)> {
     let pairing = LINKED.lock().ok()?.take()?;
     let (url, ..) = parse_pairing(&pairing).ok()?;
-    Some((pairing, url))
+    Some((pairing, host_of(&url)))
 }
 
 fn parse_pairing(s: &str) -> AppResult<(String, String, Key, Option<String>)> {
@@ -474,6 +483,13 @@ mod tests {
         assert!(parse_pairing("hello").is_err());
         // http 는 로컬 시험 서버만
         assert!(check_url("http://sync.example.com").is_err());
-        assert!(check_url("http://127.0.0.1:8787/").is_ok());
+        assert_eq!(check_url("http://127.0.0.1:8787/").unwrap(), "http://127.0.0.1:8787");
+        assert_eq!(check_url(" https://sync.example.com/ ").unwrap(), "https://sync.example.com");
+        // 앞글자만 맞춘 주소·사용자 정보로 호스트를 가린 주소는 거절한다
+        for evil in ["http://127.0.0.1.evil.example", "http://localhost.evil.example", "http://localhost@evil.example", "https://sync.example.com@evil.example", "https://user:pw@evil.example", "https://evil.example/?x=https://sync.example.com", "https://evil.example/#sync.example.com", "ftp://sync.example.com", "sync.example.com"] {
+            assert!(check_url(evil).is_err(), "{evil}");
+        }
+        assert_eq!(host_of("https://sync.example.com/base"), "sync.example.com");
+        assert_eq!(host_of("http://127.0.0.1:8787"), "127.0.0.1:8787");
     }
 }

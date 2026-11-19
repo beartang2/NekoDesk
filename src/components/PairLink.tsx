@@ -9,7 +9,7 @@ import "./Update.css";
  * 그 주소는 아무 앱·웹 링크나 열 수 있다 — 묻지 않고 연결하면 남의 서버로 대화가 올라갈 수 있다.
  */
 export function PairLinkPrompt() {
-  const [link, setLink] = useState<{ pairing: string; url: string } | null>(null);
+  const [link, setLink] = useState<{ pairing: string; host: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
 
@@ -17,7 +17,7 @@ export function PairLinkPrompt() {
     const take = () => void syncApi.pairLinked().then((got) => {
       if (!got) return;
       setNote("");
-      setLink({ pairing: got[0], url: got[1] });
+      setLink({ pairing: got[0], host: got[1] });
     }).catch(() => {});
     take(); // 그 주소로 앱이 켜졌으면 화면보다 먼저 와 있다
     const off = listen("pair-link", take);
@@ -38,7 +38,8 @@ export function PairLinkPrompt() {
     }
   }
 
-  const host = link ? link.url.replace(/^https?:\/\//, "") : "";
+  // 서버 이름은 백엔드가 주소 해석기로 뽑은 호스트다(화면에서 글자를 잘라 만들지 않는다 — user@host 로 속일 수 있다)
+  const host = link?.host ?? "";
   return (
     <AlertDialog.Root open={!!link} onOpenChange={(open) => { if (!open) setLink(null); }}>
       <AlertDialog.Portal>
