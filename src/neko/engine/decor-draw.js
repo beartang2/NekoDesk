@@ -6,6 +6,7 @@
  * 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율(0~1).
  */
 import { validateShape, shapeBounds, shapeTop, drawShape } from "./gift-shape.js";
+import { roomWindows, WINDOW_PAD, WINDOW_SILL } from "./room-window.js";
 
 export const DECOR_SIZE = 96;  // 한 변(S 단위). 32 → 64 → 96: 사용자가 두 번 키웠다(아직 작다). 배율 0.5~3 은 이 기준
 export const WALL_GAP = 18;    // 바닥에서 이만큼(S) 넘게 띄워 놓으면 벽에 건다
@@ -33,9 +34,17 @@ export function capPx(at, g) {
   if (at === "dock") return Math.min(g.floorY, ROOM_CAP_CATS * CAT_H * g.S);
   return Infinity;
 }
-/** 그릴 배율 k = 크기(소·중·대) × 사용자 배율, 그 자리 상한(높이)까지. capped = 상한에 걸렸나(저장값은 그대로) */
+/**
+ * 고양이보다 높은 거실(폰을 가로로 돌린 화면): 띠가 높아도 고양이는 S 1.4 에서 멈추고 선물도 고양이 대비로 같이 커져, 화면 폭에
+ * 비해 세로 거실보다 1.4배쯤 커 보였다. 이런 거실에서는 선물을 고양이 대비 70% 로(사용자가 그림 두 장을 보고 골랐다).
+ * 맥 거실·폰 세로 거실은 띠가 240 을 안 넘어 해당 없다
+ */
+export const TALL_DOCK_Y = 1.4 * 240;
+export const TALL_DOCK_K = 0.7;
+const tallK = (at, g) => (at === "dock" && g.floorY > TALL_DOCK_Y ? TALL_DOCK_K : 1);
+/** 그릴 배율 k = 크기(소·중·대) × 사용자 배율(× 높은 거실 70%), 그 자리 상한(높이)까지. capped = 상한에 걸렸나(저장값은 그대로) */
 export function decorK(shape, size, scale, at, g) {
-  const k0 = sizeK(size) * clampScale(scale), h1 = decorDims(shape, 1, g.S).h, kMax = capPx(at, g) / Math.max(1e-6, h1);
+  const k0 = sizeK(size) * clampScale(scale) * tallK(at, g), h1 = decorDims(shape, 1, g.S).h, kMax = capPx(at, g) / Math.max(1e-6, h1);
   return k0 > kMax ? { k: kMax, capped: true } : { k: k0, capped: false };
 }
 
@@ -47,10 +56,22 @@ export function decorDims(shape, k, S) {
 export const decorM = (S) => 16 * S;
 /** 벽 v = 1 이면 물건 위가 무대 위에서 10 아래 */
 export const wallSpan = (h, g) => Math.max(1, g.floorY - h - 10 * g.S);
-/** 자리(면·비율) → 그릴 자리(가운데 x, 바닥 y) */
-export function decorAt(d, h, g) {
+/**
+ * 자리(면·비율) → 그릴 자리(가운데 x, 바닥 y). 방·거실 벽에 건 것(d.at, 폭 w 를 알 때)은 날씨 창문(커튼·창턱까지)과 겹치면
+ * 창턱 아래로 내려 건다(사용자) — 저장한 자리는 그대로, 그릴 때만. 무대 높이는 바닥 + 6(엔진 resize 와 같다)
+ */
+export function decorAt(d, h, g, w = 0) {
   const m = decorM(g.S), x = m + d.u * Math.max(0, g.W - 2 * m);
-  return [x, d.surface === "wall" ? g.floorY - (d.v ?? 0.5) * wallSpan(h, g) : g.floorY];
+  if (d.surface !== "wall") return [x, g.floorY];
+  let bottom = g.floorY - (d.v ?? 0.5) * wallSpan(h, g);
+  if (w > 0) {
+    for (const r of roomWindows(d.at, g.W, g.floorY + 6)) {
+      const overX = x + w / 2 > r.x - WINDOW_PAD && x - w / 2 < r.x + r.w + WINDOW_PAD;
+      const below = r.y + r.h + WINDOW_SILL + 3 * g.S; // 창턱 아래
+      if (overX && bottom - h < below && bottom > r.y - WINDOW_PAD) bottom = Math.min(g.floorY, below + h);
+    }
+  }
+  return [x, bottom];
 }
 /** 끄는 중인 물건(높이 h)을 무대 안에 묶는다: 양끝 여백 안, 바닥 아래로는 안 내려가고 무대 위로도 안 나간다 */
 export const clampDrag = (h, g, x, bottom) => [clamp(x, decorM(g.S), g.W - decorM(g.S)), clamp(bottom, h + 10 * g.S, g.floorY)];
@@ -99,8 +120,8 @@ function layoutAll(items, geom, drag) {
       const [x, bottom] = clampDrag(dims.h, geom, drag.x, drag.bottom);
       return { id, shape, L: { ...dims, x, bottom, onFloor: liftedOnFloor(bottom, geom) }, lifted: true };
     }
-    const spot = { surface: d.surface === "wall" ? "wall" : "floor", u: clamp(d.u, 0, 1), v: clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1) };
-    const [x, bottom] = decorAt(spot, dims.h, geom);
+    const spot = { surface: d.surface === "wall" ? "wall" : "floor", u: clamp(d.u, 0, 1), v: clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1), at: d.at };
+    const [x, bottom] = decorAt(spot, dims.h, geom, dims.w);
     return { id, shape, L: { ...dims, x, bottom, onFloor: spot.surface === "floor" } };
   });
 }

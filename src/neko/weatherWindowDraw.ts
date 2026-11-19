@@ -1,4 +1,5 @@
 import { GIFT_PALETTE } from "./engine/gift-shape";
+import { WINDOW_PAD, WINDOW_SILL } from "./engine/room-window";
 
 /**
  * 방·거실 창문 그림(WeatherWindow). 네코 그림체를 따른다 — 선 없이 면만, 위가 밝고 아래가 살짝 어두운 덩어리,
@@ -184,9 +185,8 @@ export interface WindowState {
   wide: boolean;
 }
 
-/** 창틀 바깥 여백(커튼 봉·창턱·그림자). 캔버스는 창 칸보다 사방 PAD, 아래로 SILL 만큼 크다 */
-export const WINDOW_PAD = 7;
-export const WINDOW_SILL = 6;
+/** 창틀 바깥 여백(커튼 봉·창턱·그림자). 캔버스는 창 칸보다 사방 PAD, 아래로 SILL 만큼 크다(값은 room-window — 벽 선물도 같이 피한다) */
+export { WINDOW_PAD, WINDOW_SILL };
 
 /**
  * 창 하나를 그린다. (0,0) = 창 칸 왼쪽 위에서 PAD 만큼 바깥, 창 칸은 (PAD,PAD) 에서 w×h.

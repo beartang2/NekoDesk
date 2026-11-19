@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { capPx, decorAt, decorBoxes, decorDims, decorK, dragDecor, spotOf, hitDecorAt, sizeK, type DecorItem } from "./decor-draw.js";
+import { roomWindows } from "./room-window.js";
+import { TALL_DOCK_K, capPx, decorAt, decorM, decorBoxes, decorDims, decorK, dragDecor, spotOf, hitDecorAt, sizeK, type DecorItem } from "./decor-draw.js";
 
 const shape = { v: 1 as const, parts: [{ t: "circle" as const, x: 0, y: -8, r: 8, c: "red" as const }] };
 const geom = { W: 1200, floorY: 600, S: 0.8 };
@@ -47,7 +48,7 @@ describe("decor-draw", () => {
     expect(decorDims(shape, 1, 1).h).toBe(96); // 기본 한 변 96
     // 그리기·누르기도 같은 배율(선물 창)
     const items: DecorItem[] = [{ id: "a", shape, surface: "floor", u: 0.5, scale: 2, at: "dock" }];
-    expect(decorBoxes(items, { W: 1200, floorY: 600, scale: 0.8 })[0].h).toBeCloseTo(decorDims(shape, 2, 0.8).h, 6);
+    expect(decorBoxes(items, { W: 1200, floorY: 200, scale: 0.8 })[0].h).toBeCloseTo(decorDims(shape, 2, 0.8).h, 6);
   });
 
   it("선물 창 끌기: 칸은 그린 자리, 끌면 엔진처럼 무대 안으로 묶고 놓을 자리(벽·바닥)를 준다", () => {
@@ -65,5 +66,27 @@ describe("decor-draw", () => {
     expect(high.spot.surface).toBe("wall");
     expect((high.spot as { v: number }).v).toBeCloseTo(1, 6);
     expect(dragDecor(items, g, "nope", 0, 0)).toBeNull();
+  });
+  it("폰 가로 화면(고양이보다 높은 거실)에서만 선물을 고양이 대비 70% 로", () => {
+    const ratio = (geo: { floorY: number; S: number }) => decorDims(shape, decorK(shape, "medium", 1, "dock", geo).k, geo.S).h / (100 * geo.S);
+    const land = ratio({ floorY: 369, S: 1.4 }), port = ratio({ floorY: 114, S: 114 / 240 }), mac = ratio({ floorY: 164, S: 164 / 240 });
+    expect(port).toBeCloseTo(mac, 6);
+    expect(land / port).toBeCloseTo(TALL_DOCK_K, 6);
+    expect(decorK(shape, "medium", 1, "sidebar", { floorY: 369, S: 1.4 }).k).toBe(1); // 방·마당은 그대로
+  });
+
+  it("벽에 건 선물은 날씨 창문(커튼·창턱까지)과 겹치면 창턱 아래로", () => {
+    const g = { W: 812, floorY: 369, S: 1.4 }, h = 60, w = 60;
+    const [win] = roomWindows("dock", 812, 375);
+    // 왼쪽 창 한가운데쯤에 높이 건 것
+    const u = (win.x + win.w / 2 - decorM(g.S)) / (g.W - 2 * decorM(g.S)), spot = { surface: "wall" as const, u, v: 0.95, at: "dock" };
+    const [, bottom] = decorAt(spot, h, g, w);
+    expect(bottom - h).toBeGreaterThanOrEqual(win.y + win.h + 6);
+    expect(decorAt(spot, h, g)[1]).toBeLessThan(bottom); // 폭을 모르면 예전 자리
+    // 창과 안 겹치는 자리(두 창 사이 가운데, 좁은 것)는 그대로
+    const mid = { surface: "wall" as const, u: 0.5, v: 0.95, at: "dock" };
+    expect(decorAt(mid, 20, g, 20)).toEqual(decorAt(mid, 20, g));
+    // 마당엔 창이 없다
+    expect(decorAt({ ...spot, at: "screen" }, h, g, w)).toEqual(decorAt({ ...spot, at: "screen" }, h, g));
   });
 });
