@@ -21,8 +21,6 @@ const reduceMq = typeof window !== "undefined" ? window.matchMedia?.("(prefers-r
 const BUBBLE_MS = 3000, TAP_SLOP = 8, TAP_MS = 500;
 /** 말풍선의 날씨 이름(창밖 그림 6가지와 같다) */
 const KIND_NAME: Record<WeatherKind, string> = { clear: "맑음", cloud: "구름", rain: "비", snow: "눈", storm: "천둥", fog: "안개" };
-/** 커튼이 닫혀 있을 때(날씨를 모를 때) 말풍선 */
-const NO_WEATHER = "날씨 정보 없음";
 
 /**
  * 방·거실 벽의 날씨 창문(자리는 engine/room-window — 엔진도 같은 자리를 읽는다). 네코 자리를 채우는 상자 안에 두면
@@ -98,6 +96,7 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
         const W = box.width, floorY = box.height - 6, scale = Math.min(1.4, Math.max(0.35, Math.min(floorY / 240, W / 250)));
         if (hitDecorAt(decorItems(useNekoGifts.getState().gifts, "sidebar"), { W, floorY, scale }, x, y) !== null) return;
       }
+      if (!live.current.weather) return; // 커튼이 닫혀 있으면(날씨 모름) 아무것도 안 띄운다(사용자)
       setBubble({ x: box.left + r.x + r.w / 2, y: box.top + r.y + r.h * 0.4, at: e.timeStamp });
     };
     window.addEventListener("pointerdown", onDown, true);
@@ -179,15 +178,10 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
           />
         );
       })}
-      {rect && weather && (
-        <span className="weather-window__temp" style={{ left: rect.x + rect.w / 2, top: rect.y + rect.h + WINDOW_SILL + 1 }}>
-          {`${Math.round(weather.temp)}°`}
-        </span>
-      )}
-      {/* 고양이가 창 앞에 앉아 있어도 가리지 않게 맨 위(body)에 띄운다 */}
-      {bubble && createPortal(
+      {/* 기온은 창을 눌렀을 때 말풍선으로만 본다(창틀 아래 숫자는 뺐다, 사용자). 고양이가 창 앞에 앉아 있어도 가리지 않게 맨 위(body)에 띄운다 */}
+      {bubble && weather && createPortal(
         <div key={bubble.at} className="weather-bubble" role="status" style={{ left: bubble.x, top: bubble.y }}>
-          {weather ? `${Math.round(weather.temp)}° ${KIND_NAME[weatherKind(weather.code)]}` : NO_WEATHER}
+          {weather && `${Math.round(weather.temp)}° ${KIND_NAME[weatherKind(weather.code)]}`}
         </div>,
         document.body,
       )}

@@ -25,7 +25,7 @@
 :root:not(.light) .neko-room__floor-near { stop-color: color-mix(in oklab, var(--bg-surface) 62%, #7d6553); }
 :root:not(.light) .neko-room__rug { fill: color-mix(in oklab, var(--accent) 20%, var(--bg-surface)); }
 
-/* 날씨 창문(WeatherWindow): 자리를 채우는 상자 안에 창 크기만 한 캔버스, 창턱 아래 기온 */
+/* 날씨 창문(WeatherWindow): 자리를 채우는 상자 안에 창 크기만 한 캔버스(기온은 누르면 뜨는 말풍선, WeatherWindow.css) */
 .weather-window {
   position: absolute;
   inset: 0;
@@ -34,14 +34,6 @@
 .weather-window__cv {
   position: absolute;
   display: block;
-}
-.weather-window__temp {
-  position: absolute;
-  transform: translateX(-50%);
-  font: 600 9.5px/1 var(--font-ui, system-ui);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 /* 네코가 다른 자리에 가 있을 때 방에 놓인 선물(RoomGifts) */
