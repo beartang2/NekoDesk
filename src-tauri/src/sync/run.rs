@@ -16,16 +16,62 @@ static KICK: OnceLock<mpsc::Sender<()>> = OnceLock::new();
 static SYNCED: AtomicBool = AtomicBool::new(false);
 
 const PAIR_PREFIX: &str = "nekosync1:";
-/// 서버의 기기 목록에 보이는 이름: 기기 모델(예: `Mac16,12`·`iPhone14,4`)이라 맥 두 대·폰 두 대가 구분된다.
-/// 사용자가 붙인 기기 이름("○○의 MacBook")은 쓰지 않는다 — 사람 이름이 들어 있기 쉽고 서버에 평문으로 남는다.
-/// 모델을 못 읽으면 종류만. 이미 등록한 기기의 이름은 그대로다(등록할 때만 보낸다).
-fn device_name() -> String {
-    let kind = if cfg!(target_os = "ios") { "iPhone" } else { "Mac" };
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    if let Some(model) = hw_model().filter(|m| m.len() <= 32 && m.chars().all(|c| c.is_ascii_alphanumeric() || c == ',')) {
-        return model;
+/// 서버의 기기 목록에 보이는 이름(사용자 결정, 0.1.16): 맥은 컴퓨터 이름("○○의 MacBook Air"), 폰은 기기 이름.
+/// iOS 16 부터 권한 없이는 "iPhone" 만 줘서, 그때는 모델 이름("iPhone 13 mini")으로 구분한다. 못 받으면 종류만.
+/// 서버에 평문으로 남는 값이다(기기 목록에 보이려고). 실행당 한 번 읽는다 — 폰은 UIKit 을 부르니 처음은 main thread
+/// 에서(lib.rs setup).
+pub fn device_name() -> String {
+    static NAME: OnceLock<String> = OnceLock::new();
+    NAME.get_or_init(|| {
+        let kind = if cfg!(target_os = "ios") { "iPhone" } else { "Mac" };
+        let name: String = read_device_name().unwrap_or_default().chars().filter(|c| !c.is_control()).take(80).collect();
+        if name.trim().is_empty() { kind.to_owned() } else { name.trim().to_owned() }
+    })
+    .clone()
+}
+
+#[cfg(target_os = "macos")]
+fn read_device_name() -> Option<String> {
+    let out = std::process::Command::new("/usr/sbin/scutil").args(["--get", "ComputerName"]).output().ok()?;
+    let name = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    if out.status.success() && !name.is_empty() { Some(name) } else { hw_model() }
+}
+
+#[cfg(target_os = "ios")]
+fn read_device_name() -> Option<String> {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    let given = unsafe {
+        let device: *mut AnyObject = msg_send![AnyClass::get(c"UIDevice")?, currentDevice];
+        let name: *mut AnyObject = if device.is_null() { std::ptr::null_mut() } else { msg_send![device, name] };
+        let utf8: *const std::ffi::c_char = if name.is_null() { std::ptr::null() } else { msg_send![name, UTF8String] };
+        (!utf8.is_null()).then(|| std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+    };
+    // 권한이 없으면 종류 이름만 온다 — 그걸로는 두 대를 못 가른다
+    match given.filter(|n| !matches!(n.trim(), "" | "iPhone" | "iPad" | "iPod touch")) {
+        Some(name) => Some(name),
+        None => hw_model().map(|id| model_name(&id).map(str::to_owned).unwrap_or(id)),
     }
-    kind.to_owned()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+fn read_device_name() -> Option<String> {
+    None
+}
+
+/// 아이폰 모델 번호 → 이름(Xcode 27.2 의 device_traits.db). 표에 없는 새 모델은 번호 그대로 보인다
+#[cfg(any(target_os = "ios", test))]
+fn model_name(id: &str) -> Option<&'static str> {
+    const NAMES: &[(&str, &str)] = &[
+        ("iPhone14,2", "iPhone 13 Pro"), ("iPhone14,3", "iPhone 13 Pro Max"), ("iPhone14,4", "iPhone 13 mini"), ("iPhone14,5", "iPhone 13"),
+        ("iPhone14,6", "iPhone SE (3세대)"), ("iPhone14,7", "iPhone 14"), ("iPhone14,8", "iPhone 14 Plus"),
+        ("iPhone15,2", "iPhone 14 Pro"), ("iPhone15,3", "iPhone 14 Pro Max"), ("iPhone15,4", "iPhone 15"), ("iPhone15,5", "iPhone 15 Plus"),
+        ("iPhone16,1", "iPhone 15 Pro"), ("iPhone16,2", "iPhone 15 Pro Max"),
+        ("iPhone17,1", "iPhone 16 Pro"), ("iPhone17,2", "iPhone 16 Pro Max"), ("iPhone17,3", "iPhone 16"), ("iPhone17,4", "iPhone 16 Plus"), ("iPhone17,5", "iPhone 16e"),
+        ("iPhone18,1", "iPhone 17 Pro"), ("iPhone18,2", "iPhone 17 Pro Max"), ("iPhone18,3", "iPhone 17"), ("iPhone18,4", "iPhone Air"), ("iPhone18,5", "iPhone 17e"),
+        ("iPhone19,2", "iPhone 18 Pro"), ("iPhone19,3", "iPhone 18 Pro Max"), ("iPhone19,4", "iPhone Duo"),
+    ];
+    NAMES.iter().find(|(k, _)| *k == id).map(|(_, v)| *v)
 }
 
 /// `sysctl hw.model`(맥)·`hw.machine`(폰). 권한이 필요 없다.
@@ -642,9 +688,12 @@ mod tests {
         let s = format!("{PAIR_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(with));
         assert_eq!(parse_pairing(&s).unwrap().3.as_deref(), Some("sk-test"));
         assert!(parse_pairing("nekosync1:!!!").is_err());
-        // 기기 이름은 모델(이 맥이면 Mac…,…)이고 사람 이름이 들어갈 글자가 없다
+        // 기기 이름: 비지 않고 80자 안, 제어 문자 없음. 폰은 권한 없이 모델 번호를 이름으로 바꾼다
         let name = device_name();
-        assert!(name.starts_with("Mac") && name.chars().all(|c| c.is_ascii_alphanumeric() || c == ','), "{name}");
+        assert!(!name.is_empty() && name.chars().count() <= 80 && !name.chars().any(char::is_control), "{name}");
+        assert_eq!(model_name("iPhone14,4"), Some("iPhone 13 mini"));
+        assert_eq!(model_name("iPhone18,3"), Some("iPhone 17"));
+        assert_eq!(model_name("iPhone99,9"), None);
         // 카메라로 찍은 주소: 짝 문자열로 되돌아오고, 모양이 아니거나 다른 주소면 버린다
         let link = format!("{PAIR_LINK}{}", s.trim_start_matches(PAIR_PREFIX));
         assert_eq!(pairing_from_link(&link).as_deref(), Some(s.as_str()));

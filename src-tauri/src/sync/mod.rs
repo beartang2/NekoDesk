@@ -726,7 +726,8 @@ pub async fn round(db: &Mutex<Connection>, srv: &Server, active_at: i64) -> AppR
             let push = if push_budget_left(&conn)? { collect(&conn, &srv.device, &srv.key)? } else { Vec::new() };
             (push, state_i64(&conn, "since")?)
         };
-        let body = serde_json::json!({ "since": since, "push": push, "active_at": active_at });
+        // name: 기기 목록에 보일 이름. 이미 등록한 기기의 이름도 이걸로 고쳐진다(옛 서버는 무시한다)
+        let body = serde_json::json!({ "since": since, "push": push, "active_at": active_at, "name": run::device_name() });
         let resp: SyncResp = call(reqwest::Method::POST, &srv.url, "/v1/sync", Some(&srv.token), &body).await?;
         let again = {
             let conn = db.lock()?;
