@@ -291,9 +291,56 @@ const PAIR_LINK: &str = "nekodesk://pair?d=";
 #[tauri::command(async)]
 pub fn sync_pair_qr(pairing: String) -> Result<String, AppError> {
     let body = pairing.trim().strip_prefix(PAIR_PREFIX).ok_or("기기 연결 코드 형식이 아니에요.")?;
-    let code = qrcode::QrCode::with_error_correction_level(format!("{PAIR_LINK}{body}"), qrcode::EcLevel::L)
+    qr_svg(&format!("{PAIR_LINK}{body}"))
+}
+
+/// 가운데 발바닥(도트 그림). 이 둘레 한 칸까지 QR 칸을 비운다
+#[cfg(desktop)]
+const PAW: [&str; 8] = [
+    "..##...##..",
+    "..##...##..",
+    "##.......##",
+    "##..###..##",
+    "...#####...",
+    "..#######..",
+    "..#######..",
+    "...##.##...",
+];
+
+/// 도트 느낌의 QR: 칸마다 틈을 둔 둥근 네모, 가운데에 발바닥. 가운데를 비우는 만큼(전체 칸의 2% 남짓)은
+/// 오류 정정(M, 15%)이 메운다 — 찍히는지는 qa/qr-read.mjs 로 확인한다.
+#[cfg(desktop)]
+fn qr_svg(text: &str) -> AppResult<String> {
+    use std::fmt::Write;
+    let code = qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::M)
         .map_err(|e| AppError::msg(format!("QR 을 만들지 못했어요: {e}")))?;
-    Ok(code.render::<qrcode::render::svg::Color>().min_dimensions(220, 220).quiet_zone(true).build())
+    let (n, cells) = (code.width(), code.to_colors());
+    const QUIET: usize = 4;
+    let (pw, ph) = (PAW[0].len(), PAW.len());
+    let (px, py) = ((n - pw) / 2, (n - ph) / 2);
+    let hole = |x: usize, y: usize| x + 1 >= px && x <= px + pw && y + 1 >= py && y <= py + ph;
+    let dot = |out: &mut String, x: usize, y: usize| {
+        let _ = write!(out, "M{}.06 {}.06h.88v.88h-.88z", x + QUIET, y + QUIET);
+    };
+    let (mut dark, mut paw) = (String::new(), String::new());
+    for y in 0..n {
+        for x in 0..n {
+            if cells[y * n + x] == qrcode::Color::Dark && !hole(x, y) {
+                dot(&mut dark, x, y);
+            }
+        }
+    }
+    for (y, row) in PAW.iter().enumerate() {
+        for (x, c) in row.bytes().enumerate() {
+            if c == b'#' {
+                dot(&mut paw, px + x, py + y);
+            }
+        }
+    }
+    let size = n + 2 * QUIET;
+    Ok(format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" width="440" height="440"><rect width="{size}" height="{size}" rx="3" fill="#fff"/><path d="{dark}" fill="#1d2b38"/><path d="{paw}" fill="#75a7ce"/></svg>"##
+    ))
 }
 
 /// 폰: 카메라로 찍어 열린 주소(`nekodesk://pair?d=…`)에서 짝 문자열을 꺼낸다. 다른 주소면 None.
@@ -513,7 +560,12 @@ mod tests {
         // 맥이 그리는 QR: Claude API 키까지 실린 긴 코드도 한 장에 들어간다
         let long = serde_json::to_string(&Pairing { u: "https://sync.example.com".into(), c: "c".repeat(32), k: hex(&key), a: Some("sk-ant-api03-".to_owned() + &"x".repeat(95)) }).unwrap();
         let long = format!("{PAIR_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(long));
-        assert!(sync_pair_qr(long).unwrap().contains("<svg"));
+        let svg = sync_pair_qr(long).unwrap();
+        assert!(svg.contains("<svg"));
+        // 찍히는지 확인할 때: NEKO_QR_OUT=/tmp/qr.svg cargo test --lib sync::run && node qa/qr-read.mjs /tmp/qr.svg
+        if let Ok(out) = std::env::var("NEKO_QR_OUT") {
+            std::fs::write(out, &svg).unwrap();
+        }
         assert!(sync_pair_qr("hello".into()).is_err());
         assert!(parse_pairing("hello").is_err());
         // http 는 로컬 시험 서버만
