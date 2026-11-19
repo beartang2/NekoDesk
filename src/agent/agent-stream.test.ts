@@ -227,3 +227,42 @@ describe("fetchStream", () => {
     expect(chunks.map((c) => c.content).join("")).toBe("야옹");
   });
 });
+
+describe("생성 속도(tok/s)", () => {
+  /** 조각들 뒤에 usage 청크를 붙인 SSE. timings 를 주면 llama.cpp, 안 주면 Claude 같은 클라우드 모양 */
+  function usageSse(pieces: string[], usage: Record<string, number>, timings?: Record<string, number>): Response {
+    const enc = new TextEncoder();
+    const frames = [
+      ...pieces.map((p) => ({ choices: [{ delta: { content: p }, finish_reason: null }] })),
+      { choices: [], usage, ...(timings ? { timings } : {}) },
+    ];
+    return new Response(frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join("") + "data: [DONE]\n\n", { status: 200 });
+  }
+
+  async function usageOf(res: Response) {
+    const { fetchStream } = await import("./llm-client");
+    vi.stubGlobal("fetch", vi.fn(async () => res));
+    // 첫 조각 1000ms, 다음 조각마다 +500ms
+    let t = 500;
+    vi.spyOn(performance, "now").mockImplementation(() => (t += 500));
+    const seen: unknown[][] = [];
+    for await (const ch of fetchStream([{ role: "user", content: "hi" }], {}, (...a) => seen.push(a))) if (ch.done) break;
+    return seen;
+  }
+
+  it("클라우드(usage 만, timings 없음)면 출력 토큰 ÷ 첫 조각~마지막 조각 시간으로 잰다", async () => {
+    const { measuredTps } = await import("./agent-loop");
+    const seen = await usageOf(usageSse(["야", "옹", "!"], { prompt_tokens: 10, completion_tokens: 30, total_tokens: 40 }));
+    expect(seen).toEqual([[10, undefined, { tokens: 30, ms: 1000 }]]);
+    expect(measuredTps({ tokens: 30, ms: 1000 })).toBe(30);
+    // 여러 호출이면 토큰 합 ÷ 생성 시간 합
+    expect(measuredTps({ tokens: 30 + 10, ms: 1000 + 1000 })).toBe(20);
+  });
+
+  it("서버가 속도를 주면(llama.cpp) 그 값만, 출력 토큰 수가 없으면 재지 않는다", async () => {
+    expect(await usageOf(usageSse(["a", "b"], { prompt_tokens: 5, completion_tokens: 8, total_tokens: 13 }, { predicted_per_second: 42.5 })))
+      .toEqual([[5, 42.5, undefined]]);
+    expect(await usageOf(usageSse(["a", "b"], { prompt_tokens: 5, completion_tokens: 0, total_tokens: 5 })))
+      .toEqual([[5, undefined, undefined]]);
+  });
+});

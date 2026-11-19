@@ -1215,6 +1215,11 @@ html, body, #root {
   font-variant-numeric: tabular-nums;
 }
 
+/* 시간 뒤 속도·알림: '|' 대신 탭 한 칸(공백 8칸 ≈ 2em)만큼 띄운다. gap 6px 을 빼서 맞춘다 */
+.message__meta-part {
+  margin-left: calc(2em - 6px);
+}
+
 /* 시간 옆 복사 아이콘. 메타 글자와 같은 무게로 두고, 올리면 포인트색. */
 .message__copy {
   display: flex;

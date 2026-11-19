@@ -281,11 +281,15 @@ export interface LlmCompletion {
   raw?: unknown[];
 }
 
+/** 서버가 속도를 안 줄 때 앱이 잰 생성량: 출력 토큰 수와, 첫 조각부터 마지막 조각까지 걸린 시간(ms) */
+export interface GenMeasure { tokens: number; ms: number }
+
 /**
  * 호출이 끝날 때 서버가 알려준 사용량. `tokensPerSecond` 는 llama.cpp 의 `timings`
- * 에서 온다 — OpenAI 규격엔 없는 필드라 다른 서버면 비어 있다.
+ * 에서 온다 — OpenAI 규격엔 없는 필드라 다른 서버(Claude 등)면 비어 있고, 그때 스트림이면
+ * `measured` 를 준다(서버 usage 의 출력 토큰 수가 있을 때만 — 글자 수로 어림하지 않는다).
  */
-export type UsageCallback = (promptTokens: number, tokensPerSecond?: number) => void;
+export type UsageCallback = (promptTokens: number, tokensPerSecond?: number, measured?: GenMeasure) => void;
 
 /** 비스트리밍 호출. 텍스트·사고 과정·툴 호출을 함께 돌려준다. */
 export async function fetchCompletionMessage(
@@ -402,6 +406,9 @@ export async function* fetchStream(
   // <think> 태그 분리 상태. 청크 경계에 태그가 걸쳐 와도 되도록 상태를 들고 간다.
   let thinkBuf = "";
   let inThink = false;
+  // 서버가 속도를 안 줄 때 재는 생성 구간(첫 조각 ~ 마지막 조각). 프롬프트 처리·도구 실행은 안 든다
+  let firstAt = 0;
+  let lastAt = 0;
 
   /**
    * 답변 본문과 사고 과정을 가른다.
@@ -483,11 +490,19 @@ export async function* fetchStream(
             anthropic_content?: unknown[];
           };
           if (chunk.anthropic_content) yield { content: "", done: false, raw: chunk.anthropic_content };
-          if (chunk.usage?.prompt_tokens !== undefined) {
-            onUsage?.(chunk.usage.prompt_tokens, chunk.timings?.predicted_per_second);
-          }
           // usage 전용 마지막 청크는 choices 가 비어 있다.
           const choice = chunk.choices[0];
+          const d = choice?.delta;
+          if (d && (d.content || d.reasoning_content || d.tool_calls?.length)) {
+            lastAt = performance.now();
+            if (!firstAt) firstAt = lastAt;
+          }
+          if (chunk.usage?.prompt_tokens !== undefined) {
+            const tps = chunk.timings?.predicted_per_second;
+            const tokens = chunk.usage.completion_tokens;
+            const measured = !tps && tokens > 0 && lastAt > firstAt ? { tokens, ms: lastAt - firstAt } : undefined;
+            onUsage?.(chunk.usage.prompt_tokens, tps, measured);
+          }
           const finishReason = choice?.finish_reason ?? null;
           const finished = finishReason != null;
           // `--reasoning-format none` 으로 뜬 서버는 사고 과정을 content 안의

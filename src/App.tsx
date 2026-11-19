@@ -520,8 +520,8 @@ const MessageItem = React.memo(function MessageItem({
 
       <span className="message__meta">
         {m.time}
-        {m.tokensPerSecond !== undefined && ` | ${m.tokensPerSecond.toFixed(1)} tok/s`}
-        {m.notice && ` | ${m.notice}`}
+        {m.tokensPerSecond !== undefined && <span className="message__meta-part">{m.tokensPerSecond.toFixed(1)} tok/s</span>}
+        {m.notice && <span className="message__meta-part">{m.notice}</span>}
         {m.role === "assistant" && m.content && !m.isStreaming && (
           <CopyButton text={maskHome(stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim())} />
         )}

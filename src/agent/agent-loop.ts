@@ -1,4 +1,4 @@
-import { agentContextPrefix, agentTurnStream, chatStream, getModelContextLength, textTaskStream, type UsageCallback } from "./llm-client";
+import { agentContextPrefix, agentTurnStream, chatStream, getModelContextLength, textTaskStream, type GenMeasure, type UsageCallback } from "./llm-client";
 import { FailureTracker } from "./failure-tracker";
 import { Plan } from "./plan";
 import { runSubagent } from "./subagent";
@@ -529,12 +529,16 @@ export async function* runAgentLoop(
   let stepId = 0;
   let toolCallCount = 0;
   let latestPromptTokens: number | undefined;
-  // 답변 아래 표시할 생성 속도. 마지막 호출(최종 답변을 만든 호출) 값을 쓴다.
-  let latestTps: number | undefined;
-  const trackUsage = (pts: number, tps?: number) => {
+  // 답변 아래 표시할 생성 속도. 서버가 주면(llama.cpp) 마지막 호출(최종 답변을 만든 호출) 값,
+  // 안 주면(Claude) 호출마다 잰 토큰·생성 시간을 더해 나눈다 — 도구 실행 시간은 안 든다.
+  let serverTps: number | undefined;
+  const gen = { tokens: 0, ms: 0 };
+  const trackUsage: UsageCallback = (pts, tps, measured) => {
     latestPromptTokens = pts;
-    if (tps) latestTps = tps;
+    if (tps) serverTps = tps;
+    if (measured) { gen.tokens += measured.tokens; gen.ms += measured.ms; }
   };
+  const tpsNow = () => serverTps ?? measuredTps(gen);
 
   for (let i = 0; i < limits.iterations; i++) {
     if (Date.now() - startedAt > limits.wallClockMs || toolCallCount >= limits.toolCalls) break;
@@ -592,7 +596,7 @@ export async function* runAgentLoop(
       const at = cut === "repetition" ? degenerateAt(streamedAnswer) : null;
       const answer = (at === null ? streamedAnswer : streamedAnswer.slice(0, at)).trim();
       const notice = cut === "repetition" ? "같은 말이 반복돼서 끊었어" : "생각이 같은 자리를 맴돌아서 끊었어. 다시 물어봐줘";
-      yield { type: "done", answer, notice, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps };
+      yield { type: "done", answer, notice, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: tpsNow() };
       return;
     }
     if (!turn) {
@@ -619,7 +623,7 @@ export async function* runAgentLoop(
       if (answer.startsWith(streamedAnswer) && answer.length > streamedAnswer.length) {
         yield { type: "streaming_token", token: answer.slice(streamedAnswer.length) };
       }
-      yield { type: "done", answer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps };
+      yield { type: "done", answer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: tpsNow() };
       return;
     }
 
@@ -779,7 +783,7 @@ export async function* runAgentLoop(
             context.addTurn({ text: turn.text, calls: executed });
             const cancelMsg = "실행을 취소했어.";
             yield { type: "streaming_token", token: cancelMsg };
-            yield { type: "done", answer: cancelMsg, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps };
+            yield { type: "done", answer: cancelMsg, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: tpsNow() };
             return;
           }
           let resolveConfirm!: (decision: PermissionDecision) => void;
@@ -876,7 +880,7 @@ export async function* runAgentLoop(
     if (shouldStop) {
       const msg = `같은 오류가 반복돼서 멈췄어. 지금까지 시도한 것:\n\n${failures.summary()}`;
       yield { type: "streaming_token", token: msg };
-      yield { type: "done", answer: msg, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps };
+      yield { type: "done", answer: msg, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: tpsNow() };
       return;
     }
     // Claude 에겐 "이미 읽었어" 만 알리고 맡긴다.
@@ -917,7 +921,7 @@ export async function* runAgentLoop(
     yield { type: "streaming_token", token: finalAnswer };
   }
 
-  yield { type: "done", answer: finalAnswer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: latestTps };
+  yield { type: "done", answer: finalAnswer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: tpsNow() };
 }
 
 /**
@@ -936,6 +940,10 @@ export async function* runDirectChat(
   yield* streamAnswer((onUsage) => chatStream(messages, "", onUsage, signal));
 }
 
+/** 잰 생성량(여러 호출이면 합)을 tok/s 로. 토큰이나 시간이 없으면 없음 */
+export const measuredTps = (m: GenMeasure): number | undefined =>
+  m.tokens > 0 && m.ms > 0 ? m.tokens / (m.ms / 1000) : undefined;
+
 /** 도구 없이 한 번에 답하는 스트림을 그대로 흘리고, 끝나면 done 을 낸다. */
 async function* streamAnswer(
   start: (onUsage: UsageCallback) => AsyncGenerator<LlmStreamChunk>
@@ -944,7 +952,7 @@ async function* streamAnswer(
   let tokensPerSecond: number | undefined;
   let answer = "";
   try {
-    for await (const chunk of start((pts, tps) => { promptTokens = pts; tokensPerSecond = tps; })) {
+    for await (const chunk of start((pts, tps, measured) => { promptTokens = pts; tokensPerSecond = tps ?? (measured && measuredTps(measured)); })) {
       if (chunk.content) {
         answer += chunk.content;
         yield { type: "streaming_token", token: chunk.content };
