@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
+import { PairLinkPrompt } from "./components/PairLink";
 import { bindPanels, type Panels } from "./lib/phone";
 import { IS_PHONE } from "./lib/platform";
 import { createPortal } from "react-dom";
@@ -2123,6 +2124,7 @@ export default function App() {
         commands={paletteCommands}
       />
       <UpdatePrompt />
+      {IS_PHONE && <PairLinkPrompt />}
 
       {IS_PHONE && <div className="drawer-scrim" onClick={() => setDrawer(false)} aria-hidden="true" />}
       <ErrorBoundary label="사이드바">

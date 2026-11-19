@@ -286,6 +286,10 @@ export const syncApi = {
   /** `withClaude`: Claude API 키도 싣는다(받는 기기가 자기 키체인에 넣는다 — 폰에서 긴 키를 안 쳐도 되게). */
   pairMake: (withClaude = false) => invoke<string>("sync_pair_make", { withClaude }),
   pairJoin: (pairing: string) => invoke<void>("sync_pair_join", { pairing }),
+  /** 맥: 짝 문자열을 QR(SVG 글)로. 폰 카메라로 찍으면 앱이 열린다 */
+  pairQr: (pairing: string) => invoke<string>("sync_pair_qr", { pairing }),
+  /** 폰: 카메라로 찍어 온 짝 문자열과 그 서버 주소. 한 번 가져가면 비워진다 */
+  pairLinked: () => invoke<[pairing: string, url: string] | null>("sync_pair_linked"),
   devices: () => invoke<{ devices: SyncDevice[]; me: string }>("sync_devices"),
   revoke: (id: string) => invoke<void>("sync_revoke", { id }),
   /** 다른 기기를 다 끊고 서버를 비운 뒤 새 열쇠로 이 맥 것을 다시 올린다 */

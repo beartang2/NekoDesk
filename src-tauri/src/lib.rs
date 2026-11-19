@@ -1564,6 +1564,10 @@ pub fn run() {
             sync::run::sync_setup,
             sync::run::sync_pair_make,
             sync::run::sync_pair_join,
+            #[cfg(desktop)]
+            sync::run::sync_pair_qr,
+            #[cfg(target_os = "ios")]
+            sync::run::sync_pair_linked,
             sync::run::session_list,
             sync::run::session_put,
             sync::run::session_import,
@@ -1712,6 +1716,13 @@ pub fn run() {
         .run(|app_handle, event| {
             // 폰에는 다시 열기·끝낼 때 치울 자식 프로세스가 없다
             let _ = (&app_handle, &event);
+            // 폰: 맥의 QR 을 카메라로 찍으면 nekodesk://pair?d=… 로 앱이 열린다
+            #[cfg(target_os = "ios")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                for url in urls {
+                    crate::sync::run::link_opened(app_handle, url.as_str());
+                }
+            }
             // Dock 아이콘을 누르면 숨겨둔 메인 창을 다시 보인다.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {

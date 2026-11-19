@@ -1228,3 +1228,6 @@ code.rule-row__key {
 .memory-tidy-log__to {
   color: var(--text-primary);
 }
+
+/* 기기 연결 QR: 어두운 테마에서도 읽히게 흰 바탕 그대로 */
+.sync-qr { width: 200px; height: 200px; border-radius: var(--r-md); align-self: center; }

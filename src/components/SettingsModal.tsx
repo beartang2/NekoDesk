@@ -1247,6 +1247,12 @@ function SyncSection() {
   const [setup, setSetup] = useState("");
   const [pasted, setPasted] = useState("");
   const [pairing, setPairing] = useState("");
+  // 맥: 코드를 QR 로도 보인다(폰에서는 긴 코드를 못 친다). 숨기면 같이 사라진다
+  const [qr, setQr] = useState("");
+  useEffect(() => {
+    setQr("");
+    if (pairing && !IS_PHONE) void syncApi.pairQr(pairing).then(setQr).catch(() => {});
+  }, [pairing]);
   // 기기 연결 코드에 Claude API 키도 싣는다(아이폰은 긴 키를 치기 어렵다). 키가 있을 때만 고를 수 있다
   const [hasClaude, setHasClaude] = useState(false);
   const [withClaude, setWithClaude] = useState(true);
@@ -1325,6 +1331,12 @@ function SyncSection() {
                 <button className="settings-btn settings-btn--ghost" onClick={() => { void navigator.clipboard.writeText(pairing); }}>복사</button>
                 <button className="settings-btn settings-btn--ghost" onClick={() => setPairing("")}>숨기기</button>
               </div>
+              {qr && (
+                <>
+                  <img className="sync-qr" alt="기기 연결 QR" src={`data:image/svg+xml;utf8,${encodeURIComponent(qr)}`} />
+                  <p className="settings-section__desc">아이폰은 카메라로 이 QR 을 찍으면 NekoDesk 가 열려요.</p>
+                </>
+              )}
             </>
           )}
           {devices && (

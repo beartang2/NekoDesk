@@ -250,6 +250,49 @@ pub async fn sync_pair_make(db: State<'_, DbState>, with_claude: Option<bool>) -
     Ok(format!("{PAIR_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json)))
 }
 
+/// 폰 카메라로 찍으면 앱이 열리는 주소(Info.ios.plist 의 nekodesk 스킴). 내용은 짝 문자열 그대로다.
+const PAIR_LINK: &str = "nekodesk://pair?d=";
+
+/// 짝 문자열을 QR(SVG 글)로. 폰에서는 긴 코드를 칠 수 없으니 카메라로 찍어 연다. 화면에만 그리고 어디에도 안 남긴다.
+#[cfg(desktop)]
+#[tauri::command(async)]
+pub fn sync_pair_qr(pairing: String) -> Result<String, AppError> {
+    let body = pairing.trim().strip_prefix(PAIR_PREFIX).ok_or("기기 연결 코드 형식이 아니에요.")?;
+    let code = qrcode::QrCode::with_error_correction_level(format!("{PAIR_LINK}{body}"), qrcode::EcLevel::L)
+        .map_err(|e| AppError::msg(format!("QR 을 만들지 못했어요: {e}")))?;
+    Ok(code.render::<qrcode::render::svg::Color>().min_dimensions(220, 220).quiet_zone(true).build())
+}
+
+/// 폰: 카메라로 찍어 열린 주소(`nekodesk://pair?d=…`)에서 짝 문자열을 꺼낸다. 다른 주소면 None.
+/// 주소는 아무 앱·웹 링크나 열 수 있으니 여기서 바로 연결하지 않는다 — 화면이 서버 주소를 보여 주고 사용자가 확인해야 한다.
+pub fn pairing_from_link(url: &str) -> Option<String> {
+    let body = url.strip_prefix(PAIR_LINK)?;
+    let pairing = format!("{PAIR_PREFIX}{body}");
+    parse_pairing(&pairing).ok().map(|_| pairing)
+}
+
+/// 폰: 찍어 온 짝 문자열을 화면이 가져갈 때까지 들고 있는다(앱이 그 주소로 켜지면 화면이 아직 없다).
+#[cfg(target_os = "ios")]
+static LINKED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+#[cfg(target_os = "ios")]
+pub fn link_opened(app: &AppHandle, url: &str) {
+    let Some(pairing) = pairing_from_link(url) else { return };
+    if let Ok(mut slot) = LINKED.lock() {
+        *slot = Some(pairing);
+    }
+    let _ = app.emit("pair-link", ());
+}
+
+/// 폰: 찍어 온 짝 문자열과 그 서버 주소(확인 창에 보인다). 한 번 가져가면 비운다.
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub fn sync_pair_linked() -> Option<(String, String)> {
+    let pairing = LINKED.lock().ok()?.take()?;
+    let (url, ..) = parse_pairing(&pairing).ok()?;
+    Some((pairing, url))
+}
+
 fn parse_pairing(s: &str) -> AppResult<(String, String, Key, Option<String>)> {
     let bad = || AppError::msg("기기 연결 코드 형식이 아니에요. 다시 복사해 주세요.");
     let body = s.trim().strip_prefix(PAIR_PREFIX).ok_or_else(bad)?;
@@ -418,6 +461,16 @@ mod tests {
         let s = format!("{PAIR_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(with));
         assert_eq!(parse_pairing(&s).unwrap().3.as_deref(), Some("sk-test"));
         assert!(parse_pairing("nekosync1:!!!").is_err());
+        // 카메라로 찍은 주소: 짝 문자열로 되돌아오고, 모양이 아니거나 다른 주소면 버린다
+        let link = format!("{PAIR_LINK}{}", s.trim_start_matches(PAIR_PREFIX));
+        assert_eq!(pairing_from_link(&link).as_deref(), Some(s.as_str()));
+        assert_eq!(pairing_from_link("nekodesk://pair?d=!!!"), None);
+        assert_eq!(pairing_from_link("https://example.com/pair?d=x"), None);
+        // 맥이 그리는 QR: Claude API 키까지 실린 긴 코드도 한 장에 들어간다
+        let long = serde_json::to_string(&Pairing { u: "https://sync.example.com".into(), c: "c".repeat(32), k: hex(&key), a: Some("sk-ant-api03-".to_owned() + &"x".repeat(95)) }).unwrap();
+        let long = format!("{PAIR_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(long));
+        assert!(sync_pair_qr(long).unwrap().contains("<svg"));
+        assert!(sync_pair_qr("hello".into()).is_err());
         assert!(parse_pairing("hello").is_err());
         // http 는 로컬 시험 서버만
         assert!(check_url("http://sync.example.com").is_err());

@@ -44,6 +44,8 @@ chacha20poly1305 = "0.10"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-drag = "2.1.1"
 tauri-plugin-updater = "2"
+# 기기 연결 코드를 QR 로 그린다(sync/run.rs pair_qr) — 긴 코드를 폰에 손으로 칠 수 없다. 그림 의존 없이 SVG 글만 만든다.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 # API 키·DB 열쇠·동기화 열쇠를 키체인에 둔다(secrets.rs). 업데이트 쪽이 이미 lock 에 올려둔 버전이다. iOS 키체인도 같은 API.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
