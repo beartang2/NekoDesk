@@ -42,7 +42,7 @@
 }
 
 @keyframes menu-slide-out {
-  from { opacity: 1; transform: translateX(0); }
+  from { opacity: 1; transform: translateX(var(--menu-from, 0px)); }
   to   { opacity: var(--menu-fade, 0); transform: translateX(var(--menu-slide, 16px)); }
 }
 

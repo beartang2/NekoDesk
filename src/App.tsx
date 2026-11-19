@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
-import { onEdgeSwipe, type EdgeSwipe } from "./lib/phone";
+import { bindPanels, type Panels } from "./lib/phone";
 import { IS_PHONE } from "./lib/platform";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
@@ -1988,14 +1988,10 @@ export default function App() {
   // 폰: 대화 목록(사이드바)은 제목을 눌러 여닫는 덮개다. 대화를 고르면 닫힌다.
   const [drawer, setDrawer] = useState(false);
   useEffect(() => setDrawer(false), [activeId]);
-  // 폰: 왼쪽 끝에서 오른쪽으로 밀면 대화 목록, 오른쪽 끝에서 왼쪽으로 밀면 설정. 열려 있는 쪽은 반대로 밀어 닫는다.
-  const swipeRef = useRef<(s: EdgeSwipe) => void>(() => {});
-  useEffect(() => (IS_PHONE ? onEdgeSwipe((s) => swipeRef.current(s)) : undefined), []);
-  swipeRef.current = (s) => {
-    if (s === "from-left") { if (menuOpen) setMenuOpen(false); else setDrawer(true); }
-    else if (drawer) setDrawer(false);
-    else setMenuOpen(true);
-  };
+  // 폰: 왼쪽 끝에서 밀면 대화 목록, 오른쪽 끝에서 밀면 설정. 장이 손가락을 따라 움직이고 놓을 때 정해진다(lib/phone.ts).
+  const panelsRef = useRef<Panels>({ drawerOpen: false, sheetOpen: false, setDrawer, setSheet: setMenuOpen });
+  panelsRef.current = { drawerOpen: drawer, sheetOpen: menuOpen, setDrawer, setSheet: setMenuOpen };
+  useEffect(() => (IS_PHONE ? bindPanels(() => panelsRef.current) : undefined), []);
 
   // 예전 버전이 화면 저장소에 남긴 API 키를 키체인으로 옮긴다(한 번이면 끝).
   useEffect(() => {

@@ -58,32 +58,110 @@ function dropHover(): void {
   new MutationObserver(run).observe(document.head, { childList: true });
 }
 
-export type EdgeSwipe = "from-left" | "from-right";
-const swipeSubs = new Set<(s: EdgeSwipe) => void>();
-/** 화면 왼쪽 끝에서 오른쪽으로, 오른쪽 끝에서 왼쪽으로 민 손짓(App 이 대화 목록·설정을 여닫는다). */
-export function onEdgeSwipe(fn: (s: EdgeSwipe) => void): () => void {
-  swipeSubs.add(fn);
-  return () => { swipeSubs.delete(fn); };
+/** 손짓으로 여닫는 두 장: 대화 목록(왼쪽에서)과 설정(오른쪽에서). 열림 상태는 App 이 갖는다. */
+export interface Panels {
+  drawerOpen: boolean;
+  sheetOpen: boolean;
+  setDrawer(open: boolean): void;
+  setSheet(open: boolean): void;
+}
+let panels: (() => Panels) | null = null;
+export function bindPanels(get: () => Panels): () => void {
+  panels = get;
+  return () => { if (panels === get) panels = null; };
 }
 
-/** 끝에서 시작해(EDGE) 가로로 충분히(MIN) 밀면 한 번 알린다. 세로로 더 많이 움직이면 스크롤이라 버린다. */
-function watchEdgeSwipes(): void {
-  const EDGE = 28, MIN = 48;
-  let from: EdgeSwipe | null = null, x0 = 0, y0 = 0;
+/**
+ * 끝에서 미는 손짓: 장이 손가락을 따라 움직이고, 손을 뗄 때 정해진다(절반 못 미쳐도 빠르게 밀면 넘어간다).
+ *   왼쪽 끝 → 오른쪽: 설정이 열려 있으면 설정을 닫고, 아니면 대화 목록을 연다.
+ *   오른쪽 끝(또는 대화 목록 옆 가림막) → 왼쪽: 대화 목록이 열려 있으면 닫고, 아니면 설정을 연다.
+ * 그리는 건 CSS 변수로 한다(App.css): --drawer-x·--scrim(대화 목록), --sheet-x(설정). 끄는 동안은 html 에
+ * drag-drawer / drag-sheet 를 붙여 전환을 끄고, 놓으면 떼어 남은 거리를 전환이 마저 간다.
+ */
+function watchEdgeDrags(root: HTMLElement): void {
+  const EDGE = 28, LOCK = 10, FLICK = 0.4; // px, px, px/ms
+  type Drag = { kind: "drawer" | "sheet"; opening: boolean; dir: 1 | -1; w: number; x0: number; y0: number; locked: boolean; open: number; lastX: number; lastT: number; v: number };
+  let drag: Drag | null = null;
+  let cleanup = 0;
+
+  const paint = (d: Drag) => {
+    if (d.kind === "drawer") {
+      root.style.setProperty("--drawer-x", `${d.open - d.w}px`);
+      root.style.setProperty("--scrim", String(d.open / d.w));
+    } else root.style.setProperty("--sheet-x", `${d.w - d.open}px`);
+  };
+
   document.addEventListener("touchstart", (e) => {
+    drag = null;
+    const p = panels?.();
+    if (!p || e.touches.length !== 1) return;
     const t = e.touches[0];
-    from = e.touches.length !== 1 ? null : t.clientX <= EDGE ? "from-left" : t.clientX >= window.innerWidth - EDGE ? "from-right" : null;
-    x0 = t.clientX; y0 = t.clientY;
+    const onScrim = (e.target as Element | null)?.classList?.contains("drawer-scrim");
+    const side = t.clientX <= EDGE ? "left" : t.clientX >= window.innerWidth - EDGE || onScrim ? "right" : null;
+    if (!side) return;
+    const pick = side === "left"
+      ? (p.sheetOpen ? { kind: "sheet" as const, opening: false } : !p.drawerOpen ? { kind: "drawer" as const, opening: true } : null)
+      : (p.drawerOpen ? { kind: "drawer" as const, opening: false } : !p.sheetOpen ? { kind: "sheet" as const, opening: true } : null);
+    if (!pick) return;
+    const w = pick.kind === "drawer" ? (document.querySelector<HTMLElement>(".sidebar")?.offsetWidth ?? 0) : window.innerWidth;
+    if (!w) return;
+    drag = { ...pick, dir: side === "left" ? 1 : -1, w, x0: t.clientX, y0: t.clientY, locked: false, open: pick.opening ? 0 : w, lastX: t.clientX, lastT: e.timeStamp, v: 0 };
   }, { passive: true, capture: true });
+
   document.addEventListener("touchmove", (e) => {
-    if (!from) return;
-    const t = e.touches[0], dx = t.clientX - x0, dy = t.clientY - y0;
-    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 12) { from = null; return; }
-    if ((from === "from-left" ? dx : -dx) < MIN) return;
-    const s = from;
-    from = null;
-    swipeSubs.forEach((fn) => fn(s));
-  }, { passive: true, capture: true });
+    const d = drag;
+    if (!d) return;
+    const t = e.touches[0], dx = (t.clientX - d.x0) * d.dir, dy = t.clientY - d.y0;
+    if (!d.locked) {
+      if (Math.abs(dy) > LOCK && Math.abs(dy) > Math.abs(dx)) { drag = null; return; } // 세로로 민다 = 스크롤
+      if (dx < LOCK) return;
+      d.locked = true;
+      clearTimeout(cleanup);
+      root.classList.add(`drag-${d.kind}`);
+      // 설정은 열려야 화면에 있다. 손가락 자리에서 시작하게 먼저 그리고 연다
+      if (d.kind === "sheet" && d.opening) { paint(d); panels?.().setSheet(true); }
+    }
+    if (e.cancelable) e.preventDefault();
+    // 여는 손짓은 민 만큼 열리고, 닫는 손짓은 민 만큼 닫힌다. 손가락이 가는 쪽: 대화 목록·설정 닫기 = dir, 설정 열기·대화 목록 닫기도 dir
+    d.open = Math.max(0, Math.min(d.w, d.opening ? dx : d.w - dx));
+    const dt = e.timeStamp - d.lastT;
+    if (dt > 0) d.v = ((t.clientX - d.lastX) * d.dir) / dt;
+    d.lastX = t.clientX; d.lastT = e.timeStamp;
+    paint(d);
+  }, { passive: false, capture: true });
+
+  const end = () => {
+    const d = drag;
+    drag = null;
+    if (!d?.locked) return;
+    const p = panels?.();
+    // 놓는 순간: 빠르게 밀었으면 그쪽으로, 아니면 더 가까운 쪽으로
+    const forward = d.v > FLICK || (d.v > -FLICK && (d.opening ? d.open > d.w * 0.4 : d.open < d.w * 0.6));
+    const open = d.opening ? forward : !forward;
+    if (d.kind === "drawer") {
+      root.classList.remove("drag-drawer");
+      root.style.removeProperty("--drawer-x");
+      root.style.removeProperty("--scrim");
+      p?.setDrawer(open);
+      return;
+    }
+    if (open) { // 남은 거리를 전환이 간다
+      root.classList.remove("drag-sheet");
+      root.style.setProperty("--sheet-x", "0px");
+      p?.setSheet(true);
+      cleanup = window.setTimeout(() => root.style.removeProperty("--sheet-x"), 350);
+    } else { // 닫힘: 지금 자리에서 나가는 애니메이션(MenuModal.css menu-slide-out 의 --menu-from). 다 나갈 때까지 자리를 붙들어 둔다
+      root.style.setProperty("--menu-from", `${d.w - d.open}px`);
+      p?.setSheet(false);
+      cleanup = window.setTimeout(() => {
+        root.classList.remove("drag-sheet");
+        root.style.removeProperty("--sheet-x");
+        root.style.removeProperty("--menu-from");
+      }, 400);
+    }
+  };
+  document.addEventListener("touchend", end, { capture: true });
+  document.addEventListener("touchcancel", end, { capture: true });
 }
 
 export function startPhone(): void {
@@ -93,5 +171,5 @@ export function startPhone(): void {
   document.querySelector('meta[name="viewport"]')?.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover");
   fitKeyboard(root);
   dropHover();
-  watchEdgeSwipes();
+  watchEdgeDrags(root);
 }
