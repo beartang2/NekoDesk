@@ -305,6 +305,26 @@ mod ios_scroll {
     }
 }
 
+/// 폰: 클립보드의 글. 웹뷰의 붙여넣기(navigator.clipboard·길게 눌러 뜨는 메뉴)가 안 되는 일이 있어 시스템 클립보드를
+/// 직접 읽는다 — iOS 가 "붙여넣기 허용"을 묻는다. main thread 전용.
+#[cfg(target_os = "ios")]
+fn ios_pasteboard_text() -> Option<String> {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    unsafe {
+        let pasteboard: *mut AnyObject = msg_send![AnyClass::get(c"UIPasteboard")?, generalPasteboard];
+        if pasteboard.is_null() {
+            return None;
+        }
+        let text: *mut AnyObject = msg_send![pasteboard, string];
+        if text.is_null() {
+            return None;
+        }
+        let utf8: *const std::ffi::c_char = msg_send![text, UTF8String];
+        (!utf8.is_null()).then(|| std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+    }
+}
+
 // AVAudioSession 이 든 프레임워크
 #[cfg(target_os = "ios")]
 #[link(name = "AVFoundation", kind = "framework")]
@@ -1190,6 +1210,13 @@ mod commands {
         crate::ambient::music(&app)
     }
 
+    /// 폰: 클립보드의 글(기기 연결 코드 붙여넣기 버튼). 동기 커맨드라 main thread 에서 돈다.
+    #[cfg(target_os = "ios")]
+    #[tauri::command]
+    pub fn paste_text() -> Option<String> {
+        crate::ios_pasteboard_text()
+    }
+
     /// 폰: 다른 앱에서 소리가 나오는 중인가(네코가 헤드폰을 낀다).
     #[cfg(target_os = "ios")]
     #[tauri::command(async)]
@@ -1673,6 +1700,8 @@ pub fn run() {
             commands::ambient_probe,
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             commands::ambient_music,
+            #[cfg(target_os = "ios")]
+            commands::paste_text,
             #[cfg(target_os = "macos")]
             commands::ambient_track,
             #[cfg(target_os = "macos")]

@@ -1248,6 +1248,14 @@ function SyncSection() {
   const [setup, setSetup] = useState("");
   const [pasted, setPasted] = useState("");
   const [pairing, setPairing] = useState("");
+  // 폰: 붙여넣기 버튼. 시스템 클립보드를 직접 읽고(웹뷰의 붙여넣기가 안 되는 일이 있다), 안 되면 웹 쪽으로 한 번 더
+  async function pasteCode() {
+    setErr("");
+    const text = (await invoke<string | null>("paste_text").catch(() => null)) ?? (await navigator.clipboard.readText().catch(() => null));
+    if (text === null) setErr("붙여넣지 못했어요. 붙여넣기를 허용했는지 확인해 주세요.");
+    else if (!text.trim().startsWith("nekosync1:")) setErr("복사해 둔 기기 연결 코드가 없어요. 맥에서 코드를 복사한 뒤 다시 눌러 주세요.");
+    else setPasted(text.trim());
+  }
   // 폰: 앱 안에서 QR 찍기
   const [scanning, setScanning] = useState(false);
   // 맥: 코드를 QR 로도 보인다(폰에서는 긴 코드를 못 친다). 숨기면 같이 사라진다
@@ -1395,7 +1403,7 @@ function SyncSection() {
             {/* 폰: 긴 코드를 손으로 칠 수는 없다. 길게 눌러 붙여넣기를 못 찾아도 한 번에 붙게(iOS 가 붙여넣기 허용을 묻는다) */}
             {IS_PHONE && (
               <button className="settings-btn settings-btn--ghost" disabled={busy}
-                onClick={() => void navigator.clipboard.readText().then((t) => { if (t.trim()) setPasted(t.trim()); else setErr("복사해 둔 기기 연결 코드가 없어요. 맥에서 코드를 복사한 뒤 다시 눌러 주세요."); }).catch(() => setErr("붙여넣지 못했어요. 입력 칸을 길게 눌러 붙여넣어 주세요."))}>
+                onClick={() => void pasteCode()}>
                 붙여넣기
               </button>
             )}
