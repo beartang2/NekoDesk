@@ -1,4 +1,5 @@
-//! 네코 산책 지도. macOS MapKit 으로 지도 그림·근처 장소·걷기 경로를 얻는다.
+//! 네코 산책 지도. MapKit 으로 지도 그림·근처 장소·걷기 경로를 얻는다(맥·폰 같은 코드 — 그림을 PNG 로 굽고
+//! 어두운 지도를 고르는 곳만 다르다).
 //! MapKit JS 는 개발자 계정 키가 있어야 해서 키가 필요 없는 네이티브 쪽을 쓴다.
 //! 요청은 Apple 지도 서버로 간다.
 //!
@@ -8,11 +9,14 @@
 use crate::error::AppError;
 use block2::RcBlock;
 use objc2::AllocAnyThread;
+#[cfg(target_os = "macos")]
 use objc2_app_kit::{
-    NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSBitmapImageFileType, NSBitmapImageRep, NSDeviceRGBColorSpace, NSGraphicsContext, NSImage,
+    NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSBitmapImageFileType, NSBitmapImageRep, NSDeviceRGBColorSpace, NSGraphicsContext,
 };
 use objc2_core_location::CLLocationCoordinate2D;
-use objc2_foundation::{NSArray, NSDictionary, NSError, NSPoint, NSRange, NSRect, NSSize, NSString};
+#[cfg(target_os = "macos")]
+use objc2_foundation::{NSDictionary, NSPoint, NSRect};
+use objc2_foundation::{NSArray, NSError, NSRange, NSSize, NSString};
 use objc2_map_kit::*;
 use serde::Serialize;
 use std::cell::RefCell;
@@ -104,8 +108,7 @@ fn snapshot(lat: f64, lon: f64, span_m: f64, width: f64, height: f64, dark: bool
         let region = MKCoordinateRegion::with_distance(coord(lat, lon), span_m * height / width, span_m);
         options.setRegion(region);
         options.setSize(NSSize::new(width, height));
-        let name = if dark { NSAppearanceNameDarkAqua } else { NSAppearanceNameAqua };
-        options.setAppearance(NSAppearance::appearanceNamed(name).as_deref());
+        set_dark(&options, dark);
         let half = region.span.longitudeDelta / 2.0;
         let done = RcBlock::new(move |shot: *mut MKMapSnapshot, err: *mut NSError| {
             let reply = match shot.as_ref() {
@@ -113,7 +116,7 @@ fn snapshot(lat: f64, lon: f64, span_m: f64, width: f64, height: f64, dark: bool
                     // 실제로 그려진 축척을 잰다. MapKit 이 영역을 조금 넓혀 맞췄어도 맞는 값이 나온다.
                     let west = shot.pointForCoordinate(coord(lat, lon - half));
                     let east = shot.pointForCoordinate(coord(lat, lon + half));
-                    png(&shot.image(), width, height).map(|png| MapSnapshot {
+                    png(shot, width, height).map(|png| MapSnapshot {
                         data_url: format!("data:image/png;base64,{png}"),
                         meters_per_px: span_m / (east.x - west.x),
                     })
@@ -126,9 +129,60 @@ fn snapshot(lat: f64, lon: f64, span_m: f64, width: f64, height: f64, dark: bool
     }
 }
 
+#[cfg(target_os = "macos")]
+unsafe fn set_dark(options: &MKMapSnapshotOptions, dark: bool) {
+    let name = if dark { NSAppearanceNameDarkAqua } else { NSAppearanceNameAqua };
+    options.setAppearance(NSAppearance::appearanceNamed(name).as_deref());
+}
+
+/// 폰: 어두운 지도는 traitCollection(UIUserInterfaceStyle 1 = 밝게, 2 = 어둡게). 그림 배율은 맥과 같은 2배
+#[cfg(target_os = "ios")]
+unsafe fn set_dark(options: &MKMapSnapshotOptions, dark: bool) {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    let options = options as *const MKMapSnapshotOptions as *mut AnyObject;
+    if let Some(cls) = AnyClass::get(c"UITraitCollection") {
+        let style: isize = if dark { 2 } else { 1 };
+        let traits: *mut AnyObject = msg_send![cls, traitCollectionWithUserInterfaceStyle: style];
+        if !traits.is_null() {
+            let _: () = msg_send![options, setTraitCollection: traits];
+        }
+    }
+    let _: () = msg_send![options, setScale: 2.0f64];
+}
+
+/// 폰: 스냅샷의 UIImage(2배)를 base64 PNG 로(UIImagePNGRepresentation — UIKit 은 앱에 늘 붙어 있다)
+#[cfg(target_os = "ios")]
+fn png(shot: &MKMapSnapshot, _width: f64, _height: f64) -> Reply<String> {
+    use base64::{engine::general_purpose, Engine as _};
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    extern "C" {
+        fn UIImagePNGRepresentation(image: *mut AnyObject) -> *mut AnyObject;
+    }
+    unsafe {
+        let image: *mut AnyObject = msg_send![shot as *const MKMapSnapshot as *mut AnyObject, image];
+        if image.is_null() {
+            return Err("지도 그림이 비었어.".into());
+        }
+        let data = UIImagePNGRepresentation(image);
+        if data.is_null() {
+            return Err("지도 그림을 PNG 로 못 바꿨어.".into());
+        }
+        let len: usize = msg_send![data, length];
+        let bytes: *const u8 = msg_send![data, bytes];
+        if bytes.is_null() || len == 0 {
+            return Err("지도 그림을 PNG 로 못 바꿨어.".into());
+        }
+        Ok(general_purpose::STANDARD.encode(std::slice::from_raw_parts(bytes, len)))
+    }
+}
+
 /// 스냅샷 그림을 2배 크기 base64 PNG 로. 스냅샷은 그릴 때마다 렌더하는 NSCustomImageRep 이라
 /// TIFFRepresentation 은 1배로 굽고, 기본 변환은 주 화면 배율을 따른다 — 2배 비트맵에 직접 그린다.
-fn png(image: &NSImage, width: f64, height: f64) -> Reply<String> {
+#[cfg(target_os = "macos")]
+fn png(shot: &MKMapSnapshot, width: f64, height: f64) -> Reply<String> {
+    let image = unsafe { shot.image() };
     use base64::{engine::general_purpose, Engine as _};
     let size = NSSize::new(width, height);
     let rep = unsafe {

@@ -18,6 +18,8 @@
 		ABC04757A02A368FA170354F /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = EB92D34468E8E0585356D467 /* libapp.a */; };
 		B2566940A1C8758609CC1748 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 1DCE29D487B756EB5E3135F3 /* assets */; };
 		CFF4AB792ED6E30F371FB858 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3C0E2D29B7B628EA6CFCFA0 /* Security.framework */; };
+		A1B2C3D4E5F60718293A4B03 /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B04 /* CoreLocation.framework */; };
+		A1B2C3D4E5F60718293A4B01 /* MapKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B02 /* MapKit.framework */; };
 		E26AE754172D5BCE765B2CE4 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 94E6F46C02762A773200EA0E /* UIKit.framework */; };
 /* End PBXBuildFile section */
 
@@ -73,6 +75,8 @@
 		C698709326DFA929AB1A9979 /* shelf.rs */ = {isa = PBXFileReference; path = shelf.rs; sourceTree = "<group>"; };
 		C9F90814F36D2E34A0FE82C6 /* exec_history.rs */ = {isa = PBXFileReference; path = exec_history.rs; sourceTree = "<group>"; };
 		D3C0E2D29B7B628EA6CFCFA0 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		A1B2C3D4E5F60718293A4B04 /* CoreLocation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreLocation.framework; path = System/Library/Frameworks/CoreLocation.framework; sourceTree = SDKROOT; };
+		A1B2C3D4E5F60718293A4B02 /* MapKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MapKit.framework; path = System/Library/Frameworks/MapKit.framework; sourceTree = SDKROOT; };
 		D64FECBD8AA8EA632B1E865C /* airdrop.rs */ = {isa = PBXFileReference; path = airdrop.rs; sourceTree = "<group>"; };
 		D7CC981E4D1FDC5630F9B3B8 /* search.rs */ = {isa = PBXFileReference; path = search.rs; sourceTree = "<group>"; };
 		D9F84F2941B18D6DC54ECF9F /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
@@ -95,6 +99,8 @@
 				3C1CF0EE7904F91FA26D04D1 /* MetalKit.framework in Frameworks */,
 				7A7822E39670B56ACAAA1F15 /* QuartzCore.framework in Frameworks */,
 				CFF4AB792ED6E30F371FB858 /* Security.framework in Frameworks */,
+				A1B2C3D4E5F60718293A4B03 /* CoreLocation.framework in Frameworks */,
+				A1B2C3D4E5F60718293A4B01 /* MapKit.framework in Frameworks */,
 				E26AE754172D5BCE765B2CE4 /* UIKit.framework in Frameworks */,
 				AAB567D54DD7ADABC7A0A762 /* WebKit.framework in Frameworks */,
 			);
@@ -179,6 +185,8 @@
 				140E9291917F0541F46CB517 /* MetalKit.framework */,
 				B507E0F212C17AFEE2737B03 /* QuartzCore.framework */,
 				D3C0E2D29B7B628EA6CFCFA0 /* Security.framework */,
+				A1B2C3D4E5F60718293A4B04 /* CoreLocation.framework */,
+				A1B2C3D4E5F60718293A4B02 /* MapKit.framework */,
 				94E6F46C02762A773200EA0E /* UIKit.framework */,
 				68F47CD748088BDCCA264511 /* WebKit.framework */,
 			);

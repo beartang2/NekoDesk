@@ -55,6 +55,13 @@ objc2 = "0.6"
 # objc 블록(맥: 지도 콜백, 폰: 음악 보관함 권한 답, music_ios.rs). tauri 가 이미 lock 에 올려둔 버전.
 block2 = "0.6"
 
+# 네코 산책 지도(map.rs): 폰도 같은 MapKit 으로 지도 그림·장소·걷기 경로를 만든다. 그림을 PNG 로 굽는 곳만 다르다
+# (맥 NSImage, 폰 UIImage — 폰 쪽은 objc 로 바로 부른다). 맥 쪽 표에 같은 크레이트를 app-kit 과 함께 다시 적는다.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-foundation = "0.3"
+objc2-core-location = { version = "0.3", default-features = false, features = ["std", "CLLocation"] }
+objc2-map-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-core-location", "MKAnnotation", "MKDirections", "MKDirectionsRequest", "MKDirectionsResponse", "MKDirectionsTypes", "MKGeometry", "MKLocalSearch", "MKLocalSearchRequest", "MKLocalSearchResponse", "MKMapItem", "MKMapSnapshot", "MKMapSnapshotOptions", "MKMapSnapshotter", "MKMultiPoint", "MKPlacemark", "MKPointOfInterestCategory", "MKPointOfInterestFilter", "MKPolyline", "MKShape", "MKTypes"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # 날씨용 현재 위치(CLLocationManager). tauri 가 이미 lock 에 올려둔 objc2 0.3 계열.
 objc2-foundation = "0.3"
