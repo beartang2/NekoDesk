@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { settingsApi } from "../api/tauri";
+import { useNekoNeeds } from "../neko/director/needsStore";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,7 +21,8 @@ const PLAY_PER_MIN = 0.3;        // -3 / 10분
 const MAX_OFFLINE_MIN = 120;     // 오프라인 최대 반영 2시간
 // compact는 컨텍스트가 자연스러운 제한 — 하루 제한 없음
 const MAX_FEED_PER_DAY = 999;
-const SETTINGS_KEY = "cat_rpg_state"; // 앱 전체 단일 키 — 세션과 무관
+// 앱 전체 단일 키 — 세션과 무관. 이 기기에만 둔다(사용자: 밥·놀이는 기기마다 따로). 생일만 맥·폰이 같이 쓴다(neko_needs 의 born)
+const SETTINGS_KEY = "cat_rpg_state";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -92,6 +94,14 @@ export function useCatRpg() {
       setState(applyDecay(s, Date.now()));
     });
   }, []);
+
+  // 생일(DAY 셈)은 맥·폰이 같이: 가장 이른 날로 맞춘다. 다른 기기가 더 이른 날을 알면 그걸 따르고, 내가 더 이르면 알린다
+  const born = useNekoNeeds((s) => s.born);
+  useEffect(() => {
+    const b = state.birthday;
+    if (born && born < b) setState({ ...stateRef.current, birthday: born });
+    else if (born !== b) useNekoNeeds.getState().setBorn(b);
+  }, [born, state.birthday, setState]);
 
   // 1분 틱
   useEffect(() => {
