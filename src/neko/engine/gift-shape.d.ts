@@ -20,6 +20,8 @@ export interface GiftShape {
   parts: GiftPart[];
   /** 그림(작은 PNG data URL)을 칸(x, y 가운데, w×h) 안에 비율 그대로, 도형 위에. 채팅 낙서 액자. 모델에겐 안 알린다 */
   img?: { x: number; y: number; w: number; h: number; src: string };
+  /** 스스로 빛나는 물건의 빛 색(팔레트 이름). 둘레에 은은한 빛무리를 그린다. 없으면 빛 없음 */
+  glow?: GiftColor;
 }
 
 export const GIFT_PALETTE: Record<GiftBase, string>;

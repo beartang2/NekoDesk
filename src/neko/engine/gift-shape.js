@@ -39,6 +39,8 @@ function color(c) {
   if (extra !== undefined || !Object.hasOwn(GIFT_PALETTE, base)) return "gray";
   return tone === "dark" || tone === "light" ? `${base}.${tone}` : base;
 }
+/** 빛 색(glow): 팔레트 이름만. 아니면 빛 없음(undefined) — 색 칸처럼 회색으로 바꾸지 않는다 */
+const glowColor = (c) => (typeof c === "string" && color(c) === c ? c : undefined);
 const point = (q) => [num(q[0], -HALF, HALF, 0), num(q[1], -2 * HALF, 0, 0)];
 const points = (pts, max) => (Array.isArray(pts) ? pts.filter((q) => Array.isArray(q) && q.length >= 2).slice(0, max).map(point) : []);
 
@@ -76,11 +78,12 @@ export function validateShape(raw) {
   // 너무 작아 안 보이면(다 점·선뿐) 조약돌로
   const big = parts.some((p) => p.t !== "dot" && p.t !== "line");
   if (!big) return DEFAULT_SHAPE;
-  const im = raw && raw.img;
+  const im = raw && raw.img, glow = glowColor(raw && raw.glow), out = { v: 1, parts };
   if (im && typeof im.src === "string" && im.src.length <= IMG_MAX && IMG_SRC.test(im.src)) {
-    return { v: 1, parts, img: { x: num(im.x, -HALF, HALF, 0), y: num(im.y, -2 * HALF, 0, -HALF), w: num(im.w, 1, 2 * HALF, 8), h: num(im.h, 1, 2 * HALF, 8), src: im.src } };
+    out.img = { x: num(im.x, -HALF, HALF, 0), y: num(im.y, -2 * HALF, 0, -HALF), w: num(im.w, 1, 2 * HALF, 8), h: num(im.h, 1, 2 * HALF, 8), src: im.src };
   }
-  return { v: 1, parts };
+  if (glow) out.glow = glow;
+  return out;
 }
 
 /** 한 도형의 칸 [x0, y0, x1, y1](바닥 기준 좌표) */
@@ -173,6 +176,13 @@ export function primeShapeImage(src, source) { IMGS.set(src, { el: source, ok: t
 export function drawShape(ctx, shape, x, bottom, unit, edge = 0) {
   ctx.save();
   ctx.translate(x, bottom); ctx.scale(unit, unit);
+  // 스스로 빛나는 물건(glow): 둘레에 은은한 빛무리. 멈춘 그림이라 프레임마다 다시 그려도 깜빡이지 않는다
+  if (shape.glow) {
+    const b = shapeBounds(shape), cx = (b.x0 + b.x1) / 2, cy = -b.h / 2, r = Math.max(b.w, b.h) * 0.85, rgb = mixRgb(rgbFor(shape.glow), WHITE, 0.25);
+    const g = ctx.createRadialGradient(cx, cy, r * 0.15, cx, cy, r);
+    g.addColorStop(0, `rgba(${rgb},0.5)`); g.addColorStop(0.55, `rgba(${rgb},0.2)`); g.addColorStop(1, `rgba(${rgb},0)`);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  }
   // 고양이처럼 아주 옅은 그림자로 가장자리만 띄운다(선 없이도 흰 물건이 밝은 바닥에 묻히지 않게).
   // 실루엣을 먼저 한 번 칠해 그림자를 바깥에만 두고, 도형은 그 위에 그림자 없이 칠한다. edge = 흐림(px, DPR 반영)
   if (edge > 0) {
