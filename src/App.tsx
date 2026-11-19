@@ -268,6 +268,7 @@ function BootSplash() {
 function Sidebar({
   onNew,
   onDelete,
+  isRunning,
   rpg,
   onResizeStart,
   isResizing,
@@ -281,6 +282,8 @@ function Sidebar({
 }: {
   onNew: () => void;
   onDelete: (id: string) => void;
+  /** 답이 흐르는 중인 세션(목록 진행 표시) */
+  isRunning: (id: string) => boolean;
   away: boolean;
   walk: Walk | null;
   isDark: boolean;
@@ -326,7 +329,10 @@ function Sidebar({
             onClick={() => onSelect(s.id)}
           >
             <span className="session-item__title">{s.title}</span>
-            {s.unread && <span className="session-item__unread" role="img" aria-label="새 답" title="새 답" />}
+            {/* 열린 대화는 채팅 화면에 진행 표시가 있어 목록엔 안 띄운다 */}
+            {s.id !== activeId && isRunning(s.id) ? (
+              <span className="session-item__unread session-item__unread--running" role="img" aria-label="답하는 중" title="답하는 중" />
+            ) : s.unread && <span className="session-item__unread" role="img" aria-label="새 답" title="새 답" />}
             <span className="session-item__date">{s.date}</span>
             <button
               className="session-item__delete"
@@ -2113,6 +2119,7 @@ export default function App() {
       <Sidebar
         onNew={handleNew}
         onDelete={handleDelete}
+        isRunning={pool.isRunning}
         gameSpeech={gameSpeech}
         rpg={{
           dayCount,
