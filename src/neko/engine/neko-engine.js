@@ -3577,8 +3577,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   });
 
   defineActivity("wheel", { // 캣휠 안으로 들어가 달린다(바퀴가 돈다). 가끔 멈춰 숨 고르기
+    // 숨 고르기는 바퀴 안 레일에 선 채 헥헥(사용자: 잠깐 멈출 때는 캣휠 안에서, 밖으로 나오는 건 활동이 끝날 때만)
     name: "캣휠", label: "캣휠 달리는 중", roam: true,
-    start(A) { A.run = 0; A.pause = 0; },
+    start(A) { A.run = 0; A.pause = 0; A.pause0 = 0; },
     wander(A) {
       const c = cat, f = furnOf("wheel");
       if (!f) { endAct(); return; }
@@ -3593,10 +3594,14 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     },
     step(A, dt) {
       const c = cat, f = furnOf("wheel");
-      if (A.pause > 0) { A.pause -= dt; return; }
+      if (A.pause > 0) { A.pause -= dt; if (A.pause <= 0 && c.mode === "act") setMode("idle"); return; } // 다 쉬면 idle → wander 가 다시 달린다
       if (!c.treadmill) return;
       A.run -= dt;
-      if (A.run <= 0) { c.treadmill = null; if (f) { f.spinning = false; syncFurnHeld(); } c.speed = 0; setMode("idle"); A.pause = rand(1.2, 2.2); } // 숨 고르기
+      if (A.run <= 0) { c.treadmill = null; if (f) { f.spinning = false; syncFurnHeld(); } c.speed = 0; setMode("act"); A.pause = A.pause0 = rand(1.6, 2.8); } // 숨 고르기
+    },
+    pose(A) { // act 는 숨 고르기 때뿐: 선 채 입을 벌리고 빠르게 헥헥
+      const ph = reduced.matches ? 0 : Math.sin(A.t * TAU * 2.6), k = smooth(Math.min(1, (A.pause0 - A.pause) / 0.3));
+      return { expr: "happy", pant: k * (0.55 + 0.12 * ph), sq: 1 + 0.03 * ph * k, ear: -0.08 };
     },
     end() {
       const f = furnOf("wheel");
@@ -4360,9 +4365,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
     drawEye(-12.5 + FO, 0); drawEye(12.5 + FO, 0);
 
-    // 입은 그리지 않는다: 네코는 눈과 꼬리(꼬리 언어)·귀로만 감정을 보여 준다. 하나만 예외 — 파일을 물려줄 때 '와앙'(§7, 사용자)
-    if (gape > 0.02) {
-      const p = H2W(FO, 13.5), w = 5 * S, h = 6.2 * S * gape;
+    // 입은 그리지 않는다: 네코는 눈과 꼬리(꼬리 언어)·귀로만 감정을 보여 준다. 예외 둘 — 파일을 물려줄 때 '와앙'(§7, 사용자),
+    // 캣휠에서 달리다 숨 고를 때 헥헥(활동 자세 pant, 사용자)
+    const mo = Math.max(gape, (c.actP && c.actP.pant) || 0);
+    if (mo > 0.02) {
+      const p = H2W(FO, 13.5), w = 5 * S, h = 6.2 * S * mo;
       ctx.save(); ctx.translate(p[0], p[1]); ctx.rotate(c.headRot);
       ctx.fillStyle = "#4a2a33"; ctx.beginPath(); ctx.ellipse(0, h * 0.45, w, h, 0, 0, TAU); ctx.fill();
       ctx.fillStyle = "#f08aa0"; ctx.beginPath(); ctx.ellipse(0, h * 1.05, w * 0.62, h * 0.42, 0, 0, TAU); ctx.fill(); // 혀
