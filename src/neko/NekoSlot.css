@@ -120,36 +120,6 @@
 @keyframes neko-says-in { from { opacity: 0; transform: translate(-50%, 4px); } }
 @media (prefers-reduced-motion: reduce) { .neko-slot__says { animation: none; } }
 
-/* 산책 중: 부르기 버튼(오른쪽 아래, 지도 위). 누르면 서둘러 돌아온다 — 정리 버튼과 같은 모양 */
-.neko-slot__call-btn {
-  position: absolute;
-  z-index: 3;
-  right: 12px;
-  bottom: 12px;
-  padding: 4px 11px;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--text-primary);
-  background: var(--bg-raised);
-  /* 지도 위에서도 눈에 띄게: 포인트색이 살짝 섞인 테두리 */
-  border: 1px solid color-mix(in oklab, var(--accent) 45%, var(--border));
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.neko-slot__call-btn:hover { border-color: var(--accent); }
-/* 폰: 손가락으로 누르기 쉽게(높이 36px), 가로 화면(네코만 보기)에선 노치·둥근 모서리·홈 막대를 피한다 */
-html.phone .neko-slot__call-btn {
-  min-height: 36px;
-  padding: 7px 16px;
-  font-size: 14px;
-  border-radius: 10px;
-  right: max(12px, env(safe-area-inset-right));
-  bottom: max(12px, env(safe-area-inset-bottom));
-}
-
 /* 다녀온 뒤 남는 지난 산책 지도 버튼. 오른쪽 위(왼쪽 위는 방의 날씨 액자) */
 .neko-slot__map-btn {
   position: absolute;

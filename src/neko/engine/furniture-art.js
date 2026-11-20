@@ -81,7 +81,8 @@ const BOX_FRONT = [
 export const FURNITURE_ART = {
   lamp: { size: 1.5, by: "h", span: 32, surfaces: [] },
   cattower: { size: 1.8, by: "h", span: 32, surfaces: [{ y: 0.8, x0: -0.59, x1: 0.37 }, { y: 1.5, x0: -0.22, x1: 0.62 }] },
-  wheel: { size: 1.3, by: "h", span: 32, surfaces: [] },
+  // 캣휠: 고양이가 디디는 곳은 어두운 회색 레일 띠의 안쪽 가장자리 — 바퀴 가운데 −16.5, 띠 안쪽 반지름 11.2(칸) → (16.5 − 11.2)/32 × 1.3
+  wheel: { size: 1.3, by: "h", span: 32, surfaces: [{ y: 0.215, x0: -0.4, x1: 0.4 }] },
   sofa: { size: 2.2, by: "w", span: 34, surfaces: [{ y: 0.62, x0: -0.86, x1: 0.86 }] },
   box: { size: 0.8, by: "h", span: 18.5, surfaces: [] },
 };

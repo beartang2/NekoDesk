@@ -34,7 +34,7 @@ import { memoryApi } from "../api/tauri";
 import { giftWeights, rollGift, startWalkBrain, type GiftKind } from "./walk";
 
 const ALL: Record<GiftKind, boolean> = {
-  trinket: true, place: true, weather: true, link: true, memory: true, drawing: true, game: true,
+  trinket: true, place: true, weather: true, link: true, memory: true, drawing: true, game: true, furniture: true,
 };
 const report = (params: Record<string, unknown>) => ({
   text: "", reasoning: "", toolCalls: [{ id: "r", name: "walk_report", params }],
@@ -63,7 +63,7 @@ describe("선물 굴리기", () => {
   });
 
   it("주입한 난수로 무게 구간을 고른다", () => {
-    const w = { ...giftWeights(ALL, []), trinket: 1, place: 0, weather: 3, link: 0, memory: 0, drawing: 0, game: 0 };
+    const w = { ...giftWeights(ALL, []), trinket: 1, place: 0, weather: 3, link: 0, memory: 0, drawing: 0, game: 0, furniture: 0 };
     expect(rollGift(w, () => 0)).toBe("trinket");
     expect(rollGift(w, () => 0.24)).toBe("trinket");
     expect(rollGift(w, () => 0.26)).toBe("weather");
@@ -143,6 +143,26 @@ describe("산책 머리", () => {
     const offered = (among.mock.calls[0] as unknown[])[2] as { key: string }[];
     expect(offered.map((c) => c.key)).not.toContain("place"); // 들른 곳이 없으면 보기에도 없다
     expect(wonder).not.toHaveBeenCalled();
+  });
+
+  it("가구를 물어오면 선물함이 아니라 가구 탭으로(무엇처럼 쓰는지와 함께), 7일 안에 물어왔으면 보기에서 빠진다", async () => {
+    const { useNekoFurniture } = await import("../neko/furniture");
+    among.mockResolvedValueOnce("furniture");
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "등나무 의자", gift_body: "공원 벤치 옆에서 봤어", furniture_kind: "sofa" }));
+    const r = await startWalkBrain({ places: [], here: null }).result;
+    expect(r.content).toContain("가구 탭에 넣어 뒀어");
+    await new Promise((ok) => setTimeout(ok, 20));
+    expect(useNekoFurniture.getState().items.find((f) => f.title === "등나무 의자")).toMatchObject({ kind: "sofa", body: "공원 벤치 옆에서 봤어" });
+    // 최근 7일 안에 물어왔다 → 다음 산책의 보기엔 가구가 없다
+    const { settingsApi } = await import("../api/tauri");
+    vi.mocked(settingsApi.get).mockImplementation(async (k: string) => (k === "neko_furniture" ? JSON.stringify({ v: 1, items: [{ id: "walk:a", kind: "sofa", found: new Date().toISOString().slice(0, 10), place: null }] }) : null));
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b" }));
+    await startWalkBrain({ places: [], here: null }).result;
+    const offered = (among.mock.calls[among.mock.calls.length - 1] as unknown[])[2] as { key: string }[];
+    expect(offered.map((c) => c.key)).not.toContain("furniture");
+    vi.mocked(settingsApi.get).mockImplementation(async () => null);
   });
 
   it("주제를 못 고르면(생각하기 실패) 지금처럼 하위 에이전트가 스스로 고른다", async () => {

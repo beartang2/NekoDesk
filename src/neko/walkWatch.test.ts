@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useNekoApp } from "./director/stores";
 import { watchWalkIdle } from "./walkWatch";
 
-/** 산책 중 서둘러 오는 건 부를 때(callHome: 채팅 보내기·빈 자리 누르기·지도 '불러오기')만. 앱을 만지는 건 졸음 타이머만 */
+/** 산책 중 서둘러 오는 건 부를 때(callHome: 채팅 보내기)만. 앱을 만지는 건 졸음 타이머만 */
 afterEach(() => vi.useRealTimers());
 
 describe("산책과 앱을 쓰는 중", () => {

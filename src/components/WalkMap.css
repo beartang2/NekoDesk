@@ -89,6 +89,11 @@
   text-shadow: 0 0 3px var(--bg-surface);
   pointer-events: none;
 }
+/* 폰 가로(네코만 보기)는 지도가 화면 모서리까지 온다: 둥근 모서리·옆 여백(safe-area)에 거리 글자가 잘리지 않게 */
+html.phone .walk-map__dist {
+  right: max(6px, env(safe-area-inset-right));
+  bottom: max(4px, env(safe-area-inset-bottom));
+}
 
 /* 지난 산책 창: 꾸미기 창 틀에 정사각형 지도 하나 */
 .neko-cz.walk-modal {

@@ -19,9 +19,10 @@ describe("가구 그림(docs/neko-furniture.md §9·§11)", () => {
     expect(Math.round(furnitureBox("sofa", 0.98, 203).w)).toBe(183);
     expect(furnitureBox("sofa", 0.68, 275).fit).toBe(1); // 맥 거실은 그대로
   });
-  it("올라앉는 면: 캣타워 1층 0.8·2층 1.5, 소파 쿠션 위 — 칸 맞춤으로 줄면 같이", () => {
+  it("올라앉는 면: 캣타워 1층 0.8·2층 1.5, 소파 쿠션 위, 캣휠 레일 안쪽(키의 0.166) — 칸 맞춤으로 줄면 같이", () => {
     const t = furnitureSurfaces("cattower", 1);
     expect(t.map((s) => Math.round(s.y))).toEqual([80, 150]);
+    expect(furnitureSurfaces("wheel", 1)[0].y / furnitureBox("wheel", 1).h).toBeCloseTo((16.5 - 11.2) / 32, 2);
     const s1 = furnitureSurfaces("sofa", 0.81), s2 = furnitureSurfaces("sofa", 0.81, 140);
     expect(s2[0].y / s1[0].y).toBeCloseTo(furnitureBox("sofa", 0.81, 140).fit, 6);
   });
