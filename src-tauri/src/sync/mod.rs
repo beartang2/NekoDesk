@@ -757,14 +757,16 @@ pub struct SessionRow {
 }
 
 pub fn session_list(conn: &Connection) -> AppResult<Vec<SessionRow>> {
-    // 메시지 시각은 초 단위 글('YYYY-MM-DD HH:MM:SS', UTC)이라 초를 내려 ms 로 견준다
+    // 메시지 시각은 초 단위 글('YYYY-MM-DD HH:MM:SS', UTC)이라 초를 내려 ms 로 견준다.
+    // 순서: 마지막 메시지(질문이든 답이든)가 최근인 세션이 위. 메시지가 없으면 만든 때로 친다. 메시지 시각은 쓴 기기의
+    // 것이 그대로 동기화돼 기기마다 같은 순서가 된다
     let mut stmt = conn.prepare(
         "SELECT s.id, s.title, s.created_at, s.summary,
-                COALESCE(CAST(strftime('%s', m.last) AS INTEGER) * 1000 > COALESCE(s.read_at, 0), 0)
+                COALESCE(CAST(strftime('%s', m.answered) AS INTEGER) * 1000 > COALESCE(s.read_at, 0), 0)
          FROM sessions s
-         LEFT JOIN (SELECT session_id, MAX(created_at) AS last FROM conversation_messages
-                    WHERE role = 'assistant' GROUP BY session_id) m ON m.session_id = s.id
-         ORDER BY s.created_at DESC, s.id",
+         LEFT JOIN (SELECT session_id, MAX(created_at) AS last, MAX(CASE WHEN role = 'assistant' THEN created_at END) AS answered
+                    FROM conversation_messages GROUP BY session_id) m ON m.session_id = s.id
+         ORDER BY COALESCE(CAST(strftime('%s', m.last) AS INTEGER) * 1000, s.created_at) DESC, s.created_at DESC, s.id",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok(SessionRow { id: r.get(0)?, title: r.get(1)?, created_at: r.get(2)?, summary: r.get(3)?, unread: r.get(4)? })

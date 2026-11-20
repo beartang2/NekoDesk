@@ -1677,7 +1677,12 @@ pub fn run() {
         .on_window_event(|window, event| {
             // 앱이 앞으로 오면 곧 맞춘다(다른 기기에서 쓴 것을 바로 보게)
             if let ("main", tauri::WindowEvent::Focused(true)) = (window.label(), event) {
-                crate::sync::run::kick();
+                crate::sync::run::kick_front();
+            }
+            // 폰: 앱으로 돌아왔다(applicationWillEnterForeground). 창 포커스는 켤 때 한 번만 온다 — 다음 15초 차례를 기다리지 않게
+            #[cfg(target_os = "ios")]
+            if let tauri::WindowEvent::Resumed = event {
+                crate::sync::run::kick_front();
             }
             match (window.label(), event) {
             // 메인 창을 닫아도 앱은 남는다. ⌃⇧N 으로 물어본 답이 도착할 곳이 있어야
