@@ -10,6 +10,8 @@ import { PLACE_NAME, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { GiftLab } from "./GiftLab";
 import { josa } from "../lib/hangul";
+import { Segmented } from "../components/ui";
+import { FurnitureTab, dropFurniture } from "./FurnitureTab";
 import "./NekoCustomizeModal.css";
 import "../components/Update.css"; // 확인 창은 새 버전 창과 같은 모양
 import "./NekoGiftBox.css";
@@ -116,11 +118,19 @@ export function NekoGiftBox() {
  * 선물함 창(panel_open "neko-gifts")을 채운다. 제목은 창 틀에. 메인 창과 선물은 windowSync 로 맞춘다 —
  * 다른 창이라 네코 자리로 끌어다 놓을 수는 없고, 칸 버튼으로 지금 장소에 놓거나 옮기거나 치운다.
  */
+/** 선물함 탭(선물·가구). 마지막으로 본 탭은 이 기기에만 */
+type GiftTab = "gifts" | "furniture";
+const TAB_KEY = "nekodesk_giftbox_tab";
+const loadTab = (): GiftTab => { try { return localStorage.getItem(TAB_KEY) === "furniture" ? "furniture" : "gifts"; } catch { return "gifts"; } };
+
 export function NekoGiftPanel() {
   const gifts = useNekoGifts((s) => s.gifts);
   const here = useNekoStore((s) => s.stage.placement);
-  /** 버릴지 묻는 중인 선물 */
-  const [drop, setDrop] = useState<NekoGift | null>(null);
+  const [tab, setTabState] = useState<GiftTab>(loadTab);
+  const setTab = (t: GiftTab) => { setTabState(t); try { localStorage.setItem(TAB_KEY, t); } catch { /* 저장 못 해도 지금은 바뀐다 */ } };
+  /** 버릴지 묻는 중인 것(선물 또는 물어온 가구): 제목과 버리기 */
+  const [drop, setDrop] = useState<{ title: string; run: () => void } | null>(null);
+  const askDrop = (g: NekoGift) => setDrop({ title: g.title, run: () => useNekoGifts.getState().remove(g.id) });
   /** 폰: 설명을 펼친 선물. 맥은 칸에 올려 두면 툴팁으로 보지만 폰엔 '올려 둠'이 없다 */
   const [info, setInfo] = useState<NekoGift | null>(null);
   useEffect(() => { void useNekoGifts.getState().load(); }, []);
@@ -128,6 +138,12 @@ export function NekoGiftPanel() {
   return (
     <div className="neko-cz neko-cz--window">
       <div className="neko-cz__body">
+        <div className="neko-gifts__tabs">
+          <Segmented<GiftTab> value={tab} onChange={setTab} options={[{ value: "gifts", label: "선물" }, { value: "furniture", label: "가구" }]} />
+        </div>
+        {tab === "furniture" ? (
+          <FurnitureTab onDrop={(f) => setDrop({ title: f.title || "가구", run: () => void dropFurniture(f) })} />
+        ) : (<>
         {import.meta.env.DEV && <GiftLab />}
         <p className="settings-section__desc">
           선물 {gifts.length}개. 지금 네코는 {PLACE_NAME[here]}에 있습니다. 놓기를 누르면 {PLACE_NAME[here]} 바닥에 놓이고, 놓인 선물은 칸에서 크기를 바꿀 수 있습니다.
@@ -142,7 +158,7 @@ export function NekoGiftPanel() {
                 className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`}
                 title={`${g.body || g.title}\n${DAY.format(new Date(g.at))}에 받음${g.placed ? ` · ${PLACE_NAME[g.placed.at]}에 놓여 있음` : ""}`}
               >
-                <button type="button" className="neko-gifts__drop" aria-label={`${g.title} 버리기`} title="버리기" onClick={() => setDrop(g)}>
+                <button type="button" className="neko-gifts__drop" aria-label={`${g.title} 버리기`} title="버리기" onClick={() => askDrop(g)}>
                   <Trash2 size={12} />
                 </button>
                 {IS_PHONE ? (
@@ -164,6 +180,7 @@ export function NekoGiftPanel() {
             );
           })}
         </ul>
+        </>)}
       </div>
       {/* 폰: 선물 설명 카드. 선물함 장 안에 그려 왼쪽 끝 손짓으로 장을 닫을 때 같이 움직인다 */}
       {info && (
@@ -176,7 +193,7 @@ export function NekoGiftPanel() {
               {DAY.format(new Date(info.at))}에 받음{info.placed ? ` · ${PLACE_NAME[info.placed.at]}에 놓여 있음` : ""}
             </p>
             <div className="gift-info__actions">
-              <button type="button" className="update-dialog__btn update-dialog__btn--danger" onClick={() => { setDrop(info); setInfo(null); }}>버리기</button>
+              <button type="button" className="update-dialog__btn update-dialog__btn--danger" onClick={() => { askDrop(info); setInfo(null); }}>버리기</button>
               <button type="button" className="update-dialog__btn" onClick={() => setInfo(null)}>닫기</button>
             </div>
           </div>
@@ -193,7 +210,7 @@ export function NekoGiftPanel() {
               <AlertDialog.Description className="update-dialog__sub">되돌릴 수 없습니다.</AlertDialog.Description>
               <div className="update-dialog__actions">
                 <AlertDialog.Cancel className="update-dialog__btn">취소</AlertDialog.Cancel>
-                <AlertDialog.Action className="update-dialog__btn update-dialog__btn--danger" onClick={() => drop && useNekoGifts.getState().remove(drop.id)}>
+                <AlertDialog.Action className="update-dialog__btn update-dialog__btn--danger" onClick={() => drop?.run()}>
                   버리기
                 </AlertDialog.Action>
               </div>
