@@ -54,18 +54,24 @@ jobs:
             exit 1
           fi
 
-      # 지난 배포 이후 feat/fix 커밋 제목을 변경 내역으로. 앱의 새 버전 창에도 뜬다.
+      # 변경 내역. 앱의 새 버전 창에도 뜬다.
+      # 지난 배포 뒤 .github/release-notes.md 를 고쳤으면 그 글을 그대로 쓴다(배포 때 사람이 짧게 쓴다).
+      # 안 고쳤으면 feat/fix 커밋 제목을 쓰되 ' — ' 뒤 설명과 괄호 속 메모는 잘라 낸다.
       - name: 변경 내역
         id: notes
         run: |
           prev=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
-          log=$(git log --no-merges --format=%s ${prev:+$prev..}HEAD)
-          feat=$(sed -nE 's/^feat(\([^)]*\))?!?: */- /p' <<< "$log")
-          fix=$(sed -nE 's/^fix(\([^)]*\))?!?: */- /p' <<< "$log")
           {
             echo 'body<<NOTES_EOF'
-            if [ -n "$feat" ]; then printf '### 새로 생긴 것\n%s\n\n' "$feat"; fi
-            if [ -n "$fix" ]; then printf '### 고친 것\n%s\n\n' "$fix"; fi
+            if [ -n "$prev" ] && ! git diff --quiet "$prev" HEAD -- .github/release-notes.md 2>/dev/null; then
+              cat .github/release-notes.md
+            else
+              log=$(git log --no-merges --format=%s ${prev:+$prev..}HEAD | sed -E 's/ ?\([^)]*\)//g; s/ — .*$//; s/ ?\(.*$//')
+              feat=$(sed -nE 's/^feat(\([^)]*\))?!?: */- /p' <<< "$log")
+              fix=$(sed -nE 's/^fix(\([^)]*\))?!?: */- /p' <<< "$log")
+              if [ -n "$feat" ]; then printf '### 새로 생긴 것\n%s\n\n' "$feat"; fi
+              if [ -n "$fix" ]; then printf '### 고친 것\n%s\n\n' "$fix"; fi
+            fi
             echo NOTES_EOF
           } >> "$GITHUB_OUTPUT"
 
