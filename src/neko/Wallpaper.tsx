@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useSettingsStore, type NekoWallpaper } from "../stores/settingsStore";
 import { useWeatherNow } from "./weatherNow";
 import { skyAt } from "./weatherWindowDraw";
+import { stageS } from "./engine/stage-scale";
 import "./Wallpaper.css";
 
 /**
@@ -74,24 +75,47 @@ export function SkyTint({ w, h }: { w: number; h: number }) {
   );
 }
 
-/** 거실 벽(채팅 바 아래 띠·폰 가로 화면): 띠 전체가 벽이다. 날씨 창문과 고양이 무대 아래 */
+/** 바닥: 이음매(seam = 고양이 발 18·S 위)부터 아래 끝까지 깊이 그라데이션 + 걸레받이. 방(RoomBackdrop)과 거실(DockWall)이 같이 쓴다 */
+export function FloorBand({ w, h, seam, S }: { w: number; h: number; seam: number; S: number }) {
+  const id = useId().replace(/:/g, "");
+  return (
+    <>
+      <defs>
+        <linearGradient id={`neko-floor-${id}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" className="neko-room__floor-far" />
+          <stop offset="1" className="neko-room__floor-near" />
+        </linearGradient>
+      </defs>
+      <rect x={0} y={seam} width={w} height={h - seam} fill={`url(#neko-floor-${id})`} />
+      <rect className="neko-room__base" x={0} y={seam - 3 * S} width={w} height={3 * S} />
+    </>
+  );
+}
+
+/**
+ * 거실 벽(채팅 바 아래 띠·폰 가로 화면): 방처럼 벽과 바닥을 나눈다(사용자). 바닥선은 엔진 무대와 같다 — 무대 상자(폰 가로는
+ * 홈 막대만큼 올림, --stage-lift)를 재어 floorY = 무대 높이 − 6. 벽·바닥 그림은 띠 끝(화면 끝)까지. 날씨 창문과 고양이 무대 아래
+ */
 export function DockWall() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 0, h: 0 });
+  const ref = useRef<HTMLDivElement>(null), stageRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0, sh: 0 });
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
+    const el = ref.current, st = stageRef.current;
+    if (!el || !st) return;
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight, sh: st.clientHeight }));
     ro.observe(el);
+    ro.observe(st);
     return () => ro.disconnect();
   }, []);
-  const { w, h } = size;
+  const { w, h, sh } = size, floorY = sh - 6, S = stageS(w, floorY, "dock"), seam = floorY - 18 * S;
   return (
     <div ref={ref} className="neko-dock-wall" aria-hidden="true">
-      {w > 0 && h > 0 && (
+      <div ref={stageRef} className="neko-dock-wall__stage" />
+      {w > 0 && sh > 0 && (
         <svg width={w} height={h}>
-          <rect className="neko-room__wall" x={0} y={0} width={w} height={h} />
-          <WallPattern place="dock" w={w} wallH={h} />
+          <rect className="neko-room__wall" x={0} y={0} width={w} height={seam} />
+          <WallPattern place="dock" w={w} wallH={seam} />
+          <FloorBand w={w} h={h} seam={seam} S={S} />
           <SkyTint w={w} h={h} />
         </svg>
       )}

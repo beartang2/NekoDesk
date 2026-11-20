@@ -20,3 +20,10 @@
   pointer-events: none;
 }
 .neko-dock-wall svg { display: block; }
+/* 무대 상자 크기만 잰다(NekoSlot.css .neko-slot__stage 와 같은 자리) — 바닥선을 엔진과 맞춘다 */
+.neko-dock-wall__stage {
+  position: absolute;
+  inset: 0;
+  bottom: var(--stage-lift, 0px);
+  visibility: hidden;
+}

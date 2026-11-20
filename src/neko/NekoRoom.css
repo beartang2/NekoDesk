@@ -29,6 +29,7 @@
 .weather-window {
   position: absolute;
   inset: 0;
+  bottom: var(--stage-lift, 0px); /* 무대 상자와 같게(엔진 '창밖 구경'·벽 선물이 피하는 창과 같은 자리) */
   pointer-events: none;
 }
 .weather-window__cv {
