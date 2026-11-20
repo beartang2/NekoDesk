@@ -28,6 +28,7 @@ import { useNekoDirector } from "./neko/useNekoDirector";
 import { useNekoApp } from "./neko/director/stores";
 import { watchWalkIdle } from "./neko/walkWatch";
 import { restThink, takeGreeting } from "./agent/neko-mind";
+import { reportBigState, watchPresence } from "./neko/presence";
 import { useNekoNeeds } from "./neko/director/needsStore";
 import { SLEEPY_MS } from "./neko/director/derive";
 import { useNekoStore } from "./neko/nekoStore";
@@ -1716,6 +1717,8 @@ export default function App() {
   useEffect(() => { initMcpFromStorage(); }, []);
   // 앱이 앞으로 올 때 위치를 묻고 다른 기기의 동네를 받는다(지도·날씨, lib/here)
   useEffect(() => watchHere(), []);
+  // 네코의 큰 상태(깨어 있음·자는 중·산책·밥)를 맥·폰이 맞춘다: 가장 최근에 쓴 기기를 따른다(neko/presence)
+  useEffect(() => watchPresence(), []);
   // 저장해둔 "항상 허용" 규칙을 메모리에 올린다. 이게 없으면 첫 요청은
   // 이미 승인한 명령에도 확인 창이 뜬다.
   useEffect(() => { loadPermissionRules(); }, []);
@@ -1995,6 +1998,8 @@ export default function App() {
   // 그사이 사용자가 돌아오거나 일을 시키면 취소하고, 다시 졸 때 새로 구한다.
   const dozing = idle && !isRunning;
   const eating = useNekoApp((s) => !!s.feeding);
+  // 이 기기의 큰 상태. 이 기기가 가장 최근에 쓰였으면 다른 기기가 따른다(바뀔 때만 적는다)
+  useEffect(() => { reportBigState(away ? "walk" : eating ? "eat" : idle ? "sleep" : "awake"); }, [away, eating, idle]);
   useEffect(() => {
     if (!dozing || gone || eating || (walk && !walk.done)) return;
     const plan = nextWalkAt({ dozeAt: dozeRef.current.at, lastWalk: lastWalkWith(lastWalkOf(walk), shared), extraWait: dozeRef.current.extraWait });

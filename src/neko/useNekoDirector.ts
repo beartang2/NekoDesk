@@ -4,6 +4,7 @@ import { ONE_SHOT } from "./director/toolActivity";
 import { useDevTools } from "./devTools";
 import { maybeDraw } from "../agent/neko-drawing";
 import { currentLean, loadMind, noteActivity } from "../agent/neko-mind";
+import { followState, leaderStateAt, leaderUsedAt, onPresence, perfOf } from "./presence";
 import { appEvents } from "../lib/events";
 import { DEEP_SLEEP_MS, deriveNeko, SLEEPY_MS } from "./director/derive";
 import { CHASE_BELOW, pickByNeeds } from "./director/needs";
@@ -72,13 +73,22 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
     let boxPetBase = 0;
     let boxTimer: ReturnType<typeof setTimeout> | null = null;
     let boxExitTimer: ReturnType<typeof setTimeout> | null = null;
+    let followMeal: { epoch: number; since: number } | null = null; // 다른 기기를 따라 먹는 밥(neko/presence)
 
     const input = (): DirectorInput => {
       const app = useNekoApp.getState();
+      // 다른 기기가 더 최근에 쓰였으면 그 기기의 큰 상태를 따른다(neko/presence). 자면 그 기기가 마지막으로 쓰인 때부터 똑같이
+      // 졸다 깊이 자고, 깨어 있으면 졸지 않고, 밥 먹으면 밥을 먹는다. 계획만 바꾸니 하던 활동이 끝나고 자세가 바뀌는 길 그대로다
+      const follow = followState(), lead = leaderUsedAt(), since = leaderStateAt();
+      const lastActiveAt = follow === "sleep" && lead !== null ? perfOf(lead)
+        : follow === "awake" || follow === "eat" ? performance.now() : app.lastActiveAt;
+      // 밥 계획의 instance 가 since 를 담아, 같은 기록이면 같은 값이어야 다시 시작하지 않는다
+      if (follow === "eat" && since !== null && followMeal?.epoch !== since) followMeal = { epoch: since, since: perfOf(since) };
+      const feeding = follow === "eat" && followMeal ? (app.feeding ?? { since: followMeal.since }) : app.feeding;
       return {
         session: useNekoSessions.getState().get(activeRef.current),
-        feeding: app.feeding, fedAt: app.fedAt, playCue: app.playCue, game: app.game,
-        needs: needsRef.current, lastActiveAt: app.lastActiveAt, outside: app.outside, box, hidden: app.screenHidden,
+        feeding, fedAt: app.fedAt, playCue: app.playCue, game: app.game,
+        needs: needsRef.current, lastActiveAt, outside: app.outside, box, hidden: app.screenHidden,
       };
     };
     const sch = createScheduler(ctrl, realClock, (now) => deriveNeko(input(), now));
@@ -185,6 +195,8 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       if (a && a !== shown) noteActivity(a); // 기울기 재료: 최근 이틀 한 혼자 놀기 셈
       shown = a;
     }));
+    // 다른 기기의 큰 상태가 바뀌면 다시 계획한다
+    offs.push(onPresence(() => { syncBox(); sch.update(); }));
     // 기울기는 맥·폰이 같이(neko_mind): 처음 한 번, 다른 기기에서 바뀌면 다시 읽는다
     void loadMind().catch(() => {});
     offs.push(appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("setting")) void loadMind().catch(() => {}); }));

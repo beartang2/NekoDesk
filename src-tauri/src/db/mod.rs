@@ -19,9 +19,9 @@ pub mod terms;
 /// 바꾸면 이미 배포된 마이그레이션 4번은 그대로 두고, 트리거를 새 마이그레이션에서 다시 만든다.
 /// 비밀(키체인·API 키), 경로·권한·실행 관련 키(fs_write_roots 등), 모델 프로필, 예산·장부는 절대 넣지 않는다 —
 /// 연결된 다른 기기가 이 맥의 권한을 넓힐 수 있게 된다. 받을 때도 이 목록 밖은 버린다(crate::sync::apply).
-pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention", "neko_needs", "neko_walk_view", "neko_here", "cat_rpg_state", "neko_mind"];
+pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention", "neko_needs", "neko_walk_view", "neko_here", "cat_rpg_state", "neko_mind", "neko_presence"];
 /// 트리거용 같은 목록(SQL 글). concat! 은 상수를 못 받아 따로 적고, 테스트가 둘이 같은지 본다.
-macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention', 'neko_needs', 'neko_walk_view', 'neko_here', 'cat_rpg_state', 'neko_mind')" } }
+macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention', 'neko_needs', 'neko_walk_view', 'neko_here', 'cat_rpg_state', 'neko_mind', 'neko_presence')" } }
 
 /// 지금 시각(ms). SQLite 의 julianday 는 ms 까지 준다
 macro_rules! now_ms { () => { "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)" } }
@@ -245,6 +245,14 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         sync_named_triggers!("setting", "settings", "key", concat!("NEW.key IN ", synced_keys!()), "OLD.value IS NOT NEW.value"),
         sync_tombstone!("setting", "settings", "OLD.key", concat!("OLD.key IN ", synced_keys!())),
     ),
+    // 11 — 맞추는 설정 키에 neko_presence(네코의 큰 상태: 깨어 있음·자는 중·산책·밥, 0.1.22, src/neko/presence.ts)를 더한다.
+    // 가장 최근에 쓴 기기가 큰 상태가 바뀔 때만 적고 다른 기기가 따른다. 6–10번과 같이 설정 트리거를 지금 목록으로 다시 만든다.
+    // 이미 있는 값은 없다(새 키). 옛 버전은 모르는 키를 받으면 버린다
+    concat!(
+        "DROP TRIGGER IF EXISTS sync_setting_ins; DROP TRIGGER IF EXISTS sync_setting_upd; DROP TRIGGER IF EXISTS sync_setting_del;",
+        sync_named_triggers!("setting", "settings", "key", concat!("NEW.key IN ", synced_keys!()), "OLD.value IS NOT NEW.value"),
+        sync_tombstone!("setting", "settings", "OLD.key", concat!("OLD.key IN ", synced_keys!())),
+    ),
 ];
 
 /// 스키마를 최신으로 올린다. 앱 시작 시 1회 호출.
@@ -318,6 +326,16 @@ mod tests {
         assert_eq!(marked("neko_needs"), 1, "바꾸면 다시 올린다(새 트리거)");
         c.execute("UPDATE settings SET value = '{\"a\":1}' WHERE key = 'neko_stage'", []).unwrap();
         assert_eq!(marked("neko_stage"), 0, "자리 설정은 이 기기에만");
+    }
+
+    #[test]
+    fn neko_presence_syncs_after_upgrading_from_version_10() {
+        let c = Connection::open_in_memory().unwrap();
+        run_migrations(&c, &MIGRATIONS[..10]).unwrap();
+        init_schema(&c).unwrap();
+        c.execute("INSERT INTO settings (key, value) VALUES ('neko_presence', '{}')", []).unwrap();
+        let n: i64 = c.query_row("SELECT count(*) FROM sync_meta WHERE coll = 'setting' AND uid = 'neko_presence' AND dirty = 1", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1, "큰 상태를 올린다");
     }
 
     #[test]
