@@ -565,8 +565,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         if (c.mode !== "walk") break; // 마우스가 반대편으로 가서 돌아서는 중
         if (c.treadmill) { // 캣휠 안에서 달린다: 발은 걷고 몸은 제자리, 바퀴가 돈다
           c.speed = lerp(c.speed, WALK * S * 1.4, 1 - Math.exp(-dt * 4)); c.vx = 0;
-          c.gait += (c.speed * dt) / (STRIDE * S);
-          c.treadmill.spin -= (c.face * c.speed * dt) / Math.max(1, c.treadmill.r);
+          c.gait += (c.speed * dt) / (STRIDE * S); // 바퀴는 furnitureStep 이 이 속도·방향으로 돌린다
           break;
         }
         const dx = c.target - c.x, dir = Math.sign(dx) || c.face;
@@ -4784,7 +4783,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (WORLD) return;
     const prev = new Map(furniture.map((f) => [f.id, f]));
     furniture = (Array.isArray(items) ? items : []).filter((f) => f && f.id != null && FURN_KINDS.has(f.kind) && (f.at === "sidebar" || f.at === "dock") && Number.isInteger(f.slot))
-      .map((f) => ({ id: String(f.id), kind: f.kind, at: f.at, slot: f.slot, on: prev.get(String(f.id))?.on ?? !!f.on, accent: typeof f.accent === "string" ? f.accent : "", inV: prev.get(String(f.id))?.inV ?? 0, x: 0, slotW: 0, box: null }));
+      .map((f) => ({ id: String(f.id), kind: f.kind, at: f.at, slot: f.slot, on: prev.get(String(f.id))?.on ?? !!f.on, accent: typeof f.accent === "string" ? f.accent : "", inV: prev.get(String(f.id))?.inV ?? 0, spin: prev.get(String(f.id))?.spin ?? 0, spinV: prev.get(String(f.id))?.spinV ?? 0, x: 0, slotW: 0, box: null }));
     layoutFurniture();
     const bs = actOf("box"); if (bs) bs.roam = !!furnOf("box"); // 상자 가구가 있으면 상자 놀이는 그리로 걸어간다
     if (cat.act && FURN_ACTS.has(cat.act.key) && !furnOf(cat.act.key)) endAct(); // 그 가구를 치웠다
@@ -4801,7 +4800,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     return null;
   }
   /** 엔진이 지금 그리는 가구(움직이는 것): 정지 그림 층은 이걸 빼고 그린다 */
-  const furnHeldIds = () => furniture.filter((f) => f.spinning || f.tapT > 0).map((f) => f.id);
+  // 캣휠은 서서히 멈추는 동안과 멈춘 각이 0(발바닥 로고가 바로 선 각, 정지 그림 층의 각)이 아닐 때도 엔진이 그린다 — 넘길 때 튀지 않게
+  const wheelOff = (f) => f.kind === "wheel" && (Math.abs(f.spinV || 0) > 0.02 || Math.abs(Math.sin((f.spin || 0) / 2)) > 0.004);
+  const furnHeldIds = () => furniture.filter((f) => f.spinning || f.tapT > 0 || wheelOff(f)).map((f) => f.id);
   let furnHeldKey = "";
   function syncFurnHeld() {
     const ids = furnHeldIds(), key = ids.join("\n");
@@ -4855,6 +4856,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
     let changed = false;
     for (const f of furniture) if (f.tapT > 0) { f.tapT = Math.max(0, f.tapT - dt * 1.4); if (!f.tapT) changed = true; }
+    // 캣휠 회전(사용자: 도는 방향을 달리는 방향에 맞게): 발 밑 레일이 발과 반대로 밀린다 — 오른쪽 보고 달리면 바닥이 왼쪽 = 화면에서
+    // 시계 방향(캔버스 +각). 각속도는 발 속도 ÷ 발 반지름(레일 띠 안 12.2/32·키)에 다가가고, 숨 고르기·끝나면 서서히 멈춘다(관성)
+    for (const f of furniture) if (f.kind === "wheel" && f.box) {
+      const run = cat.treadmill && f.spinning, to = run ? (cat.face * cat.speed) / Math.max(1, f.box.h * 0.38) : 0, was = wheelOff(f);
+      f.spinV = (f.spinV || 0) + (to - (f.spinV || 0)) * (1 - Math.exp(-dt * (run ? 5 : 1.4)));
+      if (!run && Math.abs(f.spinV) < 0.02) f.spinV = 0;
+      f.spin = (f.spin || 0) + f.spinV * dt;
+      if (was !== wheelOff(f)) changed = true;
+    }
     if (changed) syncFurnHeld();
   }
 
@@ -5241,7 +5251,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     /** 이 장소에 놓인 가구(docs/neko-furniture.md): [{ id, kind, at, slot, on }]. 바뀔 때만 */
     setFurniture,
     /** 놓인 가구와 조명 켜짐(감독이 후보를 고를 때) */
-    get furniture() { return furniture.map((f) => ({ id: f.id, kind: f.kind, on: !!f.on })); },
+    get furniture() { return furniture.map((f) => ({ id: f.id, kind: f.kind, on: !!f.on, spin: f.spin || 0, spinV: f.spinV || 0 })); },
     hitFurniture,
     /** 입 원(무대 px): 가운데와 받는 반지름 50 × 배율 */
     get mouth() { const m = mouthPt(); return { x: m[0], y: m[1], r: MOUTH_R * S }; },
