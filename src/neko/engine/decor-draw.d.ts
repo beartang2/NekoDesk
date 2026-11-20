@@ -24,6 +24,10 @@ export function capPx(at: "sidebar" | "dock" | "screen" | undefined, g: { floorY
 export function decorK(shape: GiftShape, size: unknown, scale: unknown, at: "sidebar" | "dock" | "screen" | undefined, g: { floorY: number; S: number }): { k: number; capped: boolean };
 export function decorDims(shape: GiftShape, k: number, S: number): DecorBox;
 export function decorM(S: number): number;
+/** 가구 칸 수: 방 2·거실 4(마당은 없다) */
+export const FURNITURE_SLOTS: { sidebar: number; dock: number };
+/** 가구 칸 자리(무대 px): 칸 가운데 x 와 칸 폭 w. 마당·모르는 장소는 빈 배열 */
+export function furnitureSlots(at: string, W: number): { x: number; w: number }[];
 export function wallSpan(h: number, g: DecorGeom): number;
 /** 벽에 건 것(at 이 방·거실, 폭 w 를 줄 때)은 날씨 창문과 겹치면 창턱 아래로 내려 그린다 */
 export function decorAt(d: { surface: "floor" | "wall"; u: number; v?: number; at?: string }, h: number, g: DecorGeom, w?: number): [number, number];

@@ -1,0 +1,70 @@
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/** 가구 저장(docs/neko-furniture.md §4·§6): 기본 다섯은 늘 있고, 칸에만 놓이고, 꽉 차면 거절, 치우면 다시 놓는다 */
+const db = vi.hoisted(() => ({ kv: new Map<string, string>() }));
+vi.mock("../api/tauri", () => ({
+  settingsApi: { get: async (k: string) => db.kv.get(k) ?? null, set: async (k: string, v: string) => void db.kv.set(k, v) },
+}));
+
+import { BASE_FURNITURE, parseFurniture, useNekoFurniture } from "./furniture";
+import { furnitureSlots } from "./engine/decor-draw";
+
+beforeEach(() => { db.kv.clear(); useNekoFurniture.setState({ items: BASE_FURNITURE, loaded: false }); });
+const s = () => useNekoFurniture.getState();
+const where = (id: string) => s().items.find((f) => f.id === id)?.place;
+
+describe("가구 저장", () => {
+  it("칸: 방 2·거실 4, 무대 폭을 똑같이 나눈 자리. 마당은 없다", () => {
+    expect(furnitureSlots("sidebar", 280)).toEqual([{ x: 70, w: 140 }, { x: 210, w: 140 }]);
+    expect(furnitureSlots("dock", 1100).map((x) => x.x)).toEqual([137.5, 412.5, 687.5, 962.5]);
+    expect(furnitureSlots("screen", 1000)).toEqual([]);
+  });
+
+  it("기본 다섯은 처음부터 있고, 빈 칸에 놓고, 꽉 차면 거절, 마당은 못 놓는다", async () => {
+    await s().load();
+    expect(s().items.map((f) => f.id)).toEqual(["base:lamp", "base:cattower", "base:wheel", "base:sofa", "base:box"]);
+    expect(await s().place("base:sofa", "sidebar")).toBe(true);
+    expect(await s().place("base:lamp", "sidebar")).toBe(true);
+    expect(await s().place("base:box", "sidebar")).toBe(false); // 방은 2칸
+    expect(await s().place("base:box", "screen")).toBe(false);
+    expect(where("base:sofa")).toEqual({ at: "sidebar", slot: 0 });
+    expect(where("base:lamp")).toEqual({ at: "sidebar", slot: 1 });
+    await s().unplace("base:sofa");
+    expect(where("base:sofa")).toBeNull();
+    expect(await s().place("base:box", "sidebar")).toBe(true); // 치운 자리에 다시
+    expect(where("base:box")).toEqual({ at: "sidebar", slot: 0 });
+    expect(await s().place("base:lamp", "dock")).toBe(true); // 다른 장소로 옮기면 그 칸은 빈다
+    expect(where("base:lamp")).toEqual({ at: "dock", slot: 0 });
+  });
+
+  it("산책에서 물어온 가구는 더하고 버릴 수 있다(기본 가구는 못 버린다). 저장엔 놓인 기본 가구와 물어온 것만", async () => {
+    await s().load();
+    await s().add({ kind: "sofa", title: "등나무 의자", body: "공원 벤치 옆에서", found: "2026-11-20" });
+    const walk = s().items.find((f) => f.title === "등나무 의자")!;
+    expect(walk.id.startsWith("walk:")).toBe(true);
+    await s().remove("base:sofa");
+    expect(s().items.some((f) => f.id === "base:sofa")).toBe(true);
+    await s().place(walk.id, "dock");
+    const saved = JSON.parse(db.kv.get("neko_furniture")!).items as { id: string }[];
+    expect(saved.map((f) => f.id)).toEqual([walk.id]);
+    await s().remove(walk.id);
+    expect(s().items.some((f) => f.id === walk.id)).toBe(false);
+  });
+
+  it("망가진 값·모르는 종류·칸 밖·한 칸에 둘은 버리거나 비운다(옛·다른 기기 값)", () => {
+    const items = parseFurniture(JSON.stringify({ v: 9, items: [
+      { id: "base:sofa", kind: "sofa", place: { at: "dock", slot: 1 } },
+      { id: "base:box", kind: "box", place: { at: "dock", slot: 1 } },
+      { id: "base:lamp", kind: "lamp", place: { at: "screen", slot: 0 } },
+      { id: "walk:x", kind: "piano", place: null },
+      { id: "base:wheel", kind: "sofa", place: null },
+    ] }));
+    expect(items.find((f) => f.id === "base:sofa")!.place).toEqual({ at: "dock", slot: 1 });
+    expect(items.find((f) => f.id === "base:box")!.place).toBeNull();
+    expect(items.find((f) => f.id === "base:lamp")!.place).toBeNull();
+    expect(items.some((f) => f.id === "walk:x")).toBe(false);
+    expect(items.find((f) => f.id === "base:wheel")!.kind).toBe("wheel");
+    expect(parseFurniture("{망가짐").length).toBe(5);
+  });
+});

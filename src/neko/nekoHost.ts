@@ -7,6 +7,7 @@ import { onWeatherNow, weatherNowSnapshot } from "./weatherNow";
 import { setHolding } from "./holding";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { stageK, stageS } from "./engine/stage-scale";
+import { startFurnitureHost } from "./furnitureHost";
 
 /**
  * 네코는 앱에 하나다: 캔버스 하나 + 엔진 하나를 모듈에 두고, 자리(NekoSlot)가 바뀌면 캔버스만 옮긴다.
@@ -35,6 +36,8 @@ export function nekoCanvas(): HTMLCanvasElement {
 export function ensureNeko(): NekoController {
   if (!ctrl) {
     ctrl = createNeko(nekoCanvas(), { appearance: useNekoStore.getState().appearance });
+    // 가구: 놓인 것을 엔진에 넘기고, 조명 켜짐·활동 중 잡은 가구를 받는다(furnitureHost)
+    startFurnitureHost(ctrl);
     // 폰은 고양이·선물을 70% 로(stage-scale): 엔진 높이 모드 식에 기기 배율을 곱한 S 를 무대 크기가 바뀔 때마다 넘긴다
     if (stageK() !== 1) {
       const cv = nekoCanvas();

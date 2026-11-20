@@ -55,6 +55,10 @@ export type NekoActivity =
   | "think" | "wait" | "meal" | "hungry" | "dig" | "calendar" | "erase"
   // 놓아 둔 선물 갖고 놀기(docs/neko-gifts.md §5)
   | "giftplay"
+  | "lamp"
+  | "cattower"
+  | "wheel"
+  | "sofa"
   // 창 탐험(캣타워, 화면 모드)
   | "tower"
   // 쳐다보기: 애정이 낮을 때(docs/neko-activity-mix.md §2.3)
@@ -100,6 +104,12 @@ export interface NekoEvents {
    * 나머지는 선물 창이 그린다 — 선물 창은 이 id 를 빼고 그린다. 빠진 id 는 엔진이 0.3초 더 그려 바꿔 그리는 틈을 메운다
    */
   decorHeld: string[];
+  /** 가구(docs/neko-furniture.md): 엔진이 지금 그리는(움직이는) 가구 id — 정지 그림 층은 빼고 그린다. 바뀔 때만 */
+  furnitureHeld: string[];
+  /** 가구를 꾹 누름·우클릭: (x, y) = 그 가구 오른쪽 위(무대 px). 호스트가 '치우기' 버튼을 띄운다 */
+  furnitureMenu: { id: string; x: number; y: number };
+  /** 네코가 조명을 톡: 켜짐이 바뀌었다(호스트가 이 기기에 기억해 setFurniture 의 on 으로 돌려준다) */
+  lamp: { id: string; on: boolean };
   /** 고양이나 놓아 둔 물건을 누르기 시작(true)·뗌(false). 폰은 그동안 가장자리 손짓(대화 목록 열기)을 막는다(neko/holding) */
   hold: boolean;
 }
@@ -221,6 +231,15 @@ export interface NekoController {
   readonly mouth: { x: number; y: number; r: number };
   /** 머리 원: 아치를 여는 자리이자 아치의 기준(머리 위 가운데에 편다) */
   readonly head: { x: number; y: number; r: number };
+  /**
+   * 이 장소에 놓인 가구(칸 번호로, docs/neko-furniture.md §4). 자리·크기는 엔진이 무대가 바뀔 때마다 칸과 그림으로 다시 잰다.
+   * 캣타워 발판·소파 쿠션은 올라앉는 면이 된다. on = 조명 켜짐(엔진이 바꾸면 lamp 사건)
+   */
+  setFurniture(items: { id: string; kind: "lamp" | "cattower" | "wheel" | "sofa" | "box"; at: "sidebar" | "dock"; slot: number; on?: boolean }[]): void;
+  /** 놓인 가구와 조명 켜짐(감독이 혼자 놀기 후보를 고를 때) */
+  readonly furniture: { id: string; kind: string; on: boolean }[];
+  /** 이 점(무대 px)이 가구 위면 그 id */
+  hitFurniture(x: number, y: number): string | null;
   /**
    * 방·거실 벽의 날씨 창문(room-window.js). place = 지금 자리("sidebar"·"dock", 그 밖은 창 없음), open = 커튼이 열렸나(날씨가 있나).
    * 창이 있으면 '창밖 구경'은 창 아래로 걸어가 올려다보고, 닫혀 있으면 앞발로 커튼 쪽을 톡톡. 없으면(마당) 고양이 앞에 창을 그린다

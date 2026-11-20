@@ -95,6 +95,19 @@
   line-height: 1.3;
   color: var(--text-muted);
 }
+/* 선물함 창 맨 위 탭(선물 · 가구) */
+.neko-gifts__tabs { margin-bottom: 10px; }
+/* 물어온 가구의 설명(두 줄까지) */
+.neko-gifts__body {
+  max-width: 100%;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .neko-gifts__btn {
   margin-top: 2px;
   font-size: 11px;

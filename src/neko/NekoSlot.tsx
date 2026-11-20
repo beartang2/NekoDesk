@@ -6,6 +6,9 @@ import { NekoAway } from "./NekoAway";
 import { RoomGifts } from "./NekoRoom";
 import { WeatherWindow } from "./WeatherWindow";
 import { DockWall } from "./Wallpaper";
+import { FurnitureLayer } from "./FurnitureLayer";
+import { useNekoFurniture } from "./furniture";
+import type { FurnitureCtrl } from "./furnitureHost";
 import { Map as MapIcon } from "lucide-react";
 import { LastWalkModal, WalkMap } from "../components/WalkMap";
 import type { Walk } from "../lib/walk";
@@ -54,10 +57,17 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
 
   // 놓아 둔 선물을 우클릭하거나 꾹 누르면(터치) 그 오른쪽 위에 '정리' 버튼. 누르면 선물함으로, 다른 데를 누르거나 Esc 면 닫는다.
   // 자리 가장자리에서 열어도 버튼이 자리 안에 다 보이게 당긴다
-  const [decorMenu, setDecorMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  // 가구(furniture)도 같은 자리에 '치우기' 하나(docs/neko-furniture.md §10) — 가구 탭에 남고 다시 놓을 수 있다
+  const [decorMenu, setDecorMenu] = useState<{ id: string; x: number; y: number; furniture?: boolean } | null>(null);
   const tidyRef = useRef<HTMLButtonElement>(null);
   useKeepInside(tidyRef, decorMenu);
   useEffect(() => (ctrl && active ? ctrl.on("decorMenu", setDecorMenu) : undefined), [ctrl, active]);
+  useEffect(() => {
+    const fc = ctrl as FurnitureCtrl | null;
+    return fc?.setFurniture && active ? fc.on("furnitureMenu", (m) => setDecorMenu({ ...m, furniture: true })) : undefined;
+  }, [ctrl, active]);
+  const furnitureMenu = useCallback((m: { id: string; x: number; y: number }) => setDecorMenu({ ...m, furniture: true }), []);
+  const furniturePlace = placement === "sidebar" || placement === "dock" ? placement : null;
   useEffect(() => {
     if (!decorMenu) return;
     const close = (e: Event) => {
@@ -142,7 +152,11 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
       {/* 산책 중: 채팅 바 아래(가로로 김)는 '산책 중' 그림과 지도를 나란히, 사이드바 방(좁음)은 지도만.
           지도를 못 받으면(개발 빌드 등) 방에선 '산책 중' 그림으로 대신한다 */}
       {!active ? (
-        <RoomGifts isDark={isDark} onMenu={setDecorMenu} />
+        <>
+          {/* 빈 방: 가구(뒤) 위에 선물. 가구는 꾹 누르기·우클릭으로 치운다 */}
+          <FurnitureLayer place="sidebar" still onMenu={furnitureMenu} />
+          <RoomGifts isDark={isDark} onMenu={setDecorMenu} />
+        </>
       ) : away ? (
         placement === "dock" ? (
           <div className="neko-slot__walk">
@@ -156,6 +170,8 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
         <>
           {/* 거실: 벽 대신 띠 바탕에 가로로 긴 날씨 창문(고양이 뒤) */}
           {placement === "dock" && <><DockWall /><WeatherWindow place="dock" /></>}
+          {/* 놓인 가구의 정지 그림(고양이 무대 밑). 활동 중엔 엔진이 직접 그린 것을 뺀다 */}
+          {furniturePlace && <FurnitureLayer place={furniturePlace} />}
           <div
             ref={stageRef}
             className="neko-slot__stage"
@@ -184,10 +200,14 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
           type="button"
           className="neko-slot__tidy"
           style={{ left: decorMenu.x + 2, top: Math.max(2, decorMenu.y - 4) }}
-          title="선물함으로 치우기"
-          onClick={() => { useNekoGifts.getState().place(decorMenu.id, null); setDecorMenu(null); }}
+          title={decorMenu.furniture ? "가구 탭으로 치우기" : "선물함으로 치우기"}
+          onClick={() => {
+            if (decorMenu.furniture) void useNekoFurniture.getState().unplace(decorMenu.id);
+            else useNekoGifts.getState().place(decorMenu.id, null);
+            setDecorMenu(null);
+          }}
         >
-          정리
+          {decorMenu.furniture ? "치우기" : "정리"}
         </button>
       )}
     </div>

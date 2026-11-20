@@ -1234,6 +1234,58 @@ try {
     await p.close();
   }
 
+  // 9-u2) 가구(docs/neko-furniture.md): 조명 톡(켜짐 알림·그동안 엔진이 그림), 캣타워 꼭대기까지, 캣휠 제자리 달리기(바퀴가 돈다),
+  //       소파 위에 앉기, 졸리면 소파로, 상자 가구로 걸어가 쏙, 우클릭 '치우기' 자리, 올라 있던 가구를 치우면 떨어진다
+  {
+    const p = await open(`?w=1100&h=240&scale=height&transparent=1`, { width: 1300, height: 600 });
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, out = {}, ev = [];
+      n.pause(); n.setWander(false); n.setMood("idle");
+      for (const k of ["lamp", "furnitureHeld", "furnitureMenu"]) n.on(k, (e) => ev.push([k, e]));
+      n.setFurniture([{ id: "L", kind: "lamp", at: "dock", slot: 0 }, { id: "T", kind: "cattower", at: "dock", slot: 1 }, { id: "Wh", kind: "wheel", at: "dock", slot: 2 }, { id: "So", kind: "sofa", at: "dock", slot: 3 }]);
+      const run = (key, sec, done) => { c.x = n.W * 0.5; n.act(key); for (let i = 0; i < 120 * sec; i++) { n.step(1); if (done && done()) break; } };
+      run("lamp", 12, () => !n.activity);
+      out.lamp = { on: n.furniture.find((f) => f.id === "L").on, events: ev.filter(([k]) => k === "lamp").length, held: ev.some(([k, e]) => k === "furnitureHeld" && e.includes("L")) };
+      n.act(null); n.step(60);
+      run("cattower", 25, () => c.perch && c.perch.fid === "T" && c.perch.y < n.floorY + 1 && c.perch.y === Math.min(...[c.perch.y]) && c.perch.id.endsWith(":1"));
+      out.tower = { perch: c.perch ? c.perch.id : null };
+      n.act(null); n.step(240);
+      for (let i = 0; i < 120 * 6 && c.perch; i++) n.step(1); // 내려오기를 기다린다(감독이 다른 걸 시키면 내려온다)
+      run("wheel", 10, () => c.treadmill && Math.abs(c.x - n.W * 0.625) < 30);
+      const x0 = c.x, s0 = n.debug ? 0 : 0; n.step(120);
+      out.wheel = { running: !!c.treadmill, stayed: Math.abs(c.x - x0) < 3, held: ev.some(([k, e]) => k === "furnitureHeld" && e.includes("Wh")), mode: c.mode };
+      n.act(null); n.step(60);
+      out.wheelStopped = { mode: c.mode, treadmill: !!c.treadmill };
+      run("sofa", 15, () => c.perch && c.perch.fid === "So" && c.mode === "act");
+      out.sofa = { perch: c.perch ? c.perch.fid : null, mode: c.mode };
+      n.act(null); n.step(60);
+      // 올라 있던 가구를 치우면 떨어진다
+      n.setFurniture([{ id: "L", kind: "lamp", at: "dock", slot: 0 }, { id: "Wh", kind: "wheel", at: "dock", slot: 2 }, { id: "B", kind: "box", at: "dock", slot: 1 }]);
+      for (let i = 0; i < 120 * 2; i++) n.step(1);
+      out.fell = { perch: c.perch, onFloor: Math.abs(n.floorY - (240 - 6)) < 2 };
+      // 상자 가구로 걸어가 쏙
+      run("box", 12, () => c.mode === "act");
+      out.box = { mode: c.mode, x: Math.round(c.x), boxX: Math.round(n.W * 0.375) };
+      n.act(null); n.step(60);
+      // 졸리면 소파로(다시 소파를 놓고)
+      n.setFurniture([{ id: "So", kind: "sofa", at: "dock", slot: 3 }]);
+      c.x = n.W * 0.3; n.setMood("sleepy"); n.setPose("loaf");
+      for (let i = 0; i < 120 * 15 && !(c.perch && c.perch.fid === "So" && c.mode === "loaf"); i++) n.step(1);
+      out.sleep = { perch: c.perch ? c.perch.fid : null, mode: c.mode };
+      // 우클릭 '치우기' 자리
+      n.setMood("idle"); n.setPose("stand"); n.setFurniture([{ id: "L", kind: "lamp", at: "dock", slot: 0 }]); c.x = n.W * 0.8; n.step(120);
+      const cv = document.getElementById("stage"), R = cv.getBoundingClientRect();
+      cv.dispatchEvent(new MouseEvent("contextmenu", { clientX: R.left + n.W * 0.125, clientY: R.top + n.floorY - 40 * n.S, bubbles: true, cancelable: true }));
+      out.menu = ev.some(([k, e]) => k === "furnitureMenu" && e.id === "L");
+      return out;
+    });
+    check("가구 놀이: 조명 톡·캣타워 꼭대기·캣휠 제자리·소파 위·치우면 떨어짐·상자 가구·졸리면 소파·우클릭 치우기", JSON.stringify(r),
+      r.lamp.on && r.lamp.events === 1 && r.lamp.held && r.tower.perch === "f:T:1" && r.wheel.running && r.wheel.stayed && r.wheel.held &&
+        !r.wheelStopped.treadmill && r.sofa.perch === "So" && r.sofa.mode === "act" && !r.fell.perch && r.box.mode === "act" && Math.abs(r.box.x - r.box.boxX) < 12 &&
+        r.sleep.perch === "So" && r.menu);
+    await p.close();
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {

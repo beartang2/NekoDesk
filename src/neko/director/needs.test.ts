@@ -62,8 +62,8 @@ describe("숨은 게이지(docs/neko-activity-mix.md 2부)", () => {
   });
 
   it("기울기: 네코가 좋아한다는 건 더, 질렸다는 건 덜 고른다(나머지 비율은 그대로)", () => {
-    const base = soloOdds(START, { last: null, hasGifts: true });
-    const lean = soloOdds(START, { last: null, hasGifts: true, like: ["window"], tired: ["box"] });
+    const base = soloOdds(START, { last: null, hasGifts: true, furniture: ["box"] });
+    const lean = soloOdds(START, { last: null, hasGifts: true, furniture: ["box"], like: ["window"], tired: ["box"] });
     const p = (o: typeof base, k: string) => o.find((x) => x.key === k)!.p;
     expect(p(lean, "window") / p(lean, "groom")).toBeCloseTo((p(base, "window") / p(base, "groom")) * 1.6);
     expect(p(lean, "box") / p(lean, "groom")).toBeCloseTo((p(base, "box") / p(base, "groom")) * 0.5);
@@ -108,5 +108,16 @@ describe("숨은 게이지(docs/neko-activity-mix.md 2부)", () => {
     const top = Math.max(...count.values()) / picks;
     expect(top).toBeLessThan(0.3);
     expect(stuck / picks).toBeLessThan(0.1);
+  });
+
+  it("가구 놀이는 그 가구가 놓였을 때만, 조명은 켜고 끌 까닭이 있을 때만, 상자 놀이도 상자 가구로(docs/neko-furniture.md §3)", () => {
+    const keys = (o: Parameters<typeof soloOdds>[1]) => soloOdds(START, o).map((x) => x.key);
+    const none = keys({ last: null, hasGifts: false });
+    for (const k of ["lamp", "cattower", "wheel", "sofa", "box"]) expect(none).not.toContain(k);
+    const some = keys({ last: null, hasGifts: false, furniture: ["sofa", "wheel", "lamp", "box"], lampWant: false });
+    expect(some).toEqual(expect.arrayContaining(["sofa", "wheel", "box"]));
+    expect(some).not.toContain("lamp");
+    expect(some).not.toContain("cattower");
+    expect(keys({ last: null, hasGifts: false, furniture: ["lamp"], lampWant: true })).toContain("lamp");
   });
 });

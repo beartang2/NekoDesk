@@ -23,7 +23,8 @@ vi.mock("../api/tauri", () => ({
   },
 }));
 
-import { capGifts, freeSpot, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
+import { capGifts, cleanGiftTexts, freeSpot, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
+import { DEFAULT_SHAPE } from "./engine/gift-shape";
 
 const gift = (id: string, placed?: number): NekoGift => ({
   id, at: "", title: id, body: "", shape: { v: 1, parts: [{ t: "circle", x: 0, y: -4, r: 4, c: "red" }] },
@@ -288,5 +289,24 @@ describe("액자만 벽에 건다(0.1.24)", () => {
     store.set("neko_gifts", JSON.stringify([wall("ball", "dock")]));
     await useNekoGifts.getState().reload();
     expect(by("ball")).toMatchObject({ surface: "floor" });
+  });
+});
+
+describe("선물 글의 모델 태그(사용자: 설명 끝에 [[PET_STATE:happy]] 가 보였다)", () => {
+  it("넣을 때 이름·설명의 감정·생각 태그를 떼고 끝을 다듬어 저장한다", () => {
+    const { add } = useNekoGifts.getState();
+    add({ id: "tag1", title: "털실 그림 [[PET_STATE:happy]]", body: "풀린 실 한 가닥 그렸어. 액자에 넣어서 줄게! [[PET_STATE:happy]]\n", shape: DEFAULT_SHAPE });
+    const g = useNekoGifts.getState().gifts.find((x) => x.id === "tag1")!;
+    expect(g.title).toBe("털실 그림");
+    expect(g.body).toBe("풀린 실 한 가닥 그렸어. 액자에 넣어서 줄게!");
+  });
+  it("옛 선물은 불러올 때 고치고, 고친 것만 다시 저장한다", () => {
+    const old = [
+      { id: "o1", at: "2026-11-20T00:00:00Z", title: "공", body: "굴러가서 쫓게 돼서 골랐어 [[PET_STATE:happy]]", shape: DEFAULT_SHAPE },
+      { id: "o2", at: "2026-11-20T00:00:00Z", title: "돌", body: "깨끗한 글", shape: DEFAULT_SHAPE },
+    ];
+    const { gifts, fixed } = cleanGiftTexts(old as never);
+    expect(gifts.map((g) => g.body)).toEqual(["굴러가서 쫓게 돼서 골랐어", "깨끗한 글"]);
+    expect(fixed.map((g) => g.id)).toEqual(["o1"]);
   });
 });

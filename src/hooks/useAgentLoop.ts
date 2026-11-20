@@ -25,6 +25,7 @@ import { activeModelName } from "../stores/modelProfiles";
 import { CANCEL_MESSAGE } from "../neko/director/session";
 import { useNekoSessions } from "../neko/director/stores";
 import type { NekoSignal } from "../neko/director/types";
+import { PET_STATE_RE, stripPetState } from "../lib/replyTags";
 
 export interface PendingConfirm {
   sessionId: string;
@@ -109,14 +110,13 @@ function nowTime(): string {
 export const STREAM_FLUSH_MS = 66;
 
 export function cleanAnswer(text: string): string {
-  return text
-    .replace(/\[\[PET_STATE:\w+\]\]/g, "")
+  return stripPetState(text)
     .replace(/<mark>([\s\S]*?)<\/mark>/g, (_, inner: string) => `**${inner.trim()}**`)
     .replace(/<\/?mark>/g, "");
 }
 
 function stripSpecialTokens(text: string): { clean: string; emotion: CatEmotion | null } {
-  const match = text.match(/\[\[PET_STATE:(\w+)\]\]/);
+  const match = text.match(PET_STATE_RE);
   const emotion = match ? (match[1] as CatEmotion) : null;
   // 기록의 답 끝에 붙여 둔 "(도구 사용: …)" 를 모델이 흉내 내 제 답에 쓰곤 한다 — 그 줄은 지운다.
   return { clean: cleanAnswer(text).replace(/\s*\(도구 사용: [^)\n]*\)\s*$/, "").trim(), emotion };

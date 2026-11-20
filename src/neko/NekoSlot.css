@@ -29,6 +29,15 @@
   user-select: none;
 }
 .neko-canvas.can-grab { cursor: grab; }
+/* 놓인 가구의 정지 그림(FurnitureLayer): 고양이 무대·선물 밑, 벽·창문 위. 누르기는 받지 않는다(빈 방은 화면 전체 눌림에서 고른다) */
+.neko-furniture {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
 .neko-canvas.dragging { cursor: grabbing; }
 .neko-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
 
