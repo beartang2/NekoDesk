@@ -1999,7 +1999,7 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, [dozing, gone, eating, walk, shared]);
 
-  // 산책 중에 사용자가 부르면(채팅 보내기·빈 자리 누르기·지도 '불러오기') 남은 길을 버리고 1–2분 안에 곧장 온다.
+  // 산책 중에 사용자가 부르면(채팅 보내기 — 0.1.24 부터 이것뿐) 남은 길을 버리고 1–2분 안에 곧장 온다.
   // 머리도 그때까지 알아낸 것으로 정리한다. 다른 기기에서 나간 산책은 이 기기에 away 가 없어 그대로 둔다.
   const hurryingRef = useRef(false);
   hurryHomeRef.current = () => {

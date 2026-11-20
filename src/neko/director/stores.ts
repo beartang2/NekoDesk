@@ -52,7 +52,7 @@ interface NekoAppStore {
   setGameEmotion: (emotion: CatEmotion, ms?: number) => void;
   markActive: () => void;
   /**
-   * 산책 중인 네코를 부른 때(채팅 보내기·빈 자리 누르기·산책 지도 '불러오기'). 이때만 서둘러 돌아온다(App, walkWatch).
+   * 산책 중인 네코를 부른 때(채팅 보내기 — 지도·자리 누르기·부르기 버튼은 0.1.24 에 뺐다). 이때만 서둘러 돌아온다(App, walkWatch).
    * 그 밖에 앱을 만지는 건(lastActiveAt) 졸음 타이머에만 쓰고 산책을 끊지 않는다
    */
   calledAt: number;
