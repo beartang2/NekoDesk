@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Archive, ChevronDown, FileText, Pencil, StickyNote, X } from "lucide-react";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { todosApi, scheduleApi, settingsApi, shelfApi, type ShelfItem } from "../api/tauri";
+import { shelfPick } from "./shelfPick";
 import { formatBytes } from "./Attachments";
 import { appEvents } from "../lib/events";
 import { syncCanvasToBox } from "../lib/canvas";
@@ -1150,10 +1151,11 @@ function MemoCard() {
 
 // ── Shelf (임시 보관함) ───────────────────────────────────────────────────────
 
-/** 끌고 갈 때 커서에 붙는 그림. 한 번만 그린다. */
-let dragIcon: string | null = null;
-function shelfDragIcon(): string {
-  if (dragIcon) return dragIcon;
+/** 끌고 갈 때 커서에 붙는 그림. 여러 개면 오른쪽 위에 개수. 개수마다 한 번만 그린다. */
+const dragIcons = new Map<number, string>();
+function shelfDragIcon(n = 1): string {
+  const hit = dragIcons.get(n);
+  if (hit) return hit;
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 64;
   const ctx = canvas.getContext("2d");
@@ -1162,17 +1164,38 @@ function shelfDragIcon(): string {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("📄", 32, 36);
+    if (n > 1) {
+      ctx.fillStyle = "#e5484d";
+      ctx.beginPath(); ctx.arc(50, 14, 13, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.font = "600 16px system-ui";
+      ctx.fillText(n > 99 ? "99+" : String(n), 50, 15);
+    }
   }
-  return (dragIcon = canvas.toDataURL("image/png"));
+  const url = canvas.toDataURL("image/png");
+  dragIcons.set(n, url);
+  return url;
 }
+
 
 /**
  * 끌어다 놓은 파일을 지우기 전까지 들고 있는다. 끌어내면 macOS 드래그로 진짜 파일이
  * 넘어가서 Finder·메신저 같은 다른 앱에도, 이 창의 채팅에도 첨부된다.
  */
-function Shelf() {
+export function Shelf() {
   const [items, setItems] = useState<ShelfItem[]>([]);
   const [over, setOver] = useState(false);
+  // 고른 것(이름)과 ⇧ 범위의 기준. 고른 것을 끌면 한 번에 다 넘긴다
+  const [pick, setPick] = useState<{ sel: ReadonlySet<string>; anchor: string | null }>({ sel: new Set(), anchor: null });
+  // Esc, 또는 보관함 줄이 아닌 곳을 누르면 고른 것을 푼다
+  useEffect(() => {
+    if (!pick.sel.size) return;
+    const clear = () => setPick({ sel: new Set(), anchor: null });
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") clear(); };
+    const onDown = (e: PointerEvent) => { if (!(e.target as Element | null)?.closest?.(".shelf__item")) clear(); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown, true);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pointerdown", onDown, true); };
+  }, [pick.sel.size]);
 
   const refresh = useCallback(() => {
     shelfApi.list().then(setItems).catch(() => {});
@@ -1194,14 +1217,24 @@ function Shelf() {
 
   function dragOut(e: React.DragEvent, item: ShelfItem) {
     e.preventDefault(); // HTML 드래그 대신 macOS 드래그로 파일을 넘긴다
-    // 도로 여기 놓아도 shelf_add 가 같은 파일이면 새로 안 만든다.
-    startDrag({ item: [item.path], icon: shelfDragIcon() }).catch((err) => {
+    // 고른 것 중 하나를 끌면 고른 것 전부(목록 순서), 안 고른 것을 끌면 그것만(Finder 처럼 그것을 고른다).
+    // 도로 여기 놓아도 shelf_add 가 같은 파일이면 새로 안 만든다. 끌어낸 것은 보관함에 그대로 남는다
+    const many = pick.sel.has(item.name) && pick.sel.size > 1;
+    const paths = many ? items.filter((it) => pick.sel.has(it.name)).map((it) => it.path) : [item.path];
+    if (!many) setPick({ sel: new Set([item.name]), anchor: item.name });
+    startDrag({ item: paths, icon: shelfDragIcon(paths.length) }).catch((err) => {
       console.warn("startDrag failed:", err);
     });
   }
 
+  function choose(e: React.MouseEvent, item: ShelfItem) {
+    if ((e.target as Element).closest(".shelf__remove")) return;
+    setPick((p) => shelfPick(items.map((it) => it.name), p.sel, p.anchor, item.name, { meta: e.metaKey, shift: e.shiftKey }));
+  }
+
   async function remove(name: string) {
     await shelfApi.remove(name).catch(console.warn);
+    setPick((p) => { if (!p.sel.has(name)) return p; const sel = new Set(p.sel); sel.delete(name); return { sel, anchor: p.anchor === name ? null : p.anchor }; });
     refresh();
   }
 
@@ -1227,14 +1260,17 @@ function Shelf() {
         {items.length === 0 ? (
           <span className="panel-empty">파일을 끌어다 놓기</span>
         ) : (
-          <ul className="shelf__list">
+          <ul className="shelf__list" aria-multiselectable="true" role="listbox" aria-label="임시 보관함">
             {items.map((item) => (
               <li
                 key={item.name}
-                className="shelf__item"
+                className={`shelf__item${pick.sel.has(item.name) ? " shelf__item--sel" : ""}`}
+                role="option"
+                aria-selected={pick.sel.has(item.name)}
                 draggable
+                onClick={(e) => choose(e, item)}
                 onDragStart={(e) => dragOut(e, item)}
-                title={`${item.name} — 끌어서 다른 곳에 놓기`}
+                title={`${item.name} — 끌어서 다른 곳에 놓기(⌘·⇧ 로 여러 개 고르기)`}
               >
                 <FileText size={11} strokeWidth={2} className="shelf__icon" />
                 <span className="shelf__name">{item.name}</span>
