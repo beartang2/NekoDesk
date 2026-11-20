@@ -6,7 +6,9 @@ import { useNekoApp } from "./director/stores";
 /**
  * 다른 앱 따라 하기(늘 켜짐, macOS). 사용자가 다른 앱에서 하는 일을 고양이가 흉내 낸다(src-tauri/src/ambient.rs).
  *
- * - 다른 앱에서 키를 치는 중이면 같이 타이핑한다. 그동안은 졸지 않는다(감독 derive 의 outside 층).
+ * - 글을 치는 중이면 같이 타이핑한다. 그동안은 졸지 않는다(감독 derive 의 outside 층). 단축키엔 반응하지 않는다:
+ *   키를 실제로 치고(2초에 3번 넘게, ⌘·⌃ 조합 뺌) 포커스가 글 입력 칸일 때만이다(src-tauri/src/ambient.rs). 다른 앱의 입력
+ *   칸은 Rust 가 손쉬운 사용 API 로 보고, 이 앱이 맨 앞이면 여기서 document.activeElement 로 본다.
  *   키를 멈추면 15초(TYPE_REST_MS)는 타이핑 자세 그대로 손만 쉬며 화면을 본다(엔진 setRest) — 그 안에 다시 치면 이어 친다.
  * - 맨 앞 앱에 맞춰 한다: 그림 앱이면 그리기, 브라우저면 창밖 보기, 문서면 책 읽기…
  * - 음악이 나오면 하던 것 위에 헤드폰을 얹는다(곁들임, docs/neko-activity-mix.md §1.13).
@@ -17,7 +19,7 @@ import { useNekoApp } from "./director/stores";
 const POLL_MS = 1000;
 /** 음악 재생을 묻는 간격(osascript 를 띄운다) */
 const MUSIC_MS = 15_000;
-/** 마지막 키 누름이 이보다 가까우면 '치는 중' */
+/** 폰: 마지막 입력이 이보다 가까우면 '치는 중' */
 const TYPING_S = 2;
 
 /** 번들 ID(앞부분이 맞으면) → 활동. 위에 있는 게 먼저 */
@@ -47,7 +49,22 @@ export function appActivity(bundle: string | null): NekoActivity | null {
   return APPS.find(([p]) => bundle.startsWith(p))?.[1] ?? null;
 }
 
-interface Probe { app: string | null; own: boolean; typed_ago: number }
+interface Probe { app: string | null; own: boolean; typed_ago: number; keys: boolean; typing: boolean }
+
+/** 글을 넣는 input 종류(체크박스·버튼·색 고르기 같은 건 아니다) */
+const TEXT_TYPES = new Set(["text", "search", "email", "url", "tel", "password", "number", ""]);
+
+/** 이 앱 안에서 포커스가 글 입력 칸인가(input·textarea·contenteditable) */
+export function isTextInput(el: Element | null): boolean {
+  if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled;
+  if (el instanceof HTMLInputElement) return TEXT_TYPES.has(el.type) && !el.readOnly && !el.disabled;
+  return el instanceof HTMLElement && (el.isContentEditable || ["", "true", "plaintext-only"].includes(el.getAttribute("contenteditable") ?? "-"));
+}
+
+/** 글을 치는 중인가: 다른 앱이면 Rust 판정, 이 앱이 맨 앞이면 키를 치고 입력 칸에 포커스 */
+export function typingNow(p: Pick<Probe, "own" | "keys" | "typing">, ownTextFocus: boolean): boolean {
+  return p.own ? p.keys && ownTextFocus : p.typing;
+}
 
 // 아이폰의 userAgent 에도 "like Mac OS X" 가 있어 폰은 따로 뺀다
 const IS_MAC = !IS_PHONE && typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
@@ -96,8 +113,8 @@ export function startAmbient(): void {
       musicAt = now;
       music = await invoke<boolean>("ambient_music").catch(() => false);
     }
-    // 이 앱이 맨 앞이면 앱 안 입력이다(감독이 따로 센다). 다른 앱 활동도 그동안은 쉰다
-    const typing = !p.own && p.typed_ago < TYPING_S;
+    // 단축키엔 반응하지 않는다: 키를 실제로 치고 입력 칸에 포커스일 때만. 이 앱이 맨 앞이면 다른 앱 활동은 쉰다
+    const typing = typingNow(p, isTextInput(document.activeElement));
     const cur = useNekoApp.getState().outside;
     useNekoApp.getState().setOutside({
       typing,
