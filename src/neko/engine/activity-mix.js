@@ -58,7 +58,12 @@ export const MIX = {
   yarn: act("body move paws head tail", "move", "floor", solo(fill(-20, 5))),
   // 선물 갖고 놀기: 물건 둘(하나뿐이면 하나)과 놀고 스스로 끝낸다(한 번짜리, 하네스 최대 약 45초)
   giftplay: act("body move paws head mouth tail", "move", "decor", { ...solo(fill(-8, 15)), ...maxMs(60000) }),
-  box: act("body paws head tail", "loaf", "floor", solo(fill(5, 10))),
+  box: act("body paws head tail", "loaf", "floor", solo(fill(5, 10))), // 상자 가구가 놓였을 때만 혼자 놀기 후보(사용자)
+  // 가구 놀이(docs/neko-furniture.md §2): 놓인 가구가 있을 때만 감독이 고른다. 모두 가구로 걸어간다(stance move)
+  lamp: act("body move paws head tail", "move", "", { ...solo(fill(0, 5)), ...maxMs(9000) }), // 걸어가 톡(한 번짜리)
+  cattower: act("body move paws head tail", "move", "", solo(fill(-15, 15))),
+  wheel: act("body move paws head tail", "move", "", solo(fill(-25, 5))),
+  sofa: act("body move paws head tail", "move", "", solo(fill(10, 0, 0, 5))),
   window: act("body head tail", "sit", "wall", solo(fill(3, 25))),
   think: act("body paws head tail", "sit", "", { fills: fill(0, 3) }),
   wait: act("body paws head tail", "sit"),

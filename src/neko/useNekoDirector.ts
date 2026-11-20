@@ -14,6 +14,8 @@ import { onNekoSignal, useNekoApp, useNekoSessions } from "./director/stores";
 import type { DirectorInput } from "./director/types";
 import { emotionPlan } from "./emotionMap";
 import { useNekoController } from "./nekoHost";
+import { weatherNowSnapshot } from "./weatherNow";
+import { skyAt } from "./weatherWindowDraw";
 
 /**
  * 감독을 앱에 연결한다(설계 docs/neko-p2-director.md). 예전 useNekoBridge 와 App 의 displayEmotion·상자·졸림 타이머를 대신한다.
@@ -118,9 +120,13 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
           // 창 탐험은 화면 모드에서 갈 창이 있을 때만(엔진 towerOk — 대리는 화면 창이 알린 값)
           const c = ctrl as { decorCount?: number; towerOk?: boolean };
           const lean = currentLean(); // 네코가 정한 요즘 기울기(하루 안 것만, docs/neko-mind.md §6.3)
+          // 놓인 가구(docs/neko-furniture.md §3): 그 가구가 있을 때만 그 놀이. 조명은 밖이 어두운데 꺼져 있거나 밝은데 켜져 있을 때만
+          const furn = (ctrl as { furniture?: { kind: string; on: boolean }[] }).furniture ?? [];
+          const lamp = furn.find((f) => f.kind === "lamp"), w = weatherNowSnapshot();
+          const dark = w ? skyAt(Date.now() / 1000, w.sunrise, w.sunset, w.is_day).light < 0.6 : false;
           const kind = pickByNeeds(useNekoNeeds.getState().needs, {
             last: lastSolo, recent: olderSolo ? [olderSolo] : [], hasGifts: !!c.decorCount, towerOk: c.towerOk === true, play: needsRef.current.play,
-            like: lean?.like, tired: lean?.tired,
+            like: lean?.like, tired: lean?.tired, furniture: furn.map((f) => f.kind), lampWant: !!lamp && dark !== lamp.on,
           });
           olderSolo = lastSolo; lastSolo = kind;
           box = { since: performance.now(), kind };
