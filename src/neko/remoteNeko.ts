@@ -5,9 +5,8 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import type { NekoActivity, NekoController, NekoDecorSpot, NekoEvents } from "./engine/neko-engine";
 import { useNekoApp } from "./director/stores";
 import { useNekoStore } from "./nekoStore";
-import { decorItems, useNekoGifts, type NekoGift, type ScreenPick } from "./gifts";
-import { decorDims, sizeK, spotOf } from "./engine/decor-draw";
-import { validateShape } from "./engine/gift-shape";
+import { decorItems, dropSpot, useNekoGifts, yardGeom, type NekoGift, type ScreenPick } from "./gifts";
+import { listenGiftDrop } from "./giftDrop";
 
 /**
  * 메인 창 쪽 '모니터 화면' 자리 연결(docs/neko-screen-mode.md §4).
@@ -138,11 +137,7 @@ function putOn({ id, screen, x, y }: { id: string; screen: string; x: number; y:
   const s = screens?.screens.find((o) => o.id === screen);
   const g = useNekoGifts.getState().gifts.find((o) => o.id === id);
   if (!s || !g) return;
-  const S = Math.min(1.4, Math.max(0.35, useNekoStore.getState().stage.screenScale));
-  const geom = { W: s.layout.w, floorY: s.layout.ground, S };
-  const h = decorDims(validateShape(g.shape), sizeK(g.size), S).h;
-  // 커서가 물건 바닥 가운데쯤이다. 바닥 근처면 바닥, 위면 벽(spotOf 가 정한다)
-  useNekoGifts.getState().place(id, spotOf(x, y + h / 2, h, geom), "screen", screen);
+  useNekoGifts.getState().place(id, dropSpot(g, "screen", x, y, yardGeom(s.layout.w, s.layout.ground)), "screen", screen);
 }
 
 let linked = false;
@@ -233,7 +228,8 @@ export function useNekoScreen(away: boolean, music = false): void {
   const shown = useRef(false);
   useEffect(() => { awayNow = away; awayMusic = music; getRemoteNeko()?.setAway(away, { music }); }, [away, music]);
 
-  useEffect(() => { if (IS_MAC) link(); }, []);
+  // 선물함에서 끌어 놓기(giftDrop)도 맥 메인 창에서 한 번 — 마당·방·거실 어디로든
+  useEffect(() => { if (IS_MAC) { link(); listenGiftDrop(); } }, []);
   useEffect(() => {
     if (!on && !shown.current) return; // 한 번도 안 띄웠으면 창을 만들지 않는다
     shown.current = true;

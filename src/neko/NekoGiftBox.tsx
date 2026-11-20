@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { IS_PHONE } from "../lib/platform";
 import { openNekoPanel } from "./panel";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { AlertDialog } from "radix-ui";
 import { Trash2 } from "lucide-react";
 import { drawShape, onShapeImage, shapeBounds, type GiftShape } from "./engine/gift-shape";
@@ -17,7 +18,22 @@ import "./NekoCustomizeModal.css";
 import "../components/Update.css"; // 확인 창은 새 버전 창과 같은 모양
 import "./NekoGiftBox.css";
 
-/** 선물 그림. 무대와 같은 그리기 함수(drawShape)라 그림체가 같다. */
+/** 선물 그림을 size 칸 가운데에(칸의 78%). 무대와 같은 그리기 함수(drawShape)라 그림체가 같다 */
+function drawThumb(ctx: CanvasRenderingContext2D, shape: GiftShape, size: number, edge: number) {
+  const b = shapeBounds(shape), u = (size * 0.78) / Math.max(b.w, b.h);
+  drawShape(ctx, shape, size / 2 - ((b.x0 + b.x1) / 2) * u, size / 2 + (b.h * u) / 2, u, edge);
+}
+
+/** 선물을 끌 때 커서에 붙는 그림(PNG data URL, 1배 — 끄는 잠깐이라 레티나 선명함은 뺐다) */
+function giftPng(shape: GiftShape, size = 72): string {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d");
+  if (ctx) drawThumb(ctx, shape, size, 3);
+  return c.toDataURL("image/png");
+}
+
+/** 선물 그림. */
 export function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -29,8 +45,7 @@ export function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: numbe
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
-    const b = shapeBounds(shape), u = (size * 0.78) / Math.max(b.w, b.h);
-    drawShape(ctx, shape, size / 2 - ((b.x0 + b.x1) / 2) * u, size / 2 + (b.h * u) / 2, u, 3 * dpr);
+    drawThumb(ctx, shape, size, 3 * dpr);
   }, [shape, size, dpr, loaded]);
   return <canvas ref={ref} width={size * dpr} height={size * dpr} style={{ width: size, height: size }} aria-hidden />;
 }
@@ -100,6 +115,40 @@ function GiftScale({ g, at }: { g: NekoGift; at: NekoPlacement }) {
   );
 }
 
+/** 이만큼(px) 움직여야 끌기다(그냥 누르기·조금 흔들림은 아님) */
+const DRAG_SLOP = 5;
+
+/**
+ * 맥: 칸을 눌러 끌면 선물을 방·거실·마당 어디든 놓은 자리에 둔다(사용자, 0.1.26). 끌기는 Rust 가 연다(neko_gift_drag) — 커서에
+ * 선물 그림이 붙어 앱 창 밖에서도 보이고, 놓은 자리는 메인 창(giftDrop)이 정한다. 칸의 버튼·크기 슬라이더에서 누른 건 끌기가
+ * 아니다. 끝나면(neko-gift-drag false) 칸을 다시 진하게
+ */
+function useGiftDrag() {
+  const from = useRef<{ g: NekoGift; x: number; y: number } | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  useEffect(() => {
+    if (IS_PHONE) return;
+    const off = listen<boolean>("neko-gift-drag", ({ payload }) => { if (!payload) setDragging(null); });
+    return () => void off.then((f) => f()).catch(() => {});
+  }, []);
+  const props = (g: NekoGift) => (IS_PHONE ? {} : {
+    onPointerDown: (e: ReactPointerEvent) => {
+      from.current = null;
+      if (e.button !== 0 || (e.target as Element).closest("button, input")) return;
+      from.current = { g, x: e.clientX, y: e.clientY };
+    },
+    onPointerMove: (e: ReactPointerEvent) => {
+      const f = from.current;
+      if (!f || !(e.buttons & 1) || Math.hypot(e.clientX - f.x, e.clientY - f.y) < DRAG_SLOP) return;
+      from.current = null;
+      setDragging(f.g.id);
+      void invoke("neko_gift_drag", { id: f.g.id, png: giftPng(f.g.shape) }).catch(() => setDragging(null));
+    },
+    onPointerUp: () => { from.current = null; },
+  });
+  return { dragging, props };
+}
+
 /**
  * 선물함(설정 › 고양이). 설정엔 개수와 '열기'만 두고, 목록은 따로 뜨는 창(NekoGiftPanel)에 — 선물은 100개까지 쌓여
  * 설정 화면을 밀어낸다. 설계: docs/neko-gifts.md §3. 놓은 자리는 무대 폭 비율이라 사이드바·아래 띠 어디서나 같은 자리에 보인다.
@@ -138,6 +187,7 @@ export function NekoGiftPanel() {
   /** 버릴지 묻는 중인 것(선물 또는 물어온 가구): 제목과 버리기 */
   const [drop, setDrop] = useState<{ title: string; run: () => void } | null>(null);
   const askDrop = (g: NekoGift) => setDrop({ title: g.title, run: () => useNekoGifts.getState().remove(g.id) });
+  const drag = useGiftDrag();
   /** 폰: 설명을 펼친 선물. 맥은 칸에 올려 두면 툴팁으로 보지만 폰엔 '올려 둠'이 없다 */
   const [info, setInfo] = useState<NekoGift | null>(null);
   useEffect(() => { void useNekoGifts.getState().load(); }, []);
@@ -154,13 +204,14 @@ export function NekoGiftPanel() {
         {import.meta.env.DEV && <GiftLab />}
         <p className="settings-section__desc">
           선물 {gifts.length}개. 놓기를 누르면 놓을 자리를 고릅니다. 놓인 선물은 칸에서 크기를 바꾸고, 그 자리에서 끌어 옮길 수 있습니다.
-          {IS_PHONE ? " 꾹 누르면 치울 수 있습니다." : " 우클릭하면 치울 수 있습니다."}
+          {IS_PHONE ? " 꾹 누르면 치울 수 있습니다." : " 우클릭하면 치울 수 있습니다. 칸을 끌어 방·거실 무대나 앱 창 밖(마당)에 바로 놓을 수도 있습니다."}
         </p>
         <ul className="neko-gifts__grid">
           {[...gifts].reverse().map((g) => (
             <li
               key={g.id}
-              className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`}
+              className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}${IS_PHONE ? "" : " neko-gifts__item--drag"}${drag.dragging === g.id ? " neko-gifts__item--dragging" : ""}`}
+              {...drag.props(g)}
               title={`${g.body || g.title}\n${DAY.format(new Date(g.at))}에 받음${g.placed ? ` · ${PLACE_NAME[g.placed.at]}에 놓여 있음` : ""}`}
             >
               <button type="button" className="neko-gifts__drop" aria-label={`${g.title} 버리기`} title="버리기" onClick={() => askDrop(g)}>
