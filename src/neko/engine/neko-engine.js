@@ -346,7 +346,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     // walls 가 막지 않는 자리(jumpTo): 가구·창 윗변으로 뛰면 착지 자리(towerJump), 땅에서 뛰면 뛴 자리 — 좁은 방 끝 칸 가구 위에서
     // 뛰어내려도 벽 여백으로 순간이동하지 않게. 내려앉고 나면 푼다
     if (m === "air" && GROUND.has(c.mode)) c.jumpTo ??= c.x;
-    else if (m !== "air" && m !== "fall" && m !== "land") c.jumpTo = null;
+    else if (m !== "air" && m !== "fall" && m !== "land") c.jumpTo = c.jumpTop = null;
     c.mode = m; c.modeT = 0;
     if (m === "walk" || m === "idle" || POSE_MODES.has(m) || m === "act") for (const L of c.legs) { L.off0 = L.off; L.lift0 = L.lift; }
     if (m === "idle") c.wanderT = rand(1.3, 3.4);
@@ -385,6 +385,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (room > 0) c.vy = -Math.min(-c.vy, Math.sqrt(2 * GRAV * S * room));
     c.vx = c.face * (prey ? clamp(Math.abs(prey.x - c.x) * 2.4, 90, 300) : c.jumpFromWalk ? 165 : 80) * S;
     if (c.perch && !prey) c.vx = c.face * 20 * S; // 창 위에선 제자리에서 폴짝(굴러떨어지지 않게)
+    // 캣휠 안(레일 위)에선 머리 끝이 테 안쪽 원에 머무는 만큼만 제자리 폴짝(사용자: 안에서 뛰어 테를 뚫고 위로 나갔다).
+    // 나오는 길은 활동이 끝날 때 등의 hopDown 하나다
+    const wf = c.perch && furniture.find((f) => f.id === c.perch.fid && f.kind === "wheel");
+    if (wf) {
+      const wc = FA.wheelCircle(S, wf.slotW), room = c.y - (84 + 18 * c.soft) * S - (BASE_Y + wc.dy - wc.rIn);
+      c.vy = -Math.sqrt(2 * GRAV * S * Math.max(0, room)); c.vx = 0;
+    }
     c.pounce = null;
     c.squash.v += 4.2;
     c.ears.forEach((e) => (e.v -= 3.5));
@@ -3638,7 +3645,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       if (A.pause > 0) { A.pause -= dt; if (A.pause <= 0 && c.mode === "act") setMode("idle"); return; } // 다 쉬면 idle → wander 가 다시 달린다
       if (!c.treadmill) return;
       A.run -= dt;
-      if (A.run <= 0) { c.treadmill = null; if (f) { f.spinning = false; syncFurnHeld(); } c.speed = 0; setMode("act"); A.pause = A.pause0 = rand(1.6, 2.8); } // 숨 고르기
+      if (A.run <= 0 && (c.mode === "walk" || c.mode === "idle")) { c.treadmill = null; if (f) { f.spinning = false; syncFurnHeld(); } c.speed = 0; setMode("act"); A.pause = A.pause0 = rand(1.6, 2.8); } // 숨 고르기(폴짝 중이면 내려앉은 뒤 — 공중에서 멈추지 않게)
     },
     pose(A) { // act 는 숨 고르기 때뿐: 선 채 입을 벌리고 빠르게 헥헥
       const ph = reduced.matches ? 0 : Math.sin(A.t * TAU * 2.6), k = smooth(Math.min(1, (A.pause0 - A.pause) / 0.3));
@@ -4200,7 +4207,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const c = cat, g = GRAV * S, dy = t.y - floorY, h = Math.max(0, -dy) + 30 * S, vy0 = -Math.sqrt(2 * g * h);
     const tt = (-vy0 + Math.sqrt(vy0 * vy0 + 2 * g * dy)) / g;
     if (c.perch) skipTop = { id: c.perch.id, until: time + tt + 0.15 }; // 아래 창으로 내려갈 땐 지금 윗변을 지나쳐야 한다
-    c.vx = (land - c.x) / Math.max(0.2, tt); c.vy = vy0; c.face = Math.sign(land - c.x) || c.face; c.jumpTo = land;
+    c.vx = (land - c.x) / Math.max(0.2, tt); c.vy = vy0; c.face = Math.sign(land - c.x) || c.face; c.jumpTo = land; c.jumpTop = t.id;
     c.squash.v += 4.2; c.ears.forEach((e) => (e.v -= 3.5)); c.jumpFromWalk = false; c.resume = false;
     A.phase = "flying"; setMode("air");
   }
@@ -4722,8 +4729,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function surfaceAt(x, feetY) {
     let best = null;
     for (const t of TOPS) {
-      if (x < t.x0 + 8 * S || x > t.x1 - 8 * S || t.y < feetY - 2 || t.y > BASE_Y - 12 * S) continue;
+      // 지금 올라 있는 면은 웅크린 깊이만큼 봐준다: 웅크렸다 뛰는 첫 프레임엔 몸이 낮아 발이 면 아래로 잡혀 디딤이 풀렸다(캣휠 폴짝이 바닥으로 빠졌다)
+      const sink = cat.perch && cat.perch.id === t.id ? 12 * S : 2;
+      if (x < t.x0 + 8 * S || x > t.x1 - 8 * S || t.y < feetY - sink || t.y > BASE_Y - 12 * S) continue;
       if (skipTop && skipTop.id === t.id && time < skipTop.until) continue;
+      // 캣휠 레일은 테 안이다: 캣휠로 뛰어든 점프(towerJump)나 이미 그 위일 때만 디딘다 — 옆에서 그냥 뛰거나 떨어지다 테를 뚫고 들어가지 않게
+      if (t.wheel && cat.jumpTop !== t.id && !(cat.perch && cat.perch.id === t.id)) continue;
       if (!best || t.y < best.y) best = t;
     }
     return best;
@@ -4805,7 +4816,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
     // 올라앉는 면(그림 furniture-art 한 곳): 캣타워 발판·소파 쿠션·캣휠 안 레일
     TOPS = furniture.flatMap((f) => FA.furnitureSurfaces(f.kind, S, f.slotW)
-      .map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y })));
+      .map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, wheel: f.kind === "wheel", x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y })));
     const c = cat, was = c.perch;
     if (!was) return;
     const t = TOPS.find((o) => o.id === was.id);

@@ -1013,22 +1013,14 @@ html, body, #root {
 }
 
 /* ── Markdown table ── */
-.message__bubble table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 8px 0;
-  font-size: 12px;
-}
-
+/* 맥·폰 같은 규칙(사용자: 칸이 좁아 줄이 너무 자주 바뀐다). 표는 말풍선 폭에 묶지 않고 내용만큼 넓어진다 — 짧은 표는
+   말풍선 폭을 채우고(min-width 100%), 넓으면 표만 옆으로 민다(맥은 트랙패드 가로 스크롤, 폰은 밀기).
+   오른쪽(왼쪽)에 더 있으면 그 끝이 흐려진다: 가장자리 그늘(scroll)을 내용 끝의 덮개(local)가 가린다.
+   표에서 시작한 밀기는 대화 목록 손짓이 받지 않는다(lib/phone.ts) */
 .message__bubble .table-wrapper {
   overflow-x: auto;
   width: 100%;
-}
-/* 폰: 표를 말풍선 폭에 묶지 않는다. 열이 많으면 칸이 글자 한두 개 폭이 돼 한 글자마다 줄이 바뀌었다(사용자).
-   표는 내용만큼(칸은 글자 4.5개 ~ 15개 폭, 넘으면 낱말 단위로 줄바꿈) 넓어지고 말풍선보다 넓으면 표만 옆으로 민다.
-   오른쪽(왼쪽)에 더 있으면 그 끝이 흐려진다: 가장자리 그늘(scroll)을 내용 끝의 덮개(local)가 가린다.
-   표에서 시작한 밀기는 대화 목록 손짓이 받지 않는다(lib/phone.ts). 맥은 그대로 */
-html.phone .message__bubble .table-wrapper {
+  container-type: inline-size; /* 칸 최대 폭이 말풍선 폭(cqi)을 본다 */
   overscroll-behavior-x: contain;
   background:
     linear-gradient(to right, var(--bg-surface) 40%, transparent) left center / 28px 100% no-repeat local,
@@ -1036,15 +1028,29 @@ html.phone .message__bubble .table-wrapper {
     linear-gradient(to right, color-mix(in oklab, var(--text-primary) 16%, transparent), transparent) left center / 14px 100% no-repeat scroll,
     linear-gradient(to left, color-mix(in oklab, var(--text-primary) 16%, transparent), transparent) right center / 14px 100% no-repeat scroll;
 }
-html.phone .message__bubble table {
+.message__bubble table {
+  border-collapse: collapse;
   width: max-content;
   min-width: 100%;
+  margin: 8px 0;
+  font-size: 12px;
 }
-html.phone .message__bubble .md-cell {
-  min-width: 4.5em;
-  max-width: 15em;
+/* 칸은 글자 8개 ~ 20개 폭: 표 폭을 잴 때 칸은 내용 한 줄 폭을 20자에서 자른 폭(width·max-width)이다. 표를 말풍선 폭까지
+   늘리면 칸 안 글도 늘어난 칸을 다 쓴다(min-width 100% — 잴 때는 0 으로 친다). 안 그러면 넓은 창에서 긴 문장이 20자에서 바뀌고
+   칸 오른쪽이 비었다. 줄은 낱말 단위로만 바꾸고(keep-all), 칸에 안 들어가는 긴 낱말(주소·경로)만 중간에서 끊는다.
+   overflow-wrap 은 anywhere 가 아니라 break-word — anywhere 는 끊을 자리를 칸 최소 폭 계산에 넣어 한국어 낱말 중간에서도 끊겼다.
+   좁은 말풍선에선 최대 폭을 '말풍선 − 다른 칸 하나의 최소 폭(8em·여백)'까지 줄여 짧은 칸 + 긴 문장 칸 2열 표는 밀리지 않게.
+   머리 칸은 한 줄 */
+.message__bubble .md-cell {
+  width: max-content;
+  min-width: max(8em, 100%);
+  max-width: min(20em, 100cqi - 8em - 24px);
   word-break: keep-all;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+}
+.message__bubble th .md-cell {
+  max-width: none;
+  white-space: nowrap;
 }
 /* 세로선을 다 그으면 표가 감옥처럼 보인다. 가로줄만 남기면 행이 읽힌다. */
 .message__bubble th, .message__bubble td {

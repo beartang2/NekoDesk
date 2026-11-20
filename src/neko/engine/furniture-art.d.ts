@@ -6,7 +6,7 @@ export const FURNITURE_ART: Record<FurnitureKind, { size: number; by: "h" | "w";
 /** 포인트 색 → 같은 계열의 가구 색(채도 상한 sMax, 밝기 l). 없으면 "" */
 export function accentTone(hex: string | undefined, sMax: number, l: number): string;
 /** 캣휠 바퀴 원(px): 바닥에서 가운데까지 dy(위가 음수)·테 바깥 반지름 r */
-export function wheelCircle(S: number, slotW?: number): { dy: number; r: number };
+export function wheelCircle(S: number, slotW?: number): { dy: number; r: number; rIn: number };
 export function furnitureBox(kind: FurnitureKind, S: number, slotW?: number): { u: number; w: number; h: number; fit: number };
 /** 올라앉는 면(px, 가운데 x·바닥 y 기준) */
 export function furnitureSurfaces(kind: FurnitureKind, S: number, slotW?: number): FurnitureSurface[];
