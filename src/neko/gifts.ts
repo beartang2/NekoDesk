@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { giftsApi, settingsApi } from "../api/tauri";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
 import type { NekoDecorSpot, NekoGiftPlay, NekoGiftSize } from "./engine/neko-engine";
-import { clampScale, decorK } from "./engine/decor-draw";
+import { clampScale, decorDims, decorK, spotOf, type DecorGeom } from "./engine/decor-draw";
 import { stageS } from "./engine/stage-scale";
 import { cleanShownText } from "../lib/replyTags";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
@@ -42,6 +42,21 @@ export function scaleCapped(g: NekoGift, at: NekoPlacement): boolean {
   const S = at === "screen" ? st.screenScale : stageS(Infinity, floorY, at); // 폭은 모른다 — 높이로만(폰은 70%, 맥 거실은 기본 높이에서 멈춤)
   return decorK(validateShape(g.shape), g.size, g.scale, at, { floorY, S }).capped;
 }
+
+/**
+ * 무대의 한 점(x, y: 무대 px, 커서 = 물건 가운데쯤)에 떨어뜨린 선물의 자리. 선물함에서 끌어 놓을 때(giftDrop)와 마당 다른 모니터로
+ * 끌어 옮길 때(remoteNeko). 바닥 가까이면 바닥, 높이면 벽(spotOf). 액자는 벽에만 — 바닥 가까이 놓아도 벽 맨 아래에 건다.
+ * 방·거실의 액자 아닌 것은 벽 자리가 와도 place 가 같은 가로 자리 바닥으로 내린다
+ */
+export function dropSpot(g: NekoGift, at: NekoPlacement, x: number, y: number, geom: DecorGeom): NekoDecorSpot {
+  const shape = validateShape(g.shape), h = decorDims(shape, decorK(shape, g.size, g.scale, at, geom).k, geom.S).h;
+  const s = spotOf(x, y + h / 2, h, geom);
+  return g.frame && s.surface === "floor" ? { surface: "wall", u: s.u, v: 0 } : s;
+}
+
+/** 마당 판(모니터 폭·바닥 px)의 자리 계산 값. 배율은 마당 고양이 크기(엔진처럼 0.35~1.4) */
+export const yardGeom = (W: number, floorY: number): DecorGeom =>
+  ({ W, floorY, S: Math.min(1.4, Math.max(0.35, useNekoStore.getState().stage.screenScale)) });
 
 /**
  * 놓인 자리: 장소(at) + 그 무대 안 자리. 바닥: u = 무대 폭(양끝 여백 제외) 비율. 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율. 모두 0~1.

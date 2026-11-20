@@ -23,7 +23,7 @@ vi.mock("../api/tauri", () => ({
   },
 }));
 
-import { capGifts, cleanGiftTexts, freeSpot, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
+import { capGifts, cleanGiftTexts, dropSpot, freeSpot, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
 import { DEFAULT_SHAPE } from "./engine/gift-shape";
 
 const gift = (id: string, placed?: number): NekoGift => ({
@@ -243,6 +243,21 @@ describe("액자", () => {
   });
 });
 
+
+describe("선물함에서 끌어 놓기(0.1.26)", () => {
+  const geom = { W: 400, floorY: 194, S: 0.8 };
+  it("놓은 자리를 쓴다: 바닥 가까이면 바닥, 높이면 벽. 액자는 바닥 가까이 놓아도 벽 맨 아래에", () => {
+    const toy = { ...gift("t"), size: "small" as const };
+    const low = dropSpot(toy, "sidebar", 200, 185, geom);
+    expect(low).toEqual({ surface: "floor", u: 0.5 });
+    expect(dropSpot(toy, "screen", 200, 40, geom).surface).toBe("wall");
+    expect(dropSpot({ ...toy, frame: true }, "sidebar", 200, 185, geom)).toEqual({ surface: "wall", u: 0.5, v: 0 });
+    // 방·거실의 액자 아닌 것은 벽 자리를 줘도 place 가 같은 가로 자리 바닥으로
+    useNekoGifts.getState().add({ id: "t", title: "공", body: "", shape: dot, size: "small" });
+    useNekoGifts.getState().place("t", dropSpot(toy, "dock", 200, 40, geom), "dock");
+    expect(useNekoGifts.getState().gifts[0].placed).toEqual({ surface: "floor", u: 0.5, at: "dock" });
+  });
+});
 
 describe("선물함 저장은 하나씩", () => {
   it("다른 기기에서 막 들어온 선물을 낡은 화면이 저장해도 덮지 않는다", async () => {

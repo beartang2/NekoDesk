@@ -144,3 +144,19 @@
   transition: opacity var(--dur-micro, 0.12s), color var(--dur-micro, 0.12s);
 }
 .neko-slot__map-btn:hover { opacity: 1; color: var(--accent); }
+
+/* 선물함에서 선물을 끄는 중(giftDrop): 놓을 수 있는 무대(방·보이는 거실)에 점선, 커서 밑 무대는 진하게. 누르기는 그대로 지나간다 */
+html.gift-drag .neko-slot::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: 6;
+}
+html.gift-drag .neko-slot.gift-over::after {
+  border-style: solid;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}

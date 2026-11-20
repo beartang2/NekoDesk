@@ -320,3 +320,7 @@ html.phone .place-pick .update-dialog__actions .update-dialog__btn {
   white-space: nowrap;
 }
 html.phone .slot-pick__tag { font-size: 11px; }
+
+/* 맥: 칸을 끌어 방·거실·마당에 놓는다(giftDrop). 끄는 동안 그 칸은 흐리게 */
+.neko-gifts__item--drag { cursor: grab; }
+.neko-gifts__item--dragging { opacity: 0.45; }

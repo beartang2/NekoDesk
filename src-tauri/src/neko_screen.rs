@@ -178,7 +178,8 @@ struct State {
     drag_base: isize,
     /// 마지막으로 화면 창에 보낸 파일 끌기 커서(`neko-screen-file-drag`).
     file_drag_sent: Option<[f64; 2]>,
-    /// 화면 창이 아치에서 파일을 끌어내는 중. 놓을 때까지 클릭을 흘린다 — 받으면 아래 Finder 에 못 놓는다.
+    /// 우리가 연 끌기(아치에서 파일 끌어내기·선물함에서 선물 끌기) 중. 놓을 때까지 클릭을 흘린다 — 받으면 아래 Finder·
+    /// 바탕화면에 못 놓는다. 끌기 페이스트보드가 바뀌어도 들어오는 파일로 치지 않는다.
     drag_out: bool,
     /// 선물을 잡고 끄는 선물 창. 놓을 때까지 받는다.
     decor_grab: Option<String>,
@@ -394,6 +395,104 @@ pub fn drag_out(app: &AppHandle, name: String) -> Result<(), AppError> {
         drag::start_drag(&win, drag::DragItem::Files(vec![path]), drag::Image::Raw(png), done, drag::Options::default())
             .map_err(|e| AppError::msg(format!("끌기를 못 열었어: {e}")))
     })?
+}
+
+/// 선물함 창 라벨(lib.rs panel_open).
+const GIFTS: &str = "neko-gifts";
+/// 선물 끌기 내용의 종류. 이 앱만 아는 종류라 Finder·다른 앱은 받지 않는다(파일·글이면 바탕화면에 파일이 생긴다).
+const GIFT_TYPE: &str = "com.nekodesk.gift";
+/// 선물을 끄는 동안 커서 밑 자리를 보는 간격.
+const GIFT_HOVER_TICK: Duration = Duration::from_millis(40);
+
+/// 선물함에서 끈 선물을 놓을 자리. 메인 창 위면 그 웹뷰 왼쪽 위 기준 자리 — 방·거실 중 어느 무대인지(아니면 취소)는 메인
+/// 창이 그 점의 요소로 정한다. 앱 창 밖이면 마당: 그 모니터와 모니터 왼쪽 위 기준 자리, 판 폭·바닥(마당 창이 없어도 셀 수 있게).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(tag = "to", rename_all = "lowercase")]
+enum GiftDrop {
+    Main { x: f64, y: f64 },
+    Yard { screen: String, x: f64, y: f64, w: f64, ground: f64 },
+}
+
+#[derive(Serialize, Clone, Debug)]
+struct GiftDropped {
+    id: String,
+    #[serde(flatten)]
+    to: GiftDrop,
+}
+
+/// 커서 p(전역 pt)에 놓으면 어디로 가나. 선물함 창 위면 None(취소), 메인 창 위면 Main, 아니면 그 모니터의 마당.
+fn gift_drop(p: [f64; 2], panel: Option<[f64; 4]>, main: Option<[f64; 4]>, screens: &[Screen]) -> Option<GiftDrop> {
+    if panel.is_some_and(|r| inside(r, p)) {
+        return None;
+    }
+    if let Some(m) = main.filter(|&r| inside(r, p)) {
+        return Some(GiftDrop::Main { x: p[0] - m[0], y: p[1] - m[1] });
+    }
+    let s = screens.iter().find(|s| inside(s.rect, p))?;
+    Some(GiftDrop::Yard { screen: uuid_str(&s.id), x: p[0] - s.rect[0], y: p[1] - s.rect[1], w: s.layout.w, ground: s.layout.ground })
+}
+
+/// 보이는 창의 자리(전역 pt). outer 면 제목 막대까지(선물함 창), 아니면 웹뷰만(메인 창은 제목 막대가 웹뷰 위에 겹쳐 같다).
+/// 숨겼거나 내린 창은 None.
+fn view_rect(win: Option<tauri::WebviewWindow>, outer: bool) -> Option<[f64; 4]> {
+    let win = win?;
+    if !win.is_visible().ok()? || win.is_minimized().ok()? {
+        return None;
+    }
+    let k = win.scale_factor().ok()?;
+    let (p, s) = if outer { (win.outer_position().ok()?, win.outer_size().ok()?) } else { (win.inner_position().ok()?, win.inner_size().ok()?) };
+    let (p, s) = (p.to_logical::<f64>(k), s.to_logical::<f64>(k));
+    Some([p.x, p.y, s.width, s.height])
+}
+
+/// 선물함에서 선물(id)을 끌기 시작했다(사용자, 0.1.26). 선물 그림(png data URL)을 단 끌기를 열어 커서를 따라 어디서나 보이게
+/// 하고, 끄는 동안 커서 밑 자리를 메인 창에 알린다(`neko-gift-hover`, 무대 테두리). 놓으면 그 자리를 보낸다(`neko-gift-drop`).
+/// 받는 쪽이 없어도(바탕화면) 놓은 커서 자리로 정한다. 시작·끝은 모든 창에 `neko-gift-drag`.
+/// 창 자리·모니터는 시작할 때 한 번 잰다 — 끄는 동안 창은 안 움직인다.
+pub fn gift_drag(app: &AppHandle, id: String, png: String) -> Result<(), AppError> {
+    use base64::Engine;
+    let b64 = png.strip_prefix("data:image/png;base64,").ok_or("선물 그림이 PNG 가 아니야.")?;
+    let png = base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| AppError::msg(format!("선물 그림을 못 읽었어: {e}")))?;
+    // 그림을 못 읽으면 drag 크레이트가 main thread 에서 panic 한다
+    if !png.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("선물 그림이 PNG 가 아니야.".into());
+    }
+    let win = app.get_webview_window(GIFTS).ok_or("선물함 창이 없어.")?;
+    let panel = view_rect(Some(win.clone()), true);
+    let main = view_rect(app.get_webview_window("main"), false);
+    let app2 = app.clone();
+    let screens = on_main(app, move || -> Result<Vec<Screen>, AppError> {
+        let screens = unsafe { macos::screens() };
+        // 끌기 페이스트보드가 바뀌기 전에 — 마당 고양이가 이 끌기를 들어오는 파일로 보지 않게
+        STATE.lock()?.drag_out = true;
+        let at = screens.clone();
+        let done = move |_: drag::DragResult, _: drag::CursorPosition| {
+            let Some(p) = (unsafe { crate::capture::macos::mouse_global() }) else { return };
+            if let Some(to) = gift_drop(p, panel, main, &at) {
+                let _ = app2.emit_to("main", "neko-gift-drop", GiftDropped { id: id.clone(), to });
+            }
+        };
+        let item = drag::DragItem::Data { provider: Box::new(|_| None), types: vec![GIFT_TYPE.into()] };
+        // 받는 쪽이 없으면(바탕화면 = 마당) 제자리로 날아가는 그림을 빼고 바로 놓인다
+        let opts = drag::Options { skip_animatation_on_cancel_or_failure: true, ..Default::default() };
+        drag::start_drag(&win, item, drag::Image::Raw(png), done, opts).map_err(|e| AppError::msg(format!("끌기를 못 열었어: {e}")))?;
+        Ok(screens)
+    })??;
+    let _ = app.emit("neko-gift-drag", true);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut sent = None;
+        while macos::left_down() {
+            let to = macos::mouse_now().and_then(|p| gift_drop(p, panel, main, &screens));
+            if sent.as_ref() != Some(&to) {
+                let _ = app.emit_to("main", "neko-gift-hover", &to);
+                sent = Some(to);
+            }
+            std::thread::sleep(GIFT_HOVER_TICK);
+        }
+        let _ = app.emit("neko-gift-drag", false);
+    });
+    Ok(())
 }
 
 /// 화면 창: 고양이 자리(창 좌표, 크게 움직였을 때만)와 올라탄 창 번호(엔진 perch 의 창).
@@ -1028,6 +1127,27 @@ pub(crate) mod macos {
         fn CGSessionCopyCurrentDictionary() -> *const c_void;
         fn CGMainDisplayID() -> u32;
         fn CGDisplayIsAsleep(display: u32) -> u32;
+        fn CGEventCreate(source: *const c_void) -> *const c_void;
+        fn CGEventGetLocation(event: *const c_void) -> objc2_foundation::NSPoint;
+        fn CGEventSourceButtonState(state: i32, button: u32) -> bool;
+    }
+
+    /// 커서(주 모니터 왼쪽 위 기준 pt, mouse_global 과 같은 좌표). 아무 스레드에서나 — 끌기 중엔 main thread 가 끌기에 묶인다.
+    pub fn mouse_now() -> Option<[f64; 2]> {
+        unsafe {
+            let e = CGEventCreate(std::ptr::null());
+            if e.is_null() {
+                return None;
+            }
+            let p = CGEventGetLocation(e);
+            CFRelease(e);
+            Some([p.x, p.y])
+        }
+    }
+
+    /// 왼쪽 버튼이 눌려 있나(kCGEventSourceStateCombinedSessionState, kCGMouseButtonLeft). 아무 스레드에서나.
+    pub fn left_down() -> bool {
+        unsafe { CGEventSourceButtonState(0, 0) }
     }
     #[link(name = "IOKit", kind = "framework")]
     extern "C" {
@@ -1368,6 +1488,31 @@ mod tests {
         assert_eq!(pick(&[main, right], Some(right.rect)), Some(right));
         assert_eq!(pick(&[main], Some(right.rect)), Some(main));
         assert_eq!(pick(&[], None), None);
+    }
+
+    #[test]
+    fn a_gift_from_the_gift_box_lands_where_it_was_dropped() {
+        let main = screen([0.0, 0.0, 1512.0, 982.0], 982.0);
+        let right = screen([1512.0, -2.0, 1920.0, 1080.0], 982.0);
+        let screens = [main, right];
+        let app = Some([100.0, 50.0, 900.0, 700.0]);
+        let gifts = Some([700.0, 100.0, 600.0, 640.0]);
+        // 선물함 창 위(메인 창과 겹쳐도) → 취소
+        assert_eq!(gift_drop([750.0, 300.0], gifts, app, &screens), None);
+        // 메인 창 위 → 그 웹뷰 기준 자리(무대는 메인 창이 고른다)
+        assert_eq!(gift_drop([300.0, 650.0], gifts, app, &screens), Some(GiftDrop::Main { x: 200.0, y: 600.0 }));
+        // 앱 창 밖 → 커서가 있는 모니터의 마당, 그 모니터 기준 자리와 판
+        assert_eq!(
+            gift_drop([1600.0, -50.0], gifts, app, &screens),
+            Some(GiftDrop::Yard { screen: uuid_str(&right.id), x: 88.0, y: 46.0, w: 1920.0, ground: 1080.0 })
+        );
+        // 메인 창을 숨겼으면 그 자리도 마당
+        assert!(matches!(gift_drop([300.0, 650.0], gifts, None, &screens), Some(GiftDrop::Yard { .. })));
+        // 어느 모니터에도 없는 점 → 취소
+        assert_eq!(gift_drop([-500.0, -500.0], None, None, &screens), None);
+        // 메인 창이 받는 모양: { id, to, x, y }
+        let v = serde_json::to_value(GiftDropped { id: "g".into(), to: GiftDrop::Main { x: 1.0, y: 2.0 } }).unwrap();
+        assert_eq!(v, serde_json::json!({ "id": "g", "to": "main", "x": 1.0, "y": 2.0 }));
     }
 
     #[test]

@@ -1254,6 +1254,13 @@ mod commands {
         crate::neko_screen::drag_out(&app, name).inspect_err(|e| log::warn!("마당 아치에서 끌어내기 실패: {e}"))
     }
 
+    /// 선물함 창: 선물(id)을 끌기 시작했다 — 선물 그림(png data URL)을 단 끌기를 열고, 놓은 자리를 메인 창에 알린다.
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn neko_gift_drag(app: tauri::AppHandle, id: String, png: String) -> Result<(), AppError> {
+        crate::neko_screen::gift_drag(&app, id, png).inspect_err(|e| log::warn!("선물함에서 선물 끌기 실패: {e}"))
+    }
+
     /// 마당 선물 창: 그린 선물 칸(창 좌표 x, y, w, h). 커서가 이 안일 때만 그 창이 클릭을 받는다.
     #[cfg(target_os = "macos")]
     #[tauri::command]
@@ -1955,6 +1962,8 @@ pub fn run() {
             commands::neko_screen_catch,
             #[cfg(target_os = "macos")]
             commands::neko_screen_drag_out,
+            #[cfg(target_os = "macos")]
+            commands::neko_gift_drag,
             #[cfg(target_os = "macos")]
             commands::neko_screen_layout,
             #[cfg(target_os = "macos")]
