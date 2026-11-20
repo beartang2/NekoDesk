@@ -32,10 +32,22 @@ export function nekoCanvas(): HTMLCanvasElement {
   return canvas;
 }
 
+let wallCanvas: HTMLCanvasElement | null = null;
+/** 벽에 건 선물만 그리는 층(엔진 setWallCanvas). 자리(NekoSlot)가 정지 가구 층 밑에 붙인다 — 액자가 가구 위에 걸려 보이지 않게(사용자) */
+export function nekoWallCanvas(): HTMLCanvasElement {
+  if (!wallCanvas) {
+    wallCanvas = document.createElement("canvas");
+    wallCanvas.className = "neko-canvas neko-canvas--wall";
+    wallCanvas.setAttribute("aria-hidden", "true");
+  }
+  return wallCanvas;
+}
+
 /** 캔버스가 문서에 붙은 뒤(크기가 생긴 뒤) 처음 부를 때 엔진을 만든다. */
 export function ensureNeko(): NekoController {
   if (!ctrl) {
     ctrl = createNeko(nekoCanvas(), { appearance: useNekoStore.getState().appearance });
+    ctrl.setWallCanvas(nekoWallCanvas());
     // 가구: 놓인 것을 엔진에 넘기고, 조명 켜짐·활동 중 잡은 가구를 받는다(furnitureHost)
     startFurnitureHost(ctrl);
     // 무대 배율은 stage-scale 한 곳: 폰은 고양이·선물을 70% 로, 맥 거실은 기본 높이부터 멈춘다. 무대 크기·장소가 바뀔 때마다 넘긴다

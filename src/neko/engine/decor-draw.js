@@ -150,7 +150,7 @@ function layoutAll(items, geom, drag) {
     }
     const spot = { surface: d.surface === "wall" ? "wall" : "floor", u: clamp(d.u, 0, 1), v: clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1), at: d.at };
     const [x, bottom] = decorAt(spot, dims.h, geom, dims.w);
-    return { id, shape, L: { ...dims, x, bottom, onFloor: spot.surface === "floor" } };
+    return { id, shape, L: { ...dims, x, bottom, onFloor: spot.surface === "floor" }, wall: spot.surface === "wall" };
   });
 }
 const geomOf = ({ W, floorY, scale }) => ({ W, floorY, S: clamp(Number.isFinite(scale) ? scale : 1, 0.35, 1.4) });
@@ -158,16 +158,17 @@ const geomOf = ({ W, floorY, scale }) => ({ W, floorY, S: clamp(Number.isFinite(
 /**
  * 엔진 없이 선물만 그린다(모니터별 선물 창). 캔버스를 W×H(css px) × dpr 로 맞추고 다 지운 뒤 그린다.
  * 멈춘 모양이다(뿅·흔들림·구르기 없음) — 바뀔 때만 부르면 된다. scale 은 엔진 setScale 과 같은 값.
- * drag = { id, x, bottom }: 사용자가 끄는 물건(물건 가운데 x, 바닥 y). 엔진 끌기와 같게 묶고 들어 올린 모양으로 맨 위에
+ * drag = { id, x, bottom }: 사용자가 끄는 물건(물건 가운데 x, 바닥 y). 엔진 끌기와 같게 묶고 들어 올린 모양으로 맨 위에.
+ * only = "wall": 벽에 건 것만(끄는 것 빼고) · "rest": 그 밖 — 벽 선물을 가구 밑 캔버스에 따로 그릴 때(빈 방, 사용자: 가구 위에 액자가 걸리지 않게)
  */
-export function drawDecor(canvas, items, { W, H, floorY, scale, dpr = 1, dark = false, drag = null }) {
+export function drawDecor(canvas, items, { W, H, floorY, scale, dpr = 1, dark = false, drag = null, only = null }) {
   const geom = geomOf({ W, floorY, scale }), bw = Math.round(W * dpr), bh = Math.round(H * dpr);
   if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
   const g = canvas.getContext("2d");
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, bw, bh);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const shadow = dark ? "rgba(0, 0, 0, 0.32)" : "rgba(20, 14, 24, 0.18)";
-  const all = layoutAll(items, geom, drag);
+  const all = layoutAll(items, geom, drag).filter((o) => !only || (!!o.wall && !o.lifted) === (only === "wall"));
   for (const it of [...all.filter((o) => !o.lifted), ...all.filter((o) => o.lifted)]) {
     paintDecor(g, it.shape, it.L, geom, it.lifted ? { shadow, sc: [LIFT, LIFT], edge: 7 * dpr } : { shadow, edge: 4 * dpr });
   }

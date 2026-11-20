@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
-import { ensureNeko, nekoCanvas, useNekoController } from "./nekoHost";
+import { ensureNeko, nekoCanvas, nekoWallCanvas, useNekoController } from "./nekoHost";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 import { NekoAway } from "./NekoAway";
 import { RoomGifts } from "./NekoRoom";
@@ -34,21 +34,23 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
   const active = useNekoStore((s) => s.stage.placement === placement);
   const height = useNekoStore((s) => (placement === "sidebar" ? s.stage.sidebarH : s.stage.dockH));
   const setStageHeight = useNekoStore((s) => s.setStageHeight);
-  const stageRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null), wallRef = useRef<HTMLDivElement | null>(null);
   const ctrl = useNekoController();
   const [lastWalkOpen, setLastWalkOpen] = useState(false);
 
   // 이 자리가 고른 자리면 캔버스를 데려온다
   useLayoutEffect(() => {
-    const host = stageRef.current;
+    const host = stageRef.current, wallHost = wallRef.current;
     if (!active || away || !host) return;
-    const cv = nekoCanvas();
+    const cv = nekoCanvas(), wall = nekoWallCanvas();
     host.appendChild(cv);
+    wallHost?.appendChild(wall); // 벽 선물 층: 정지 가구 층 밑(엔진 setWallCanvas)
     const c = ensureNeko();
     c.resume(); // 산책에서 돌아옴
     c.resize();
     return () => {
       if (cv.parentNode === host) host.removeChild(cv);
+      if (wall.parentNode === wallHost) wallHost?.removeChild(wall);
     };
   }, [active, away]);
   // 산책 중엔 그릴 자리가 없다
@@ -147,9 +149,10 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
           지도를 못 받으면(개발 빌드 등) 방에선 '산책 중' 그림으로 대신한다 */}
       {!active ? (
         <>
-          {/* 빈 방: 가구(뒤) 위에 선물. 가구는 꾹 누르기·우클릭으로 치운다 */}
-          <FurnitureLayer place="sidebar" still onMenu={furnitureMenu} />
-          <RoomGifts isDark={isDark} onMenu={setDecorMenu} />
+          {/* 빈 방: 벽 선물 → 가구 → 바닥 선물. 가구는 꾹 누르기·우클릭으로 치운다 */}
+          <RoomGifts isDark={isDark} onMenu={setDecorMenu}>
+            <FurnitureLayer place="sidebar" still onMenu={furnitureMenu} />
+          </RoomGifts>
         </>
       ) : away ? (
         placement === "dock" ? (
@@ -164,6 +167,8 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
         <>
           {/* 거실: 벽 대신 띠 바탕에 가로로 긴 날씨 창문(고양이 뒤) */}
           {placement === "dock" && <><DockWall /><WeatherWindow place="dock" /></>}
+          {/* 벽에 건 선물(액자 등): 가구 밑(사용자: 가구 위에 액자가 걸리지 않게). 엔진이 그린다(nekoWallCanvas) */}
+          <div ref={wallRef} className="neko-slot__wall" aria-hidden="true" />
           {/* 놓인 가구의 정지 그림(고양이 무대 밑). 활동 중엔 엔진이 직접 그린 것을 뺀다 */}
           {furniturePlace && <FurnitureLayer place={furniturePlace} />}
           <div

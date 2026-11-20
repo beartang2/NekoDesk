@@ -33,8 +33,12 @@ afterEach(() => { cleanup(); h.place.mockClear(); vi.useRealTimers(); });
 const ON = { clientX: 140, clientY: 160 };
 
 describe("빈 방의 선물(RoomGifts)", () => {
+  it("벽에 건 선물 캔버스 → 가구(children) → 나머지 선물 캔버스 순으로 겹친다(사용자: 가구 위에 액자가 걸리지 않게)", () => {
+    const { container } = render(<RoomGifts isDark={false}><i data-mid="" /></RoomGifts>);
+    expect([...container.children].map((e) => e.getAttribute("class") ?? e.tagName)).toEqual(["neko-room__gifts neko-room__gifts--wall", "I", "neko-room__gifts"]);
+  });
   it("마우스로 끌어 놓으면 그 자리를 선물함에 적고, 움직이지 않고 떼면 그대로", () => {
-    const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas")!;
+    const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas:not(.neko-room__gifts--wall)")!;
     fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 1, pointerType: "mouse" });
     expect(document.documentElement.dataset.holding).toBe("1"); // 잡은 동안 폰 가장자리 손짓을 막는다(lib/phone.ts)
     fireEvent.pointerMove(cv, { clientX: 60, clientY: 160, pointerId: 1, pointerType: "mouse" });
@@ -52,7 +56,7 @@ describe("빈 방의 선물(RoomGifts)", () => {
   it("터치로 꾹 누르면(0.5초) 끌기를 접고 '정리' 메뉴 자리를 알린다. 움직이면 그냥 끌기", () => {
     vi.useFakeTimers();
     const onMenu = vi.fn();
-    const cv = render(<RoomGifts isDark={false} onMenu={onMenu} />).container.querySelector("canvas")!;
+    const cv = render(<RoomGifts isDark={false} onMenu={onMenu} />).container.querySelector("canvas:not(.neko-room__gifts--wall)")!;
     fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 3, pointerType: "touch" });
     act(() => { vi.advanceTimersByTime(520); });
     expect(onMenu).toHaveBeenCalledWith(expect.objectContaining({ id: "g" }));
@@ -71,7 +75,7 @@ describe("빈 방의 선물(RoomGifts)", () => {
 
   it("우클릭은 선물 위에서만 메뉴(기본 메뉴를 막는다), 빈 데선 아무것도 안 한다", () => {
     const onMenu = vi.fn();
-    const cv = render(<RoomGifts isDark={false} onMenu={onMenu} />).container.querySelector("canvas")!;
+    const cv = render(<RoomGifts isDark={false} onMenu={onMenu} />).container.querySelector("canvas:not(.neko-room__gifts--wall)")!;
     expect(fireEvent.contextMenu(cv, ON)).toBe(false); // preventDefault
     expect(onMenu).toHaveBeenCalledTimes(1);
     expect(fireEvent.contextMenu(cv, { clientX: 10, clientY: 20 })).toBe(true);
@@ -83,7 +87,7 @@ describe("빈 방의 선물(RoomGifts)", () => {
 
   it("액자 아닌 물건을 벽 쪽으로 끌어 놓으면 떨어져 바닥에 놓인다(0.1.24)", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "performance"] });
-    const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas")!;
+    const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas:not(.neko-room__gifts--wall)")!;
     fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 6, pointerType: "mouse" });
     fireEvent.pointerMove(cv, { clientX: 150, clientY: 110, pointerId: 6, pointerType: "mouse" });
     fireEvent.pointerMove(cv, { clientX: 160, clientY: 60, pointerId: 6, pointerType: "mouse" });

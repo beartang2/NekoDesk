@@ -2478,17 +2478,40 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     return { bd, u, w, h, x, bottom, drag, onFloor: drag ? floorY - bottom < DD.WALL_GAP * S : d.surface === "floor" };
   }
   /** 물건 하나를 g 에 그린다(앱 무대는 고양이 캔버스, 화면 모드는 선물 캔버스) */
+  /*
+   * 벽에 건 선물(액자 등)은 가구 뒤(사용자: 가구 위에 액자가 걸리지 않게): 벽 → 벽 선물 → 가구 → 고양이. 정지 가구는 호스트 층
+   * (고양이 캔버스 밑)이라, 호스트가 그 층 밑에 벽 층 캔버스를 주면(setWallCanvas) 벽 선물은 거기에 그린다. 없으면 고양이 캔버스에서
+   * 엔진이 맡은 가구보다 먼저. 끄는 것·떨어지는 것은 그 밖(맨 위 쪽)이다. 바닥 선물·뒤에 숨기·입에 묾은 그대로
+   */
+  let wallCv = null, wallG = null, wallDrawn = false;
+  const onWall = (d) => d.surface === "wall" && !d.front && !d.fall && !(decorDrag && decorDrag.id === d.id);
+  function setWallCanvas(cv) {
+    if (wallG && wallCv !== cv) wallG.clearRect(0, 0, wallCv.width, wallCv.height);
+    wallCv = !WORLD && cv ? cv : null; wallG = wallCv && wallCv.getContext("2d"); wallDrawn = true;
+    if (!paused) draw();
+  }
+  function drawWallLayer() {
+    const any = decor.some((d) => !d.hidden && onWall(d));
+    if (!any && !wallDrawn) return; // 비어 있고 이미 지웠다
+    if (wallCv.width !== canvas.width) wallCv.width = canvas.width;
+    if (wallCv.height !== canvas.height) wallCv.height = canvas.height;
+    wallG.setTransform(1, 0, 0, 1, 0, 0); wallG.clearRect(0, 0, wallCv.width, wallCv.height);
+    wallG.setTransform(DPR, 0, 0, DPR, 0, 0);
+    drawDecor(wallG, false, true);
+    wallDrawn = any;
+  }
   function drawDecorItem(g, d, L) {
     const sc = popIn(time - d.t0).map((k) => k * (L.drag ? 1.08 : 1)); // 들어 올린 느낌
     DD.paintDecor(g, d.shape, L, geomNow(), { shadow: theme.shadow, sc, rot: d.rot, wob: d.wob.x, edge: (L.drag ? 7 : 4) * DPR });
   }
   /** 고양이 뒤에 그릴 물건들(front: 뒤에 숨기 동안 앞에 그릴 것은 빼고). 누르기 판정용 칸도 여기서 정한다.
+   *  wall: 벽에 건 것만(true)·그 밖(false) — 벽 선물은 가구 뒤라 따로(onWall).
    *  화면 모드는 잡은 것(과 놓은 뒤 잠깐)만 — 나머지는 선물 창이 그리고 누르기도 받는다 */
-  function drawDecor(g = ctx, front = false) {
+  function drawDecor(g = ctx, front = false, wall = false) {
     for (const d of decor) {
       // 고양이가 물고 있다(입에 물기로 그린다)
       if (d.hidden || (WORLD && !(time < d.showTo))) { d.box = null; continue; }
-      if (!!d.front !== front) continue;
+      if (!!d.front !== front || (!front && onWall(d) !== wall)) continue;
       const L = decorLayout(d);
       d.box = { x: L.x - L.w / 2, y: L.bottom - L.h, w: L.w, h: L.h };
       drawDecorItem(g, d, L);
@@ -4466,6 +4489,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
     // 캣휠 안(달리는 중·숨 고르는 중): 고양이를 바퀴 원으로 잘라 꼬리·머리가 테 밖으로 안 나온다. 테 안쪽 고리는 앞 겹이 덮는다.
     // 들고 날 때는 앞 겹과 같이(inV) 원을 크게 했다가 줄여 튀지 않게. 둥근 레일 위라 바닥 그림자는 없다(테 밖으로 삐져나왔다)
+    if (wallG) drawWallLayer(); else drawDecor(ctx, false, true); // 벽 선물: 가구 뒤
     const wf = furniture.find((f) => f.kind === "wheel" && f.inV > 0), onWheel = !!c.perch && furniture.some((f) => f.id === c.perch.fid && f.kind === "wheel");
     const lowest = Math.max(...c.legs.map((L) => L.footW[1])) + PAW.ry * S;
     const k = clamp(1 - Math.max(0, floorY - lowest) / (240 * S), 0.25, 1);
@@ -5314,6 +5338,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     get dreaming() { return !!dreamC; },
     /** 이 장소에 놓인 가구(docs/neko-furniture.md): [{ id, kind, at, slot, on }]. 바뀔 때만 */
     setFurniture,
+    /** 벽에 건 선물만 그릴 캔버스(호스트가 정지 가구 층 밑에 둔다). null 이면 고양이 캔버스에 */
+    setWallCanvas,
     /** 놓인 가구와 조명 켜짐(감독이 후보를 고를 때) */
     get furniture() { return furniture.map((f) => ({ id: f.id, kind: f.kind, on: !!f.on, spin: f.spin || 0, spinV: f.spinV || 0, inV: f.inV || 0 })); },
     hitFurniture,

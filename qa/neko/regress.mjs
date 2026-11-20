@@ -1333,6 +1333,37 @@ try {
     await p.close();
   }
 
+  // 9-u1) 벽 선물은 가구 뒤(0.1.27, 사용자: 가구 위에 액자가 걸리지 않게): 벽 층 캔버스(setWallCanvas)를 주면 벽에 건 액자는 거기에만
+  //       그리고(고양이 캔버스엔 없음, 호스트가 정지 가구 층 밑에 둔다), 바닥 선물은 고양이 캔버스에. 끄는 동안은 고양이 캔버스(맨 위)로
+  //       올라오고 벽 층에서 빠진다. 누르기·우클릭 정리는 그대로
+  {
+    const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), k = cv.width / n.W;
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); c.x = n.W * 0.9; n.step(30);
+      const wall = document.createElement("canvas"); n.setWallCanvas(wall);
+      const shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      n.setDecor([{ id: "f", surface: "wall", u: 0.3, v: 0.4, size: "large", shape, frame: true }, { id: "g", surface: "floor", u: 0.6, size: "small", shape }]);
+      n.step(90); n.draw();
+      const px = (g, x, y) => g.getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data[3];
+      const mid = (id) => { let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; for (let x = 0; x < n.W; x += 2) for (let y = 0; y < n.floorY; y += 2) if (n.hitDecor(x, y) === id) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } return [(x0 + x1) / 2, (y0 + y1) / 2]; };
+      const fm = mid("f"), gm = mid("g"), wg = wall.getContext("2d"), mg = cv.getContext("2d");
+      const still = { wall: px(wg, ...fm), main: px(mg, ...fm), floorMain: px(mg, ...gm), floorWall: px(wg, ...gm) };
+      const menus = []; n.on("decorMenu", (e) => menus.push(e.id));
+      cv.dispatchEvent(new MouseEvent("contextmenu", { clientX: R.left + fm[0], clientY: R.top + fm[1], bubbles: true, cancelable: true }));
+      const ev = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 7, button: 0, pointerType: "mouse", bubbles: true }));
+      ev("pointerdown", fm[0], fm[1]); n.step(2);
+      for (let i = 1; i <= 4; i++) { ev("pointermove", fm[0] + 8 * i, fm[1]); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
+      n.draw();
+      const drag = { main: px(mg, fm[0] + 32, fm[1]), wall: px(wg, fm[0] + 32, fm[1]) };
+      ev("pointerup", fm[0] + 32, fm[1]); n.step(30);
+      return { still, menus, drag };
+    });
+    check("벽 선물은 가구 뒤: 벽 층에만 그림(고양이 캔버스엔 없음), 바닥 선물은 고양이 캔버스, 우클릭 정리 그대로, 끄는 동안은 고양이 캔버스(맨 위)", JSON.stringify(r),
+      r.still.wall > 200 && r.still.main === 0 && r.still.floorMain > 200 && r.still.floorWall === 0 && r.menus.includes("f") && r.drag.main > 200 && r.drag.wall === 0);
+    await p.close();
+  }
+
   // 9-u2) 가구(docs/neko-furniture.md): 조명 톡(켜짐 알림·그동안 엔진이 그림), 캣타워 꼭대기까지, 캣휠 제자리 달리기(바퀴가 돈다, 쉬는 동안은 바퀴 안에서 헥헥),
   //       소파 위에 앉기, 졸리면 소파로, 상자 가구로 걸어가 쏙, 우클릭 '치우기' 자리, 올라 있던 가구를 치우면 떨어진다
   {

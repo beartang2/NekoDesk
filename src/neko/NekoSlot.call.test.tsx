@@ -7,6 +7,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 vi.mock("./nekoHost", () => ({
   ensureNeko: () => ({ resume: () => {}, pause: () => {}, on: () => () => {} }),
   nekoCanvas: () => document.createElement("canvas"),
+  nekoWallCanvas: () => document.createElement("canvas"),
   useNekoController: () => null,
 }));
 vi.mock("./nekoStore", () => {

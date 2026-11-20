@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { onShapeImage } from "./engine/gift-shape";
 import { decorBoxes, decorDims, decorK, dragDecor, drawDecor, fallStep, hitDecorAt, spotOf } from "./engine/decor-draw";
 import { validateShape } from "./engine/gift-shape";
@@ -68,11 +68,14 @@ const HOLD_MS = 500, HOLD_SLOP = 8;
 /**
  * 네코가 다른 자리(거실·마당)에 가 있을 때 방에 놓인 선물. 엔진 무대·마당 선물 창과 같은 그리기(decor-draw drawDecor)로
  * 정지 그림만 그린다(뿅·흔들림 없이). 엔진이 없어도 옮기고 치울 수 있다 — 끌면 옮기고(놓을 때 선물함에 적는다), 우클릭이나
- * 터치로 꾹 누르면 onMenu 로 '정리' 버튼 자리를 알린다(NekoSlot). 폰은 네코가 거실에 살아 방은 늘 이 그림이다
+ * 터치로 꾹 누르면 onMenu 로 '정리' 버튼 자리를 알린다(NekoSlot). 폰은 네코가 거실에 살아 방은 늘 이 그림이다.
+ * 벽에 건 것은 children(가구 정지 그림) 밑 캔버스에 따로 — 벽 → 벽 선물 → 가구 → 바닥 선물(사용자: 가구 위에 액자가 걸리지 않게).
+ * 끄는 것은 위 캔버스(맨 위). 누르기는 위 캔버스가 다 받는다
  */
-export function RoomGifts({ isDark, onMenu }: { isDark: boolean; onMenu?: (m: { id: string; x: number; y: number }) => void }) {
+export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMenu?: (m: { id: string; x: number; y: number }) => void; children?: ReactNode }) {
   const gifts = useNekoGifts((s) => s.gifts);
   const [ref, { w, h }] = useSize<HTMLCanvasElement>();
+  const wallRef = useRef<HTMLCanvasElement>(null);
   // 낙서 그림(shape.img)을 다 읽으면 다시 그린다(처음엔 매트만 보인다)
   const [loaded, setLoaded] = useState(0);
   useEffect(() => onShapeImage(() => setLoaded((n) => n + 1)), []);
@@ -84,9 +87,11 @@ export function RoomGifts({ isDark, onMenu }: { isDark: boolean; onMenu?: (m: { 
   const fallRaf = useRef(0);
   useEffect(() => () => { clearTimeout(press.current?.hold); cancelAnimationFrame(fallRaf.current); if (press.current) setHolding(false); }, []);
   useEffect(() => {
-    const cv = ref.current;
-    if (!cv || !w || !h) return;
-    drawDecor(cv, items, { ...view, dpr: Math.min(window.devicePixelRatio || 1, 2), dark: isDark, drag });
+    const cv = ref.current, wall = wallRef.current;
+    if (!cv || !wall || !w || !h) return;
+    const o = { ...view, dpr: Math.min(window.devicePixelRatio || 1, 2), dark: isDark, drag };
+    drawDecor(wall, items, { ...o, only: "wall" });
+    drawDecor(cv, items, { ...o, only: "rest" });
   }, [items, view, isDark, drag, loaded, ref, w, h]);
 
   const pos = (e: React.MouseEvent) => { const r = e.currentTarget.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top] as const; };
@@ -144,7 +149,9 @@ export function RoomGifts({ isDark, onMenu }: { isDark: boolean; onMenu?: (m: { 
     const [x, y] = pos(e);
     if (menu(hitDecorAt(items, view, x, y))) e.preventDefault();
   };
-  return (
+  return (<>
+    <canvas ref={wallRef} className="neko-room__gifts neko-room__gifts--wall" aria-hidden="true" />
+    {children}
     <canvas
       ref={ref}
       className={`neko-room__gifts${drag ? " dragging" : ""}`}
@@ -155,5 +162,5 @@ export function RoomGifts({ isDark, onMenu }: { isDark: boolean; onMenu?: (m: { 
       onPointerCancel={onPointerEnd}
       onContextMenu={onContextMenu}
     />
-  );
+  </>);
 }

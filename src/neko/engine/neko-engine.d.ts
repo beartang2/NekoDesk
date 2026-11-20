@@ -244,6 +244,11 @@ export interface NekoController {
    * 캣타워 발판·소파 쿠션은 올라앉는 면이 된다. on = 조명 켜짐(엔진이 바꾸면 lamp 사건)
    */
   setFurniture(items: { id: string; kind: "lamp" | "cattower" | "wheel" | "sofa" | "box"; at: "sidebar" | "dock"; slot: number; on?: boolean; accent?: string }[]): void;
+  /**
+   * 벽에 건 선물(액자 등)만 그릴 캔버스. 호스트가 정지 가구 층 밑에 고양이 캔버스와 같은 크기로 둔다 — 벽 → 벽 선물 → 가구 → 고양이.
+   * 끄는 것·떨어지는 것은 고양이 캔버스에. null 이면 다 고양이 캔버스에(엔진이 맡은 가구보다 먼저). 화면 모드는 안 쓴다
+   */
+  setWallCanvas(cv: HTMLCanvasElement | null): void;
   /** 놓인 가구와 조명 켜짐(감독이 혼자 놀기 후보를 고를 때) */
   readonly furniture: { id: string; kind: string; on: boolean }[];
   /** 이 점(무대 px)이 가구 위면 그 id */

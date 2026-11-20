@@ -50,5 +50,7 @@
   -webkit-user-select: none;
   user-select: none;
 }
+/* 벽에 건 선물만(가구 정지 그림 밑). 누르기는 위 캔버스가 받는다 */
+.neko-room__gifts--wall { pointer-events: none; }
 .neko-room__gifts.can-grab { cursor: grab; }
 .neko-room__gifts.dragging { cursor: grabbing; }
