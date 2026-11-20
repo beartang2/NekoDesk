@@ -253,7 +253,7 @@ function buildRequestBody(
   stream: boolean
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    messages,
+    messages: messages.map(({ ran: _ran, ...m }) => m),
     max_tokens: params.max_tokens ?? defaultMaxTokens,
     stream,
   };

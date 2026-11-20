@@ -387,8 +387,23 @@ export function buildHistory(messages: ChatMessage[]): LlmMessage[] {
           : m.label
             ? `[${m.label}]\n${text}`
             : withToolsNote(text, m),
+        ...(m.role === "assistant" && m.steps?.length ? { ran: { text, calls: pastCalls(m.id, m.steps) } } : {}),
       };
     })];
+}
+
+/**
+ * 지난 답의 스텝 → 도구 호출과 결과. 글 메모("(도구 사용: …)")는 모델 눈에 제가 쓴 말과 같아서, "실제로
+ * 실행된 작업만 완료됐다고 해" 를 지키려던 모델이 그 말을 못 믿고 "실행 기록이 없다" 며 같은 검색을 다시
+ * 했다(0.1.26). 결과는 첫 줄만 — 무엇이 나왔는지 표시면 된다. 둘째 줄부터 붙는 자동 힌트("web.search 로
+ * 찾아 재시도")는 지난 일이라 뺀다. id 는 메시지 id 에서 — 요청마다 같아야 프롬프트 캐시가 그대로다.
+ */
+function pastCalls(id: string, steps: AgentStep[]): NonNullable<LlmMessage["ran"]>["calls"] {
+  const base = id.replace(/[^a-zA-Z0-9_-]/g, "");
+  return steps.map((s, i) => ({
+    call: { id: `past_${base}_${i}`, name: s.tool, params: s.params ?? {} },
+    step: { ...s, summary: ((s.summary ?? "").split("\n")[0] || s.errorMessage || "").slice(0, 200) },
+  }));
 }
 
 /**
@@ -396,6 +411,7 @@ export function buildHistory(messages: ChatMessage[]): LlmMessage[] {
  * 모델이 "그림을 그려 저장했어" 라는 제 말을 확인할 길이 없었다 — 툴 호출이 안 보이니 지어낸
  * 말이라고 사과까지 했다. 사용자가 끼어들어 글 없이 닫힌 칸도 이 한 줄이 내용이 된다
  * (빈 assistant 메시지는 템플릿에 따라 거부된다). 한 번 정해지면 안 바뀌어 프롬프트 캐시도 그대로다.
+ * 도구를 싣는 요청(AgentContext)은 이 메모 대신 ran 을 호출·결과로 편다 — 메모는 도구 없는 호출(상한 최종 답·요약) 몫.
  */
 function withToolsNote(text: string, m: ChatMessage): string {
   if (m.role !== "assistant" || !m.steps?.length) return text;
