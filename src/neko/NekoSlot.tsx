@@ -169,7 +169,7 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
       )}
       {calling && (
         <button type="button" className="neko-slot__call-btn" onClick={(e) => { e.stopPropagation(); callHome(); }} title="지금 돌아오게 부릅니다">
-          불러오기
+          부르기
         </button>
       )}
       {active && !away && walk && (
