@@ -1219,9 +1219,9 @@ code.rule-row__key {
   padding: 6px 0;
   border-top: var(--hairline);
 }
-/* 네코의 속마음 노트: 글은 한 줄로 줄이고 날짜는 작게 */
-.mind-row__text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mind-row__at { font-size: 11px; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 네코의 속마음 노트: 글은 기억 목록처럼(한 줄, 누르면 펼침 — .memory-row__text), 날짜는 작게 */
+.mind-row__at { font-size: 11px; line-height: 16px; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.memory-row--open .mind-row__at { margin-top: 4px; }
 
 .memory-pager {
   display: flex;

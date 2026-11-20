@@ -1075,13 +1075,24 @@ const MEMORY_KIND_LABELS: Record<string, string> = {
   neko: "산책",
 };
 
-/** 기억·정리 기록은 5개씩 넘겨 본다. 지워서 줄면 마지막 쪽으로 당긴다(쪽 번호를 그릴 때 자른다) */
+/**
+ * 기억·정리 기록·속마음은 5개씩 넘겨 본다. 지워서 줄면 마지막 쪽으로 당긴다(쪽 번호를 그릴 때 자른다).
+ * 한 줄로 잘린 줄은 눌러서 펼친다(open·toggle) — 쪽을 넘기면 펼친 것을 다 접는다(돌아와도 접혀 있다)
+ */
 const PAGE = 5;
 function usePage<T>(items: T[]) {
-  const [want, setPage] = useState(0);
+  const [want, setWant] = useState(0);
+  const [open, setOpen] = useState<ReadonlySet<string | number>>(new Set());
   const last = Math.max(0, Math.ceil(items.length / PAGE) - 1);
   const page = Math.min(want, last);
-  return { page, last, setPage, shown: items.slice(page * PAGE, page * PAGE + PAGE), total: items.length };
+  const setPage = (p: number) => { setWant(p); setOpen(new Set()); };
+  const toggle = (id: string | number) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  return { page, last, setPage, shown: items.slice(page * PAGE, page * PAGE + PAGE), total: items.length, open, toggle };
 }
 
 function Pager({ page, last, setPage, total }: ReturnType<typeof usePage>) {
@@ -1099,16 +1110,8 @@ function Pager({ page, last, setPage, total }: ReturnType<typeof usePage>) {
  * 고양이가 기억해둔 것들. 지우는 수단이 없으면 기억은 무섭기만 하다 — 무엇을
  * 알고 있는지 보이고 지울 수 있어야 한다.
  */
-function MemoriesSection() {
+export function MemoriesSection() {
   const [memories, setMemories] = useState<Memory[]>([]);
-  // 한 줄로 잘린 기억은 눌러서 펼쳐 읽는다
-  const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
-  const toggle = (id: number) =>
-    setOpen((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
 
   const refresh = useCallback(async () => {
     try {
@@ -1131,6 +1134,8 @@ function MemoriesSection() {
   // 목록은 최근 저장한 것이 위(memory_list 가 created_at DESC 로 준다)
   const memPage = usePage(memories);
   const logPage = usePage(tidyLog);
+  // 한 줄로 잘린 기억은 눌러서 펼쳐 읽는다(쪽을 넘기면 접힌다)
+  const { open, toggle } = memPage;
 
   async function remove(id: number) {
     await memoryApi.delete(id).catch(() => {});
@@ -1139,7 +1144,7 @@ function MemoriesSection() {
 
   return (
     <section className="settings-section">
-      <h3 className="settings-section__title">네코가 기억하는 것</h3>
+      <h3 className="settings-section__title">{josa(name, "이/가")} 기억하는 것</h3>
       <p className="settings-section__desc">
         대화하면서 알게 된 것입니다. 다음 대화에서 관련된 것만 자동으로 떠올립니다.
       </p>
@@ -1203,7 +1208,7 @@ const MIND_AT = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numer
  * 네코의 속마음(agent/neko-mind, docs/neko-mind.md): 네코가 고르며 남긴 짧은 노트. 맥·폰이 같이 본다(동기화 설정 neko_mind).
  * 최근 것이 위, 5개씩 넘긴다. 하나씩 지울 수 있다
  */
-function MindNotesSection() {
+export function MindNotesSection() {
   const name = useSettingsStore(nekoNameOf);
   const [notes, setNotes] = useState<MindNote[]>([]);
   const refresh = useCallback(() => { void loadMind().then((m) => setNotes([...m.notes].reverse())); }, []);
@@ -1225,14 +1230,20 @@ function MindNotesSection() {
         <div className="settings-empty">아직 남긴 노트가 없습니다.</div>
       ) : (
         <div className="rule-list">
-          {page.shown.map((n) => (
-            <div className="rule-row" key={`${n.at}${n.text}`}>
-              <span className="memory-row__kind">{MIND_KIND[n.kind]}</span>
-              <span className="rule-row__key mind-row__text">{n.text}{n.why ? ` — ${n.why}` : ""}</span>
-              <span className="mind-row__at">{MIND_AT.format(new Date(n.at))}</span>
-              <IconButton label="지우기" danger onClick={() => void remove(n)}><Trash2 size={12} /></IconButton>
-            </div>
-          ))}
+          {page.shown.map((n) => {
+            // 기억 목록처럼 눌러서 펼친다(쪽을 넘기면 접힌다)
+            const id = `${n.at}${n.text}`, isOpen = page.open.has(id);
+            return (
+              <div className={`rule-row${isOpen ? " memory-row--open" : ""}`} key={id}>
+                <span className="memory-row__kind">{MIND_KIND[n.kind]}</span>
+                <button type="button" className="memory-row__text" aria-expanded={isOpen} onClick={() => page.toggle(id)}>
+                  <span className="rule-row__key">{n.text}{n.why ? ` — ${n.why}` : ""}</span>
+                </button>
+                <span className="mind-row__at">{MIND_AT.format(new Date(n.at))}</span>
+                <IconButton label="지우기" danger onClick={() => void remove(n)}><Trash2 size={12} /></IconButton>
+              </div>
+            );
+          })}
         </div>
       )}
       <Pager {...page} />
