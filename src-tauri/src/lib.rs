@@ -751,15 +751,6 @@ mod commands {
         Ok(())
     }
 
-    /// 마당 네코 입에 놓은 파일·폴더를 경로로 바로 복사한다(docs/neko-screen-mode.md §7). 한 번에 2GB 넘으면 안 넣는다.
-    #[cfg(desktop)]
-    #[tauri::command(async)]
-    pub fn shelf_add_paths(app: tauri::AppHandle, paths: Vec<PathBuf>) -> Result<Vec<crate::shelf::ShelfItem>, AppError> {
-        let items = crate::shelf::add_paths(&crate::shelf::dir(&app)?, &paths)?;
-        shelf_changed(&app);
-        Ok(items)
-    }
-
     /// 마당 아치에서 끌어내 놓았다: 보관함에서 꺼낸다(목록에서 바로 빼고 파일은 조금 뒤에 지운다).
     #[cfg(desktop)]
     #[tauri::command(async)]
@@ -778,7 +769,7 @@ mod commands {
 
     /// 보관함이 바뀌었다 — 앱 보관함 목록과 마당 네코 입(최근 3개)이 다시 읽는다.
     #[cfg(desktop)]
-    fn shelf_changed(app: &tauri::AppHandle) {
+    pub(crate) fn shelf_changed(app: &tauri::AppHandle) {
         use tauri::Emitter;
         let _ = app.emit("shelf-changed", ());
     }
@@ -1704,6 +1695,23 @@ pub fn run() {
                 let app = window.app_handle().clone();
                 std::thread::spawn(move || crate::neko_screen::unhide(&app));
             }
+            // 마당 네코 몸·입에 파일을 놓았다(§7). 경로는 웹뷰가 아니라 macOS 놓기 이벤트에서만 받는다 — 웹뷰가 준
+            // 경로를 믿으면 아무 파일이나 보관함으로 복사할 수 있다. 받는 자리에서만 클릭을 받으니 거기서만 온다.
+            // 복사는 오래 걸릴 수 있어 따로 돌린다. 2GB 넘는 등 실패면 화면 창이 고개를 돌린다
+            #[cfg(target_os = "macos")]
+            ("neko-screen", tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. })) if !paths.is_empty() => {
+                let (app, paths) = (window.app_handle().clone(), paths.clone());
+                std::thread::spawn(move || {
+                    use tauri::Emitter;
+                    match crate::shelf::dir(&app).and_then(|d| crate::shelf::add_paths(&d, &paths)) {
+                        Ok(_) => commands::shelf_changed(&app),
+                        Err(e) => {
+                            log::warn!("마당 네코 입에 못 넣었어: {e}");
+                            let _ = app.emit_to("neko-screen", "neko-screen-drop-refused", e.to_string());
+                        }
+                    }
+                });
+            }
             // 빠른 질문 창은 다른 곳을 누르면 사라진다(Spotlight 처럼).
             ("quick", tauri::WindowEvent::Focused(false)) => {
                 let _ = window.hide();
@@ -1871,8 +1879,6 @@ pub fn run() {
             commands::shelf_add,
             #[cfg(desktop)]
             commands::shelf_remove,
-            #[cfg(desktop)]
-            commands::shelf_add_paths,
             #[cfg(desktop)]
             commands::shelf_take,
             #[cfg(target_os = "macos")]

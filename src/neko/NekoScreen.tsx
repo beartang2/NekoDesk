@@ -24,7 +24,7 @@ import "./NekoScreen.css";
  *   Rust 가 창을 그 모니터로 옮기고(`neko-screen-moved`, 잡고 끌 때도) 여기서 세계를 옮긴다.
  * - 마당 선물은 모니터마다 선물 창(NekoDecorScreen)이 그린다. 여기 엔진은 갖고 노느라 잡은 것만 그리고 `decorHeld` 로 알린다.
  * - 파일 물려주기(§7): 입 = 보관함. 보관함 최근 3개를 문다. 파일을 끌면(Rust `neko-screen-file-drag`) 커서 쪽으로 오고,
- *   몸·입에 놓으면 `shelf_add_paths`. 얼굴에 2초 머물면 머리 위 아치(NekoFileArch)를 펴고, 거기서 끌어내 놓으면 꺼낸다.
+ *   몸·입에 놓으면 Rust 가 놓기 이벤트의 경로로 보관함에 넣는다. 얼굴에 2초 머물면 머리 위 아치(NekoFileArch)를 펴고, 거기서 끌어내 놓으면 꺼낸다.
  */
 
 interface Layout { w: number; h: number; ground: number }
@@ -372,13 +372,14 @@ export function NekoScreen() {
         if (payload) { closeArch(); wake(); }
         check();
       }),
-      // 몸·입에 놓았다(받는 자리에서만 클릭을 받으니 거기서만 온다). 입은 shelf-changed 로 맞춰진다. 2GB 넘으면 고개를 돌린다
+      // 몸·입에 놓았다(받는 자리에서만 클릭을 받으니 거기서만 온다). 넣기는 Rust 가 놓기 이벤트의 경로로 한다(웹뷰는 경로를
+      // 넘기지 않는다) — 입은 shelf-changed 로 맞춰지고, 2GB 넘는 등 못 넣으면 neko-screen-drop-refused 로 고개를 돌린다
       getCurrentWebview().onDragDropEvent(({ payload }) => {
-        if (payload.type !== "drop" || !payload.paths.length) return;
+        if (payload.type !== "drop") return;
         fileDrag = null;
         eng.fileDrag?.(null);
-        void shelfApi.addPaths(payload.paths).catch(() => ctrl.react("sulk"));
       }),
+      me.listen<string>("neko-screen-drop-refused", () => void ctrl.react("sulk")),
       listen("shelf-changed", () => void syncCarry()),
       me.listen<boolean>("neko-screen-active", ({ payload }) => {
         active = payload;

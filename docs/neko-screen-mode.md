@@ -245,11 +245,11 @@
   - 아치에서 우리가 내보내는 끌기(`neko_screen_drag_out`)는 끄는 중으로 치지 않는다. 앱 보관함에서 끄는 것은 친다(네코 입에 도로 놓으면 같은 파일이라 그대로다).
 - **알리기**: 끄는 중이고 커서가 고양이 모니터에 있으면 화면 창에 `neko-screen-file-drag` 로 커서 자리(창 좌표 `[x, y]`)를 보낸다. 끝나거나 다른 모니터면 `null`. 바뀔 때만 보낸다.
 - **받는 자리만 클릭 통과를 끈다**: 끄는 중이면 "버튼을 누른 채 들어오면 받지 않는다"(§3) 대신, 화면 창이 받는 자리 안이라고 알릴 때(`neko_screen_catch`) 받는다. 받는 자리는 고양이 몸(`hit`) 또는 입 원(`mouth`)이다. 끄는 중엔 잡기(grabbing)를 시작하지 않는다 — 시작하면 놓을 때까지 화면 전체가 받아 Finder 에 못 놓는다.
-- **놓은 것**: 화면 창은 Tauri 끌어다 놓기를 켠다(`disable_drag_drop_handler` 를 뺀다). `getCurrentWebview().onDragDropEvent` 의 `drop` 에서 경로를 받아 `shelf_add_paths` 를 부른다. 웹뷰 HTML 드롭이 아니라서 경로가 오고 폴더도 된다.
+- **놓은 것**: 화면 창은 Tauri 끌어다 놓기를 켠다(`disable_drag_drop_handler` 를 뺀다). Rust 가 그 창의 `WindowEvent::DragDrop(Drop { paths })` 에서 경로를 받아 바로 보관함에 넣는다(`shelf::add_paths`). 웹뷰가 준 경로는 받지 않는다 — 웹뷰가 뚫리면 아무 파일이나 보관함으로 복사할 수 있어서다(보안 검토). 웹뷰 HTML 드롭이 아니라서 경로가 오고 폴더도 된다. 못 넣으면 화면 창에 `neko-screen-drop-refused`.
 
 ### 보관함 (Rust, shelf.rs)
 
-- `shelf_add_paths(paths) -> ShelfItem[]`(async): 경로로 바로 복사한다(바이트를 웹뷰로 나르지 않는다). `std::fs::copy` 는 APFS 에서 복제(clonefile)라 같은 볼륨이면 거의 즉시다.
+- `add_paths(paths)`(놓기 이벤트에서만, 명령 아님): 경로로 바로 복사한다(바이트를 웹뷰로 나르지 않는다). `std::fs::copy` 는 APFS 에서 복제(clonefile)라 같은 볼륨이면 거의 즉시다.
   - 폴더는 안을 다 복사한다. 심볼릭 링크는 건너뛴다(ponytail).
   - 한 번에 넣는 총량이 2GB(`MAX_ADD`)를 넘으면 넣지 않고 오류를 돌려준다. 화면 창은 고양이가 고개를 돌린다(`react("sulk")`).
   - 같은 것: 파일은 이름·내용이 같으면, 폴더는 이름·파일 수·총 바이트가 같으면(ponytail) 새로 만들지 않고 있던 것을 쓴다. 이름만 같으면 `이름 (2).확장자`. 보관함 안의 경로(앱 보관함에서 끌어 도로 놓음)는 복사하지 않는다.
@@ -263,7 +263,7 @@
 
 - 켤 때와 `shelf-changed` 마다 `shelf_list` 의 앞 3개를 `file_icon` → `ImageBitmap` 으로 만들어 엔진 `carry` 에 넘긴다. id 는 `"file:" + 이름`. 목록에서 빠진 `file:` 은 `drop(id)` 한다(선물 `decor:` 은 건드리지 않는다). 아이콘은 경로·크기별로 한 번만 만든다.
 - 끄는 중(`neko-screen-file-drag`): 엔진 `fileDrag(at)` 를 부르고, 트랙패드 쓰다듬기를 끈다. 받는 자리 판단은 `hit(x,y)` 또는 `mouth` 원 안.
-- 놓음: `shelf_add_paths` 성공이면 끝(입은 `shelf-changed` 로 맞춰진다), 2GB 넘으면 `react("sulk")`. 그리고 `fileDrag(null)`.
+- 놓음: `fileDrag(null)`. 넣기는 Rust 가 하고 입은 `shelf-changed` 로 맞춰진다. `neko-screen-drop-refused`(2GB 넘음 등)면 `react("sulk")`.
 - 아치: 커서가 `head` 원 안에 2초(`ARCH_HOLD_MS`) 머물면 연다(누르는 중·끄는 중·보관함이 비면 안 연다). 아치 칸(`[data-neko-arch-hit]`) 위도 클릭을 받는 자리다. 커서가 아치와 머리에서 0.8초 떠나 있거나, 다른 데를 누르거나, 하나를 끌어내면 닫는다.
 - 끌어내기: 아치 칸에서 누르고 움직이면 `startDrag({ item: [path], icon, mode: "copy" })` 와 함께 `neko_screen_drag_out(true)` — 끄는 동안 마당 창이 클릭을 받지 않아야 아래의 Finder 에 놓인다. 끝나면 `neko_screen_drag_out(false)`, 결과가 `Dropped` 면 `shelf_take(name)`.
 
@@ -271,7 +271,7 @@
 
 | 누가 | 무엇 |
 |---|---|
-| 미용사 | 위의 Rust 전부, 화면 창 호스트, `src/api/tauri.ts` 의 `ShelfItem.dir`·`shelfApi.addPaths`·`take`·`icon`, 이 문서 |
+| 미용사 | 위의 Rust 전부, 화면 창 호스트, `src/api/tauri.ts` 의 `ShelfItem.dir`·`shelfApi.take`·`icon`, 이 문서 |
 | 집사 | 엔진: `fileDrag`·`mouth`·`head`(아래), 커서 쪽으로 오기, 입 "와앙", 끄는 동안 쓰다듬기·잡기 반응 끄기 |
 | 디자이너 | 아치·이름 알약 UI(`src/neko/NekoFileArch.tsx`·css — 미용사가 단 자리표시 그림을 고친다), 앱 보관함 여러 개 고르기, 앱 보관함이 `shelf-changed` 를 듣고 다시 읽기, 보관함 목록에 폴더 아이콘(`dir`) |
 
