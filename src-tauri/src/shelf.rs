@@ -80,10 +80,14 @@ pub fn add(dir: &Path, raw_name: &str, bytes: &[u8]) -> Result<ShelfItem, AppErr
 
 /// 경로로 바로 복사한다(마당 네코 입에 놓은 파일·폴더). 넣은 순서대로 돌려준다.
 /// 같은 것이면(파일: 이름·내용, 폴더: 이름·파일 수·총 바이트) 있던 것을 맨 앞으로 올린다. 보관함 안의 경로는 복사하지 않는다.
+/// 디스크(볼륨)는 통째로 받지 않는다. 크기는 MAX_ADD 를 넘는 순간 그만 잰다 — 큰 디스크를 끝까지 세느라 한참 아무 반응이 없었다.
 pub fn add_paths(dir: &Path, paths: &[PathBuf]) -> Result<Vec<ShelfItem>, AppError> {
     let home = dir.canonicalize()?;
     let outside: Vec<&PathBuf> = paths.iter().filter(|p| !p.canonicalize().is_ok_and(|c| c.starts_with(&home))).collect();
-    let total: u64 = outside.iter().map(|p| tree(p).1).sum();
+    if let Some(v) = outside.iter().find(|p| is_volume(p)) {
+        return Err(AppError::msg(format!("디스크(볼륨)는 통째로 못 넣어: {}", v.display())));
+    }
+    let total = outside.iter().fold(0, |acc: u64, p| if acc > MAX_ADD { acc } else { acc + tree(p, MAX_ADD - acc).1 });
     if total > MAX_ADD {
         return Err(AppError::msg(format!("한 번에 {}GB 넘게는 못 넣어.", MAX_ADD >> 30)));
     }
@@ -96,7 +100,7 @@ pub fn add_paths(dir: &Path, paths: &[PathBuf]) -> Result<Vec<ShelfItem>, AppErr
         let name = safe_name(&p.to_string_lossy())?;
         let same = dir.join(&name);
         let dest = if p.is_dir() {
-            if same.is_dir() && tree(&same) == tree(p) {
+            if same.is_dir() && tree(&same, u64::MAX) == tree(p, u64::MAX) {
                 same
             } else {
                 let to = free_path(dir, &name);
@@ -128,10 +132,7 @@ pub fn remove(dir: &Path, raw_name: &str) -> Result<(), AppError> {
 /// 아치에서 끌어내 놓았다: 목록에서 바로 빼고 TAKE_DELAY 뒤에 지운다. 그 사이 도로 넣으면 남는다.
 /// ponytail: 그 전에 앱을 끄면 지우지 못해 다음에 켤 때 목록에 다시 보인다 — 거슬리면 표시를 파일로 남긴다.
 pub fn take(dir: &Path, raw_name: &str) -> Result<(), AppError> {
-    let path = dir.join(safe_name(raw_name)?);
-    if !path.exists() {
-        return Err(AppError::msg("보관함에 없는 파일이야."));
-    }
+    let path = path_of(dir, raw_name)?;
     let at = Instant::now();
     TAKEN.lock()?.push((path.clone(), at));
     std::thread::spawn(move || {
@@ -145,6 +146,15 @@ pub fn take(dir: &Path, raw_name: &str) -> Result<(), AppError> {
         }
     });
     Ok(())
+}
+
+/// 보관함 안 그 이름의 경로. 웹뷰가 준 이름은 이름 조각만 쓴다. 없거나 이미 꺼냈으면 오류.
+pub fn path_of(dir: &Path, raw_name: &str) -> Result<PathBuf, AppError> {
+    let path = dir.join(safe_name(raw_name)?);
+    if !path.exists() || taken(&path) {
+        return Err(AppError::msg("보관함에 없는 파일이야."));
+    }
+    Ok(path)
 }
 
 fn remove_path(path: &Path) -> Result<(), AppError> {
@@ -163,17 +173,28 @@ fn fresh(path: &Path) -> Result<ShelfItem, AppError> {
     item(path)
 }
 
+/// 디스크(볼륨) 자체인가: 마운트 지점은 부모 폴더와 장치 번호가 다르다(/ 는 부모가 없다).
+fn is_volume(p: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(m) = std::fs::metadata(p) else { return false };
+    p.parent().and_then(|q| std::fs::metadata(q).ok()).map_or(true, |q| q.dev() != m.dev())
+}
+
 /// 폴더 안 (파일 수, 총 바이트). 파일이면 (1, 크기). 심볼릭 링크는 세지 않는다.
-fn tree(path: &Path) -> (u64, u64) {
+/// 바이트가 cap 을 넘으면 거기서 그만 센다(그때 값은 cap 보다 크기만 하면 된다).
+fn tree(path: &Path, cap: u64) -> (u64, u64) {
     let Ok(meta) = std::fs::metadata(path) else { return (0, 0) };
     if !meta.is_dir() {
         return (1, meta.len());
     }
     let mut acc = (0, 0);
     for e in std::fs::read_dir(path).into_iter().flatten().flatten() {
+        if acc.1 > cap {
+            break;
+        }
         match e.file_type() {
             Ok(t) if t.is_dir() => {
-                let (n, b) = tree(&e.path());
+                let (n, b) = tree(&e.path(), cap - acc.1);
                 acc = (acc.0 + n, acc.1 + b);
             }
             Ok(t) if t.is_file() => acc = (acc.0 + 1, acc.1 + e.metadata().map(|m| m.len()).unwrap_or(0)),
@@ -269,7 +290,7 @@ fn item(path: &Path) -> Result<ShelfItem, AppError> {
     Ok(ShelfItem {
         name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
         path: path.to_string_lossy().into_owned(),
-        size: tree(path).1,
+        size: tree(path, u64::MAX).1,
         dir,
     })
 }
@@ -288,7 +309,7 @@ pub fn icon(app: &tauri::AppHandle, dir: &Path, path: &str) -> Result<String, Ap
 }
 
 #[cfg(target_os = "macos")]
-mod macos {
+pub(crate) mod macos {
     use objc2::msg_send;
     use objc2::rc::Retained;
     use objc2::runtime::{AnyClass, AnyObject};
@@ -346,6 +367,23 @@ mod tests {
         remove(&dir, "../a.txt").unwrap(); // 이름만 남아 보관함 안의 a.txt 를 지운다
         assert_eq!(list(&dir).unwrap().len(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn disks_are_refused_and_sizes_stop_counting_past_the_cap() {
+        let root = std::env::temp_dir().join(format!("neko-shelf-cap-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        for n in ["a", "b", "c"] {
+            std::fs::write(root.join("src").join(n), [0u8; 10]).unwrap();
+        }
+        let (n, bytes) = tree(&root.join("src"), 15);
+        assert!(n < 3 && bytes > 15, "({n}, {bytes})");
+        assert_eq!(tree(&root.join("src"), u64::MAX), (3, 30));
+        assert!(is_volume(Path::new("/")) && !is_volume(&root.join("src")));
+        // 디스크는 크기를 세지 않고 바로 거절한다
+        let err = add_paths(&root, &[PathBuf::from("/")]).err().unwrap().to_string();
+        assert!(err.contains("디스크"), "{err}");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[cfg(target_os = "macos")]

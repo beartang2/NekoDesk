@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { shelfApi, type ShelfItem } from "../api/tauri";
 import { createNeko, type NekoController, type NekoEvents, type NekoMood, type NekoPose } from "./engine/neko-engine";
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
@@ -24,7 +23,8 @@ import "./NekoScreen.css";
  *   Rust 가 창을 그 모니터로 옮기고(`neko-screen-moved`, 잡고 끌 때도) 여기서 세계를 옮긴다.
  * - 마당 선물은 모니터마다 선물 창(NekoDecorScreen)이 그린다. 여기 엔진은 갖고 노느라 잡은 것만 그리고 `decorHeld` 로 알린다.
  * - 파일 물려주기(§7): 입 = 보관함. 보관함 최근 3개를 문다. 파일을 끌면(Rust `neko-screen-file-drag`) 커서 쪽으로 오고,
- *   몸·입에 놓으면 Rust 가 놓기 이벤트의 경로로 보관함에 넣는다. 얼굴에 2초 머물면 머리 위 아치(NekoFileArch)를 펴고, 거기서 끌어내 놓으면 꺼낸다.
+ *   몸·입에 놓으면 Rust 가 놓기 이벤트의 경로로 보관함에 넣는다. 얼굴에 잠깐(ARCH_HOLD_MS) 머물면 머리 위 아치(NekoFileArch)를 펴고,
+ *   거기서 끌어내 놓으면 꺼낸다(끌기는 Rust 가 연다).
  */
 
 interface Layout { w: number; h: number; ground: number }
@@ -66,15 +66,19 @@ interface FileDragApi {
   readonly head: { x: number; y: number; r: number };
 }
 type Circle = { x: number; y: number; r: number };
-const inCircle = (c: Circle | undefined, x: number, y: number) => !!c && Math.hypot(x - c.x, y - c.y) <= c.r;
+const inCircle = (c: Circle | undefined, x: number, y: number, k = 1) => !!c && Math.hypot(x - c.x, y - c.y) <= c.r * k;
 /** 입에 무는 보관함 파일 id 머리(선물은 decor:) */
 const FILE = "file:";
 /** 입에 무는 수(보관함 최근 것부터)와 아치에 펴는 수 */
 const CARRY_MAX = 3;
 const ARCH_MAX = 12;
-/** 얼굴에 이만큼 머물면 아치를 편다. 아치·머리에서 이만큼 떠나 있으면 접는다 */
-const ARCH_HOLD_MS = 2000;
+/** 얼굴에 이만큼 머물면 아치를 편다(실제로 뜨기까지 여기에 폴러·확인 간격 ≤ 0.07초가 더해진다, docs/neko-screen-mode.md §7).
+ *  아치·머리에서 이만큼 떠나 있으면 접는다 */
+const ARCH_HOLD_MS = 600;
 const ARCH_LEAVE_MS = 800;
+/** 머리에서 세기 시작한 뒤(또는 편 뒤)엔 머리 원의 이 배수 안이면 머문 것으로 본다 — 고양이가 커서 쪽으로 돌아서거나
+ *  움찔해 머리가 조금 움직였다고 처음부터 다시 세지 않게 */
+const ARCH_STAY = 1.5;
 /** 마당 선물 '정리' 버튼이 저절로 닫히는 때 */
 const MENU_MS = 6000;
 
@@ -174,7 +178,7 @@ export function NekoScreen() {
     };
     // 얼굴에 ARCH_HOLD_MS 머물면 펴고(누르는·끄는 중·보관함이 비면 안 편다), 아치·머리에서 ARCH_LEAVE_MS 떠나 있으면 접는다
     const archStep = (now: number, x: number, y: number) => {
-      const onHead = !!cursor && active && !fileDrag && !pressed && inCircle(eng.head, x, y);
+      const onHead = !!cursor && active && !fileDrag && !pressed && inCircle(eng.head, x, y, archOn || headSince ? ARCH_STAY : 1);
       if (archOn) {
         if (onHead || overArch(x, y)) awaySince = 0;
         else if (!awaySince) awaySince = now;
@@ -269,6 +273,7 @@ export function NekoScreen() {
       if (!list || seq !== syncSeq) return;
       shelf = list;
       if (!list.length) closeArch();
+      list.slice(0, ARCH_MAX).forEach(urlOf); // 아치 아이콘을 미리 — 처음 펼 때 아이콘 만드느라 늦지 않게
       const top = list.slice(0, CARRY_MAX);
       const imgs = await Promise.all(top.map(bitmapOf));
       if (seq !== syncSeq) return;
@@ -290,14 +295,11 @@ export function NekoScreen() {
       awaySince = 0;
       setArch({ items, head: { x: head.x, y: head.y, r: head.r } });
     };
-    // 아치에서 끌어내기: 끄는 동안 마당 창은 클릭을 흘려야 아래 Finder 에 놓인다(Rust 가 버튼을 놓으면 푼다). 놓았으면 꺼낸다
+    // 아치에서 끌어내기: Rust 가 보관함 이름으로 끌기를 열고, 끄는 동안 클릭을 흘리고(아래 Finder 에 놓이게), 놓았으면 꺼낸다.
+    // 실패는 Rust 가 로그에 남긴다
     dragOutRef.current = (item) => {
       closeArch();
-      startDrag({ item: [item.path], icon: item.icon, mode: "copy" }, ({ result }) => {
-        if (result === "Dropped") void shelfApi.take(item.name).catch(() => {});
-      })
-        .then(() => invoke("neko_screen_drag_out"))
-        .catch(() => {});
+      void invoke("neko_screen_drag_out", { name: item.name }).catch(() => {});
     };
     // 끝을 넘었다 — 커서가 아직 그쪽이면 Rust 가 창을 옮긴다(neko-screen-moved). 그새 돌아왔으면 걸어 들어온다
     const offMenu = ctrl.on("decorMenu", setMenu);
@@ -379,7 +381,12 @@ export function NekoScreen() {
         fileDrag = null;
         eng.fileDrag?.(null);
       }),
-      me.listen<string>("neko-screen-drop-refused", () => void ctrl.react("sulk")),
+      // 못 넣었다(디스크·2GB 넘음 — 까닭은 Rust 가 로그에): 끄기를 끝내고 토라진다(sulk). 놓기 이벤트보다 먼저 올 수 있다
+      me.listen<string>("neko-screen-drop-refused", () => {
+        fileDrag = null;
+        eng.fileDrag?.(null);
+        ctrl.react("sulk");
+      }),
       listen("shelf-changed", () => void syncCarry()),
       me.listen<boolean>("neko-screen-active", ({ payload }) => {
         active = payload;

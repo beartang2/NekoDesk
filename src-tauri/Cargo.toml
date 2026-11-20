@@ -43,6 +43,8 @@ chacha20poly1305 = "0.10"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-drag = "2.1.1"
+# 마당 아치에서 끌어내기(neko_screen::drag_out) — 플러그인이 쓰는 그 크레이트를 Rust 에서 바로 부른다
+drag = "2.1.1"
 tauri-plugin-updater = "2"
 # 기기 연결 코드를 QR 로 그린다(sync/run.rs pair_qr) — 긴 코드를 폰에 손으로 칠 수 없다. 그림 의존 없이 SVG 글만 만든다.
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }

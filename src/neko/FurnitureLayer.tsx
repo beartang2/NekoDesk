@@ -14,7 +14,8 @@ const HOLD_MS = 500, HOLD_SLOP = 8;
  * 방·거실에 놓인 가구의 정지 그림 층(docs/neko-furniture.md §12): 고양이 무대 밑, 벽·창문 위. 놓거나 치울 때·조명이 바뀔 때·
  * 창밖 빛이 바뀔 때(1분)만 다시 그린다 — 가만히 있을 땐 프레임 비용이 없다. 활동 중 엔진이 직접 그리는 가구(도는 캣휠 등)는 뺀다.
  * 켜진 조명은 둘레에 따뜻한 빛 웅덩이(밤일수록 진하게, §8).
- * still(고양이가 이 자리에 없는 빈 방): 상자 앞 겹까지 그리고, 가구를 꾹 누르거나 우클릭하면 onMenu(그 가구 오른쪽 위) —
+ * 상자·캣휠도 두 겹 다 그린다(고양이 뒤) — 고양이가 들어가 있을 때만 엔진이 앞 겹을 고양이 위에 한 번 더 그린다.
+ * still(고양이가 이 자리에 없는 빈 방): 가구를 꾹 누르거나 우클릭하면 onMenu(그 가구 오른쪽 위) —
  * 고양이가 있으면 엔진이 furnitureMenu 로 알린다. 선물 위면 선물 몫이다
  */
 export function FurnitureLayer({ place, still = false, onMenu }: {
@@ -65,7 +66,7 @@ export function FurnitureLayer({ place, still = false, onMenu }: {
       if (held.has(p.f.id)) continue;
       drawFurniture(g, p.f.kind, p.x, floorY, S, {
         slotW: p.slotW, on: !!lamps[p.f.id], accent, edge: 4 * dpr,
-        layer: still ? "all" : "back", shadow: dark ? "rgba(0, 0, 0, 0.32)" : "rgba(20, 14, 24, 0.18)",
+        layer: "all", shadow: dark ? "rgba(0, 0, 0, 0.32)" : "rgba(20, 14, 24, 0.18)",
       });
     }
   });
