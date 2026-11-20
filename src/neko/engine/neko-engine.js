@@ -343,6 +343,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   let lastLabel = "";
   function setMode(m) {
     const c = cat;
+    // walls 가 막지 않는 자리(jumpTo): 가구·창 윗변으로 뛰면 착지 자리(towerJump), 땅에서 뛰면 뛴 자리 — 좁은 방 끝 칸 가구 위에서
+    // 뛰어내려도 벽 여백으로 순간이동하지 않게. 내려앉고 나면 푼다
+    if (m === "air" && GROUND.has(c.mode)) c.jumpTo ??= c.x;
+    else if (m !== "air" && m !== "fall" && m !== "land") c.jumpTo = null;
     c.mode = m; c.modeT = 0;
     if (m === "walk" || m === "idle" || POSE_MODES.has(m) || m === "act") for (const L of c.legs) { L.off0 = L.off; L.lift0 = L.lift; }
     if (m === "idle") c.wanderT = rand(1.3, 3.4);
@@ -444,10 +448,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
   function walls() {
     const c = cat, m = (c.climbFall ? 40 : 92) * S; // 머리·수염까지 무대 안에 들어오게(벽에서 떨어질 땐 벽에 붙은 자리부터)
+    // 뛰는 중이면 jumpTo(setMode)까지는 막지 않는다 — 좁은 방에서 끝 칸 캣휠·소파가 이 여백 안쪽에 걸려,
+    // 뛰어오르다 벽에 튕겨 바닥으로 떨어지고 다시 뛰기만 했다(사용자: 캣휠에 들어갔다 나왔다만 한다)
+    const lo = Math.min(m, c.jumpTo ?? m), hi = Math.max(W - m, c.jumpTo ?? W - m);
     // 열린 쪽은 벽이 아니다. 닫힌 쪽 밖에 있다가 걸어 들어오는 중(returning)이면 들어올 때까지 막지 않는다
-    if (returning && c.x >= m && c.x <= W - m) returning = false;
-    if (!returning && !EDGES.left && c.x < m) { c.x = m; c.vx = Math.abs(c.vx) * 0.45; }
-    if (!returning && !EDGES.right && c.x > W - m) { c.x = W - m; c.vx = -Math.abs(c.vx) * 0.45; }
+    if (returning && c.x >= lo && c.x <= hi) returning = false;
+    if (!returning && !EDGES.left && c.x < lo) { c.x = lo; c.vx = Math.abs(c.vx) * 0.45; }
+    if (!returning && !EDGES.right && c.x > hi) { c.x = hi; c.vx = -Math.abs(c.vx) * 0.45; }
     // 천장: 무대 위로 머리가 나가지 않게. 방·거실에 가구가 있으면(캣타워 2층은 무대 위쪽 가까이) 뛰는 동안은 더 높이까지 —
     // 머리 끝이 잠깐 잘려도 꼭대기에 올라선다
     const ceil = (!WORLD && TOPS.length ? 10 : 56) * S;
@@ -3641,6 +3648,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const f = furnOf("wheel");
       cat.treadmill = null; if (f) { f.spinning = false; syncFurnHeld(); }
       if (cat.mode === "walk") { cat.speed = 0; cat.vx = 0; setMode("idle"); } // 달리던 목표로 걸어가지 않게
+      if (f && cat.perch && cat.perch.fid === f.id) hopDown(f.x < W / 2 ? 1 : -1); // 활동이 끝나면 바퀴 밖으로(무대 안쪽으로 폴짝)
     },
   });
 
@@ -4192,7 +4200,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const c = cat, g = GRAV * S, dy = t.y - floorY, h = Math.max(0, -dy) + 30 * S, vy0 = -Math.sqrt(2 * g * h);
     const tt = (-vy0 + Math.sqrt(vy0 * vy0 + 2 * g * dy)) / g;
     if (c.perch) skipTop = { id: c.perch.id, until: time + tt + 0.15 }; // 아래 창으로 내려갈 땐 지금 윗변을 지나쳐야 한다
-    c.vx = (land - c.x) / Math.max(0.2, tt); c.vy = vy0; c.face = Math.sign(land - c.x) || c.face;
+    c.vx = (land - c.x) / Math.max(0.2, tt); c.vy = vy0; c.face = Math.sign(land - c.x) || c.face; c.jumpTo = land;
     c.squash.v += 4.2; c.ears.forEach((e) => (e.v -= 3.5)); c.jumpFromWalk = false; c.resume = false;
     A.phase = "flying"; setMode("air");
   }
@@ -4828,15 +4836,17 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /** 엔진이 지금 그리는 가구(움직이는 것): 정지 그림 층은 이걸 빼고 그린다 */
   // 캣휠은 서서히 멈추는 동안과 멈춘 각이 0(발바닥 로고가 바로 선 각, 정지 그림 층의 각)이 아닐 때도 엔진이 그린다 — 넘길 때 튀지 않게
   const wheelOff = (f) => f.kind === "wheel" && (Math.abs(f.spinV || 0) > 0.02 || Math.abs(Math.sin((f.spin || 0) / 2)) > 0.004);
-  const furnHeldIds = () => furniture.filter((f) => f.spinning || f.tapT > 0 || wheelOff(f)).map((f) => f.id);
+  const furnHeld = (f) => f.spinning || f.tapT > 0 || wheelOff(f);
+  const furnHeldIds = () => furniture.filter(furnHeld).map((f) => f.id);
   let furnHeldKey = "";
   function syncFurnHeld() {
     const ids = furnHeldIds(), key = ids.join("\n");
     if (key !== furnHeldKey) { furnHeldKey = key; emit("furnitureHeld", ids); }
   }
-  // 엔진이 그리는 가구는 늘 통째로(두 겹 다) 고양이 뒤에 — 정지 그림 층과 같다
+  // 엔진이 그리는 가구는 늘 통째로(두 겹 다) 고양이 뒤에 — 정지 그림 층과 같다. 맡겠다고 알린 것(furnHeld)은 다 그린다:
+  // 서서히 멈추는·멈춘 각이 0 이 아닌 캣휠을 빼먹어 숨 고르기마다 바퀴 몸통이 사라졌다 나타났다(사용자: 깜빡깜빡)
   function drawFurnitureBack() {
-    for (const f of furniture) if (f.spinning || f.tapT > 0) {
+    for (const f of furniture) if (furnHeld(f)) {
       ctx.save();
       if (f.tapT > 0) { ctx.translate(f.x, BASE_Y); ctx.rotate(Math.sin(f.tapT * 18) * 0.05 * f.tapT); ctx.translate(-f.x, -BASE_Y); }
       FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { on: f.on, spin: f.spin || 0, slotW: f.slotW, accent: f.accent || theme.accent, layer: "all" });
@@ -4877,8 +4887,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
   function furnitureStep(dt) {
     for (const f of furniture) {
+      // 목표에 닿으면 그대로(예전엔 1 에 닿은 다음 프레임에 도로 내려가 1 ↔ 0.97 을 오갔다 — 자르기 원이 프레임마다 커졌다 줄어
+      // 테 밖으로 나온 꼬리·몸이 깜빡였다, 사용자)
       const to = furnInside(f) ? 1 : 0, v = f.inV || 0;
-      f.inV = to > v ? Math.min(1, v + dt / FURN_IN_SEC) : Math.max(0, v - dt / FURN_IN_SEC);
+      f.inV = to > v ? Math.min(to, v + dt / FURN_IN_SEC) : Math.max(to, v - dt / FURN_IN_SEC);
     }
     let changed = false;
     for (const f of furniture) if (f.tapT > 0) { f.tapT = Math.max(0, f.tapT - dt * 1.4); if (!f.tapT) changed = true; }
@@ -5292,7 +5304,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     /** 이 장소에 놓인 가구(docs/neko-furniture.md): [{ id, kind, at, slot, on }]. 바뀔 때만 */
     setFurniture,
     /** 놓인 가구와 조명 켜짐(감독이 후보를 고를 때) */
-    get furniture() { return furniture.map((f) => ({ id: f.id, kind: f.kind, on: !!f.on, spin: f.spin || 0, spinV: f.spinV || 0 })); },
+    get furniture() { return furniture.map((f) => ({ id: f.id, kind: f.kind, on: !!f.on, spin: f.spin || 0, spinV: f.spinV || 0, inV: f.inV || 0 })); },
     hitFurniture,
     /** 입 원(무대 px): 가운데와 받는 반지름 50 × 배율 */
     get mouth() { const m = mouthPt(); return { x: m[0], y: m[1], r: MOUTH_R * S }; },

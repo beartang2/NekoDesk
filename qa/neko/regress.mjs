@@ -1387,7 +1387,43 @@ try {
     await p.close();
   }
 
-  // 9-u3) 물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
+  // 9-u2b) 캣휠(0.1.26, 사용자: 안에서 달리지 않고 들어갔다 나왔다만 한다·꼬리가 테 밖으로 나오면 깜빡인다). 맥 방 폭 280 의 끝 칸 캣휠:
+  //        첫 점프에 레일 위로(예전엔 착지 자리가 벽 여백 안쪽이라 벽에 튕겨 바닥으로 떨어지고 다시 뛰기만 했다), 안에 있는 동안 앞 겹 inV 가
+  //        1 에 머문다(1 ↔ 0.97 이면 자르기 원이 프레임마다 커졌다 줄어 깜빡였다), 숨 고르기 동안 맡은 바퀴를 엔진이 그린다(안 그려 사라졌다),
+  //        끝나면 바퀴 밖으로 나온다
+  {
+    const p = await open(`?w=280&h=326&scale=height&transparent=1`, { width: 400, height: 400 });
+    const r = await p.evaluate(async () => {
+      const FA = await import("/src/neko/engine/furniture-art.js");
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), g = cv.getContext("2d"), k = cv.width / n.W, out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(1.12); n.step(30);
+      let held = []; n.on("furnitureHeld", (e) => (held = e));
+      n.setFurniture([{ id: "Wh", kind: "wheel", at: "sidebar", slot: 0 }]);
+      c.x = n.W * 0.8; n.step(60); const base = n.floorY; n.act("wheel");
+      let hops = 0, pm = c.mode;
+      for (let i = 0; i < 120 * 12 && !c.treadmill; i++) { n.step(1); if (c.mode === "air" && pm !== "air") hops++; pm = c.mode; }
+      out.enter = { hops, treadmill: !!c.treadmill };
+      n.step(60);
+      const inV = []; for (let i = 0; i < 6; i++) { n.step(1); inV.push(n.furniture[0].inV); }
+      out.inV = inV.every((v) => v === 1);
+      for (let i = 0; i < 120 * 12 && c.mode !== "act"; i++) n.step(1); // 숨 고르기
+      n.step(60); n.draw();
+      // 바퀴 아래 띠(바닥 위 2~12%, 고양이는 레일 위라 없다)에 엔진이 그린 화소
+      const b = FA.furnitureBox("wheel", n.S, n.W / 2), x0 = n.W / 4 - b.w * 0.45, y0 = base - b.h * 0.12;
+      const d = g.getImageData(Math.round(x0 * k), Math.round(y0 * k), Math.round(b.w * 0.9 * k), Math.round(b.h * 0.1 * k)).data;
+      let px = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 40) px++;
+      out.rest = { mode: c.mode, held: held.includes("Wh"), px };
+      n.act(null);
+      for (let i = 0; i < 120 * 4 && c.perch; i++) n.step(1);
+      out.left = !c.perch;
+      return out;
+    });
+    check("캣휠: 좁은 방 끝 칸에도 첫 점프에 레일 위로, 안에선 앞 겹이 1 에 머묾, 숨 고르기 동안 맡은 바퀴를 엔진이 그림, 끝나면 밖으로", JSON.stringify(r),
+      r.enter.treadmill && r.enter.hops === 1 && r.inV && r.rest.mode === "act" && r.rest.held && r.rest.px > 50 && r.left);
+    await p.close();
+  }
+
+  // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {
     const p = await open(furn ? `?w=1100&h=240&scale=height&transparent=1` : "", { width: 1300, height: 1000 });
