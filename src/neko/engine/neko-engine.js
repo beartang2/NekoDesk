@@ -4742,12 +4742,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const b = FA.furnitureBox(f.kind, S, f.slotW);
       f.box = { x: f.x - b.w / 2, y: BASE_Y - b.h, w: b.w, h: b.h };
     }
-    TOPS = furniture.flatMap((f) => {
-      const tops = FA.furnitureSurfaces(f.kind, S, f.slotW).map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y }));
-      // 캣휠 안쪽 레일(디딜 곳 = 어두운 레일 띠 안쪽 가장자리, 바닥에서 h × 0.166): 그림(furniture-art)에 면이 생기면 그걸 쓴다
-      if (f.kind === "wheel" && !tops.length) tops.push({ id: `f:${f.id}:0`, win: "furniture", fid: f.id, x0: f.x - f.box.w * 0.3, x1: f.x + f.box.w * 0.3, y: BASE_Y - f.box.h * 0.166 });
-      return tops;
-    });
+    // 올라앉는 면(그림 furniture-art 한 곳): 캣타워 발판·소파 쿠션·캣휠 안 레일
+    TOPS = furniture.flatMap((f) => FA.furnitureSurfaces(f.kind, S, f.slotW)
+      .map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y })));
     const c = cat, was = c.perch;
     if (!was) return;
     const t = TOPS.find((o) => o.id === was.id);
