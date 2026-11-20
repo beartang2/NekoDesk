@@ -274,7 +274,7 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
 
   // 0. 생각하기(docs/neko-mind.md §6.1): 네코가 노트·알아본 주제(횟수·날짜)·기억을 보고 이번 주제를 고른다. 하위 에이전트에는
   //    그 한 줄만 간다(사용자 기억은 안 간다 — 사용자 사실이 섞인 주제는 버린다). 안 되면 지금처럼 하위 에이전트가 스스로 고른다
-  const topic = await chooseWalkTopic(memories, signal).catch(() => null);
+  const topic = await chooseWalkTopic(memories, signal, ctx.places.slice(0, 5).map((p) => p.name)).catch(() => null);
   if (signal.aborted) return;
 
   // 1. 스스로 알아보기 — 격리된 하위 에이전트. 과정은 버리고 요약만 받는다.

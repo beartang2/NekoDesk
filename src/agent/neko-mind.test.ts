@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Memory } from "./types";
 
 /** 네코의 마음 1단계(docs/neko-mind.md): 노트 저장, 사용자 사실이 새는지, 생각하기 실패 처리, 산책 주제 */
-const h = vi.hoisted(() => ({ kv: new Map<string, string>(), reply: null as unknown, fail: false, slow: false, mems: [] as unknown[] }));
+const h = vi.hoisted(() => ({ kv: new Map<string, string>(), reply: null as unknown, fail: false, slow: false, mems: [] as unknown[], judge: "", judged: 0 }));
 vi.hoisted(() => {
   const kv = new Map<string, string>();
   globalThis.localStorage = { getItem: (k: string) => kv.get(k) ?? null, setItem: (k: string, v: string) => void kv.set(k, v), removeItem: (k: string) => void kv.delete(k) } as Storage;
@@ -13,6 +13,7 @@ vi.mock("../api/tauri", () => ({
 }));
 vi.mock("./llm-client", () => ({
   DEFAULT_CHAT_SYSTEM_PROMPT: "기본",
+  fetchCompletion: async () => { h.judged++; return h.judge; },
   fetchCompletionMessage: async (_m: unknown, _p: unknown, _u: unknown, signal?: AbortSignal) => {
     if (h.fail) throw new Error("꺼짐");
     if (h.slow) await new Promise((_, no) => signal?.addEventListener("abort", () => no(new Error("abort"))));
@@ -20,7 +21,8 @@ vi.mock("./llm-client", () => ({
   },
 }));
 
-import { chooseAmong, chooseWalkTopic, forgetNote, leaksFact, loadMind, mindMaterial, noteWonder, parseMind, restThink, takeGreeting, think, currentLean } from "./neko-mind";
+import { chooseAmong, chooseWalkTopic, forgetNote, leaksFact, loadMind, mindMaterial, noteWonder, parseMind, recentInterests, restThink, takeGreeting, think, currentLean } from "./neko-mind";
+import { useSessionStore } from "../stores/sessionStore";
 
 const mem = (id: number, kind: string, content: string, created_at = "2026-11-01 09:00:00"): Memory => ({ id, kind, content, created_at, use_count: 0 });
 const MEMS = [
@@ -30,7 +32,7 @@ const MEMS = [
   mem(4, "neko", "산책하다 알게 됨: 고양이는 하루 16시간 잔다"),
 ];
 
-beforeEach(() => { h.kv.clear(); h.reply = null; h.fail = false; h.slow = false; h.mems = []; });
+beforeEach(() => { h.kv.clear(); h.reply = null; h.fail = false; h.slow = false; h.mems = []; h.judge = ""; h.judged = 0; useSessionStore.setState({ sessions: [] }); });
 
 describe("노트 읽기", () => {
   it("모르는 칸·망가진 줄은 버리고, 옛 값이 없으면 빈 마음", () => {
@@ -161,5 +163,41 @@ describe("3단계: 기울기", () => {
     expect(m.lean?.like).toEqual(["groom"]);
     expect(m.lean?.why).toBeUndefined();
     expect(parseMind(JSON.stringify({ lean: { at: "x", like: ["yarn"] } })).lean).toBeUndefined();
+  });
+});
+
+describe("산책 주제가 한쪽으로 쏠리지 않게(0.1.22): 규칙 대신 재료를 넓힌다", () => {
+  const visits = (field: string | undefined, days: string[]) => ({ topic: `${field ?? "옛"} ${days[0]}`, at: days, ...(field ? { field } : {}) });
+
+  it("최근 10번의 갈래를 묶어 보여 준다(네코가 붙인 갈래로 센다), 계절·지나는 곳·관심도 재료에", () => {
+    const mind = parseMind(JSON.stringify({ topics: [
+      visits("동물", ["2026-11-01", "2026-11-03", "2026-11-05", "2026-11-07"]),
+      visits("동물", ["2026-11-09", "2026-11-11", "2026-11-13", "2026-11-15"]),
+      visits("날씨", ["2026-11-16"]),
+      visits(undefined, ["2026-11-17"]),
+    ] }));
+    const text = mindMaterial(mind, MEMS, { facts: false, places: ["망원 시장", "한강 공원"], interests: ["요리", "여행"], now: new Date("2026-11-20T09:00:00+09:00") }).join("\n");
+    expect(text).toContain("최근 10번의 갈래: 동물 8번, 날씨 1번, (갈래 안 적음) 1번");
+    expect(text).toContain("가을");
+    expect(text).toContain("## 이번 산책에 지나는 곳\n망원 시장, 한강 공원");
+    expect(text).toContain("## 사용자가 요즘 이야기한 것(관심)\n요리, 여행");
+  });
+
+  it("주제를 고를 때 네코가 붙인 갈래를 함께 남긴다", async () => {
+    h.reply = { pick: "늦가을 은행잎이 노란 까닭", why: "고양이 얘기만 했네", field: "계절" };
+    await chooseWalkTopic(MEMS, undefined, ["한강 공원"]);
+    expect((await loadMind()).topics[0]).toMatchObject({ topic: "늦가을 은행잎이 노란 까닭", field: "계절" });
+  });
+
+  it("대화 제목에서 관심 낱말(하루 한 번 판정) — 사용자 사실 조각을 담은 낱말은 버린다", async () => {
+    h.mems = MEMS;
+    useSessionStore.setState({ sessions: [
+      { id: "a", title: "파스타 레시피", date: "", createdAt: 3 }, { id: "b", title: "제주 여행 계획", date: "", createdAt: 2 }, { id: "c", title: "새 대화", date: "", createdAt: 1 },
+    ] as never });
+    h.judge = "요리, 여행, 김하린, - 사진";
+    expect(await recentInterests(MEMS)).toEqual(["요리", "여행", "사진"]);
+    h.judge = "다른 답";
+    expect(await recentInterests(MEMS)).toEqual(["요리", "여행", "사진"]); // 오늘은 다시 안 묻는다
+    expect(h.judged).toBe(1);
   });
 });

@@ -1,5 +1,7 @@
 import { memoryApi, settingsApi } from "../api/tauri";
-import { DEFAULT_CHAT_SYSTEM_PROMPT, fetchCompletionMessage } from "./llm-client";
+import { DEFAULT_CHAT_SYSTEM_PROMPT, fetchCompletion, fetchCompletionMessage } from "./llm-client";
+import { useSessionStore } from "../stores/sessionStore";
+import { weatherNowSnapshot } from "../neko/weatherNow";
 import { isClaudeActive, nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { budgetBlockReason } from "../stores/claudeBudget";
 import { timeZone } from "../lib/time";
@@ -32,7 +34,8 @@ export interface MindNote {
   what?: string;
   why?: string;
 }
-export interface MindTopic { topic: string; at: string[] }
+/** field = 네코가 스스로 붙인 갈래 한두 낱말(0.1.22, 옛 기록엔 없다) */
+export interface MindTopic { topic: string; at: string[]; field?: string }
 /** 요즘 기울기(3단계): 좋아하는 혼자 놀기·질린 것. 감독이 가중치로 읽는다(director/needs soloOdds) */
 export interface MindLean { at: string; like: NekoActivity[]; tired: NekoActivity[]; why?: string }
 export interface NekoMind { v: 1; notes: MindNote[]; topics: MindTopic[]; lean?: MindLean }
@@ -64,7 +67,8 @@ export function parseMind(raw: string | null): NekoMind {
   const topics = (Array.isArray(o.topics) ? o.topics : []).flatMap((t): MindTopic[] => {
     const r = (t ?? {}) as Record<string, unknown>;
     const topic = line(r.topic, TOPIC_MAX), at = (Array.isArray(r.at) ? r.at : []).filter((d): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d));
-    return topic && at.length ? [{ topic, at }] : [];
+    const field = line(r.field, 12);
+    return topic && at.length ? [{ topic, at, ...(field ? { field } : {}) }] : [];
   });
   const l = ((o as { lean?: unknown }).lean ?? null) as Record<string, unknown> | null;
   const leanAt = l && typeof l.at === "string" && !Number.isNaN(Date.parse(l.at)) ? l.at : "";
@@ -141,15 +145,24 @@ function section(title: string, body: string): string {
  * 생각하기 재료 덩이들(§6). 사용자 기억은 취향 위주로 12개까지. facts=false 면 사용자 사실(fact·project·reference)을 빼고 취향만 —
  * 노트를 쓰는 생각하기(노트가 웹으로 가는 산책 주제의 재료가 된다)는 늘 false 다
  */
-export function mindMaterial(mind: NekoMind, memories: Memory[], o: { facts?: boolean; now?: Date } = {}): string[] {
+export function mindMaterial(mind: NekoMind, memories: Memory[], o: { facts?: boolean; now?: Date; places?: string[]; interests?: string[] } = {}): string[] {
   const now = o.now ?? new Date();
   const n = useNekoNeeds.getState().needs;
   const wd = now.toLocaleDateString("ko-KR", { weekday: "long", timeZone: timeZone() });
   const hour = Number(now.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: timeZone() })) % 24;
-  const nowText = `${ymd(now)} ${wd} ${dayPart(hour)}\n기운 ${Math.round(n.energy)} · 호기심 ${Math.round(n.curiosity)} · 청결 ${Math.round(n.clean)} · 애정 ${Math.round(n.affection)} (0–100)`;
+  const month = Number(now.toLocaleString("en-US", { month: "numeric", timeZone: timeZone() }));
+  const w = weatherNowSnapshot();
+  const nowText = [
+    `${ymd(now)} ${wd} ${dayPart(hour)}, ${season(month)}`,
+    w ? `날씨: ${w.label} ${Math.round(w.temp)}°` : "",
+    `기운 ${Math.round(n.energy)} · 호기심 ${Math.round(n.curiosity)} · 청결 ${Math.round(n.clean)} · 애정 ${Math.round(n.affection)} (0–100)`,
+  ].filter(Boolean).join("\n");
   const notes = mind.notes.slice(-20).map((x) =>
     `- ${md(x.at)} ${KIND_NAME[x.kind]}${x.what ? `(${WHAT_NAME[x.what] ?? x.what})` : ""}: ${x.text}${x.why ? ` — ${x.why}` : ""}`).join("\n");
-  const topics = mind.topics.map((t) => `- ${t.topic} — ${t.at.length}번: ${t.at.map((d) => md(d)).join(", ")}`).join("\n");
+  const topics = [
+    ...mind.topics.map((t) => `- ${t.topic}${t.field ? ` [${t.field}]` : ""} — ${t.at.length}번: ${t.at.map((d) => md(d)).join(", ")}`),
+    fieldsLine(mind.topics),
+  ].filter(Boolean).join("\n");
   const walked = memories.filter((m) => m.kind === "neko").slice(0, 12)
     .map((m) => `- (${md(m.created_at)}, 떠올림 ${m.use_count ?? 0}번) ${m.content}`).join("\n");
   const user = [...memories.filter((m) => m.kind === "preference"), ...(o.facts ? memories.filter((m) => USER_FACT.has(m.kind)) : [])]
@@ -160,7 +173,57 @@ export function mindMaterial(mind: NekoMind, memories: Memory[], o: { facts?: bo
     section("내가 알아본 주제", topics),
     section("산책에서 알게 된 것", walked),
     section("사용자에 대해 아는 것", user),
+    section("사용자가 요즘 이야기한 것(관심)", (o.interests ?? []).join(", ")),
+    section("이번 산책에 지나는 곳", (o.places ?? []).join(", ")),
   ].filter(Boolean);
+}
+
+const season = (m: number) => (m >= 3 && m <= 5 ? "봄" : m >= 6 && m <= 8 ? "여름" : m >= 9 && m <= 11 ? "가을" : "겨울");
+
+/**
+ * 최근 산책 10번의 갈래 묶음(네코가 고를 때 스스로 붙인 갈래로 센다 — 코드는 낱말로 가르지 않는다). 한쪽으로 쏠렸는지 네코가
+ * 보고 스스로 판단하게(사용자: 고양이 연구로만 쏠린다, 0.1.22). 갈래를 안 적은 옛 기록은 따로 센다
+ */
+function fieldsLine(topics: MindTopic[]): string {
+  const visits = topics.flatMap((t) => t.at.map((d) => ({ d, f: t.field }))).sort((a, b) => a.d.localeCompare(b.d)).slice(-10);
+  if (visits.length < 3) return "";
+  const count = new Map<string, number>();
+  for (const v of visits) count.set(v.f ?? "(갈래 안 적음)", (count.get(v.f ?? "(갈래 안 적음)") ?? 0) + 1);
+  return `최근 ${visits.length}번의 갈래: ${[...count].sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f} ${n}번`).join(", ")}`;
+}
+
+// ── 사용자가 요즘 이야기한 관심(대화 제목에서, 하루 한 번) ─────────────────────
+
+/** 이 기기에만: 오늘 뽑은 관심 낱말 */
+const INTEREST_KEY = "neko_interests";
+const INTEREST_JUDGE =
+  "대화 제목들을 보고 사용자의 관심 분야를 일반적인 낱말 3~5개로만 뽑아. 사람 이름·장소·날짜·회사·제품 이름 같은 고유한 건 빼고, 쉼표로만 구분해.";
+
+/**
+ * 최근 대화 제목 10개에서 관심 분야 낱말(여행·요리·프로그래밍 같은 일반어) 3~5개. 생각 끈 작은 판정 한 번, 하루에 한 번만 한다.
+ * 산책 주제의 재료라(웹으로 갈 수 있다) 사용자 사실 조각을 담은 낱말은 버린다. 안 되면 빈 목록
+ */
+export async function recentInterests(memories: Memory[]): Promise<string[]> {
+  const day = ymd(new Date());
+  try {
+    const c = JSON.parse((await settingsApi.get(INTEREST_KEY).catch(() => null)) ?? "null") as { day?: string; words?: unknown } | null;
+    if (c?.day === day && Array.isArray(c.words)) return c.words.filter((w): w is string => typeof w === "string");
+  } catch { /* 새로 뽑는다 */ }
+  const titles = [...useSessionStore.getState().sessions]
+    .filter((x) => x.title && x.title !== "새 대화")
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .slice(0, 10).map((x) => `- ${x.title}`);
+  if (!titles.length || (isClaudeActive() && budgetBlockReason())) return [];
+  const raw = await fetchCompletion(
+    [{ role: "system", content: INTEREST_JUDGE }, { role: "user", content: titles.join("\n") }],
+    { max_tokens: 60, temperature: 0, thinking: false },
+    undefined,
+    AbortSignal.timeout(8000),
+  ).catch(() => "");
+  const words = [...new Set(raw.split(/[,\n·、]/).map((w) => w.replace(/^[-*\s]+/, "").trim()))]
+    .filter((w) => w && w.length <= 12 && !leaksFact(w, memories)).slice(0, 5);
+  await settingsApi.set(INTEREST_KEY, JSON.stringify({ day, words })).catch(() => {});
+  return words;
 }
 
 // ── 생각하기 ─────────────────────────────────────────────────────────────────
@@ -244,11 +307,16 @@ export async function think(ask: string, material: string[], signal?: AbortSigna
  * 주제가 사용자 사실을 담거나 생각하기가 안 되면 null — 하위 에이전트가 지금처럼 스스로 고른다. 고른 주제와 까닭, 따라 나온
  * 궁금한 것은 노트에 남긴다
  */
-export async function chooseWalkTopic(memories: Memory[], signal?: AbortSignal): Promise<string | null> {
+export async function chooseWalkTopic(memories: Memory[], signal?: AbortSignal, places: string[] = []): Promise<string | null> {
   const mind = await loadMind();
-  const t = await think(`이번 산책에서 알아볼 주제 하나(${TOPIC_MAX}자 안)`, mindMaterial(mind, memories, { facts: false }), signal);
+  const interests = await recentInterests(memories).catch(() => []);
+  if (signal?.aborted) return null;
+  const t = await think(`이번 산책에서 알아볼 주제 하나(${TOPIC_MAX}자 안). field 엔 그 주제의 갈래 한두 낱말`,
+    mindMaterial(mind, memories, { facts: false, places, interests }), signal, THINK_MS,
+    { field: { type: "string", description: "이 주제의 갈래 한두 낱말(예: 동물, 날씨, 음식, 동네, 역사, 과학, 음악)" } });
   if (!t || signal?.aborted) return null;
   const topic = t.pick.slice(0, TOPIC_MAX);
+  const field = line(t.extra?.field, 12);
   if (leaksFact(topic, memories)) return null;
   const at = new Date().toISOString(), day = ymd(new Date());
   await updateMind((m) => {
@@ -256,7 +324,7 @@ export async function chooseWalkTopic(memories: Memory[], signal?: AbortSignal):
     const prev = m.topics.find((x) => x.topic === topic);
     const notes: MindNote[] = [...m.notes, { at, kind: "chose", what: "walk_topic", text: topic, ...(t.why && !leaksFact(t.why, memories) ? { why: t.why } : {}) }];
     if (t.note && !leaksFact(t.note.text, memories)) notes.push({ at, kind: t.note.kind, text: t.note.text });
-    return { ...m, notes, topics: [...topics, { topic, at: [...(prev?.at ?? []).filter((d) => d !== day), day] }] };
+    return { ...m, notes, topics: [...topics, { topic, at: [...(prev?.at ?? []).filter((d) => d !== day), day], ...(field && !leaksFact(field, memories) ? { field } : prev?.field ? { field: prev.field } : {}) }] };
   });
   return topic;
 }
