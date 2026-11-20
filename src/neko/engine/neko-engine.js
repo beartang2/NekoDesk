@@ -4751,7 +4751,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (WORLD) return;
     const prev = new Map(furniture.map((f) => [f.id, f]));
     furniture = (Array.isArray(items) ? items : []).filter((f) => f && f.id != null && FURN_KINDS.has(f.kind) && (f.at === "sidebar" || f.at === "dock") && Number.isInteger(f.slot))
-      .map((f) => ({ id: String(f.id), kind: f.kind, at: f.at, slot: f.slot, on: prev.get(String(f.id))?.on ?? !!f.on, x: 0, slotW: 0, box: null }));
+      .map((f) => ({ id: String(f.id), kind: f.kind, at: f.at, slot: f.slot, on: prev.get(String(f.id))?.on ?? !!f.on, accent: typeof f.accent === "string" ? f.accent : "", x: 0, slotW: 0, box: null }));
     layoutFurniture();
     const bs = actOf("box"); if (bs) bs.roam = !!furnOf("box"); // 상자 가구가 있으면 상자 놀이는 그리로 걸어간다
     if (cat.act && FURN_ACTS.has(cat.act.key) && !furnOf(cat.act.key)) endAct(); // 그 가구를 치웠다
@@ -4778,12 +4778,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     for (const f of furniture) if (f.spinning || f.tapT > 0) {
       ctx.save();
       if (f.tapT > 0) { ctx.translate(f.x, BASE_Y); ctx.rotate(Math.sin(f.tapT * 18) * 0.05 * f.tapT); ctx.translate(-f.x, -BASE_Y); }
-      FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { on: f.on, spin: f.spin || 0, slotW: f.slotW, accent: theme.accent, layer: f.kind === "box" ? "back" : "all" });
+      FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { on: f.on, spin: f.spin || 0, slotW: f.slotW, accent: f.accent || theme.accent, layer: f.kind === "box" ? "back" : "all" });
       ctx.restore();
     }
   }
   function drawFurnitureFront() {
-    for (const f of furniture) if (f.kind === "box") FA.drawFurniture(ctx, "box", f.x, BASE_Y, S, { slotW: f.slotW, layer: "front", shadow: null });
+    for (const f of furniture) if (f.kind === "box") FA.drawFurniture(ctx, "box", f.x, BASE_Y, S, { slotW: f.slotW, accent: f.accent || theme.accent, layer: "front", shadow: null });
   }
   function furnitureMenuOf(id) {
     const f = furniture.find((o) => o.id === id);

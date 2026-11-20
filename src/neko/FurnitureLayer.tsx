@@ -4,7 +4,7 @@ import { furnitureSlots, hitDecorAt } from "./engine/decor-draw";
 import { stageS } from "./engine/stage-scale";
 import { placedAt, useNekoFurniture } from "./furniture";
 import { decorItems, useNekoGifts } from "./gifts";
-import { accentHex, useFurnitureHeld, useLamps } from "./furnitureHost";
+import { useAccent, useFurnitureHeld, useLamps } from "./furnitureHost";
 import { useSkyLight } from "./Wallpaper";
 
 /** 꾹 누르기('치우기' 메뉴): 이만큼(ms) 이 거리(px) 안에서 누르고 있으면. 선물 '정리'와 같다 */
@@ -25,7 +25,7 @@ export function FurnitureLayer({ place, still = false, onMenu }: {
   const ref = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const items = useNekoFurniture((s) => s.items);
-  const held = useFurnitureHeld(), lamps = useLamps(), sky = useSkyLight();
+  const held = useFurnitureHeld(), lamps = useLamps(), sky = useSkyLight(), accent = useAccent();
   useEffect(() => { void useNekoFurniture.getState().load(); }, []);
   useEffect(() => {
     const el = ref.current;
@@ -52,7 +52,7 @@ export function FurnitureLayer({ place, still = false, onMenu }: {
     if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
-    const accent = accentHex(), dark = !document.documentElement.classList.contains("light");
+    const dark = !document.documentElement.classList.contains("light");
     // 켜진 조명의 빛 웅덩이: 낮엔 거의 안 보이고 밤일수록 진하게(밤 0.32·노을 0.2·낮 0.06)
     for (const p of placed) {
       if (p.f.kind !== "lamp" || !lamps[p.f.id] || held.has(p.f.id)) continue;

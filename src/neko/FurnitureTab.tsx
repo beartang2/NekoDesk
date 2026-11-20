@@ -8,20 +8,20 @@ import { PLACE_NAME } from "./gifts";
 import { IS_PHONE } from "../lib/platform";
 import type { PlaceAsk } from "./PlacePicker";
 import { GiftThumb } from "./NekoGiftBox";
-import { accentHex } from "./furnitureHost";
+import { useAccent } from "./furnitureHost";
 
 /** 가구 그림(칸 크기에 맞춰). 기본 가구는 furniture-art, 물어온 가구는 모델이 그린 모양 */
 export function FurnitureThumb({ item, size = 64 }: { item: FurnitureItem; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), accent = useAccent();
   useEffect(() => {
     const g = ref.current?.getContext("2d");
     if (!g || item.shape) return;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, size, size);
     const b = furnitureBox(item.kind, 1), S = (size * 0.82) / Math.max(b.w, b.h);
-    drawFurniture(g, item.kind, size / 2, size / 2 + (b.h * S) / 2, S, { accent: accentHex(), edge: 3 * dpr, shadow: null });
-  }, [item.kind, item.shape, size, dpr]);
+    drawFurniture(g, item.kind, size / 2, size / 2 + (b.h * S) / 2, S, { accent, edge: 3 * dpr, shadow: null });
+  }, [item.kind, item.shape, size, dpr, accent]);
   if (item.shape) return <GiftThumb shape={item.shape} size={size} />;
   return <canvas ref={ref} width={size * dpr} height={size * dpr} style={{ width: size, height: size }} aria-hidden />;
 }

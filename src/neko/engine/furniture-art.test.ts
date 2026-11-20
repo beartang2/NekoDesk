@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { FURNITURE_ART, drawFurniture, furnitureBox, furnitureSurfaces, type FurnitureKind } from "./furniture-art.js";
+import { FURNITURE_ART, accentTone, drawFurniture, furnitureBox, furnitureSurfaces, type FurnitureKind } from "./furniture-art.js";
 
 const kinds = Object.keys(FURNITURE_ART) as FurnitureKind[];
 
 describe("가구 그림(docs/neko-furniture.md §9·§11)", () => {
-  it("기준 크기는 고양이 키 단위라 S 를 따른다(조명 1.5·캣타워 1.8·캣휠 1.3·소파 폭 2.2·상자 0.8)", () => {
+  it("기준 크기는 고양이 키 단위라 S 를 따른다(조명 1.5·캣타워 1.8·캣휠 2.0·소파 폭 2.2·상자 0.8)", () => {
     for (const S of [0.35, 0.68, 1.4]) {
       expect(furnitureBox("lamp", S).h / (100 * S)).toBeCloseTo(1.5, 6);
       expect(furnitureBox("cattower", S).h / (100 * S)).toBeCloseTo(1.8, 6);
-      expect(furnitureBox("wheel", S).h / (100 * S)).toBeCloseTo(1.3, 6);
+      expect(furnitureBox("wheel", S).h / (100 * S)).toBeCloseTo(2.0, 6);
       expect(furnitureBox("sofa", S).w / (100 * S)).toBeCloseTo(2.2, 6);
       expect(furnitureBox("sofa", S).h / (100 * S)).toBeCloseTo(0.9, 1);
       expect(furnitureBox("box", S).h / (100 * S)).toBeCloseTo(0.8, 6);
@@ -37,5 +37,23 @@ describe("가구 그림(docs/neko-furniture.md §9·§11)", () => {
       drawFurniture(g, k, 100, 200, 1, { on: true, spin: 1, accent: "#33aa88" });
       expect(calls.includes("fill")).toBe(true);
     }
+  });
+});
+
+describe("포인트 색 계열(사용자: 강조 색과 같은 계열로 자연스럽게)", () => {
+  const hsl = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2;
+    const h = !d ? 0 : mx === r ? ((((g - b) / d) % 6) + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return { h: h * 60, s: d ? d / (1 - Math.abs(2 * l - 1)) : 0, l };
+  };
+  it("색상은 그대로, 채도는 상한까지, 밝기는 정한 값 — 형광 색도 차분하게", () => {
+    for (const a of ["#75a7ce", "#ff0000", "#00ff66", "#ffd400", "#8a2be2", "#ff69b4"]) {
+      const t = hsl(accentTone(a, 0.45, 0.64)), o = hsl(a);
+      expect(Math.abs(t.h - o.h) % 360).toBeLessThan(3);
+      expect(t.s).toBeLessThanOrEqual(Math.min(o.s, 0.45) + 0.02);
+      expect(t.l).toBeCloseTo(0.64, 1);
+    }
+    expect(accentTone("", 0.5, 0.6)).toBe("");
+    expect(accentTone("#808080", 0.5, 0.6)).toBe("#999999"); // 회색은 회색
   });
 });

@@ -235,7 +235,7 @@ export interface NekoController {
    * 이 장소에 놓인 가구(칸 번호로, docs/neko-furniture.md §4). 자리·크기는 엔진이 무대가 바뀔 때마다 칸과 그림으로 다시 잰다.
    * 캣타워 발판·소파 쿠션은 올라앉는 면이 된다. on = 조명 켜짐(엔진이 바꾸면 lamp 사건)
    */
-  setFurniture(items: { id: string; kind: "lamp" | "cattower" | "wheel" | "sofa" | "box"; at: "sidebar" | "dock"; slot: number; on?: boolean }[]): void;
+  setFurniture(items: { id: string; kind: "lamp" | "cattower" | "wheel" | "sofa" | "box"; at: "sidebar" | "dock"; slot: number; on?: boolean; accent?: string }[]): void;
   /** 놓인 가구와 조명 켜짐(감독이 혼자 놀기 후보를 고를 때) */
   readonly furniture: { id: string; kind: string; on: boolean }[];
   /** 이 점(무대 px)이 가구 위면 그 id */
