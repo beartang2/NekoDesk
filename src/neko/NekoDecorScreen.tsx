@@ -146,6 +146,8 @@ export function NekoDecorScreen() {
     // 그림 칸(shape.img, 채팅 낙서)은 처음 볼 때 읽는다 — 다 읽으면 다시 그린다(그 전엔 매트만)
     const offImg = onShapeImage(draw);
     void Promise.all(offs).then(() => emitTo("main", "neko-decor-ready")).catch(() => {});
+    // 첫 화면을 그렸다 — 투명도 0 으로 만든 창을 보인다(그리기 전 한 프레임이 모니터를 덮지 않게, 안 부르면 Rust 가 조금 뒤 보인다)
+    requestAnimationFrame(() => requestAnimationFrame(() => void invoke("neko_screen_reveal").catch(() => {})));
     return () => {
       window.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);

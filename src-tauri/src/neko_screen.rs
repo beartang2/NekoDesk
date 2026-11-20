@@ -514,6 +514,8 @@ fn create(app: &AppHandle) -> Result<(), AppError> {
     if !on_main(app, move || unsafe { macos::setup(ns as *mut objc2::runtime::AnyObject) })? {
         log::warn!("화면 네코 창을 패널로 못 바꿨어 — 눌렀을 때 키보드를 뺏을 수 있다");
     }
+    // 첫 화면을 그리면 화면 창이 `neko_screen_reveal` 을 부른다. 안 오면 폴러가 REVEAL_AFTER 뒤에 보인다
+    STATE.lock()?.hidden_at = Some(Instant::now());
     Ok(())
 }
 
@@ -615,6 +617,12 @@ fn create_decor(app: &AppHandle, label: &str) -> Result<tauri::WebviewWindow, Ap
         .build()?;
     let ns = win.ns_window()? as usize;
     on_main(app, move || unsafe { macos::setup(ns as *mut objc2::runtime::AnyObject) })?;
+    // 첫 화면을 그리면 선물 창이 `neko_screen_reveal` 을 부른다. 안 오면 REVEAL_AFTER 뒤에 보인다
+    let (app, label) = (app.clone(), label.to_string());
+    std::thread::spawn(move || {
+        std::thread::sleep(REVEAL_AFTER);
+        let _ = reveal(&app, &label);
+    });
     Ok(win)
 }
 
@@ -661,7 +669,7 @@ fn poll(app: AppHandle) {
             sent = None;
         }
         if STATE.lock().is_ok_and(|st| st.hidden_at.is_some_and(|t| t.elapsed() > REVEAL_AFTER)) {
-            let _ = reveal(&app);
+            let _ = reveal(&app, LABEL);
         }
         tick = tick.wrapping_add(1);
         std::thread::sleep(if !active { SLOW } else if near { TICK } else { FAR_TICK });
@@ -939,10 +947,17 @@ pub fn cross(app: &AppHandle, side: Side) -> Result<bool, AppError> {
     Ok(true)
 }
 
-/// 화면 창: 세계를 옮기고 새 자리에 그렸다 — 다시 보인다.
-pub fn reveal(app: &AppHandle) -> Result<(), AppError> {
-    let Some(win) = app.get_webview_window(LABEL) else { return Ok(()) };
-    STATE.lock()?.hidden_at = None;
+/// 마당 창(고양이 창·선물 창)이 첫 화면을 그렸다, 또는 고양이 창이 세계를 옮기고 새 자리에 그렸다 — 보인다.
+/// 새로 만든 창은 투명도 0 으로 시작한다(`macos::setup`): 페이지가 그리기 전 한 프레임이 앱 바탕색으로 모니터를 덮어
+/// 마당을 켤 때·모니터를 꽂을 때 깜빡였다.
+pub fn reveal(app: &AppHandle, label: &str) -> Result<(), AppError> {
+    if label != LABEL && !label.starts_with(DECOR) {
+        return Ok(());
+    }
+    let Some(win) = app.get_webview_window(label) else { return Ok(()) };
+    if label == LABEL {
+        STATE.lock()?.hidden_at = None;
+    }
     let ns = win.ns_window()? as usize;
     on_main(app, move || unsafe { macos::reveal(ns as *mut objc2::runtime::AnyObject) })
 }
@@ -1051,6 +1066,8 @@ pub(crate) mod macos {
         let _: () = msg_send![window, setCollectionBehavior: CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY | STATIONARY | IGNORES_CYCLE];
         let _: () = msg_send![window, setIgnoresMouseEvents: Bool::YES];
         let _: () = msg_send![window, setCanHide: Bool::NO];
+        // 페이지가 첫 화면을 그릴 때까지 안 보인다(`reveal`) — 그 전 한 프레임이 모니터를 덮지 않게
+        let _: () = msg_send![window, setAlphaValue: 0.0f64];
         ok
     }
 

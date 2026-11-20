@@ -9,7 +9,18 @@
       var pref = localStorage.getItem("nekodesk_theme");
       var dark = pref === "dark" || (pref === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
       if (!dark) document.documentElement.classList.add("light");
+      // 투명 창(캡처 막·빛·마당 고양이·마당 선물)은 첫 그림부터 투명하게. main.tsx 가 class 를 달기 전에
+      // 앱 바탕색이 한 프레임 모니터 전체를 덮어 깜빡였다(마당을 켤 때 모든 모니터). 창 이름은 Tauri 가 먼저 심어 둔다
+      var win = ((window.__TAURI_INTERNALS__ || {}).metadata || {}).currentWindow;
+      var label = (win && win.label) || "";
+      if (/^(capture-|neko-decor-)/.test(label) || label === "glow" || label === "neko-screen") {
+        document.documentElement.classList.add("capture-window");
+      }
     </script>
+    <style>
+      /* 위 class 와 짝: 앱 CSS 가 아직 안 왔어도 바탕을 칠하지 않는다(CaptureOverlay.css 와 같은 규칙) */
+      html.capture-window, html.capture-window body { background: transparent !important; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

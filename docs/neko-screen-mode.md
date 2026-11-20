@@ -49,6 +49,9 @@
 - 라벨은 `neko-screen` 이다. Rust 의 새 모듈 `neko_screen.rs` 가 `glow.rs` 와 같은 방식으로 처음 쓸 때 만든다.
   - 빌더 설정: `transparent`, `decorations(false)`, `shadow(false)`, `resizable(false)`, `skip_taskbar`, `visible(false)`, `focused(false)`, `accept_first_mouse(true)`.
   - `main.tsx` 는 이 라벨을 보면 `<NekoScreen />` 을 그린다. 바탕을 투명하게 하는 `capture-window` 클래스도 붙인다.
+  - **깜빡임 없이 띄우기(0.1.24)**: 고양이 창과 선물 창은 메인 앱과 같은 `index.html` 을 읽어, `main.tsx` 가 클래스를 달기 전 한 프레임이 앱 바탕색으로 모니터 전체를 덮었다(마당을 켤 때 모든 모니터가 깜빡임). 그래서
+    - `index.html` 머리의 인라인 스크립트가 Tauri 가 먼저 심어 둔 창 이름(`__TAURI_INTERNALS__.metadata.currentWindow.label`)을 보고 첫 그림 전에 `capture-window` 를 단다(같은 규칙의 인라인 `<style>` 도 둔다).
+    - 두 창은 투명도 0 으로 만들어(`macos::setup`) 페이지가 첫 화면을 그리면(rAF 두 번 뒤) `neko_screen_reveal` 로 보인다. 신호가 안 오면 `REVEAL_AFTER`(0.5초) 뒤에 보인다(고양이 창은 폴러, 선물 창은 만들 때 띄운 스레드). 숨겼다 다시 보일 때는 이미 그린 투명 화면이라 그대로 띄운다.
 - 창은 패널로 바꾸되, 키 창이 될 수 없는 패널이어야 한다.
   - 지금 `make_panel` 이 만드는 클래스(`NekoQuickPanel`)는 `canBecomeKeyWindow = YES` 다. 그대로 쓰면 고양이를 누를 때 화면 창이 키 창이 된다. 그러면 사용자가 치는 글자가 원래 앱이 아니라 네코에게 간다.
   - 그래서 `make_panel` 에 인자를 더해, 키 창이 못 되는 클래스(`NekoPassivePanel`)를 고를 수 있게 한다.

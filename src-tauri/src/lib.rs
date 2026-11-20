@@ -1454,11 +1454,11 @@ mod commands {
         crate::neko_screen::cross(&app, side)
     }
 
-    /// 화면 창: 옮긴 모니터에서 다시 그렸다 — 숨겼던 창을 보인다.
+    /// 마당 창(고양이 창·선물 창): 첫 화면을 그렸다, 또는 옮긴 모니터에서 다시 그렸다 — 숨겼던(투명도 0) 창을 보인다.
     #[cfg(target_os = "macos")]
     #[tauri::command(async)]
-    pub fn neko_screen_reveal(app: tauri::AppHandle) -> Result<(), AppError> {
-        crate::neko_screen::reveal(&app)
+    pub fn neko_screen_reveal(app: tauri::AppHandle, window: tauri::Window) -> Result<(), AppError> {
+        crate::neko_screen::reveal(&app, window.label())
     }
 
     /// 열린 포트를 쓰는 프로세스와 CPU·메모리를 많이 쓰는 프로세스. 읽기 전용.
