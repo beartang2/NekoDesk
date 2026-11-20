@@ -61,16 +61,8 @@ import { reloadUserSkills } from "./agent/knowledge";
 import { detectGameIntent } from "./lib/game-intent";
 import { josa, roParticle } from "./lib/hangul";
 
-/**
- * 모델의 `<think>` 블록을 본문에서 걷어낸다.
- *
- * 닫힌 블록만 지우면 스트리밍 중에는 `</think>` 가 아직 안 와서 사고 과정이
- * 통째로 답변처럼 화면에 찍히다가, 태그가 닫히는 순간 사라진다. 안 닫힌 꼬리도
- * 같이 지워야 그 깜빡임이 없다.
- */
-function stripThink(text: string): string {
-  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<think>[\s\S]*$/i, "").trim();
-}
+// 모델의 `<think>` 블록·감정 태그 떼기는 lib/replyTags 한 곳(선물 설명도 같이 쓴다)
+import { stripPetState, stripThink } from "./lib/replyTags";
 import { storeFile, removeFile } from "./agent/file-store";
 import { resizeImageForLlm } from "./lib/image";
 import { auroraTints, wave } from "./lib/aurora";
@@ -577,7 +569,7 @@ const MessageItem = React.memo(function MessageItem({
         {m.tokensPerSecond !== undefined && <span className="message__meta-part">{m.tokensPerSecond.toFixed(1)} tok/s</span>}
         {m.notice && <span className="message__meta-part">{m.notice}</span>}
         {m.role === "assistant" && m.content && !m.isStreaming && (
-          <CopyButton text={maskHome(stripThink(m.content).replace(/\[\[PET_STATE:\w+\]\]/g, "").trim())} />
+          <CopyButton text={maskHome(stripPetState(stripThink(m.content)).trim())} />
         )}
       </span>
     </div>

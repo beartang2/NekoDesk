@@ -4,6 +4,7 @@ import { validateShape, type GiftShape } from "./engine/gift-shape";
 import type { NekoDecorSpot, NekoGiftPlay, NekoGiftSize } from "./engine/neko-engine";
 import { clampScale, decorK } from "./engine/decor-draw";
 import { stageS } from "./engine/stage-scale";
+import { cleanShownText } from "../lib/replyTags";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 
 /**
@@ -149,6 +150,34 @@ function saveMoved(moved: NekoGift[]) {
   for (const g of moved) quiet(giftsApi.patch(g.id, { placed: g.placed }));
 }
 
+/**
+ * 이름·설명에 섞여 온 모델 태그(감정 [[PET_STATE:…]]·생각 <think>)를 뗀다(lib/replyTags — 채팅과 같은 함수). 네코가 고른 그림 선물의
+ * 설명 끝에 감정 태그가 그대로 남아 선물함에 보였다(사용자). 넣을 때(add)와 불러올 때 한 번 — 옛 선물은 고친 것만 다시 저장해
+ * 동기화로 다른 기기에도 깨끗한 글이 간다
+ */
+export function cleanGiftTexts(gifts: NekoGift[]): { gifts: NekoGift[]; fixed: NekoGift[] } {
+  const fixed: NekoGift[] = [];
+  const out = gifts.map((g) => {
+    const title = cleanShownText(g.title ?? ""), body = cleanShownText(g.body ?? "");
+    if (title === g.title && body === g.body) return g;
+    const next = { ...g, title, body };
+    fixed.push(next);
+    return next;
+  });
+  return { gifts: out, fixed };
+}
+function saveFixed(fixed: NekoGift[]) {
+  for (const g of fixed) quiet(giftsApi.patch(g.id, { title: g.title, body: g.body }));
+}
+/** 불러온 값: 액자만 벽에, 글 태그 떼기 — 고친 것은 저장 */
+function settle(raw: string | null): NekoGift[] {
+  const { gifts, moved } = hangOnlyFrames(parseGifts(raw));
+  saveMoved(moved);
+  const c = cleanGiftTexts(gifts);
+  saveFixed(c.fixed);
+  return c.gifts;
+}
+
 function parseGifts(raw: string | null): NekoGift[] {
   try {
     const parsed = raw ? (JSON.parse(raw) as NekoGift[]) : [];
@@ -173,23 +202,20 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
   loaded: false,
   async load() {
     if (get().loaded) return;
-    const { gifts: list, moved } = hangOnlyFrames(parseGifts(await settingsApi.get(KEY).catch(() => null)));
-    saveMoved(moved);
+    const list = settle(await settingsApi.get(KEY).catch(() => null));
     // 불러오는 사이 들어온 선물(산책에서 막 돌아옴)은 뒤에 붙인다
     set((s) => ({ gifts: capGifts([...list, ...s.gifts.filter((g) => !list.some((o) => o.id === g.id))]), loaded: true }));
   },
   async reload() {
     const raw = await settingsApi.get(KEY).catch(() => undefined);
     if (raw === undefined) return;
-    const { gifts, moved } = hangOnlyFrames(parseGifts(raw));
-    saveMoved(moved);
-    set({ gifts: capGifts(gifts), loaded: true });
+    set({ gifts: capGifts(settle(raw)), loaded: true });
   },
   add(g) {
     const play = PLAYS.includes(g.play as NekoGiftPlay) ? (g.play as NekoGiftPlay) : undefined;
     const size = GIFT_SIZES.includes(g.size as NekoGiftSize) ? (g.size as NekoGiftSize) : undefined;
     const gift: NekoGift = {
-      id: g.id ?? crypto.randomUUID(), at: g.at ?? new Date().toISOString(), title: g.title, body: g.body, shape: validateShape(g.shape),
+      id: g.id ?? crypto.randomUUID(), at: g.at ?? new Date().toISOString(), title: cleanShownText(g.title ?? ""), body: cleanShownText(g.body ?? ""), shape: validateShape(g.shape),
       ...(play ? { play } : {}), ...(size ? { size } : {}), ...(g.placed ? { placed: g.placed } : {}), ...(g.frame ? { frame: true as const } : {}),
     };
     const all = [...get().gifts, gift];

@@ -3,6 +3,7 @@ import { settingsApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
 import { FURNITURE_SLOTS } from "./engine/decor-draw";
+import { cleanShownText } from "../lib/replyTags";
 
 /**
  * 네코의 가구(docs/neko-furniture.md §4): 기본 다섯 개(코드 상수)와 산책에서 물어온 가구. 가구는 칸에 고정된다 —
@@ -46,7 +47,8 @@ export function parseFurniture(raw: string | null): FurnitureItem[] {
     const slot = Number(pl?.slot);
     const place: FurniturePlace | null = at && Number.isInteger(slot) && slot >= 0 && slot < FURNITURE_SLOTS[at] ? { at, slot } : null;
     if (isBase(r.id)) return r.id === `base:${r.kind}` ? [{ id: r.id, kind: r.kind as FurnitureKind, place }] : [];
-    const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+    // 모델이 쓴 이름·설명: 감정·생각 태그를 뗀다(lib/replyTags, 선물과 같은 길목) — 다음에 쓸 때 깨끗한 값이 저장된다
+    const str = (v: unknown, max: number) => (typeof v === "string" ? cleanShownText(v).slice(0, max) : "");
     return [{
       id: r.id, kind: r.kind as FurnitureKind, place,
       ...(str(r.title, 40) ? { title: str(r.title, 40) } : {}), ...(str(r.body, 200) ? { body: str(r.body, 200) } : {}),
@@ -133,7 +135,8 @@ export const useNekoFurniture = create<FurnitureStore>((set, get) => ({
     if (next) set({ items: next });
   },
   async add(f) {
-    const item: FurnitureItem = { ...f, id: f.id ?? `walk:${crypto.randomUUID().slice(0, 8)}`, place: null };
+    const clean = (v?: string) => (v ? cleanShownText(v) : v); // 감정·생각 태그는 저장 전에 뗀다(선물과 같다)
+    const item: FurnitureItem = { ...f, title: clean(f.title), body: clean(f.body), id: f.id ?? `walk:${crypto.randomUUID().slice(0, 8)}`, place: null };
     const next = await update((items) => (items.some((x) => x.id === item.id) ? items : [...items, item]));
     if (next) set({ items: next });
   },
