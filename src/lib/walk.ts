@@ -47,13 +47,16 @@ export const walkEnd = (w: Walk) => w.path[w.path.length - 1][2];
 export const walkStart = (w: Walk) => w.path[0][2];
 
 /* ---------- 언제 나가나 ----------
-   정기 산책: 아침 7–9시·점심 12–14시·저녁 18–20시(로컬 시각) 한 번씩. 그 시간대에 졸고 있으면(5분 조용) 기다리지 않고
-   나간다 — 간격은 안 본다. 그 시간대에 이미 다녀왔으면(추가 산책 포함) 다시 안 나가고, 끝날 때까지 한 번도 안 졸았으면
-   건너뛴다. 꺼져 있던 시간대는 따라잡지 않는다(앱이 켜져 졸 때만 따진다).
-   추가 산책: 졸기 시작하고 5–20분 더 조용하고, 지난 산책이 끝나고 2시간이 지났을 때. */
+   정기 산책: 아침 7–9시·점심 12–14시·저녁 18–20시(로컬 시각) 한 번씩. 그 시간대에 졸고 있으면(5분 조용) 오래 기다리지 않고
+   나가되, 지난 산책이 끝나고 1시간은 지나서(ROUTINE_GAP_MS — 추가 산책 40분 뒤 정기 산책이 또 나가 '거의 한 시간에 한 번'
+   다녀왔다, 사용자 0.1.25). 그 시간대에 이미 다녀왔으면(추가 산책 포함) 다시 안 나가고, 끝날 때까지 못 나가면(안 졸았거나
+   1시간이 시간대 끝을 넘음) 건너뛴다. 꺼져 있던 시간대는 따라잡지 않는다(앱이 켜져 졸 때만 따진다).
+   추가 산책: 졸기 시작하고 5–20분 더 조용하고, 지난 산책이 끝나고 3시간이 지났을 때. */
 /** 정기 산책 시간대 [시작 시, 끝 시, 이름] */
 export const ROUTINE_HOURS: [number, number, string][] = [[7, 9, "아침"], [12, 14, "점심"], [18, 20, "저녁"]];
-export const WALK_GAP_MS = 2 * 60 * 60_000;
+export const WALK_GAP_MS = 3 * 60 * 60_000;
+/** 정기 산책도 지난 산책이 끝나고 이만큼은 지나서 나간다 */
+export const ROUTINE_GAP_MS = 60 * 60_000;
 export const EXTRA_WAIT_MS: [number, number] = [5 * 60_000, 20 * 60_000];
 
 /** 그 날(로컬)의 정기 산책 시간대들 [시작, 끝) */
@@ -90,17 +93,19 @@ export interface WalkPlan {
 
 /**
  * 졸기 시작한 뒤 언제 나갈지 — 정기 산책과 추가 산책 중 이른 쪽. 계속 졸고 있다는 가정이라, 그사이 사용자가 돌아오면
- * 부르는 쪽이 다시 졸 때 새로 구한다. lastWalk = 지난 산책(다녀온 것)의 시작·끝.
+ * 부르는 쪽이 다시 졸 때 새로 구한다. lastWalk = 지난 산책(다녀온 것)의 시작·끝. now = 지금(기본 dozeAt) — 오래 졸고 있으면
+ * 졸기 시작한 뒤 지나간 시간대를 아직 열린 것으로 보지 않게(그러면 지난 시각이 나와 바로 나가려다 막히고 다시 재지 않았다)
  */
-export function nextWalkAt(o: { dozeAt: number; lastWalk: { start: number; end: number } | null; extraWait: number }): WalkPlan {
-  const { dozeAt, lastWalk, extraWait } = o;
+export function nextWalkAt(o: { dozeAt: number; now?: number; lastWalk: { start: number; end: number } | null; extraWait: number }): WalkPlan {
+  const { dozeAt, lastWalk, extraWait } = o, now = Math.max(o.now ?? dozeAt, dozeAt);
   const extra: WalkPlan = { at: Math.max(dozeAt + extraWait, lastWalk ? lastWalk.end + WALK_GAP_MS : 0), routine: false };
-  for (const day of [dozeAt, dozeAt + 86_400_000]) {
+  for (const day of [now, now + 86_400_000]) {
     for (const [a, b] of routineWindows(day)) {
-      if (b <= dozeAt) continue; // 이미 지난 시간대
+      if (b <= now) continue; // 이미 지난 시간대
       if (lastWalk && lastWalk.start >= a && lastWalk.start < b) continue; // 그 시간대엔 다녀왔다
-      const at = Math.max(a, dozeAt);
-      return at < extra.at ? { at, routine: true } : extra; // 첫 시간대만 보면 된다(뒤엣것은 더 늦다)
+      const at = Math.max(a, dozeAt, lastWalk ? lastWalk.end + ROUTINE_GAP_MS : 0);
+      if (at >= b) continue; // 지난 산책에서 1시간이 지나기 전에 시간대가 끝난다
+      return at < extra.at ? { at, routine: true } : extra; // 나갈 수 있는 첫 시간대만 보면 된다(뒤엣것은 더 늦다)
     }
   }
   return extra;

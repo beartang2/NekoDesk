@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPath, fallbackLegs, hurryHome, nextWalkAt, pickPlaces, positionAt, toLatLon, toMeters, type TimedPt, lastWalkWith, walkingElsewhere } from "./walk";
+import { buildPath, fallbackLegs, hurryHome, nextWalkAt, pickPlaces, positionAt, toLatLon, toMeters, type TimedPt, lastWalkWith, walkingElsewhere, WALK_MS } from "./walk";
 
 /** 시드 고정 난수(mulberry32) — 대체 경로가 매번 같게. */
 function seeded(seed: number) {
@@ -88,29 +88,54 @@ it("pickPlaces 는 한쪽 방향으로 고르고 같은 이름은 한 번만", (
   }
 });
 
-describe("nextWalkAt: 정기 산책(아침·점심·저녁) + 추가 산책(2시간 간격)", () => {
+describe("nextWalkAt: 정기 산책(아침·점심·저녁, 지난 산책 1시간 뒤) + 추가 산책(3시간 간격)", () => {
   const t = (h: number, m = 0) => new Date(2026, 10, 18, h, m).getTime();
   const min = 60_000, wait = 10 * min;
   it("정기 산책 시간대에 졸면 기다리지 않고 바로", () => {
     expect(nextWalkAt({ dozeAt: t(12, 30), lastWalk: null, extraWait: wait })).toEqual({ at: t(12, 30), routine: true });
   });
-  it("정기 산책 시간대가 열리면 바로 — 2시간 간격은 안 본다", () => {
+  it("정기 산책도 지난 산책이 끝나고 1시간은 지나서(0.1.25 — 추가 산책 40분 뒤 또 나갔다)", () => {
     const lastWalk = { start: t(6, 0), end: t(6, 30) };
-    expect(nextWalkAt({ dozeAt: t(6, 50), lastWalk, extraWait: wait })).toEqual({ at: t(7, 0), routine: true });
+    expect(nextWalkAt({ dozeAt: t(6, 50), lastWalk, extraWait: wait })).toEqual({ at: t(7, 30), routine: true });
+  });
+  it("1시간이 시간대 끝을 넘으면 그 시간대는 건너뛴다", () => {
+    const lastWalk = { start: t(11, 0), end: t(13, 10) };
+    expect(nextWalkAt({ dozeAt: t(13, 20), lastWalk, extraWait: wait })).toEqual({ at: t(16, 10), routine: false });
   });
   it("그 시간대에 이미 다녀왔으면(추가 산책이어도) 다시 안 나가고 추가 산책 규칙대로", () => {
     const lastWalk = { start: t(12, 5), end: t(12, 35) };
-    expect(nextWalkAt({ dozeAt: t(13, 0), lastWalk, extraWait: wait })).toEqual({ at: t(14, 35), routine: false });
+    expect(nextWalkAt({ dozeAt: t(13, 0), lastWalk, extraWait: wait })).toEqual({ at: t(15, 35), routine: false });
   });
-  it("시간대 밖: 졸고 나서 기다린 뒤, 지난 산책 끝나고 2시간 뒤 중 늦은 때", () => {
-    expect(nextWalkAt({ dozeAt: t(10, 0), lastWalk: { start: t(8, 30), end: t(9, 0) }, extraWait: wait })).toEqual({ at: t(11, 0), routine: false });
-    expect(nextWalkAt({ dozeAt: t(15, 0), lastWalk: { start: t(10, 0), end: t(10, 30) }, extraWait: wait })).toEqual({ at: t(15, 10), routine: false });
+  it("시간대 밖: 졸고 나서 기다린 뒤, 지난 산책 끝나고 3시간 뒤 중 늦은 때", () => {
+    expect(nextWalkAt({ dozeAt: t(10, 0), lastWalk: { start: t(8, 30), end: t(9, 0) }, extraWait: wait }).at).toBe(t(12, 0));
+    expect(nextWalkAt({ dozeAt: t(14, 0), lastWalk: { start: t(9, 30), end: t(10, 0) }, extraWait: wait })).toEqual({ at: t(14, 10), routine: false });
+    expect(nextWalkAt({ dozeAt: t(14, 0), lastWalk: { start: t(12, 0), end: t(12, 30) }, extraWait: wait })).toEqual({ at: t(15, 30), routine: false });
   });
   it("추가 산책을 기다리는 사이 정기 산책 시간대가 열리면 그게 먼저", () => {
     expect(nextWalkAt({ dozeAt: t(11, 30), lastWalk: { start: t(10, 0), end: t(10, 30) }, extraWait: wait })).toEqual({ at: t(12, 0), routine: true });
   });
   it("오늘 정기 산책이 다 지났으면 추가 산책 규칙대로(내일 아침은 그보다 늦다)", () => {
     expect(nextWalkAt({ dozeAt: t(21, 0), lastWalk: null, extraWait: wait })).toEqual({ at: t(21, 10), routine: false });
+  });
+  it("오래 졸고 있으면 졸기 시작한 뒤 지나간 시간대는 닫힌 것(now) — 지난 시각을 내놓지 않는다", () => {
+    const lastWalk = { start: t(9, 40), end: t(10, 20) };
+    expect(nextWalkAt({ dozeAt: t(6, 5), now: t(10, 20), lastWalk, extraWait: wait })).toEqual({ at: t(12, 0), routine: true });
+  });
+  // 하루 내내 비운 날·한 시간마다 잠깐 돌아오는 날 모두 산책 사이(끝 → 다음 시작)가 1시간 아래로 내려가지 않고, 하루 7번을 넘지 않는다
+  it("하루 시뮬레이션: 가장 짧은 간격 1시간 이상, 하루 7번 이하", () => {
+    for (const backEvery of [null, 1, 1.5, 3]) {
+      const day0 = t(6, 0), end = day0 + 18 * 60 * min, walkLen = WALK_MS + 9 * min;
+      let now = day0, dozeAt = day0 + 5 * min, last: { start: number; end: number } | null = null, nextBack = backEvery ? day0 + backEvery * 60 * min : Infinity;
+      const starts: number[] = [], gaps: number[] = [];
+      while (now < end) {
+        const at = Math.max(nextWalkAt({ dozeAt, now, lastWalk: last, extraWait: wait }).at, now);
+        if (at >= nextBack) { now = nextBack + 10 * min; dozeAt = now + 5 * min; nextBack += backEvery! * 60 * min; continue; }
+        if (last) gaps.push(at - last.end);
+        starts.push(at); last = { start: at, end: at + walkLen }; now = last.end + min;
+      }
+      expect(Math.min(...gaps)).toBeGreaterThanOrEqual(60 * min);
+      expect(starts.length).toBeLessThanOrEqual(8);
+    }
   });
 });
 
