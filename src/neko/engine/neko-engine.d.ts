@@ -212,6 +212,16 @@ export interface NekoController {
    */
   setRest(on: boolean): void;
   /**
+   * 파일을 끄는 중(docs/neko-screen-mode.md §7): 커서 자리(무대 px). null 이면 끝(놓음·취소·다른 모니터). 끄는 동안 하던 놀이를
+   * 멈추고(자고 있었으면 깨서) 입이 커서 밑에 오게 걸어오고, at 이 mouth 원 안이면 입을 '와앙' 한 번 벌린다. 쓰다듬기 반응은 안 하고,
+   * 그사이 act() 로 온 활동은 끝난 뒤에 한다
+   */
+  fileDrag(at: [number, number] | null): void;
+  /** 입 원: 가운데와 받는 반지름(50 단위 × 배율). 호스트가 받는 자리 판단에 쓴다 */
+  readonly mouth: { x: number; y: number; r: number };
+  /** 머리 원: 아치를 여는 자리이자 아치의 기준(머리 위 가운데에 편다) */
+  readonly head: { x: number; y: number; r: number };
+  /**
    * 방·거실 벽의 날씨 창문(room-window.js). place = 지금 자리("sidebar"·"dock", 그 밖은 창 없음), open = 커튼이 열렸나(날씨가 있나).
    * 창이 있으면 '창밖 구경'은 창 아래로 걸어가 올려다보고, 닫혀 있으면 앞발로 커튼 쪽을 톡톡. 없으면(마당) 고양이 앞에 창을 그린다
    */

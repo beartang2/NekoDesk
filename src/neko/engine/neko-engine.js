@@ -328,6 +328,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function expression() {
     const c = cat;
     if (c.mode === "grabbed") return c.modeT < 0.45 ? "surprised" : "dangle";
+    if (fileAt || gape > 0.05) return gape > 0.05 ? "surprised" : "curious"; // 파일을 끌고 오면 졸다가도 눈을 뜬다(§7)
     if (c.nyangT > 0) return "nyang";
     if (c.petT > 0) return "happy";
     if (c.mode === "air" || c.mode === "fall" || c.mode === "shake" || c.mode === "land" || c.mode === "crouch") return "action";
@@ -448,6 +449,54 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (c.y < 56 * S) { c.y = 56 * S; c.vy = Math.abs(c.vy) * 0.3; }
   }
 
+  /* ----- 파일 물려주기(docs/neko-screen-mode.md §7, 화면 모드) -----
+     호스트가 파일을 끄는 동안 커서 자리를 준다(fileDrag). 네코는 하던 놀이를 멈추고(자고 있었으면 깨서) 입이 커서 밑에 오게
+     걸어오고, 끄는 파일이 입 원(MOUTH_R) 안에 들어오면 입을 '와앙' 한 번 벌린다. 끄는 동안 쓰다듬기·잡기 반응은 하지 않는다.
+     감독이 그사이 보낸 활동은 끝난 뒤에 한다(deferAct) */
+  const MOUTH_R = 50, GAPE_S = 0.9;
+  let fileAt = null, gape = 0, gapeT = -1, gapeArmed = true, deferAct;
+  const mouthPt = () => H2W(FO, 13.5);
+  function fileDrag(at) {
+    const was = !!fileAt;
+    fileAt = Array.isArray(at) && at.length >= 2 && Number.isFinite(at[0]) && Number.isFinite(at[1]) ? [at[0], at[1]] : null;
+    if (fileAt) {
+      mouse.x = fileAt[0]; mouse.y = fileAt[1]; mouse.t = time; mouse.seen = true; // 눈은 끄는 파일을 본다
+      if (!was) {
+        if (cat.act && cat.mode !== "grabbed") { deferAct = undefined; endAct(); } // 하던 걸 멈추고 온다(사용자)
+        if (POSE_MODES.has(cat.mode) || cat.mode === "act") setMode("idle"); // 자고 있었으면 깨서 온다(사용자)
+        startTailEp("up", 1.6);
+      }
+      kick();
+    } else {
+      gapeArmed = true;
+      if (was && deferAct !== undefined) { const k = deferAct; deferAct = undefined; if (k) startAct(k); }
+    }
+  }
+  /** 입이 커서 밑에 오도록 걸어온다(가까우면 그쪽으로 돌아서기만) */
+  function fileApproach() {
+    const c = cat, m = mouthPt(), dx = fileAt[0] - c.x, dir = Math.sign(dx) || c.face;
+    const off = Math.abs(m[0] - c.x) || 38 * S, want = clamp(fileAt[0] - dir * off, ...roamSpan());
+    if (c.mode === "walk") {
+      if (Math.abs(c.x - want) < 8 * S) { c.vx = 0; c.speed = 0; setMode("idle"); }
+      else if (Math.abs(want - c.target) > 16 * S) walkTo(want);
+      return;
+    }
+    if (Math.abs(c.x - want) > 22 * S && c.modeT > 0.2) { walkTo(want); return; }
+    if (dir !== c.face && Math.abs(dx) > 12 * S && c.modeT > 0.3) { c.face = dir; setMode("idle"); }
+  }
+  /** 와앙: 끄는 파일이 입 원에 들어오면 한 번(나갔다 다시 오면 또). 0.15초 벌리고 0.45초 있다 0.3초에 다문다 */
+  function gapeStep(dt) {
+    if (fileAt) {
+      const m = mouthPt(), d = Math.hypot(fileAt[0] - m[0], fileAt[1] - m[1]);
+      if (gapeArmed && d < MOUTH_R * S) { gapeArmed = false; gapeT = 0; }
+      else if (d > 1.6 * MOUTH_R * S) gapeArmed = true;
+    }
+    if (gapeT < 0) { gape = 0; return; }
+    gapeT += dt;
+    gape = gapeT < 0.15 ? smooth(gapeT / 0.15) : gapeT < 0.6 ? 1 : 1 - smooth((gapeT - 0.6) / 0.3);
+    if (gapeT >= GAPE_S) { gapeT = -1; gape = 0; }
+  }
+
   /** 마우스 쪽으로: 멀면 그 앞까지 걸어가고, 가까우면 그쪽으로 몸만 돌린다. */
   function chaseMouse() {
     const c = cat;
@@ -467,6 +516,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function step(dt) {
     if (AWAY) { time += dt; return; } // 산책 중: 고양이는 없다(팻말만)
     const c = cat; time += dt; c.modeT += dt;
+    gapeStep(dt);
     c.nyangT = Math.max(0, c.nyangT - dt); c.petT = Math.max(0, (c.petT || 0) - dt); c.petSulk = Math.max(0, (c.petSulk || 0) - dt);
     c.annoy = Math.max(0, c.annoy - dt * 0.12); // 짜증은 천천히 풀린다
     if (c.tailEp && (c.tailEp.t += dt) >= c.tailEp.dur) c.tailEp = null;
@@ -492,6 +542,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       case "idle":
         c.vx = 0;
         if (c.hopDir && hopStep()) break;
+        if (fileAt) { fileApproach(); break; } // 파일을 끄는 중: 커서 쪽으로(앉기·눕기로 넘어가지 않는다)
         if (c.resume && c.act && !isRoam()) c.resume = false; // 소품을 놓는 활동 중엔 하던 걸음을 잇지 않는다(소품에서 멀어진다)
         if (c.resume && c.modeT > 0.2) { c.resume = false; setMode("walk"); break; }
         if (isRoam()) { if (!c.resume) roam(); break; }
@@ -506,7 +557,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         if (wanderOn && !c.resume && c.mood !== "sleepy" && c.modeT > c.wanderT) chooseWander();
         break;
       case "walk": {
-        if (isRoam()) roam(); else if (!crossingEdge()) chaseMouse();
+        if (fileAt) fileApproach(); else if (isRoam()) roam(); else if (!crossingEdge()) chaseMouse();
         if (c.mode !== "walk") break; // 마우스가 반대편으로 가서 돌아서는 중
         const dx = c.target - c.x, dir = Math.sign(dx) || c.face;
         if (dir !== c.face) { c.face = dir; c.resume = true; setMode("idle"); break; }
@@ -4144,7 +4195,14 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
     drawEye(-12.5 + FO, 0); drawEye(12.5 + FO, 0);
 
-    // 입은 그리지 않는다: 네코는 눈과 꼬리(꼬리 언어)·귀로만 감정을 보여 준다
+    // 입은 그리지 않는다: 네코는 눈과 꼬리(꼬리 언어)·귀로만 감정을 보여 준다. 하나만 예외 — 파일을 물려줄 때 '와앙'(§7, 사용자)
+    if (gape > 0.02) {
+      const p = H2W(FO, 13.5), w = 5 * S, h = 6.2 * S * gape;
+      ctx.save(); ctx.translate(p[0], p[1]); ctx.rotate(c.headRot);
+      ctx.fillStyle = "#4a2a33"; ctx.beginPath(); ctx.ellipse(0, h * 0.45, w, h, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = "#f08aa0"; ctx.beginPath(); ctx.ellipse(0, h * 1.05, w * 0.62, h * 0.42, 0, 0, TAU); ctx.fill(); // 혀
+      ctx.restore();
+    }
   }
 
   function drawEffects() {} // 앱: 잘 때 z, 탭할 때 '냥!' 글자는 그리지 않는다
@@ -4558,6 +4616,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   // 눌림·움직임·우클릭은 고양이 캔버스와 (화면 모드면) 선물 캔버스에 같이 붙인다 — 마당 선물은 고양이 둘레 밖에 있어
   // 고양이 캔버스에 안 닿는다. 캡처·커서 모양은 이벤트를 받은 캔버스(el)에
   function onPointerDown(e) {
+    if (fileAt) return; // 파일을 끄는 동안엔 잡기·쓰다듬기 반응을 안 한다(§7)
     const el = e.currentTarget, [x, y] = toStage(e);
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
     // 문 물건이 먼저: 입에서 끌어내기가 쓰다듬기·목덜미 잡기로 새지 않게. 끌어내기는 호스트가 한다
@@ -4804,6 +4863,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     },
     act(key) {
       const next = !key || key === "none" ? null : key, A = cat.act;
+      if (fileAt) { deferAct = next; return; } // 파일을 끄는 동안 감독이 보낸 활동은 끝난 뒤에
       if (cat.pendingAct && cat.pendingAct !== next) cat.pendingAct = null; // 창에서 내려가 하려던 것 대신 다른 걸
       if (A && A.key === next) return;
       if (A && (A.key === "climb" ? climbHold(A, next) : A.key === "tower" ? towerHold(A, next) : false)) return; // 벽·공중: 내려와 착지한 뒤 넘긴다
@@ -4816,6 +4876,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     get side() { return cat.side ? cat.side.key : null; },
     tail: (sign, sec) => startTailEp(sign, sec),
     react(kind) {
+      if (fileAt && kind === "pet") return false; // 끄는 동안엔 쓰다듬기가 켜지지 않는다(§7)
       if (kind === "pet") return petReact();
       else if (kind === "nyang") nyang();
       else if (kind === "startle") startTailEp("puff", 1.4);
@@ -4853,6 +4914,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     setRoomWindow,
     setRest(on) { if (cat.act && cat.act.key === "typing") cat.act.rest = !!on; },
     hit: hitCat,
+    fileDrag,
+    /** 입 원(무대 px): 가운데와 받는 반지름 50 × 배율 */
+    get mouth() { const m = mouthPt(); return { x: m[0], y: m[1], r: MOUTH_R * S }; },
+    /** 머리 원(무대 px): 아치를 여는 자리이자 기준 */
+    get head() { return { x: cat.head.x, y: cat.head.y, r: 38 * S }; },
     // 입에 물기(docs/neko-gifts.md §6)
     carry(items) {
       for (const raw of Array.isArray(items) ? items : [items]) {

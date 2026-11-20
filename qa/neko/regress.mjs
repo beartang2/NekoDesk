@@ -1167,6 +1167,43 @@ try {
     await p.close();
   }
 
+  // 9-f) 파일 물려주기(docs/neko-screen-mode.md §7, 화면 모드): 끄는 동안 하던 놀이를 멈추고 자던 고양이도 깨서 입이 커서 밑에 오게
+  //      걸어온다. 입 원에 들어오면 '와앙' 한 번(나갔다 오면 또), 쓰다듬기는 안 켜진다, 그사이 온 활동은 끝난 뒤에. 문 아이콘 3장 겹침
+  {
+    const p = await open(`?world=1&fixed=0.8`, { width: 1400, height: 800 });
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, S = n.S;
+      n.pause(); n.setWander(false); n.setMood("idle");
+      // 놀이 중에 파일이 온다
+      n.act("yarn"); n.step(120);
+      const target = [c.x + 400 * S, n.floorY - 60 * S];
+      n.fileDrag(target);
+      const actAfter = n.activity;
+      n.act("box"); // 감독이 그사이 보낸 활동은 끝난 뒤에
+      for (let i = 0; i < 120 * 8; i++) n.step(1);
+      const m = n.mouth, near = Math.abs(m.x - target[0]) < m.r;
+      n.fileDrag([m.x, m.y]); n.step(20);
+      const pet = n.react("pet");
+      n.fileDrag(null); n.step(10);
+      const afterAct = n.activity;
+      // 자던 고양이도 깨서 온다
+      n.act(null); n.setMood("sleepy"); n.setPose("lie"); n.step(120 * 3);
+      const lay = c.mode;
+      n.fileDrag([c.x - 300 * S, n.floorY - 60 * S]); n.step(120 * 2);
+      const woke = c.mode !== "lie";
+      n.fileDrag(null);
+      // 문 아이콘 3장(파일·폴더)
+      const icon = (col) => { const cv = new OffscreenCanvas(64, 64), g = cv.getContext("2d"); g.fillStyle = col; g.fillRect(12, 6, 40, 52); return cv.transferToImageBitmap(); };
+      n.setPose("stand"); n.setMood("idle"); n.step(120);
+      n.carry([{ id: "a", kind: "image", image: icon("#7aa7e0") }, { id: "b", kind: "image", image: icon("#e8c15a") }, { id: "c", kind: "image", image: icon("#d36a6a") }]);
+      n.step(30); n.draw();
+      return { actAfter, near, pet, afterAct, lay, woke, carried: n.carried().length, mouthR: Math.round(m.r), head: Math.round(n.head.r) };
+    });
+    check("파일 물려주기: 끌면 하던 걸 멈추고(자던 것도 깨서) 입이 커서 밑으로, 쓰다듬기 꺼짐, 그사이 활동은 끝난 뒤에, 아이콘 3장 물기", JSON.stringify(r),
+      r.actAfter === null && r.near && r.pet === false && r.afterAct === "box" && r.lay === "lie" && r.woke && r.carried === 3 && r.mouthR > 0 && r.head > 0);
+    await p.close();
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {
