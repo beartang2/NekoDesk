@@ -1,6 +1,6 @@
 import { create } from "zustand";
+import { emit, listen } from "@tauri-apps/api/event";
 import { settingsApi } from "../api/tauri";
-import { appEvents } from "../lib/events";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
 import { FURNITURE_SLOTS } from "./engine/decor-draw";
 import { cleanShownText } from "../lib/replyTags";
@@ -9,8 +9,9 @@ import { cleanShownText } from "../lib/replyTags";
  * 네코의 가구(docs/neko-furniture.md §4): 기본 다섯 개(코드 상수)와 산책에서 물어온 가구. 가구는 칸에 고정된다 —
  * 방(sidebar) 2칸·거실(dock) 4칸, 마당엔 없다. 놓기는 빈 칸이 있을 때만, 옮기기는 없고 치우면 다시 놓을 수 있다.
  *
- * 저장은 동기화 설정 키 neko_furniture 한 값(맥·폰 같이, 마이그레이션 12 — 옛 버전은 모르는 키라 버린다). 놓기·치우기·물어오기는
- * 드물어 통째로 덮어쓰되, 쓰기 전에 저장된 값을 읽어 이번 바꿈만 얹는다(다른 기기에서 막 물어온 가구를 덮지 않게).
+ * 저장은 동기화 설정 키 neko_furniture 한 값(맥·폰 같이, 마이그레이션 12 — 옛 버전은 모르는 키라 버린다). 쓰기 전에 저장된 값을
+ * 읽어 이번 바꿈만 얹고, 바꾼 가구엔 바꾼 때(at), 버린 가구는 버린 때(gone)를 적는다(v 2). 두 기기가 따로 바꾼 값은 받는 쪽
+ * 동기화가 가구 하나씩 합친다(src-tauri/src/sync/furniture.rs) — 통째로 덮어쓰면 한쪽 바꿈이 사라지고 기기마다 다른 값으로 남았다.
  * 선물함(neko_gifts)엔 넣지 않는다 — 옛 버전이 선물로 그려 끌고 다닌다.
  */
 export const FURNITURE_KEY = "neko_furniture";
@@ -26,6 +27,8 @@ export interface FurnitureItem {
   shape?: GiftShape;
   found?: string;
   place: FurniturePlace | null;
+  /** 마지막으로 놓거나 치운(물어온) 때(ms). 기기끼리 합칠 때 나중 것이 이긴다. 안 건드린 기본 가구·옛 값엔 없다 */
+  at?: number;
 }
 
 /** 기본 가구 다섯: 처음부터 가구 탭에 있다. 이름은 화면이 쓴다 */
@@ -34,11 +37,16 @@ export const FURNITURE_NAME: Record<FurnitureKind, string> = { lamp: "조명", c
 const KINDS = new Set<string>(FURNITURE_KINDS);
 const isBase = (id: string) => id.startsWith("base:");
 
-/** 저장된 값 → 목록. 모르는 칸·망가진 줄은 버리고, 기본 다섯은 늘 있다(저장엔 놓였거나 물어온 것만) */
-export function parseFurniture(raw: string | null): FurnitureItem[] {
+type Gone = Record<string, number>;
+
+/** 저장된 값 → 목록과 버린 때. 모르는 칸·망가진 줄은 버리고, 기본 다섯은 늘 있다 */
+function readFurniture(raw: string | null): { items: FurnitureItem[]; gone: Gone; v2: boolean } {
   let p: unknown;
   try { p = raw ? JSON.parse(raw) : null; } catch { p = null; }
   const list = (p && typeof p === "object" && Array.isArray((p as { items?: unknown }).items) ? (p as { items: unknown[] }).items : []);
+  const g = (p as { gone?: unknown } | null)?.gone;
+  const gone: Gone = {};
+  if (g && typeof g === "object") for (const [k, t] of Object.entries(g)) if (Number.isSafeInteger(t)) gone[k] = t as number;
   const stored = list.flatMap((x): FurnitureItem[] => {
     const r = (x ?? {}) as Record<string, unknown>;
     if (typeof r.id !== "string" || !KINDS.has(r.kind as string)) return [];
@@ -46,29 +54,34 @@ export function parseFurniture(raw: string | null): FurnitureItem[] {
     const at: FurniturePlace["at"] | null = pl?.at === "sidebar" ? "sidebar" : pl?.at === "dock" ? "dock" : null;
     const slot = Number(pl?.slot);
     const place: FurniturePlace | null = at && Number.isInteger(slot) && slot >= 0 && slot < FURNITURE_SLOTS[at] ? { at, slot } : null;
-    if (isBase(r.id)) return r.id === `base:${r.kind}` ? [{ id: r.id, kind: r.kind as FurnitureKind, place }] : [];
+    const stamp = Number.isSafeInteger(r.at) ? { at: r.at as number } : {};
+    if (!isBase(r.id) && r.id in gone && gone[r.id] >= ((r.at as number) || 0)) return [];
+    if (isBase(r.id)) return r.id === `base:${r.kind}` ? [{ id: r.id, kind: r.kind as FurnitureKind, place, ...stamp }] : [];
     // 모델이 쓴 이름·설명: 감정·생각 태그를 뗀다(lib/replyTags, 선물과 같은 길목) — 다음에 쓸 때 깨끗한 값이 저장된다
     const str = (v: unknown, max: number) => (typeof v === "string" ? cleanShownText(v).slice(0, max) : "");
     return [{
       id: r.id, kind: r.kind as FurnitureKind, place,
       ...(str(r.title, 40) ? { title: str(r.title, 40) } : {}), ...(str(r.body, 200) ? { body: str(r.body, 200) } : {}),
-      ...(r.shape ? { shape: validateShape(r.shape) } : {}), ...(str(r.found, 10) ? { found: str(r.found, 10) } : {}),
+      ...(r.shape ? { shape: validateShape(r.shape) } : {}), ...(str(r.found, 10) ? { found: str(r.found, 10) } : {}), ...stamp,
     }];
   });
   const byId = new Map(stored.map((f) => [f.id, f]));
-  // 한 칸엔 하나만(옛 값·두 기기가 같은 칸에 놓음): 먼저 적힌 것이 칸을 갖는다
-  const taken = new Set<string>();
-  const all = [...BASE_FURNITURE.map((b) => byId.get(b.id) ?? b), ...stored.filter((f) => !isBase(f.id))];
-  return all.map((f) => {
-    if (!f.place) return f;
-    const k = `${f.place.at}:${f.place.slot}`;
-    if (taken.has(k)) return { ...f, place: null };
-    taken.add(k);
-    return f;
-  });
+  // 물어온 가구는 찾은 날 순(합친 값은 번호 순으로 온다)
+  const found = stored.filter((f) => !isBase(f.id)).sort((a, b) => (a.found ?? "").localeCompare(b.found ?? "") || a.id.localeCompare(b.id));
+  const all = [...BASE_FURNITURE.map((b) => byId.get(b.id) ?? b), ...found];
+  // 한 칸엔 하나만(두 기기가 같은 칸에 따로 놓음·옛 값): 먼저 놓인 것이 칸을 갖는다 — 어느 기기에서 읽어도 같게
+  const owner = new Map<string, FurnitureItem>();
+  for (const f of [...all].sort((a, b) => (a.at ?? 0) - (b.at ?? 0))) { // 같은 때면 all 순서(기본 다섯 순, 찾은 날 순)
+    const k = f.place && `${f.place.at}:${f.place.slot}`;
+    if (k && !owner.has(k)) owner.set(k, f);
+  }
+  const v2 = (p as { v?: unknown } | null)?.v === 2;
+  return { items: all.map((f) => (f.place && owner.get(`${f.place.at}:${f.place.slot}`) !== f ? { ...f, place: null } : f)), gone, v2 };
 }
-/** 목록 → 저장 값: 놓인 기본 가구와 물어온 가구만 */
-const serialize = (items: FurnitureItem[]) => JSON.stringify({ v: 1, items: items.filter((f) => !isBase(f.id) || f.place) });
+export const parseFurniture = (raw: string | null): FurnitureItem[] => readFurniture(raw).items;
+/** 목록 → 저장 값: 건드린 기본 가구(치운 것도 — 다른 기기의 옛 놓기를 이긴다)와 물어온 가구, 버린 때 */
+const serialize = (items: FurnitureItem[], gone: Gone) =>
+  JSON.stringify({ v: 2, items: items.filter((f) => !isBase(f.id) || f.place || f.at), gone });
 
 /** 그 장소의 빈 칸(가장 앞). 없으면 null */
 export function freeSlot(items: FurnitureItem[], at: "sidebar" | "dock", but?: string): number | null {
@@ -92,14 +105,32 @@ interface FurnitureStore {
   add: (f: Omit<FurnitureItem, "id" | "place"> & { id?: string }) => Promise<void>;
 }
 
-/** 저장된 값을 읽어 이번 바꿈만 얹고 쓴다(다른 기기가 막 쓴 것을 덮지 않게) */
+const samePlace = (a: FurniturePlace | null, b: FurniturePlace | null) => a?.at === b?.at && a?.slot === b?.slot;
+
+/**
+ * 저장된 값을 읽어 이번 바꿈만 얹고 쓴다(다른 기기가 막 쓴 것을 덮지 않게). 자리가 바뀐 가구·새 가구엔 지금(이 기기가 본 것보다
+ * 늦게)을, 빠진 물어온 가구는 버린 때를 적는다. 다른 창(맥 선물함·메인)도 다시 읽게 알린다
+ */
 async function update(fn: (items: FurnitureItem[]) => FurnitureItem[] | null): Promise<FurnitureItem[] | null> {
-  const cur = parseFurniture(await settingsApi.get(FURNITURE_KEY).catch(() => null));
-  const next = fn(cur);
+  const cur = readFurniture(await settingsApi.get(FURNITURE_KEY).catch(() => null));
+  const next = fn(cur.items);
   if (!next) return null;
-  await settingsApi.set(FURNITURE_KEY, serialize(next)).catch(() => {});
-  return parseFurniture(serialize(next));
+  const now = Date.now(), before = new Map(cur.items.map((f) => [f.id, f])), left = new Set(next.map((f) => f.id));
+  const gone = { ...cur.gone };
+  for (const f of cur.items) if (!isBase(f.id) && !left.has(f.id)) gone[f.id] = Math.max(now, (f.at ?? 0) + 1);
+  const stamped = next.map((f) => {
+    const b = before.get(f.id);
+    if (!b || !samePlace(b.place, f.place)) return { ...f, at: Math.max(now, (b?.at ?? 0) + 1) };
+    // 옛 값(at 없음)에서 온 가구는 아주 오래된 것으로 — 어느 기기의 새 바꿈에도 진다
+    return !f.at && (f.place || !isBase(f.id)) ? { ...f, at: 1 } : f;
+  });
+  const raw = serialize(stamped, gone);
+  await settingsApi.set(FURNITURE_KEY, raw).catch(() => {});
+  void emit("neko-furniture-changed").catch(() => {});
+  return parseFurniture(raw);
 }
+
+let listening = false;
 
 export const useNekoFurniture = create<FurnitureStore>((set, get) => ({
   items: BASE_FURNITURE,
@@ -107,7 +138,14 @@ export const useNekoFurniture = create<FurnitureStore>((set, get) => ({
   async load() {
     if (get().loaded) return;
     await get().reload();
-    appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("setting")) void get().reload(); });
+    // 옛 값(0.1.25 까지, v 1)이면 한 번 v 2 로 다시 적는다 — 올라가서 다른 기기와 가구 하나씩 합쳐진다(기기마다 다른 값으로 남았던 것)
+    const raw = await settingsApi.get(FURNITURE_KEY).catch(() => null);
+    if (raw && !readFurniture(raw).v2) await update((items) => items);
+    // 창마다(메인·맥 선물함·마당) 따로 듣는다: 다른 기기에서 온 값(lib/sync 의 SYNC_CHANGED), 다른 창이 쓴 값
+    if (listening) return;
+    listening = true;
+    void listen<{ colls: string[] }>("sync-changed", ({ payload }) => { if (payload.colls.includes("setting")) void get().reload(); }).catch(() => {});
+    void listen("neko-furniture-changed", () => void get().reload()).catch(() => {});
   },
   async reload() {
     const raw = await settingsApi.get(FURNITURE_KEY).catch(() => undefined);

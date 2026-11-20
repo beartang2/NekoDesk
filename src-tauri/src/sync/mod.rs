@@ -17,6 +17,7 @@ use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Mutex;
 
+mod furniture;
 pub mod run;
 
 pub type Key = [u8; 32];
@@ -427,6 +428,9 @@ pub fn apply(conn: &Connection, me: &str, key: &Key, r: &Record, ch: &mut Change
         log::warn!("동기화: 맞추지 않는 설정 키를 받아 버렸어: {}", r.id);
         return Ok(());
     }
+    if r.coll == "setting" && r.id == furniture::KEY && r.deleted == 0 && apply_furniture(conn, key, r, local.as_ref().map(|l| (l.1, l.2.as_str())), ch)? {
+        return Ok(());
+    }
     if let Some((_, lts, ldev, ldel, lcut)) = &local {
         // 메시지는 덧붙기만: 이미 있으면 끝
         if r.coll == "msg" || (session && user_tomb(*ldel, *lcut)) {
@@ -489,6 +493,31 @@ pub fn apply(conn: &Connection, me: &str, key: &Key, r: &Record, ch: &mut Change
     }
     ch.colls.insert(r.coll.clone());
     Ok(())
+}
+
+/// 가구는 나중 기록이 통째로 이기지 않고 가구 하나씩 합친다(sync/furniture.rs). 내 값이 더 새것이어도 받은 것을 얹는다.
+/// 받은 값에 없는 것이 남으면 받은 것보다 나중 시각으로 다시 올린다. 이 기기에 값이 없으면 false(보통대로 받는다)
+fn apply_furniture(conn: &Connection, key: &Key, r: &Record, local: Option<(i64, &str)>, ch: &mut Changes) -> AppResult<bool> {
+    let plain = String::from_utf8(unseal(key, r)?).map_err(|_| AppError::msg("기록 글자가 이상해"))?;
+    let remote = serde_json::from_str::<Value>(&plain).ok().and_then(|v| v.get("value").and_then(Value::as_str).map(str::to_owned));
+    let (Some(remote), Some(mine)) = (remote, crate::db::settings::get(conn, furniture::KEY)?) else { return Ok(false) };
+    let (write, upload) = furniture::merge_values(Some(&mine), &remote, r.ts);
+    if let Some(v) = &write {
+        crate::db::settings::set(conn, furniture::KEY, v)?;
+        ch.colls.insert(r.coll.clone());
+    }
+    let remote_newer = local.map_or(true, |(ts, dev)| (ts, dev) < (r.ts, r.device.as_str()));
+    if upload {
+        conn.execute(
+            "INSERT INTO sync_meta (coll, uid, local_key, ts, dirty) VALUES ('setting', ?1, ?1, MAX(?2, ?3 + 1), 1)
+             ON CONFLICT (coll, uid) DO UPDATE SET local_key = excluded.local_key, ts = MAX(ts + 1, excluded.ts), dirty = 1, deleted = 0",
+            params![furniture::KEY, now_ms(), r.ts],
+        )?;
+    } else if write.is_some() || remote_newer {
+        // 받은 값이 다 갖고 있다: 받은 기록으로 맞춘다(올릴 것 없음)
+        adopt(conn, r, Some(furniture::KEY), None)?;
+    }
+    Ok(true)
 }
 
 /// 같은 내용의 기억이 다른 번호로 이미 있으면 하나로 합친다: 번호가 작은 쪽을 남기고 다른 쪽은 지움 표시.

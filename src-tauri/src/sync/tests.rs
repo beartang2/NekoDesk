@@ -623,3 +623,29 @@ fn sessions_list_by_last_message_the_same_on_every_device() {
     apply_all(&b, "B", &push_all(&a, "A"));
     assert_eq!(order(&b), want, "다른 기기도 같은 순서");
 }
+
+#[test]
+fn furniture_changed_on_two_devices_merges_and_both_end_the_same() {
+    let (a, b) = (db(), db());
+    let set = |c: &Connection, items: Value| settings::set(c, "neko_furniture", &serde_json::json!({ "v": 2, "items": items, "gone": {} }).to_string()).unwrap();
+    let ids = |c: &Connection| {
+        let v: Value = serde_json::from_str(&settings::get(c, "neko_furniture").unwrap().unwrap()).unwrap();
+        v["items"].as_array().unwrap().iter().map(|i| (i["id"].as_str().unwrap().to_owned(), i["place"].clone())).collect::<Vec<_>>()
+    };
+    // 서로 모르는 채로: 폰(a)은 소파를 놓고, 맥(b)은 산책에서 상자를 물어왔다
+    set(&a, serde_json::json!([{ "id": "base:sofa", "kind": "sofa", "place": { "at": "dock", "slot": 0 }, "at": 10 }]));
+    set(&b, serde_json::json!([{ "id": "walk:x", "kind": "box", "place": null, "at": 20 }]));
+    // 주고받기를 더 올릴 것이 없을 때까지(어느 쪽 기록이 먼저 닿든)
+    for _ in 0..4 {
+        let (up_a, up_b) = (push_all(&a, "A"), push_all(&b, "B"));
+        if up_a.is_empty() && up_b.is_empty() {
+            break;
+        }
+        apply_all(&b, "B", &up_a);
+        apply_all(&a, "A", &up_b);
+    }
+    assert!(push_all(&a, "A").is_empty() && push_all(&b, "B").is_empty(), "다 맞춘 뒤엔 올릴 것이 없다");
+    let want = vec![("base:sofa".to_owned(), serde_json::json!({ "at": "dock", "slot": 0 })), ("walk:x".to_owned(), Value::Null)];
+    assert_eq!(ids(&a), want, "폰: 둘 다");
+    assert_eq!(ids(&b), want, "맥: 같은 값");
+}
