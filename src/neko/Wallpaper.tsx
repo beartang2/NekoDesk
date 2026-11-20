@@ -6,7 +6,7 @@ import { stageS } from "./engine/stage-scale";
 import "./Wallpaper.css";
 
 /**
- * 방·거실 벽지(설정 › 고양이, 사용자가 고른다)와 창밖 빛 연동. 무늬는 옅은 면·선만(모던): 무지·세로 판넬·투톤·아치.
+ * 방·거실 벽지(설정 › 고양이, 사용자가 고른다)와 창밖 빛 연동. 무늬는 옅은 면·선만(모던): 무지·세로 판넬·투톤·몰딩 판넬.
  * 벽색은 창밖 하늘과 같은 계산(skyAt)으로 낮엔 그대로, 해 뜨고 질 무렵엔 따뜻하게, 밤엔 어둡고 푸르게 덮는다 — 색만 바뀌고
  * 움직이지 않는다(1분에 한 번). 날씨를 모르면(커튼이 닫힘) 낮 그대로. 색은 테마마다 Wallpaper.css
  */
@@ -14,7 +14,7 @@ export const WALLPAPERS: { value: NekoWallpaper; label: string }[] = [
   { value: "plain", label: "무지" },
   { value: "panel", label: "세로 판넬" },
   { value: "twotone", label: "투톤" },
-  { value: "arch", label: "아치" },
+  { value: "wainscot", label: "몰딩 판넬" },
 ];
 
 /** 창밖 하늘의 밝기(1분마다). 날씨를 모르면 낮 */
@@ -29,7 +29,7 @@ export function useSkyLight() {
 }
 
 /**
- * 벽(0,0 ~ w×wallH)의 무늬. 방(sidebar)은 고양이 쪽(오른쪽)에, 거실(dock)은 두 창 사이 가운데에 아치를 둔다
+ * 벽(0,0 ~ w×wallH)의 무늬. 몰딩 판넬은 벽 아래쪽(56% 아래)에 액자 몰딩 판넬을 칸 폭 110(방)·120(거실) 남짓으로 나눠 둔다
  */
 export function WallPattern({ place, w, wallH }: { place: "sidebar" | "dock"; w: number; wallH: number }) {
   const kind = useSettingsStore((s) => s.nekoWallpaper);
@@ -55,11 +55,17 @@ export function WallPattern({ place, w, wallH }: { place: "sidebar" | "dock"; w:
       </>
     );
   }
-  if (kind === "arch") {
-    const cx = place === "sidebar" ? w * 0.62 : w * 0.5;
-    const aw = place === "sidebar" ? w * 0.42 : Math.min(w * 0.2, wallH * 0.8), top = wallH * 0.12;
-    const d = `M${cx - aw / 2} ${wallH} V${top + aw / 2} A${aw / 2} ${aw / 2} 0 0 1 ${cx + aw / 2} ${top + aw / 2} V${wallH} Z`;
-    return <path className="neko-wall__arch" d={d} />;
+  if (kind === "wainscot") { // 몰딩 판넬(아치 대신, 사용자 0.1.24): 벽 아래쪽 판넬 액자 몰딩과 그 위 몰딩 띠
+    const y0 = Math.round(wallH * 0.56), n = Math.max(2, Math.round(w / (place === "sidebar" ? 110 : 120))), gap = 8, pw = (w - gap * (n + 1)) / n;
+    return (
+      <>
+        <rect className="neko-wall__molding" x={0} y={y0 - 2} width={w} height={2} />
+        <rect className="neko-wall__rail" x={0} y={y0} width={w} height={1} />
+        {Array.from({ length: n }, (_, i) => (
+          <rect key={i} className="neko-wall__frame" x={gap + i * (pw + gap)} y={y0 + 7} width={pw} height={Math.max(6, wallH - y0 - 14)} rx={1.5} />
+        ))}
+      </>
+    );
   }
   return null;
 }
