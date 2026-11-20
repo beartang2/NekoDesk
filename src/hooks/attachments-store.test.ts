@@ -164,6 +164,26 @@ describe("buildHistory", () => {
     expect(buildHistory([{ id: "2", role: "assistant", content: "", time: "", steps: [step("todo.list", "done")] }])[0].content)
       .toBe("(도구 사용: todo.list)");
   });
+
+  it("도구를 쓴 답엔 실제 호출과 결과 첫 줄을 단다 — 자동 힌트는 빼고, id 는 요청마다 같게", () => {
+    const steps = [
+      { id: 1, thought: "", tool: "web.search", params: { query: "Java4Shell" }, result: [], summary: "검색 결과 3개\n1. …", status: "done" },
+      { id: 2, thought: "", tool: "code.exec", params: {}, result: null, summary: "오류: 없음\n\n[자동 힌트] web.search로 이 오류의 해결책을 찾아 재시도하세요.", status: "error", errorMessage: "없음" },
+      { id: 3, thought: "", tool: "web.scrape", params: {}, result: null, summary: "", status: "error", errorMessage: "중단됨" },
+    ] as AgentStep[];
+    const msgs = [{ id: "u", role: "user" as const, content: "찾아 줘", time: "" }, { id: "a-1", role: "assistant" as const, content: "이런 거야", time: "", steps }];
+    const [u, a] = buildHistory(msgs);
+    expect(u.ran).toBeUndefined();
+    expect(a.content).toBe("이런 거야\n\n(도구 사용: web.search, code.exec 실패, web.scrape 실패)");
+    expect(a.ran?.text).toBe("이런 거야");
+    expect(a.ran?.calls.map((c) => [c.call.id, c.call.name, c.step.summary])).toEqual([
+      ["past_a-1_0", "web.search", "검색 결과 3개"],
+      ["past_a-1_1", "code.exec", "오류: 없음"],
+      ["past_a-1_2", "web.scrape", "중단됨"],
+    ]);
+    expect(a.ran?.calls[0].call.params).toEqual({ query: "Java4Shell" });
+    expect(buildHistory(msgs)[1].ran).toEqual(a.ran);
+  });
   it("모델이 바뀐 답 앞의 질문에 새 모델 이름을 단다 — 이름 없는 예전 답은 비교하지 않는다", () => {
     const u = (id: string) => ({ id, role: "user" as const, content: "", time: "" });
     const a = (id: string, model?: string) => ({ id, role: "assistant" as const, content: "", time: "", model });

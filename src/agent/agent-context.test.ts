@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { AgentContext, type ContextTurn } from "./agent-context";
 import { estimateMessagesTokens } from "./token-estimate";
+import { toMessagesRequest } from "./claude-messages";
 import type { AgentStep, LlmMessage } from "./types";
 
 function step(tool: string, summary: string): AgentStep {
@@ -192,5 +193,61 @@ describe("buildToolContext", () => {
     failed.status = "error";
     ctx.addTurn({ text: "", calls: [{ call: { id: "a", name: "code.exec", params: {} }, step: failed }] });
     expect(ctx.buildToolContext()).toBe("");
+  });
+});
+
+describe("지난 답이 쓴 도구", () => {
+  // 앞 답에서 검색해 놓고 다음 답에서 "실행 기록이 없다" 며 다시 검색했다 — 기록엔 답 끝 글 메모뿐이었다(0.1.26).
+  const searched = (text: string): LlmMessage => ({
+    role: "assistant",
+    content: `${text}\n\n(도구 사용: web.search)`,
+    ran: { text, calls: [{ call: { id: "past_a_0", name: "web.search", params: { query: "Java4Shell" } }, step: step("web.search", "검색 결과 3개") }] },
+  });
+  const q = (content: string): LlmMessage => ({ role: "user", content });
+
+  it("이번 요청의 도구 턴과 같은 모양(호출 + 결과) 뒤에 답 글 — 글 메모는 안 싣는다", () => {
+    const messages = new AgentContext([q("Java4Shell 이 뭐야?"), searched("이런 취약점이야")], "더 알려 줘", true, 32768).toMessages();
+    expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant", "user"]);
+    expect(messages[1].tool_calls).toEqual([{ id: "past_a_0", type: "function", function: { name: "web.search", arguments: '{"query":"Java4Shell"}' } }]);
+    expect(messages[2]).toMatchObject({ tool_call_id: "past_a_0", content: "[web.search 결과]\n검색 결과 3개" });
+    expect(messages[3].content).toBe("이런 취약점이야");
+    expect(JSON.stringify(messages)).not.toContain("도구 사용");
+    expect(messages.some((m) => "ran" in m)).toBe(false);
+  });
+
+  it("Claude 로는 tool_use · tool_result 블록이 되고 역할이 번갈아 간다", () => {
+    const wire = new AgentContext([q("Java4Shell 이 뭐야?"), searched("이런 취약점이야")], "더 알려 줘", true, 32768, true).toMessages();
+    const body = toMessagesRequest({ messages: wire }, "m", new Map([["web.search", "web_search"]])) as { messages: { role: string; content: { type: string; name?: string }[] }[] };
+    expect(body.messages.map((m) => `${m.role}:${m.content.map((b) => b.type).join("+")}`))
+      .toEqual(["user:text", "assistant:tool_use", "user:tool_result", "assistant:text", "user:text"]);
+    expect(body.messages[1].content[0].name).toBe("web_search");
+  });
+
+  it("json 모드도 그 모드의 도구 턴 모양으로", () => {
+    const messages = new AgentContext([q("Java4Shell 이 뭐야?"), searched("이런 취약점이야")], "더 알려 줘", false, 32768).toMessages();
+    expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant", "user"]);
+    expect(JSON.parse(messages[1].content as string)).toMatchObject({ tool: "web.search", params: { query: "Java4Shell" } });
+  });
+
+  it("글 없이 닫힌 칸은 뒤에 답이 있을 때만 펴고, 없으면 메모 글 그대로 — 결과가 이번 질문에 붙지 않게", () => {
+    const closed = { ...searched(""), content: "(도구 사용: web.search)" };
+    const tail = new AgentContext([q("찾아 줘"), closed], "응?", true, 32768).toMessages();
+    expect(tail.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(tail[1].content).toBe("(도구 사용: web.search)");
+    const mid = new AgentContext([q("찾아 줘"), closed, q("짧게"), { role: "assistant", content: "짧게 말하면…" }], "응?", true, 32768).toMessages();
+    expect(mid.map((m) => m.role)).toEqual(["user", "assistant", "tool", "user", "assistant", "user"]);
+  });
+
+  it("예산에 밀릴 땐 호출·결과·답 글을 한 덩이로 뺀다 — 짝 잃은 결과가 남지 않는다", () => {
+    const old = searched(`옛 답 ${"내용".repeat(400)}`);
+    const kept = [1024, 2048, 3072, 4096, 8192].map((len) => {
+      const messages = new AgentContext([q("옛 질문"), old, ...history(6)], "질문", true, len).toMessages();
+      const at = messages.findIndex((m) => m.role === "tool");
+      if (at >= 0) expect(messages[at - 1].tool_calls).toBeDefined();
+      expect(messages.some((m) => typeof m.content === "string" && m.content.startsWith("옛 답"))).toBe(at >= 0);
+      return at >= 0;
+    });
+    expect(kept).toContain(true);
+    expect(kept).toContain(false);
   });
 });

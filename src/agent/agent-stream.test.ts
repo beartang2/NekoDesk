@@ -102,12 +102,15 @@ describe("agentStepStream", () => {
     }));
 
     const ctrl = new AbortController();
-    for await (const _ of agentStepStream([{ role: "user", content: "hi" }], "hi", "", undefined, ctrl.signal)) {
+    const past = { role: "assistant" as const, content: "답", ran: { text: "답", calls: [] } };
+    for await (const _ of agentStepStream([{ role: "user", content: "hi" }, past], "hi", "", undefined, ctrl.signal)) {
       // drain
     }
 
     expect(lastInit?.signal).toBeInstanceOf(AbortSignal);
     expect(JSON.parse(String(lastInit?.body)).stream).toBe(true);
+    // 지난 답의 도구 기록(ran)은 AgentContext 가 펴서 쓰는 것 — 서버로는 안 간다
+    expect(String(lastInit?.body)).not.toContain('"ran"');
   });
 
   it("stop 하면 진행 중인 fetch 가 실제로 취소된다", async () => {

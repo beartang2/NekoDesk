@@ -202,17 +202,35 @@ export class AgentContext {
     return [...history, current, ...notice, ...turnBlocks.flat()];
   }
 
-  /** 대화 이력을 최근 것부터 예산 안에서 고른다. */
+  /** 대화 이력을 최근 것부터 예산 안에서 고른다. 도구를 쓴 지난 답은 호출·결과·답 글을 한 덩이로 넣거나 뺀다 — 짝이 갈리면 템플릿·API 가 거부한다. */
   private fitHistory(budget: number): LlmMessage[] {
     const history: LlmMessage[] = [];
     let remaining = budget;
+    let answerAfter = false;
     for (let i = this.chatHistory.length - 1; i >= 0; i--) {
-      const cost = estimateMessagesTokens([this.chatHistory[i]]);
+      const block = this.pastMessages(this.chatHistory[i], answerAfter);
+      const cost = estimateMessagesTokens(block);
       if (cost > remaining) break;
       remaining -= cost;
-      history.unshift(this.chatHistory[i]);
+      history.unshift(...block);
+      answerAfter ||= this.chatHistory[i].role === "assistant";
     }
     return history;
+  }
+
+  /**
+   * 대화 기록 한 칸. 도구를 쓴 지난 답(ran)은 이번 요청의 도구 턴과 같은 모양(호출 + 결과) 뒤에 답 글 —
+   * 답 글 끝의 메모만으론 모델이 제 말로 읽어 실행 기록이 없다며 다시 했다. 글 없이 닫힌 칸(끼어들기·멈춤)
+   * 뒤에 답이 없으면 도구 결과가 이번 질문에 바로 붙어 하다 만 도구 턴이 되니(생각 블록 없는 tool_use 로
+   * Claude 가 거부) 그땐 메모 글 그대로 싣는다.
+   */
+  private pastMessages(m: LlmMessage, answerAfter: boolean): LlmMessage[] {
+    const { ran, ...msg } = m;
+    if (!ran || (!ran.text && !answerAfter)) return [msg];
+    return [
+      ...this.turnMessages({ text: "", calls: ran.calls }, true),
+      ...(ran.text ? [{ role: "assistant" as const, content: ran.text }] : []),
+    ];
   }
 
   private turnMessages(turn: ContextTurn, verbatim: boolean): LlmMessage[] {

@@ -13,6 +13,12 @@ export interface LlmMessage {
   tool_call_id?: string;
   /** Claude 가 이 assistant 턴에 돌려준 블록 원본(생각 블록 포함). 있으면 그대로 다시 보낸다. */
   anthropic_content?: unknown[];
+  /**
+   * 대화 기록의 지난 답이 그 답을 쓰기 전에 실제로 부른 도구(저장된 스텝)와 답 글. AgentContext 가
+   * 이번 요청의 도구 턴과 같은 모양(호출 + 결과) 뒤에 답 글로 편다. content 엔 답 글 끝에 "(도구 사용: …)"
+   * 메모를 붙인 것이 있어 도구 없는 호출(상한 최종 답·요약)이 쓴다. 서버로는 안 보낸다(buildRequestBody).
+   */
+  ran?: { text: string; calls: { call: ToolCall; step: AgentStep }[] };
 }
 
 /** 서버로 오가는 OpenAI 형식의 툴 호출. arguments 는 JSON 문자열이다. */
