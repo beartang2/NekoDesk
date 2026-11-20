@@ -174,6 +174,12 @@ struct State {
     boxes: Vec<(String, Vec<[f64; 4]>)>,
     /// 클릭을 받는 선물 창.
     decor_catching: Option<String>,
+    /// 버튼이 떨어져 있는 동안 본 끌기 페이스트보드 번호(`changeCount`). 눌린 채 바뀌면 파일 등을 끄는 중이다(§7).
+    drag_base: isize,
+    /// 마지막으로 화면 창에 보낸 파일 끌기 커서(`neko-screen-file-drag`).
+    file_drag_sent: Option<[f64; 2]>,
+    /// 화면 창이 아치에서 파일을 끌어내는 중. 놓을 때까지 클릭을 흘린다 — 받으면 아래 Finder 에 못 놓는다.
+    drag_out: bool,
     /// 선물을 잡고 끄는 선물 창. 놓을 때까지 받는다.
     decor_grab: Option<String>,
     /// 마지막으로 알린 끌던 선물의 다른 모니터 자리.
@@ -220,6 +226,9 @@ static STATE: Mutex<State> = Mutex::new(State {
     was_down: false,
     boxes: Vec::new(),
     decor_catching: None,
+    drag_base: 0,
+    file_drag_sent: None,
+    drag_out: false,
     decor_grab: None,
     elsewhere: None,
     screens_sent: None,
@@ -236,9 +245,20 @@ static STATE: Mutex<State> = Mutex::new(State {
 
 /// 클릭을 받을지. 잡고 끄는 중이면 무조건 받는다. 아니면 화면 창이 방금(CATCH_TTL 안에) '고양이
 /// 위'라고 했고, 커서가 이 화면에 있고, ⌥ 를 안 눌렀고, 버튼을 누른 채 들어온 게 아닐 때만 —
-/// 다른 앱에서 창이나 글을 끌다가 고양이 위를 지나가도 끊기지 않게.
-fn wants_clicks(grabbing: bool, fresh: bool, on_screen: bool, option: bool, down: bool) -> bool {
-    grabbing || (fresh && on_screen && !option && !down)
+/// 다른 앱에서 창이나 글을 끌다가 고양이 위를 지나가도 끊기지 않게. 예외는 파일 끌기(§7): 받는 자리(화면 창이
+/// 알림)에선 받아야 놓을 수 있다.
+fn wants_clicks(grabbing: bool, fresh: bool, on_screen: bool, option: bool, down: bool, file_drag: bool) -> bool {
+    grabbing || (fresh && on_screen && !option && (!down || file_drag))
+}
+
+/// 파일 끌기 알기: 버튼이 떨어져 있는 동안 본 끌기 페이스트보드 번호(base)에서 눌린 채 바뀌었으면 무언가를 끄는 중.
+/// 창 끌기·글 고르기는 번호가 그대로다. 우리가 아치에서 내보내는 끌기(out)는 치지 않는다. 반환: (끄는 중, 새 base)
+fn file_drag_step(down: bool, count: isize, base: isize, out: bool) -> (bool, isize) {
+    if down {
+        (count != base && !out, base)
+    } else {
+        (false, count)
+    }
 }
 
 /// 클릭을 받을 선물 창. 끄는 중이면 그 창, 아니면 커서 밑에 선물이 있는 창 — 고양이 창이 받는 중이 아니고
@@ -348,6 +368,12 @@ pub fn set_catch(on: bool, cat: bool) -> Result<(), AppError> {
     let mut st = STATE.lock()?;
     st.catch_at = on.then(Instant::now);
     st.catch_cat = on && cat;
+    Ok(())
+}
+
+/// 화면 창이 아치에서 파일을 끌어내기 시작했다. 버튼을 놓을 때까지 클릭을 흘린다(폴러가 놓으면 푼다).
+pub fn set_drag_out() -> Result<(), AppError> {
+    STATE.lock()?.drag_out = true;
     Ok(())
 }
 
@@ -482,8 +508,7 @@ fn create(app: &AppHandle) -> Result<(), AppError> {
         .focused(false)
         // 키 창이 아닌 패널이라, 끄면 첫 클릭을 창 활성화에 써 버린다.
         .accept_first_mouse(true)
-        // 1단계엔 파일을 안 받는다. 2단계 파일 물려주기(§7)에서 켠다.
-        .disable_drag_drop_handler()
+        // 파일 물려주기(§7): Tauri 끌어다 놓기(경로가 온다). 받는 자리에서만 클릭 통과를 꺼서 거기서만 받는다
         .build()?;
     let ns = win.ns_window()? as usize;
     if !on_main(app, move || unsafe { macos::setup(ns as *mut objc2::runtime::AnyObject) })? {
@@ -663,7 +688,16 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
         press_out(app, took.as_deref());
     }
     st.was_down = p.down;
-    (st.grabbing, st.grab_cat) = grab_step(p.down, st.catching, st.grabbing, st.grab_cat, st.catch_cat);
+    let file_drag;
+    (file_drag, st.drag_base) = file_drag_step(p.down, p.drag, st.drag_base, st.drag_out);
+    if !p.down {
+        st.drag_out = false;
+    }
+    // 파일을 끄는 중엔 잡기를 시작하지 않는다 — 잡으면 놓을 때까지 화면 전체가 받아 Finder 에 못 놓는다
+    (st.grabbing, st.grab_cat) = grab_step(p.down, st.catching && !file_drag, st.grabbing, st.grab_cat, st.catch_cat);
+    if st.drag_out {
+        (st.grabbing, st.grab_cat) = (false, false);
+    }
     st.decor_grab = decor_grab_step(p.down, st.decor_grab.take(), st.decor_catching.clone());
     let [ox, oy, ..] = cur.rect;
     let under = st.screens.iter().find(|s| inside(s.rect, p.mouse)).copied();
@@ -679,6 +713,12 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
     if cursor != *sent {
         *sent = cursor;
         let _ = app.emit_to(LABEL, "neko-screen-cursor", cursor);
+    }
+    // 파일을 끄는 중이고 커서가 고양이 모니터면 그 자리를 — 고양이가 커서 쪽으로 오고 입을 벌린다(§7)
+    let fd = (file_drag && inside(cur.rect, p.mouse)).then(|| [p.mouse[0] - ox, p.mouse[1] - oy]);
+    if fd != st.file_drag_sent {
+        st.file_drag_sent = fd;
+        let _ = app.emit_to(LABEL, "neko-screen-file-drag", fd);
     }
     let mut other = if inside(cur.rect, p.mouse) { None } else { under };
     // 고양이를 끄는 중: 고양이(목덜미)가 다른 모니터에 들어가면 창을 옮긴다 — 경계에서 건너가 튀지 않는다
@@ -721,7 +761,7 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
         let _ = app.emit_to(LABEL, "neko-screen-away", away);
     }
     let fresh = st.catch_at.is_some_and(|t| t.elapsed() < CATCH_TTL);
-    let want = wants_clicks(st.grabbing, fresh, cursor.is_some(), p.option, p.down);
+    let want = !st.drag_out && wants_clicks(st.grabbing, fresh, cursor.is_some(), p.option, p.down, file_drag);
     if want != st.catching {
         st.catching = want;
         let _ = win.set_ignore_cursor_events(!want);
@@ -995,6 +1035,8 @@ pub(crate) mod macos {
         pub mouse: [f64; 2],
         pub down: bool,
         pub option: bool,
+        /// 끌기 페이스트보드의 changeCount(내용은 읽지 않는다)
+        pub drag: isize,
     }
 
     pub struct Survey {
@@ -1076,7 +1118,13 @@ pub(crate) mod macos {
         let mouse = crate::capture::macos::mouse_global()?;
         let buttons: usize = msg_send![event, pressedMouseButtons];
         let flags: usize = msg_send![event, modifierFlags];
-        Some(Probe { mouse, down: buttons & 1 != 0, option: flags & OPTION_KEY != 0 })
+        // NSPasteboardNameDrag. 번호만 본다 — 다른 앱 페이스트보드 내용을 읽으면 개인정보 알림이 뜰 수 있다
+        let board: *mut AnyObject = match AnyClass::get(c"NSPasteboard") {
+            Some(cls) => msg_send![cls, pasteboardWithName: ns_string(c"Apple CFPasteboard drag")],
+            None => std::ptr::null_mut(),
+        };
+        let drag: isize = if board.is_null() { 0 } else { msg_send![board, changeCount] };
+        Some(Probe { mouse, down: buttons & 1 != 0, option: flags & OPTION_KEY != 0, drag })
     }
 
     /// 모니터 목록, 멈춤 조건, 고양이가 있는 모니터(`at`)의 전체화면 영상. main thread 전용.
@@ -1167,17 +1215,31 @@ mod tests {
     #[test]
     fn clicks_only_on_a_fresh_hover_unless_grabbing() {
         // 고양이 위(방금 알림), 버튼 안 누름 → 받는다
-        assert!(wants_clicks(false, true, true, false, false));
+        assert!(wants_clicks(false, true, true, false, false, false));
         // 알림이 오래됨(화면 창이 굳음) → 흘린다
-        assert!(!wants_clicks(false, false, true, false, false));
+        assert!(!wants_clicks(false, false, true, false, false, false));
         // ⌥ → 흘린다
-        assert!(!wants_clicks(false, true, true, true, false));
+        assert!(!wants_clicks(false, true, true, true, false, false));
         // 다른 앱에서 끌던 채로 들어옴 → 흘린다
-        assert!(!wants_clicks(false, true, true, false, true));
+        assert!(!wants_clicks(false, true, true, false, true, false));
+        // 파일을 끌고 받는 자리에 들어옴 → 받는다(놓을 수 있게). 받는 자리 밖(알림 없음)이면 흘린다
+        assert!(wants_clicks(false, true, true, false, true, true));
+        assert!(!wants_clicks(false, false, true, false, true, true));
         // 다른 모니터 → 흘린다
-        assert!(!wants_clicks(false, true, false, false, false));
+        assert!(!wants_clicks(false, true, false, false, false, false));
         // 잡고 끄는 중 → 알림이 없고 화면 밖이어도 놓을 때까지 받는다
-        assert!(wants_clicks(true, false, false, true, true));
+        assert!(wants_clicks(true, false, false, true, true, false));
+    }
+
+    #[test]
+    fn a_file_drag_is_a_pasteboard_change_while_the_button_is_down() {
+        // 떨어져 있는 동안은 번호를 따라간다
+        assert_eq!(file_drag_step(false, 7, 3, false), (false, 7));
+        // 누른 채 그대로(창 끌기·글 고르기) → 아니다. 바뀌었으면 끄는 중
+        assert_eq!(file_drag_step(true, 7, 7, false), (false, 7));
+        assert_eq!(file_drag_step(true, 8, 7, false), (true, 7));
+        // 아치에서 우리가 내보내는 끌기는 치지 않는다
+        assert_eq!(file_drag_step(true, 8, 7, true), (false, 7));
     }
 
     #[test]

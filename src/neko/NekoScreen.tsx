@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { emitTo } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { startDrag } from "@crabnebula/tauri-plugin-drag";
+import { shelfApi, type ShelfItem } from "../api/tauri";
 import { createNeko, type NekoController, type NekoEvents, type NekoMood, type NekoPose } from "./engine/neko-engine";
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { useNekoStore } from "./nekoStore";
 import type { NekoCmd, NekoEvt } from "./remoteNeko";
 import { useKeepInside } from "./keepInside";
+import { NekoFileArch, type NekoArchItem } from "./NekoFileArch";
 import "./NekoScreen.css";
 
 /**
@@ -19,6 +23,8 @@ import "./NekoScreen.css";
  * - 여러 모니터: 커서가 다른 모니터에 한동안 있으면(`neko-screen-away`) 그쪽으로 걸어 나간다. 끝을 넘으면
  *   Rust 가 창을 그 모니터로 옮기고(`neko-screen-moved`, 잡고 끌 때도) 여기서 세계를 옮긴다.
  * - 마당 선물은 모니터마다 선물 창(NekoDecorScreen)이 그린다. 여기 엔진은 갖고 노느라 잡은 것만 그리고 `decorHeld` 로 알린다.
+ * - 파일 물려주기(§7): 입 = 보관함. 보관함 최근 3개를 문다. 파일을 끌면(Rust `neko-screen-file-drag`) 커서 쪽으로 오고,
+ *   몸·입에 놓으면 `shelf_add_paths`. 얼굴에 2초 머물면 머리 위 아치(NekoFileArch)를 펴고, 거기서 끌어내 놓으면 꺼낸다.
  */
 
 interface Layout { w: number; h: number; ground: number }
@@ -53,6 +59,22 @@ const CLOSED = { left: false, right: false } as const;
 /** 다른 모니터로 걸어 나가라고 다시 이르는 간격(하던 활동이 끝나 한가해졌을 때 이어 가게) */
 const WALK_OUT_EVERY_MS = 1000;
 const FORWARD: (keyof NekoEvents)[] = ["pet", "nyang", "annoyed", "grab", "drop", "activity", "error", "decorMove", "decorPlayed", "decorHeld"];
+/** 엔진이 파일 물려주기(§7)에 더하는 것(집사). 엔진이 아직 없으면 건너뛴다 */
+interface FileDragApi {
+  fileDrag(at: [number, number] | null): void;
+  readonly mouth: { x: number; y: number; r: number };
+  readonly head: { x: number; y: number; r: number };
+}
+type Circle = { x: number; y: number; r: number };
+const inCircle = (c: Circle | undefined, x: number, y: number) => !!c && Math.hypot(x - c.x, y - c.y) <= c.r;
+/** 입에 무는 보관함 파일 id 머리(선물은 decor:) */
+const FILE = "file:";
+/** 입에 무는 수(보관함 최근 것부터)와 아치에 펴는 수 */
+const CARRY_MAX = 3;
+const ARCH_MAX = 12;
+/** 얼굴에 이만큼 머물면 아치를 편다. 아치·머리에서 이만큼 떠나 있으면 접는다 */
+const ARCH_HOLD_MS = 2000;
+const ARCH_LEAVE_MS = 800;
 /** 마당 선물 '정리' 버튼이 저절로 닫히는 때 */
 const MENU_MS = 6000;
 
@@ -71,6 +93,9 @@ export function NekoScreen() {
   const debugOn = useRef(false);
   // 엔진이 본 창마다 창 탐험 가능 여부(지금 고양이 자리 기준, 0.5초마다)
   const [towerWhy, setTowerWhy] = useState<Map<number, { why: string; ok: boolean }>>(new Map());
+  // 머리 위 꺼내기 아치(열고 닫기·끌어내기는 아래 효과가 한다)
+  const [arch, setArch] = useState<{ items: NekoArchItem[]; head: Circle } | null>(null);
+  const dragOutRef = useRef<(item: NekoArchItem) => void>(() => {});
   useEffect(() => {
     if (!menu) return;
     const t = setTimeout(() => setMenu(null), MENU_MS);
@@ -95,6 +120,7 @@ export function NekoScreen() {
       appearance: useNekoStore.getState().appearance,
     });
     ctrlRef.current = ctrl;
+    const eng = ctrl as NekoController & Partial<FileDragApi>;
 
     let mood: NekoMood = "idle";
     let pose: NekoPose = "stand";
@@ -128,10 +154,43 @@ export function NekoScreen() {
       return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     };
     // 고양이 위인지도 같이 알린다 — 잡고 다른 모니터로 끌 때 창이 따라가는 건 고양이뿐이다(선물은 이 화면 끝에서 멈춘다)
+    // 파일을 끄는 중(Rust): 받는 자리는 고양이 몸이나 입 원. 그동안 쓰다듬기는 안 센다(over 가 "cat" 이 아니다)
+    let fileDrag: [number, number] | null = null;
+    let pressed = false;
+    // 아치: 칸(data-neko-arch-hit) 위도 클릭 받는 자리
+    let archOn = false;
+    let headSince = 0;
+    let awaySince = 0;
+    const overArch = (x: number, y: number) =>
+      archOn && Array.from(document.querySelectorAll("[data-neko-arch-hit]")).some((el) => {
+        const r = el.getBoundingClientRect();
+        return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+      });
+    const closeArch = () => {
+      headSince = awaySince = 0;
+      if (!archOn) return;
+      archOn = false;
+      setArch(null);
+    };
+    // 얼굴에 ARCH_HOLD_MS 머물면 펴고(누르는·끄는 중·보관함이 비면 안 편다), 아치·머리에서 ARCH_LEAVE_MS 떠나 있으면 접는다
+    const archStep = (now: number, x: number, y: number) => {
+      const onHead = !!cursor && active && !fileDrag && !pressed && inCircle(eng.head, x, y);
+      if (archOn) {
+        if (onHead || overArch(x, y)) awaySince = 0;
+        else if (!awaySince) awaySince = now;
+        else if (now - awaySince > ARCH_LEAVE_MS) closeArch();
+      } else if (onHead && shelf.length) {
+        if (!headSince) headSince = now;
+        else if (now - headSince >= ARCH_HOLD_MS) { headSince = 0; void openArch(); }
+      } else headSince = 0;
+    };
     const check = () => {
       const now = performance.now();
       const [x, y] = cursor ?? [0, 0];
-      const o = !active || !cursor ? null : ctrl.hit(x, y) ? "cat" : ctrl.hitDecor(x, y) !== null || overMenu(x, y) ? "other" : null;
+      archStep(now, x, y);
+      const o = !active || !cursor ? null
+        : fileDrag ? (ctrl.hit(x, y) || inCircle(eng.mouth, x, y) ? "other" : null)
+        : ctrl.hit(x, y) ? "cat" : ctrl.hitDecor(x, y) !== null || overMenu(x, y) || overArch(x, y) ? "other" : null;
       if (o === over && !(o && now - sentAt > CATCH_EVERY_MS)) return;
       if (o === "cat" && over !== "cat") wake(); // 쓰다듬기 시작
       over = o;
@@ -181,13 +240,65 @@ export function NekoScreen() {
     let timer: ReturnType<typeof setTimeout>;
     const tick = () => {
       reportHeld(); reportCat(); reportTower();
-      if (cursor) check(); else followAway();
+      if (cursor) check(); else { followAway(); closeArch(); }
       timer = setTimeout(tick, cursor || held ? CHECK_EVERY_MS : IDLE_CHECK_MS);
     };
     timer = setTimeout(tick, CHECK_EVERY_MS);
     const whyTimer = import.meta.env.DEV
       ? setInterval(() => { if (debugOn.current) setTowerWhy(new Map(ctrl.towerWhy().map((w) => [w.win, w] as const))); }, 500)
       : undefined;
+    // 입 = 보관함(§7): 최근 CARRY_MAX 개를 macOS 아이콘으로 문다. 아이콘은 경로·크기마다 한 번만 만든다
+    let shelf: ShelfItem[] = [];
+    const urls = new Map<string, Promise<string | null>>();
+    const bitmaps = new Map<string, Promise<ImageBitmap | null>>();
+    const keyOf = (it: ShelfItem) => `${it.path}|${it.size}`;
+    const urlOf = (it: ShelfItem) => {
+      const k = keyOf(it);
+      if (!urls.has(k)) urls.set(k, shelfApi.icon(it.path).catch(() => null));
+      return urls.get(k)!;
+    };
+    const bitmapOf = (it: ShelfItem) => {
+      const k = keyOf(it);
+      if (!bitmaps.has(k)) bitmaps.set(k, urlOf(it).then((u) => (u ? fetch(u).then((r) => r.blob()).then(createImageBitmap) : null)).catch(() => null));
+      return bitmaps.get(k)!;
+    };
+    let syncSeq = 0;
+    const syncCarry = async () => {
+      const seq = ++syncSeq;
+      const list = await shelfApi.list().catch(() => null);
+      if (!list || seq !== syncSeq) return;
+      shelf = list;
+      if (!list.length) closeArch();
+      const top = list.slice(0, CARRY_MAX);
+      const imgs = await Promise.all(top.map(bitmapOf));
+      if (seq !== syncSeq) return;
+      // 오래된 것부터 넣어야 가장 최근 것이 맨 위에 그려진다. 순서가 바뀌었으면 파일만 다 빼고 다시 문다(선물 decor: 은 그대로)
+      const want = top.map((it, i) => ({ id: FILE + it.name, image: imgs[i] })).filter((w) => w.image).reverse();
+      const have = ctrl.carried().filter((c) => c.id.startsWith(FILE)).map((c) => c.id);
+      if (have.join("\n") === want.map((w) => w.id).join("\n")) return;
+      have.forEach((id) => ctrl.drop(id));
+      if (want.length) ctrl.carry(want.map((w) => ({ id: w.id, kind: "image" as const, image: w.image! })));
+    };
+    void syncCarry();
+    const openArch = async () => {
+      const head = eng.head;
+      if (!head) return;
+      const items = (await Promise.all(shelf.slice(0, ARCH_MAX).map(async (it) => ({ name: it.name, path: it.path, dir: it.dir, icon: (await urlOf(it)) ?? "" }))))
+        .filter((it) => it.icon);
+      if (!items.length || fileDrag) return;
+      archOn = true;
+      awaySince = 0;
+      setArch({ items, head: { x: head.x, y: head.y, r: head.r } });
+    };
+    // 아치에서 끌어내기: 끄는 동안 마당 창은 클릭을 흘려야 아래 Finder 에 놓인다(Rust 가 버튼을 놓으면 푼다). 놓았으면 꺼낸다
+    dragOutRef.current = (item) => {
+      closeArch();
+      startDrag({ item: [item.path], icon: item.icon, mode: "copy" }, ({ result }) => {
+        if (result === "Dropped") void shelfApi.take(item.name).catch(() => {});
+      })
+        .then(() => invoke("neko_screen_drag_out"))
+        .catch(() => {});
+    };
     // 끝을 넘었다 — 커서가 아직 그쪽이면 Rust 가 창을 옮긴다(neko-screen-moved). 그새 돌아왔으면 걸어 들어온다
     const offMenu = ctrl.on("decorMenu", setMenu);
     // 고양이 우클릭: 엔진은 선물만 메뉴를 띄우고(기본 메뉴를 막음) 고양이엔 안 띄운다. 오른쪽 버튼 누름은 엔진에
@@ -205,8 +316,8 @@ export function NekoScreen() {
     // 끌던 선물이 다른 모니터 위에 있나(Rust neko-screen-elsewhere). 놓을 때 엔진의 decorMove(이 화면 끝 자리) 대신
     // 그 모니터로 옮긴다. 새로 누를 때 지운다
     let elsewhere: { screen: string; x: number; y: number } | null = null;
-    const onPress = () => { elsewhere = null; petRef.current.setPressed(true); };
-    const onRelease = () => petRef.current.setPressed(false);
+    const onPress = () => { elsewhere = null; pressed = true; petRef.current.setPressed(true); };
+    const onRelease = () => { pressed = false; petRef.current.setPressed(false); };
     window.addEventListener("pointerdown", onPress, true);
     window.addEventListener("pointerup", onRelease, true);
     window.addEventListener("pointercancel", onRelease, true);
@@ -254,6 +365,21 @@ export function NekoScreen() {
         if (over === "cat" && prev && payload) petRef.current.onBodyMove(payload[0] - prev[0], payload[1] - prev[1]);
         else petRef.current.onBodyLeave();
       }),
+      // 파일을 끄는 중이면 커서 자리(창 좌표), 끝나면 null — 고양이가 커서 쪽으로 오고 입 가까이면 입을 벌린다
+      me.listen<[number, number] | null>("neko-screen-file-drag", ({ payload }) => {
+        fileDrag = payload;
+        eng.fileDrag?.(payload);
+        if (payload) { closeArch(); wake(); }
+        check();
+      }),
+      // 몸·입에 놓았다(받는 자리에서만 클릭을 받으니 거기서만 온다). 입은 shelf-changed 로 맞춰진다. 2GB 넘으면 고개를 돌린다
+      getCurrentWebview().onDragDropEvent(({ payload }) => {
+        if (payload.type !== "drop" || !payload.paths.length) return;
+        fileDrag = null;
+        eng.fileDrag?.(null);
+        void shelfApi.addPaths(payload.paths).catch(() => ctrl.react("sulk"));
+      }),
+      listen("shelf-changed", () => void syncCarry()),
       me.listen<boolean>("neko-screen-active", ({ payload }) => {
         active = payload;
         if (active) ctrl.resume();
@@ -293,7 +419,7 @@ export function NekoScreen() {
       me.listen<number>("neko-screen-scale", ({ payload }) => ctrl.setScale(payload)),
       me.listen<number>("neko-screen-fps", ({ payload }) => { maxFps = payload; fps(); }),
       me.listen("neko-screen-ping", () => { towerSent = null; void emitTo("main", "neko-screen-ready").catch(() => {}); }),
-      me.listen("neko-screen-press-out", () => setMenu(null)), // 다른 데를 눌렀다
+      me.listen("neko-screen-press-out", () => { setMenu(null); closeArch(); }), // 다른 데를 눌렀다
       me.listen<{ screen: string; x: number; y: number } | null>("neko-screen-elsewhere", ({ payload }) => { elsewhere = payload; }),
     ];
     void invoke<Layout | null>("neko_screen_layout").then((l) => { if (l) ctrl.setGround(l.ground); }).catch(() => {});
@@ -338,6 +464,7 @@ export function NekoScreen() {
         </svg>
       )}
       <canvas ref={canvasRef} className="neko-screen__canvas" tabIndex={-1} aria-hidden="true" />
+      {arch && <NekoFileArch items={arch.items} head={arch.head} onDragOut={(item) => dragOutRef.current(item)} />}
       {menu && (
         <button
           ref={menuRef}

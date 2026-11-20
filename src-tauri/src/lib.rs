@@ -738,13 +738,49 @@ mod commands {
             .and_then(|v| v.to_str().ok())
             .map(crate::shelf::percent_decode)
             .unwrap_or_default();
-        crate::shelf::add(&crate::shelf::dir(&app)?, &name, bytes)
+        let item = crate::shelf::add(&crate::shelf::dir(&app)?, &name, bytes)?;
+        shelf_changed(&app);
+        Ok(item)
     }
 
     #[cfg(desktop)]
     #[tauri::command(async)]
     pub fn shelf_remove(app: tauri::AppHandle, name: String) -> Result<(), AppError> {
-        crate::shelf::remove(&crate::shelf::dir(&app)?, &name)
+        crate::shelf::remove(&crate::shelf::dir(&app)?, &name)?;
+        shelf_changed(&app);
+        Ok(())
+    }
+
+    /// 마당 네코 입에 놓은 파일·폴더를 경로로 바로 복사한다(docs/neko-screen-mode.md §7). 한 번에 2GB 넘으면 안 넣는다.
+    #[cfg(desktop)]
+    #[tauri::command(async)]
+    pub fn shelf_add_paths(app: tauri::AppHandle, paths: Vec<PathBuf>) -> Result<Vec<crate::shelf::ShelfItem>, AppError> {
+        let items = crate::shelf::add_paths(&crate::shelf::dir(&app)?, &paths)?;
+        shelf_changed(&app);
+        Ok(items)
+    }
+
+    /// 마당 아치에서 끌어내 놓았다: 보관함에서 꺼낸다(목록에서 바로 빼고 파일은 조금 뒤에 지운다).
+    #[cfg(desktop)]
+    #[tauri::command(async)]
+    pub fn shelf_take(app: tauri::AppHandle, name: String) -> Result<(), AppError> {
+        crate::shelf::take(&crate::shelf::dir(&app)?, &name)?;
+        shelf_changed(&app);
+        Ok(())
+    }
+
+    /// 보관함 안 파일·폴더의 macOS 아이콘(64px PNG data URL).
+    #[cfg(target_os = "macos")]
+    #[tauri::command(async)]
+    pub fn file_icon(app: tauri::AppHandle, path: String) -> Result<String, AppError> {
+        crate::shelf::icon(&app, &crate::shelf::dir(&app)?, &path)
+    }
+
+    /// 보관함이 바뀌었다 — 앱 보관함 목록과 마당 네코 입(최근 3개)이 다시 읽는다.
+    #[cfg(desktop)]
+    fn shelf_changed(app: &tauri::AppHandle) {
+        use tauri::Emitter;
+        let _ = app.emit("shelf-changed", ());
     }
 
     #[tauri::command]
@@ -1220,6 +1256,13 @@ mod commands {
     #[tauri::command]
     pub fn neko_screen_catch(on: bool, cat: Option<bool>) -> Result<(), AppError> {
         crate::neko_screen::set_catch(on, cat.unwrap_or(false))
+    }
+
+    /// 화면 창: 아치에서 파일을 끌어내기 시작했다 — 버튼을 놓을 때까지 클릭을 흘린다(아래 Finder 에 놓이게).
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_screen_drag_out() -> Result<(), AppError> {
+        crate::neko_screen::set_drag_out()
     }
 
     /// 마당 선물 창: 그린 선물 칸(창 좌표 x, y, w, h). 커서가 이 안일 때만 그 창이 클릭을 받는다.
@@ -1828,6 +1871,12 @@ pub fn run() {
             commands::shelf_add,
             #[cfg(desktop)]
             commands::shelf_remove,
+            #[cfg(desktop)]
+            commands::shelf_add_paths,
+            #[cfg(desktop)]
+            commands::shelf_take,
+            #[cfg(target_os = "macos")]
+            commands::file_icon,
             commands::haptic_feedback,
             #[cfg(desktop)]
             commands::viewer_open,
@@ -1897,6 +1946,8 @@ pub fn run() {
             commands::neko_screen_show,
             #[cfg(target_os = "macos")]
             commands::neko_screen_catch,
+            #[cfg(target_os = "macos")]
+            commands::neko_screen_drag_out,
             #[cfg(target_os = "macos")]
             commands::neko_screen_layout,
             #[cfg(target_os = "macos")]
