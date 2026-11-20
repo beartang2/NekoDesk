@@ -1234,7 +1234,7 @@ try {
     await p.close();
   }
 
-  // 9-u2) 가구(docs/neko-furniture.md): 조명 톡(켜짐 알림·그동안 엔진이 그림), 캣타워 꼭대기까지, 캣휠 제자리 달리기(바퀴가 돈다),
+  // 9-u2) 가구(docs/neko-furniture.md): 조명 톡(켜짐 알림·그동안 엔진이 그림), 캣타워 꼭대기까지, 캣휠 제자리 달리기(바퀴가 돈다, 쉬는 동안은 바퀴 안에서 헥헥),
   //       소파 위에 앉기, 졸리면 소파로, 상자 가구로 걸어가 쏙, 우클릭 '치우기' 자리, 올라 있던 가구를 치우면 떨어진다
   {
     const p = await open(`?w=1100&h=240&scale=height&transparent=1`, { width: 1300, height: 600 });
@@ -1254,6 +1254,8 @@ try {
       run("wheel", 10, () => c.treadmill && Math.abs(c.x - n.W * 0.625) < 30);
       const x0 = c.x, s0 = n.debug ? 0 : 0; n.step(120);
       out.wheel = { running: !!c.treadmill, stayed: Math.abs(c.x - x0) < 3, held: ev.some(([k, e]) => k === "furnitureHeld" && e.includes("Wh")), mode: c.mode };
+      for (let i = 0; i < 120 * 12 && !(c.mode === "act" && c.actP && c.actP.pant > 0.3); i++) n.step(1); // 숨 고르기: 바퀴 안에서 헥헥
+      out.wheelRest = { mode: c.mode, perch: c.perch ? c.perch.fid : null, pant: !!(c.actP && c.actP.pant > 0.3) };
       n.act(null); n.step(60);
       out.wheelStopped = { mode: c.mode, treadmill: !!c.treadmill };
       run("sofa", 15, () => c.perch && c.perch.fid === "So" && c.mode === "act");
@@ -1279,8 +1281,8 @@ try {
       out.menu = ev.some(([k, e]) => k === "furnitureMenu" && e.id === "L");
       return out;
     });
-    check("가구 놀이: 조명 톡·캣타워 꼭대기·캣휠 제자리·소파 위·치우면 떨어짐·상자 가구·졸리면 소파·우클릭 치우기", JSON.stringify(r),
-      r.lamp.on && r.lamp.events === 1 && r.lamp.held && r.tower.perch === "f:T:1" && r.wheel.running && r.wheel.stayed && r.wheel.held &&
+    check("가구 놀이: 조명 톡·캣타워 꼭대기·캣휠 제자리·숨 고르기는 바퀴 안에서 헥헥·소파 위·치우면 떨어짐·상자 가구·졸리면 소파·우클릭 치우기", JSON.stringify(r),
+      r.lamp.on && r.lamp.events === 1 && r.lamp.held && r.tower.perch === "f:T:1" && r.wheel.running && r.wheel.stayed && r.wheel.held && r.wheelRest.perch === "Wh" && r.wheelRest.pant &&
         !r.wheelStopped.treadmill && r.sofa.perch === "So" && r.sofa.mode === "act" && !r.fell.perch && r.box.mode === "act" && Math.abs(r.box.x - r.box.boxX) < 12 &&
         r.sleep.perch === "So" && r.menu);
     await p.close();
