@@ -1201,7 +1201,7 @@ export function MemoriesSection() {
 
 const TIDY_AT = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-const MIND_KIND: Record<NoteKind, string> = { wonder: "궁금", want: "하고 싶음", chose: "고름" };
+const MIND_KIND: Record<NoteKind, string> = { wonder: "궁금", want: "하고 싶음", chose: "고름", dream: "꿈" };
 const MIND_AT = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric" });
 
 /**

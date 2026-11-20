@@ -29,6 +29,7 @@ import { useNekoApp } from "./neko/director/stores";
 import { watchWalkIdle } from "./neko/walkWatch";
 import { restThink, takeGreeting } from "./agent/neko-mind";
 import { reportBigState, watchPresence } from "./neko/presence";
+import { watchDreams } from "./neko/dream";
 import { useNekoNeeds } from "./neko/director/needsStore";
 import { SLEEPY_MS } from "./neko/director/derive";
 import { useNekoStore } from "./neko/nekoStore";
@@ -1921,6 +1922,10 @@ export default function App() {
 
   // 산책이 출발 전 네코 상태를 가지고 나간다(walk.ts WalkBefore). 졸 땐 활동이 없으니 마지막으로 한 활동을 기억해 둔다
   const nekoCtrl = useNekoController();
+  // 꿈(0.1.25): 길게 깊이 잘 때 하루 한두 번 — 무엇을 꿀지는 네코의 마음이 고른다(neko/dream). 산책 중엔 안 꾼다
+  const awayRef = useRef(away);
+  awayRef.current = away;
+  useEffect(() => (nekoCtrl ? watchDreams(nekoCtrl, () => awayRef.current) : undefined), [nekoCtrl]);
   const lastActRef = useRef<string | null>(null);
   useEffect(() => nekoCtrl?.on("activity", (a) => { if (a) lastActRef.current = a; }), [nekoCtrl]);
   const beforeWalk = async (): Promise<WalkBefore> => {

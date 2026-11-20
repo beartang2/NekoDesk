@@ -998,6 +998,33 @@ try {
     await p.close();
   }
 
+  // 9-t4) 꿈(0.1.25): 누워 깊이 잘 때만 꿈 말풍선, 7초쯤 머물다 접힌다, 깨면 바로 접힌다. 방·화면 모드 둘 다(말풍선이 실제로 그려지는지 화소로)
+  for (const world of [false, true]) {
+    const p = world ? await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 }) : await open();
+    p.on("pageerror", (e) => errors.push(String(e)));
+    if (world) { await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`); await p.waitForFunction(() => window.__nekoReady === true); await p.click("#wander"); }
+    const r = await p.evaluate((world) => {
+      const n = window.__neko, c = n.cat, cv = document.querySelector("canvas"), g = cv.getContext("2d"), k = cv.width / cv.getBoundingClientRect().width, o = {};
+      if (world) { n.setGround(830); c.x = 700; }
+      n.step(120);
+      const content = { shape: { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] } };
+      o.awake = n.dream(content);
+      n.setPose("lie"); for (let i = 0; i < 120 * 4 && c.mode !== "lie"; i++) n.step(1); n.step(120);
+      // 머리 위(귀 끝보다 위) 칸만 본다 — 숨쉬기로 바뀌는 몸 화소는 빼고
+      const box = () => { const S = n.S, ox = world ? n.region?.x ?? 0 : 0, oy = world ? n.region?.y ?? 0 : 0; return [c.head.x - 150 * S - ox, c.head.y - 160 * S - oy, 300 * S, 110 * S].map((v) => Math.round(v * k)); };
+      const snap = () => { n.draw(); const [x, y, w, hh] = box(); return g.getImageData(Math.max(0, x), Math.max(0, y), w, hh).data; };
+      const diff = (a, b) => { let m = 0; for (let j = 0; j < a.length; j += 4) if (Math.abs(a[j] - b[j]) + Math.abs(a[j + 1] - b[j + 1]) + Math.abs(a[j + 2] - b[j + 2]) + Math.abs(a[j + 3] - b[j + 3]) > 40) m++; return m; };
+      const s0 = snap(); n.step(120); const s1 = snap(); o.still = diff(s0, s1); // 꿈 없이 1초(숨쉬기만)
+      o.shown = n.dream(content); n.step(120); o.during = n.dreaming; o.ink = diff(s1, snap());
+      n.step(120 * 8); o.after = n.dreaming;
+      n.dream(content); n.step(60); n.setPose("stand"); for (let i = 0; i < 120 * 2 && n.dreaming; i++) n.step(1); o.wokeClosed = !n.dreaming;
+      return o;
+    }, world);
+    check(`꿈: 누워 깊이 잘 때만 말풍선, 머물다 접히고 깨면 접힌다(${world ? "화면 모드" : "방"})`, JSON.stringify(r),
+      r.awake === false && r.shown === true && r.during && r.ink > 300 && r.still < 50 && !r.after && r.wokeClosed);
+    await p.close();
+  }
+
   // 9-u) 캣타워 2단계(창 탐험): 창 옆면을 타고 올라 윗변에 올라서고, 다른 창 윗변으로 뛰어 건넌다. 순간이동 없이(한 프레임 이동 작게).
   //      오르는 중에 다른 활동이 오면 뛰어내려 착지한 뒤 넘긴다. 갈 곳이 없으면(창 없음) 바로 끝난다
   {

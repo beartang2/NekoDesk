@@ -17,6 +17,7 @@ import { validateShape, shapeBounds, drawShape } from "./gift-shape.js";
 import { MIX, mixable, mergePose } from "./activity-mix.js";
 import * as DD from "./decor-draw.js";
 import * as FA from "./furniture-art.js";
+import * as DR from "./dream-art.js";
 import { roomWindows } from "./room-window.js";
 
 export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 strict
@@ -476,6 +477,29 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       if (was && deferAct !== undefined) { const k = deferAct; deferAct = undefined; if (k) startAct(k); }
     }
   }
+  /* ----- 꿈(0.1.25, 사용자: 중간중간 잘 때 꿈을 꾸게) -----
+     호스트가 꿈에 나온 것(dream-art 의 content: 선물 모양 또는 가구)을 주면, 누워 깊이 자는 동안만 머리 위에 꿈 말풍선을 띄운다:
+     DREAM_IN 동안 피어나 DREAM_S 머물고 DREAM_IN 동안 접힌다. 깨거나 잡히거나 산책 나가면 바로 접는다. 무엇을 언제 꿀지는 호스트 몫 */
+  const DREAM_S = 7, DREAM_IN = 0.6;
+  let dreamC = null, dreamT = 0, dreamV = 0;
+  const asleep = () => cat.mode === "lie" && !AWAY;
+  function dream(content) {
+    const ok = content && typeof content === "object" && (content.shape && typeof content.shape === "object" ? true : FURN_KINDS.has(content.furniture));
+    if (!ok) { if (dreamC) dreamT = Math.max(dreamT, DREAM_S); return false; } // null: 접는다
+    if (!asleep()) return false;
+    dreamC = content.shape ? { shape: validateShape(content.shape) } : { furniture: content.furniture, ...(typeof content.accent === "string" ? { accent: content.accent } : {}) };
+    dreamT = 0; dreamV = 0;
+    emit("dream", true); kick();
+    return true;
+  }
+  function dreamStep(dt) {
+    if (!dreamC) return;
+    if (!asleep()) dreamT = Math.max(dreamT, DREAM_S); // 깼다: 바로 접는다
+    dreamT += dt;
+    dreamV = clamp(dreamT < DREAM_S ? dreamV + dt / DREAM_IN : dreamV - dt / DREAM_IN, 0, 1);
+    if (dreamT >= DREAM_S && dreamV <= 0) { dreamC = null; emit("dream", false); }
+  }
+
   /** 입이 커서 밑에 오도록 걸어온다(가까우면 그쪽으로 돌아서기만) */
   function fileApproach() {
     const c = cat, m = mouthPt(), dx = fileAt[0] - c.x, dir = Math.sign(dx) || c.face;
@@ -521,6 +545,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (AWAY) { time += dt; return; } // 산책 중: 고양이는 없다(팻말만)
     const c = cat; time += dt; c.modeT += dt;
     gapeStep(dt);
+    dreamStep(dt);
     c.nyangT = Math.max(0, c.nyangT - dt); c.petT = Math.max(0, (c.petT || 0) - dt); c.petSulk = Math.max(0, (c.petSulk || 0) - dt);
     c.annoy = Math.max(0, c.annoy - dt * 0.12); // 짜증은 천천히 풀린다
     if (c.tailEp && (c.tailEp.t += dt) >= c.tailEp.dur) c.tailEp = null;
@@ -4447,6 +4472,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     drawCarry();
     if (wf) ctx.restore();
     drawActFront();
+    if (dreamC && dreamV > 0.01) DR.drawDream(ctx, c.head.x, c.head.y, S, { face: c.face, k: dreamV, t: reduced.matches ? 0 : time, dark: themeDark, W, H, edge: 3 * DPR, content: dreamC });
     drawDecor(ctx, true); // 뒤에 숨기: 고양이 앞에 오는 물건
     drawEffects();
     if (showRig) drawRigOverlay();
@@ -5261,6 +5287,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     setRest(on) { if (cat.act && cat.act.key === "typing") cat.act.rest = !!on; },
     hit: hitCat,
     fileDrag,
+    dream,
+    get dreaming() { return !!dreamC; },
     /** 이 장소에 놓인 가구(docs/neko-furniture.md): [{ id, kind, at, slot, on }]. 바뀔 때만 */
     setFurniture,
     /** 놓인 가구와 조명 켜짐(감독이 후보를 고를 때) */

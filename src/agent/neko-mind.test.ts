@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Memory } from "./types";
 
 /** 네코의 마음 1단계(docs/neko-mind.md): 노트 저장, 사용자 사실이 새는지, 생각하기 실패 처리, 산책 주제 */
-const h = vi.hoisted(() => ({ kv: new Map<string, string>(), reply: null as unknown, fail: false, slow: false, mems: [] as unknown[], judge: "", judged: 0 }));
+const h = vi.hoisted(() => ({ kv: new Map<string, string>(), reply: null as unknown, fail: false, slow: false, mems: [] as unknown[], judge: "", judged: 0, sent: "" }));
 vi.hoisted(() => {
   const kv = new Map<string, string>();
   globalThis.localStorage = { getItem: (k: string) => kv.get(k) ?? null, setItem: (k: string, v: string) => void kv.set(k, v), removeItem: (k: string) => void kv.delete(k) } as Storage;
@@ -15,13 +15,14 @@ vi.mock("./llm-client", () => ({
   DEFAULT_CHAT_SYSTEM_PROMPT: "기본",
   fetchCompletion: async () => { h.judged++; return h.judge; },
   fetchCompletionMessage: async (_m: unknown, _p: unknown, _u: unknown, signal?: AbortSignal) => {
+    h.sent = JSON.stringify(_m);
     if (h.fail) throw new Error("꺼짐");
     if (h.slow) await new Promise((_, no) => signal?.addEventListener("abort", () => no(new Error("abort"))));
     return { text: "", toolCalls: h.reply ? [{ name: "neko_think", params: h.reply }] : [] };
   },
 }));
 
-import { chooseAmong, chooseWalkTopic, dedupeNotes, forgetNote, leaksFact, loadMind, mindMaterial, noteWonder, parseMind, recentInterests, restThink, takeGreeting, think, currentLean } from "./neko-mind";
+import { chooseAmong, chooseWalkTopic, dedupeNotes, dreamThink, mayDream, noteDream, DREAM_GAP_MS, forgetNote, leaksFact, loadMind, mindMaterial, noteWonder, parseMind, recentInterests, restThink, takeGreeting, think, currentLean } from "./neko-mind";
 import { useSessionStore } from "../stores/sessionStore";
 
 const mem = (id: number, kind: string, content: string, created_at = "2026-11-01 09:00:00"): Memory => ({ id, kind, content, created_at, use_count: 0 });
@@ -211,5 +212,39 @@ describe("노트 중복(0.1.22, 사용자: 같은 글이면 새로 쌓지 않기
     expect(m.notes.map((n) => n.text)).toEqual(["비 오는 날 새들은?", "고양이 꿈은 무슨 색일까"]);
     const n = (kind: "wonder" | "chose", text: string, what?: string) => ({ at: "2026-11-20T00:00:00Z", kind, text, ...(what ? { what } : {}) });
     expect(dedupeNotes([n("chose", "날씨", "walk_gift"), n("chose", "날씨", "walk_topic")])).toHaveLength(2); // 무엇이 다르면 따로
+  });
+});
+
+describe("꿈(0.1.25)", () => {
+  it("재료만 — 사용자 사실은 안 보이고 그림 목록에 번호, 고른 번호·그릴 것·깨서 할 말을 받는다", async () => {
+    h.mems = MEMS;
+    h.reply = { pick: "털실 산을 넘는 꿈", why: "", see: 2, draw: "", greet: "꿈에서 털실 산을 넘었어" };
+    const d = await dreamThink(["은행잎 — 노랗다", "털실 뭉치"]);
+    expect(d).toEqual({ text: "털실 산을 넘는 꿈", see: 2, draw: "", greet: "꿈에서 털실 산을 넘었어" });
+    expect(h.sent).toContain("1. 은행잎 — 노랗다");
+    expect(h.sent).toContain("비 오는 날을 좋아한다"); // 취향은 보인다
+    expect(h.sent).not.toContain("김하린");
+    expect(h.sent).not.toContain("한강로");
+  });
+  it("없는 번호는 0, 사실 조각이 든 꿈은 버리고, 실패하면 null(꿈 없이 잔다)", async () => {
+    h.mems = MEMS;
+    h.reply = { pick: "달을 쫓는 꿈", why: "", see: 9, draw: "달" };
+    expect(await dreamThink(["털실"])).toMatchObject({ see: 0, draw: "달" });
+    h.reply = { pick: "김하린이 나온 꿈", why: "" };
+    expect(await dreamThink([])).toBeNull();
+    h.fail = true;
+    expect(await dreamThink([])).toBeNull();
+  });
+  it("꿈은 노트에 '꿈'으로, 깨서 할 말은 첫마디로. 하루 두 번·3시간 간격", async () => {
+    await noteDream({ text: "생선 비가 내리는 꿈", see: 0, draw: "생선", greet: "꿈에 생선 비가 왔어" });
+    const m = await loadMind();
+    expect(m.notes[m.notes.length - 1]).toMatchObject({ kind: "dream", text: "생선 비가 내리는 꿈" });
+    expect(await takeGreeting()).toBe("꿈에 생선 비가 왔어");
+    const at = (d: number, hh: number) => new Date(2026, 10, d, hh).toISOString();
+    const mk = (...ts: string[]) => ({ v: 1 as const, topics: [], notes: ts.map((t) => ({ at: t, kind: "dream" as const, text: "꿈" })) });
+    expect(mayDream(mk(at(20, 9)), new Date(2026, 10, 20, 11))).toBe(false); // 3시간 안
+    expect(mayDream(mk(at(20, 9)), new Date(2026, 10, 20, 12, 1))).toBe(true);
+    expect(mayDream(mk(at(20, 3), at(20, 9)), new Date(2026, 10, 20, 15))).toBe(false); // 오늘 두 번
+    expect(mayDream(mk(at(20, 3), at(20, 9)), new Date(2026, 10, 21, 9))).toBe(true); // 다음 날
   });
 });

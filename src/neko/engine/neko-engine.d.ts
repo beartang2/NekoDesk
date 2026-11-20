@@ -108,6 +108,8 @@ export interface NekoEvents {
   furnitureHeld: string[];
   /** 가구를 꾹 누름·우클릭: (x, y) = 그 가구 오른쪽 위(무대 px). 호스트가 '치우기' 버튼을 띄운다 */
   furnitureMenu: { id: string; x: number; y: number };
+  /** 꿈 말풍선이 떴다(true)·접혔다(false) */
+  dream: boolean;
   /** 네코가 조명을 톡: 켜짐이 바뀌었다(호스트가 이 기기에 기억해 setFurniture 의 on 으로 돌려준다) */
   lamp: { id: string; on: boolean };
   /** 고양이나 놓아 둔 물건을 누르기 시작(true)·뗌(false). 폰은 그동안 가장자리 손짓(대화 목록 열기)을 막는다(neko/holding) */
@@ -227,6 +229,12 @@ export interface NekoController {
    * 그사이 act() 로 온 활동은 끝난 뒤에 한다
    */
   fileDrag(at: [number, number] | null): void;
+  /**
+   * 꿈(0.1.25): 누워 깊이 자는 중이면 머리 위에 꿈 말풍선(dream-art)을 7초쯤 띄우고 true. 자는 중이 아니면 false(안 띄운다).
+   * 깨거나 잡히면 바로 접는다. null 이면 띄운 걸 접는다. 무엇을 언제 꿀지는 호스트 몫(src/neko/dream.ts)
+   */
+  dream(content: import("./dream-art").DreamContent | null): boolean;
+  readonly dreaming: boolean;
   /** 입 원: 가운데와 받는 반지름(50 단위 × 배율). 호스트가 받는 자리 판단에 쓴다 */
   readonly mouth: { x: number; y: number; r: number };
   /** 머리 원: 아치를 여는 자리이자 아치의 기준(머리 위 가운데에 편다) */
