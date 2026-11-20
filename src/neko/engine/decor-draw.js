@@ -30,7 +30,8 @@ export const CAT_H = 100;
 export const ROOM_CAP_CATS = (0.8 * 240) / CAT_H;
 export function capPx(at, g) {
   if (at === "screen") return 3 * CAT_H * g.S;
-  if (at === "sidebar") return 0.8 * g.floorY;
+  // 방: 방 높이의 80%, 그리고 고양이 키 1.92배(맥 방은 S = 바닥/240 이라 같은 값, 폰은 고양이와 같이 70% 로 — stage-scale)
+  if (at === "sidebar") return Math.min(0.8 * g.floorY, ROOM_CAP_CATS * CAT_H * g.S);
   if (at === "dock") return Math.min(g.floorY, ROOM_CAP_CATS * CAT_H * g.S);
   return Infinity;
 }

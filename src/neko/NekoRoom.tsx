@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { onShapeImage } from "./engine/gift-shape";
 import { decorBoxes, decorDims, decorK, dragDecor, drawDecor, fallStep, hitDecorAt, spotOf } from "./engine/decor-draw";
 import { validateShape } from "./engine/gift-shape";
+import { stageS } from "./engine/stage-scale";
 import type { NekoDecorSpot } from "./engine/neko-engine";
 import { decorItems, useNekoGifts } from "./gifts";
 import { WeatherWindow } from "./WeatherWindow";
@@ -17,10 +18,10 @@ import "./NekoRoom.css";
  * 다크에선 조금 밝게(검은 고양이). 선 없이 면만, 네코 그림체처럼.
  */
 
-/** 앱 무대의 자리 계산(neko-engine 의 resize: 투명 무대라 바닥은 아래에서 6px, 배율은 높이·폭 중 작은 쪽) */
+/** 앱 무대의 자리 계산(neko-engine 의 resize: 투명 무대라 바닥은 아래에서 6px, 배율은 높이·폭 중 작은 쪽 × 기기 배율 — 폰 70%, stage-scale) */
 export function stageMetrics(W: number, H: number) {
   const floorY = H - 6;
-  return { floorY, S: Math.min(1.4, Math.max(0.35, Math.min(floorY / 240, W / 250))) };
+  return { floorY, S: stageS(W, floorY) };
 }
 
 /** 벽과 바닥이 만나는 줄: 발 위. 이보다 높이 띄운 물건은 엔진이 벽에 건다(WALL_GAP 18) */

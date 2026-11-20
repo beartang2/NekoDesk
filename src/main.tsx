@@ -20,6 +20,7 @@ import { startMemoryTidy } from "./neko/memoryTidy";
 import { startAmbient } from "./neko/ambient";
 import { startSync } from "./lib/sync";
 import { IS_PHONE } from "./lib/platform";
+import { PHONE_K, setStageK } from "./neko/engine/stage-scale";
 import { startPhone } from "./lib/phone";
 
 
@@ -38,6 +39,8 @@ const isNekoDecor = label.startsWith("neko-decor-");
 // 설정에서 따로 띄우는 창(네코 꾸미기·선물함, panel_open)
 const panel = label === "neko-customize" || label === "neko-gifts" ? (label as NekoPanelKind) : null;
 // 폰: 세로 한 줄 배치·키보드·터치(lib/phone.ts)
+// 폰은 고양이·창문·선물을 70% 로(거실이 넓어 보이게, 사용자). 엔진·그림을 만들기 전에
+if (IS_PHONE) setStageK(PHONE_K);
 if (IS_PHONE) startPhone();
 if (isQuick) document.documentElement.classList.add("quick-window");
 // 빛 창·화면 네코 창도 캡처 막처럼 바탕이 투명해야 한다.

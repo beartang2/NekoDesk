@@ -1,3 +1,5 @@
+import { stageK, stageS } from "./stage-scale.js";
+
 /**
  * 방·거실 벽의 날씨 창문 자리. 화면(WeatherWindow)과 엔진('창밖 구경' 활동이 창 앞으로 갈 때)이 같이 읽는다.
  * W·H = 네코 자리(무대) 크기(css px), 결과도 무대 px. 마당엔 창문이 없다.
@@ -12,18 +14,18 @@ export const WINDOW_SILL = 6;
 export function roomWindows(place, W, H) {
   if (!(W > 0 && H > 0) || (place !== "sidebar" && place !== "dock")) return [];
   const floorY = H - 6; // 엔진 resize 와 같다(투명 무대, 바닥은 아래에서 6px)
-  const S = Math.min(1.4, Math.max(0.35, Math.min(floorY / 240, W / 250)));
+  const S = stageS(W, floorY), K = stageK(); // 폰은 고양이와 같이 창도 70%(가운데·위 자리는 그대로)
   const seam = floorY - 18 * S; // 벽과 바닥이 만나는 줄
   if (place === "sidebar") {
-    const h = Math.round(Math.min(seam * 0.46, 120)), w = Math.round(h * 0.62), y = Math.round(seam * 0.14);
+    const h = Math.round(Math.min(seam * 0.46, 120) * K), w = Math.round(h * 0.62), y = Math.round(seam * 0.14);
     return [{ x: Math.round(W * 0.25 - w / 2), y, w, h }];
   }
   // 거실 높이는 보통 120~240 이고 그때 창 높이는 72 에서 멈춘다(높이 240 에서 30%). 그보다 높은 거실(폰을 가로로 돌린
   // 화면, 높이 375 남짓)에서는 그 30% 를 그대로 이어 가 창이 거실과 같이 커진다 — 72 에 묶어 두면 벽에 비해 작았다.
   // 폭도 창 모양(2.6:1)에 가깝게 남도록 조금 더 내준다. 높이 240 까지는 전과 똑같다.
   const tall = H > 240;
-  const h = Math.round(tall ? H * 0.3 : Math.min(H * 0.4, 72));
-  const w = Math.round(Math.min(W * (tall ? 0.38 : 0.3), h * 2.6)), y = Math.round(H * 0.12);
+  const h = Math.round((tall ? H * 0.3 : Math.min(H * 0.4, 72)) * K);
+  const w = Math.round(Math.min(W * (tall ? 0.38 : 0.3) * K, h * 2.6)), y = Math.round(H * 0.12);
   return [0.25, 0.75].map((k) => ({ x: Math.round(W * k - w / 2), y, w, h }));
 }
 

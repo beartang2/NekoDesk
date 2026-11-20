@@ -3,6 +3,7 @@ import { giftsApi, settingsApi } from "../api/tauri";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
 import type { NekoDecorSpot, NekoGiftPlay, NekoGiftSize } from "./engine/neko-engine";
 import { clampScale, decorK } from "./engine/decor-draw";
+import { stageS } from "./engine/stage-scale";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
 
 /**
@@ -37,7 +38,7 @@ const legacyPlace = (size?: NekoGiftSize): NekoPlacement => (size === "small" ? 
 export function scaleCapped(g: NekoGift, at: NekoPlacement): boolean {
   const st = useNekoStore.getState().stage;
   const floorY = (at === "sidebar" ? st.sidebarH : at === "dock" ? st.dockH : 1000) - 6;
-  const S = at === "screen" ? st.screenScale : Math.min(1.4, Math.max(0.35, floorY / 240));
+  const S = at === "screen" ? st.screenScale : stageS(Infinity, floorY); // 폭은 모른다 — 높이로만(폰은 70%)
   return decorK(validateShape(g.shape), g.size, g.scale, at, { floorY, S }).capped;
 }
 

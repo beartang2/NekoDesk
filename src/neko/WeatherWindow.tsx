@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { roomWindows } from "./engine/room-window";
+import { stageS } from "./engine/stage-scale";
 import { hitDecorAt } from "./engine/decor-draw";
 import { useWeatherNow } from "./weatherNow";
 import { useNekoController } from "./nekoHost";
@@ -93,7 +94,7 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
       const { ctrl: c, catHere: here } = hitRef.current;
       if (here && c && (c.hit(x, y) || c.hitDecor(x, y) !== null)) return;
       if (!here && place === "sidebar") { // 빈 방: 정지 그림(RoomGifts)의 선물 위
-        const W = box.width, floorY = box.height - 6, scale = Math.min(1.4, Math.max(0.35, Math.min(floorY / 240, W / 250)));
+        const W = box.width, floorY = box.height - 6, scale = stageS(W, floorY);
         if (hitDecorAt(decorItems(useNekoGifts.getState().gifts, "sidebar"), { W, floorY, scale }, x, y) !== null) return;
       }
       if (!live.current.weather) return; // 커튼이 닫혀 있으면(날씨 모름) 아무것도 안 띄운다(사용자)
