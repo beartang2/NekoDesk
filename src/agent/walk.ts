@@ -11,9 +11,10 @@ import { validateShape, type GiftShape } from "../neko/engine/gift-shape";
 import { useNekoGifts } from "../neko/gifts";
 import { drawGift, type DrawnGift } from "./gift-draw";
 import { chooseAmong, chooseWalkTopic, noteWonder } from "./neko-mind";
+import { FURNITURE_KEY, FURNITURE_KINDS, parseFurniture, useNekoFurniture, type FurnitureKind } from "../neko/furniture";
 
 /** 산책에서 가져올 수 있는 선물 종류. */
-export type GiftKind = "trinket" | "place" | "weather" | "link" | "memory" | "drawing" | "game";
+export type GiftKind = "trinket" | "place" | "weather" | "link" | "memory" | "drawing" | "game" | "furniture";
 
 export interface WalkGift {
   kind: GiftKind;
@@ -78,7 +79,11 @@ const GIFTS: Record<GiftKind, { base: number; label: string; hint: string }> = {
   memory: { base: 2, label: "떠오른 기억", hint: "사용자에 대해 기억해 둔 게 떠올라 꺼내는 얘기" },
   drawing: { base: 0.5, label: "그림", hint: "네가 그려 온 그림" },
   game: { base: 1, label: "놀이", hint: "같이 하자고 조르는 놀이(끝말잇기 같은 것). 사용자가 답해야 시작돼" },
+  // 가구(docs/neko-furniture.md §5): 일주일에 한 번쯤만(최근 7일 안에 물어왔으면 보기에서 뺀다 — 사용자). 가구 탭에 들어간다
+  furniture: { base: 1, label: "가구", hint: "산책하다 본 작은 가구(고양이가 올라가거나 들어가 놀 만한 것). 선물 이름은 그 가구 이름, furniture_kind 로 조명·캣타워·캣휠·소파·상자 중 무엇처럼 쓰는지" },
 };
+/** 산책 가구는 이만큼(일) 안에 물어왔으면 다시 안 물어온다 */
+const FURNITURE_EVERY_DAYS = 7;
 
 /** 산책 조사는 바깥 세상만 본다 — 사용자 파일·프로세스를 읽을 일이 없다. */
 // 아무 주소나 여는 web.scrape 와 기억을 꺼내는 memory.search 는 뺀다 — 지켜보는 사람이 없는 동안 남의 페이지에
@@ -139,6 +144,7 @@ const REPORT_TOOL = {
         gift_url: { type: "string", description: "선물이 링크면 알아본 것에 나온 URL 그대로" },
         drawing_prompt: { type: "string", description: "선물이 그림일 때만. 그릴 장면을 영어로 자세히" },
         next_wonder: { type: "string", description: "다음 산책에서 궁금한 것 한 줄(있으면)" },
+        furniture_kind: { type: "string", enum: [...FURNITURE_KINDS], description: "선물이 가구일 때만: 조명·캣타워·캣휠·소파·상자 중 무엇처럼 쓰는지" },
       },
       required: ["learned", "diary", "gift_title", "gift_body"],
     },
@@ -153,6 +159,7 @@ interface Structured {
   gift_url: string;
   drawing_prompt: string;
   next_wonder: string;
+  furniture_kind: string;
 }
 
 /** 산책하며 모은 것. abort 되면 그 순간의 이것으로 보고한다. */
@@ -243,6 +250,13 @@ export function startWalkBrain(ctx: WalkCtx): WalkBrain {
           try { useNekoGifts.getState().add({ title: gift.title, body: gift.body, shape: d?.shape, play: d?.play, size: d?.size }); } catch { /* 선물함이 안 돼도 보고는 한다 */ }
         });
       }
+      // 물어온 가구는 선물함이 아니라 가구 탭으로(설명과 함께). 다섯 가구 중 무엇처럼 쓰는지는 보고가 정했다(모르면 상자)
+      if (gift && g.kind === "furniture" && g.report) {
+        const kind = (FURNITURE_KINDS as readonly string[]).includes(g.report.furniture_kind) ? (g.report.furniture_kind as FurnitureKind) : "box";
+        const found = new Date().toLocaleDateString("en-CA", { timeZone: timeZone() });
+        void (g.drawing ?? Promise.resolve(null)).catch(() => null).then((d) =>
+          useNekoFurniture.getState().add({ kind, title: gift.title, body: gift.body, ...(d?.shape ? { shape: d.shape } : {}), found }).catch(() => {}));
+      }
       return report;
     }),
     abort: () => ctrl.abort(),
@@ -256,6 +270,13 @@ interface WalkCtx {
   before?: WalkBefore | null;
   /** 시험용 난수 */
   rand?: () => number;
+}
+
+/** 최근 FURNITURE_EVERY_DAYS 일 안에 물어온 가구가 없으면 가구를 물어올 수 있다(사용자: 일주일에 한 번쯤) */
+async function furnitureDue(today: string): Promise<boolean> {
+  const items = parseFurniture(await settingsApi.get(FURNITURE_KEY).catch(() => null));
+  const since = new Date(new Date(today).getTime() - FURNITURE_EVERY_DAYS * 86_400_000).toISOString().slice(0, 10);
+  return !items.some((f) => f.found && f.found > since);
 }
 
 async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<void> {
@@ -304,6 +325,7 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
     link: /https?:\/\//.test(g.findings),
     memory: userMems.length > 0,
     drawing: imageGen.provider !== "off" && history?.drawnOn !== today,
+    furniture: await furnitureDue(today),
   };
   const choices = (Object.keys(GIFTS) as GiftKind[]).filter((k) => available[k]).map((k) => ({ key: k, label: GIFTS[k].label, hint: GIFTS[k].hint }));
   const log = (history?.log ?? []).map((l) => `- ${l.day} ${GIFTS[l.kind]?.label ?? l.kind}`).join("\n");
@@ -371,13 +393,14 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
     gift_url: str(p?.gift_url),
     drawing_prompt: str(p?.drawing_prompt),
     next_wonder: str(p?.next_wonder),
+    furniture_kind: str(p?.furniture_kind),
   };
   // 다음에 궁금한 것: 노트로 남겨 다음 산책의 재료가 된다(관심이 이어지게). 이번 보고가 사용자 기억(선물 재료 memory)을 봤으면
   // 남기지 않는다 — 노트는 웹을 도는 다음 산책 주제의 재료라, 웹 글에 심긴 지시가 그 기억을 실어 내보내지 못하게
   if (g.report.next_wonder && g.kind !== "memory") void noteWonder(g.report.next_wonder, memories).catch(() => {});
 
   // 3-1. 주운 것·기념품 그림: 이름이 정해진 뒤 따로 그린다(gift-draw.ts). signal 을 안 넘긴다 — 서둘러 돌아와도 그림은 마저 그린다
-  if (g.kind === "trinket" || g.kind === "place") {
+  if (g.kind === "trinket" || g.kind === "place" || g.kind === "furniture") {
     g.drawing = drawGift(g.report.gift_title || GIFTS[g.kind].label, g.report.gift_body);
     g.drawn = await g.drawing.catch(() => null);
   }
@@ -428,7 +451,8 @@ function compose(g: Gathered): WalkReport {
   const diary = r?.diary || (g.findings ? "급하게 돌아왔어. 알아본 건 물어보면 얘기해 줄게." : "산책 다녀왔어.");
   const giftText = gift
     ? `\n\n**선물: ${gift.url ? `[${gift.title}](${gift.url})` : gift.title}**\n${gift.body}` +
-      (gift.file ? `\n(임시 보관함에 넣어 뒀어: ${gift.file})` : "")
+      (gift.file ? `\n(임시 보관함에 넣어 뒀어: ${gift.file})` : "") +
+      (gift.kind === "furniture" ? "\n(가구 탭에 넣어 뒀어)" : "")
     : "";
   const content = diary + giftText;
 
