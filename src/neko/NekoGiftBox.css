@@ -207,3 +207,50 @@ html.phone .neko-gifts__drop { display: none; }
 .gift-info__meta { margin: 0; font-size: 12px; color: var(--text-muted); }
 .gift-info__actions { display: flex; gap: 8px; width: 100%; margin-top: 6px; }
 .gift-info__actions > * { flex: 1; min-height: 44px; }
+
+/* 칸 버튼 줄: 놓기 하나, 또는 놓인 것은 옮기기 · 치우기 */
+.neko-gifts__btns {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+.neko-gifts__btns .neko-gifts__btn {
+  margin-top: 0;
+  padding: 2px 5px;
+}
+
+/* '어디에 놓을까요?'(PlacePicker): 확인 창 안에 자리 하나에 한 줄씩 큰 버튼 */
+.place-pick__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.place-pick__btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.place-pick__btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.place-pick__btn:disabled:hover {
+  background: var(--layer-hover);
+}
+.place-pick__note {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+html.phone .place-pick__btn {
+  min-height: 48px;
+  font-size: 15px;
+}
+html.phone .place-pick .update-dialog__actions .update-dialog__btn {
+  min-height: 44px;
+  padding: 0 18px;
+  font-size: 14px;
+}

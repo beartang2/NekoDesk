@@ -261,8 +261,6 @@ export interface NekoController {
   readonly decorCount: number;
   /** 이 점(무대 px)이 놓아 둔 물건 위면 그 id */
   hitDecor(x: number, y: number): string | null;
-  /** 무대 px 의 한 점(물건 가운데)을 자리로. 선물함에서 끌어 놓을 때 */
-  decorSpotAt(x: number, y: number, shape: unknown, size?: NekoGiftSize): NekoDecorSpot;
   readonly carrying: boolean;
   /** 이 점(무대 px, hit 와 같은 좌표)이 문 물건 위면 "bundle" */
   hitCarry(x: number, y: number): "bundle" | null;

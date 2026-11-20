@@ -5,7 +5,8 @@ import { drawFurniture, furnitureBox } from "./engine/furniture-art";
 import { FURNITURE_SLOTS } from "./engine/decor-draw";
 import { FURNITURE_NAME, freeSlot, useNekoFurniture, type FurnitureItem } from "./furniture";
 import { PLACE_NAME } from "./gifts";
-import { useNekoStore } from "./nekoStore";
+import { IS_PHONE } from "../lib/platform";
+import type { PlaceAsk } from "./PlacePicker";
 import { GiftThumb } from "./NekoGiftBox";
 import { accentHex } from "./furnitureHost";
 
@@ -30,61 +31,62 @@ const changed = () => { void emit("neko-furniture-changed").catch(() => {}); };
 
 const nameOf = (f: FurnitureItem) => f.title || FURNITURE_NAME[f.kind];
 
-/**
- * 선물함의 가구 탭(docs/neko-furniture.md §10): 기본 다섯 + 산책에서 물어온 가구(최근 것 위). 지금 네코가 있는 장소를 기준으로
- * 놓기·여기로·치우기. 칸이 차면 흐리게 막고 위에 안내, 마당이면 버튼 없이 안내. 기본 가구는 못 버린다
- */
-export function FurnitureTab({ onDrop }: { onDrop: (f: FurnitureItem) => void }) {
-  const items = useNekoFurniture((s) => s.items);
-  const here = useNekoStore((s) => s.stage.placement);
-  useEffect(() => { void useNekoFurniture.getState().load(); }, []);
-  const room = here === "sidebar" || here === "dock" ? here : null;
-  const full = room !== null && freeSlot(items, room) === null;
-  const base = items.filter((f) => f.id.startsWith("base:")), found = items.filter((f) => !f.id.startsWith("base:")).reverse();
+/** 가구를 놓을 수 있는 자리(맥·폰 같다). 마당에는 놓지 않는다 */
+const ROOMS = ["sidebar", "dock"] as const;
 
-  async function act(f: FurnitureItem) {
-    if (!room) return;
-    const st = useNekoFurniture.getState();
-    if (f.place?.at === room) await st.unplace(f.id);
-    else await st.place(f.id, room);
-    changed();
-  }
+/** 놓기·옮기기 → '어디에 놓을까요?'. 지금 놓인 자리와 꽉 찬 자리(방 2개·거실 4개)는 흐리게 못 고른다 */
+export function askFurniturePlace(f: FurnitureItem, items: FurnitureItem[]): PlaceAsk {
+  return {
+    title: nameOf(f),
+    question: f.place ? "어디로 옮길까요?" : "어디에 놓을까요?",
+    choices: ROOMS.map((at) => {
+      if (f.place?.at === at) return { at, note: "놓여 있음", off: true };
+      const used = items.filter((x) => x.place?.at === at).length, max = FURNITURE_SLOTS[at];
+      return freeSlot(items, at, f.id) === null ? { at, note: `${used}/${max} 꽉 참`, off: true } : { at, note: `${used}/${max}` };
+    }),
+    pick: (at) => void useNekoFurniture.getState().place(f.id, at).then(changed),
+  };
+}
+
+/**
+ * 선물함의 가구 탭(docs/neko-furniture.md §10): 기본 다섯 + 산책에서 물어온 가구(최근 것 위). 놓기·옮기기는 자리를 고르고
+ * (onAsk → PlacePicker, 네코가 어디 있든), 치우기는 바로. 기본 가구는 못 버린다
+ */
+export function FurnitureTab({ onDrop, onAsk }: { onDrop: (f: FurnitureItem) => void; onAsk: (ask: PlaceAsk) => void }) {
+  const items = useNekoFurniture((s) => s.items);
+  useEffect(() => { void useNekoFurniture.getState().load(); }, []);
+  const base = items.filter((f) => f.id.startsWith("base:")), found = items.filter((f) => !f.id.startsWith("base:")).reverse();
+  const unplace = (f: FurnitureItem) => void useNekoFurniture.getState().unplace(f.id).then(changed);
 
   return (
     <>
       <p className="settings-section__desc">
-        {room
-          ? full
-            ? `${PLACE_NAME[room]}에는 가구를 ${FURNITURE_SLOTS[room]}개까지 놓을 수 있습니다. 다른 가구를 먼저 치우십시오.`
-            : `지금 네코는 ${PLACE_NAME[room]}에 있습니다. 놓은 가구는 옮길 수 없고, ${PLACE_NAME[room]}에서 꾹 누르면(맥은 우클릭도) 치울 수 있습니다. 방은 2개, 거실은 4개까지 놓을 수 있습니다.`
-          : "마당에는 가구를 놓을 수 없습니다."}
+        놓기를 누르면 놓을 자리를 고릅니다. 방은 {FURNITURE_SLOTS.sidebar}개, 거실은 {FURNITURE_SLOTS.dock}개까지 놓을 수 있습니다.
+        {IS_PHONE ? " 놓인 가구는 그 자리에서 꾹 누르면 치울 수 있습니다." : " 마당에는 놓을 수 없습니다. 놓인 가구는 그 자리에서 우클릭하면 치울 수 있습니다."}
       </p>
       <ul className="neko-gifts__grid">
-        {[...base, ...found].map((f) => {
-          const placedHere = !!room && f.place?.at === room;
-          const label = placedHere ? "치우기" : f.place ? "여기로" : "놓기";
-          return (
-            <li
-              key={f.id}
-              className={`neko-gifts__item${f.place ? " neko-gifts__item--placed" : ""}`}
-              title={`${f.body ? `${f.body}\n` : ""}${f.found ? `${f.found}에 물어 옴` : "기본 가구"}${f.place ? ` · ${PLACE_NAME[f.place.at]}에 놓여 있음` : ""}`}
-            >
-              {!f.id.startsWith("base:") && (
-                <button type="button" className="neko-gifts__drop" aria-label={`${nameOf(f)} 버리기`} title="버리기" onClick={() => onDrop(f)}>
-                  <Trash2 size={12} />
-                </button>
-              )}
-              <FurnitureThumb item={f} size={64} />
-              <span className="neko-gifts__title">{nameOf(f)}</span>
-              {f.body && <span className="neko-gifts__body">{f.body}</span>}
-              {room && (
-                <button type="button" className="settings-btn neko-gifts__btn" disabled={!placedHere && full} onClick={() => void act(f)}>
-                  {label}
-                </button>
-              )}
-            </li>
-          );
-        })}
+        {[...base, ...found].map((f) => (
+          <li
+            key={f.id}
+            className={`neko-gifts__item${f.place ? " neko-gifts__item--placed" : ""}`}
+            title={`${f.body ? `${f.body}\n` : ""}${f.found ? `${f.found}에 물어 옴` : "기본 가구"}${f.place ? ` · ${PLACE_NAME[f.place.at]}에 놓여 있음` : ""}`}
+          >
+            {!f.id.startsWith("base:") && (
+              <button type="button" className="neko-gifts__drop" aria-label={`${nameOf(f)} 버리기`} title="버리기" onClick={() => onDrop(f)}>
+                <Trash2 size={12} />
+              </button>
+            )}
+            <FurnitureThumb item={f} size={64} />
+            <span className="neko-gifts__title">{nameOf(f)}</span>
+            {f.body && <span className="neko-gifts__body">{f.body}</span>}
+            <div className="neko-gifts__btns">
+              <button type="button" className="settings-btn neko-gifts__btn" onClick={() => onAsk(askFurniturePlace(f, items))}>
+                {f.place ? "옮기기" : "놓기"}
+              </button>
+              {f.place && <button type="button" className="settings-btn neko-gifts__btn" onClick={() => unplace(f)}>치우기</button>}
+            </div>
+          </li>
+        ))}
       </ul>
     </>
   );

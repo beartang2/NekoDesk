@@ -7,7 +7,8 @@ import { Trash2 } from "lucide-react";
 import { drawShape, onShapeImage, shapeBounds, type GiftShape } from "./engine/gift-shape";
 import { SCALE_MAX, SCALE_MIN } from "./engine/decor-draw";
 import { PLACE_NAME, scaleCapped, useNekoGifts, type NekoGift } from "./gifts";
-import { useNekoStore, type NekoPlacement } from "./nekoStore";
+import type { NekoPlacement } from "./nekoStore";
+import { PlacePicker, type PlaceAsk } from "./PlacePicker";
 import { GiftLab } from "./GiftLab";
 import { josa } from "../lib/hangul";
 import { Segmented } from "../components/ui";
@@ -36,11 +37,17 @@ export function GiftThumb({ shape, size = 56 }: { shape: GiftShape; size?: numbe
 
 const DAY = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric" });
 
-/** 칸 버튼: 여기 놓였으면 치우기, 다른 장소에 놓였으면 여기로, 안 놓였으면 놓기(액자는 걸기). 크기로 자리를 막지 않는다 */
-function action(g: NekoGift, here: NekoPlacement): { label: string; run: () => void } {
-  const { place } = useNekoGifts.getState();
-  if (g.placed?.at === here) return { label: "치우기", run: () => place(g.id, null) };
-  return { label: g.placed ? "여기로" : g.frame ? "걸기" : "놓기", run: () => place(g.id, "auto", here) };
+/** 선물을 놓을 수 있는 자리: 맥은 방·거실·마당, 폰은 마당(화면 모드)이 없다 */
+const GIFT_PLACES: NekoPlacement[] = IS_PHONE ? ["sidebar", "dock"] : ["sidebar", "dock", "screen"];
+
+/** 놓기(액자는 걸기)·옮기기 → '어디에 놓을까요?'. 지금 놓인 자리는 흐리게. 크기로 자리를 막지 않는다 */
+function askPlace(g: NekoGift): PlaceAsk {
+  return {
+    title: g.title,
+    question: g.placed ? "어디로 옮길까요?" : g.frame ? "어디에 걸까요?" : "어디에 놓을까요?",
+    choices: GIFT_PLACES.map((at) => (g.placed?.at === at ? { at, note: "놓여 있음", off: true } : { at })),
+    pick: (at) => useNekoGifts.getState().place(g.id, "auto", at),
+  };
 }
 
 /**
@@ -116,7 +123,7 @@ export function NekoGiftBox() {
 
 /**
  * 선물함 창(panel_open "neko-gifts")을 채운다. 제목은 창 틀에. 메인 창과 선물은 windowSync 로 맞춘다 —
- * 다른 창이라 네코 자리로 끌어다 놓을 수는 없고, 칸 버튼으로 지금 장소에 놓거나 옮기거나 치운다.
+ * 칸 버튼으로 놓기·옮기기(자리는 PlacePicker 에서 고른다, 네코가 어디 있든)·치우기.
  */
 /** 선물함 탭(선물·가구). 마지막으로 본 탭은 이 기기에만 */
 type GiftTab = "gifts" | "furniture";
@@ -125,7 +132,7 @@ const loadTab = (): GiftTab => { try { return localStorage.getItem(TAB_KEY) === 
 
 export function NekoGiftPanel() {
   const gifts = useNekoGifts((s) => s.gifts);
-  const here = useNekoStore((s) => s.stage.placement);
+  const [ask, setAsk] = useState<PlaceAsk | null>(null);
   const [tab, setTabState] = useState<GiftTab>(loadTab);
   const setTab = (t: GiftTab) => { setTabState(t); try { localStorage.setItem(TAB_KEY, t); } catch { /* 저장 못 해도 지금은 바뀐다 */ } };
   /** 버릴지 묻는 중인 것(선물 또는 물어온 가구): 제목과 버리기 */
@@ -142,43 +149,45 @@ export function NekoGiftPanel() {
           <Segmented<GiftTab> value={tab} onChange={setTab} options={[{ value: "gifts", label: "선물" }, { value: "furniture", label: "가구" }]} />
         </div>
         {tab === "furniture" ? (
-          <FurnitureTab onDrop={(f) => setDrop({ title: f.title || "가구", run: () => void dropFurniture(f) })} />
+          <FurnitureTab onDrop={(f) => setDrop({ title: f.title || "가구", run: () => void dropFurniture(f) })} onAsk={setAsk} />
         ) : (<>
         {import.meta.env.DEV && <GiftLab />}
         <p className="settings-section__desc">
-          선물 {gifts.length}개. 지금 네코는 {PLACE_NAME[here]}에 있습니다. 놓기를 누르면 {PLACE_NAME[here]} 바닥에 놓이고, 놓인 선물은 칸에서 크기를 바꿀 수 있습니다.
-          {here !== "screen" && ` ${PLACE_NAME[here]}에서 끌어 옮길 수 있고, 높이 두면 벽에 걸립니다. 우클릭하면 치울 수 있습니다.`}
+          선물 {gifts.length}개. 놓기를 누르면 놓을 자리를 고릅니다. 놓인 선물은 칸에서 크기를 바꾸고, 그 자리에서 끌어 옮길 수 있습니다.
+          {IS_PHONE ? " 꾹 누르면 치울 수 있습니다." : " 우클릭하면 치울 수 있습니다."}
         </p>
         <ul className="neko-gifts__grid">
-          {[...gifts].reverse().map((g) => {
-            const act = action(g, here);
-            return (
-              <li
-                key={g.id}
-                className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`}
-                title={`${g.body || g.title}\n${DAY.format(new Date(g.at))}에 받음${g.placed ? ` · ${PLACE_NAME[g.placed.at]}에 놓여 있음` : ""}`}
-              >
-                <button type="button" className="neko-gifts__drop" aria-label={`${g.title} 버리기`} title="버리기" onClick={() => askDrop(g)}>
-                  <Trash2 size={12} />
+          {[...gifts].reverse().map((g) => (
+            <li
+              key={g.id}
+              className={`neko-gifts__item${g.placed ? " neko-gifts__item--placed" : ""}`}
+              title={`${g.body || g.title}\n${DAY.format(new Date(g.at))}에 받음${g.placed ? ` · ${PLACE_NAME[g.placed.at]}에 놓여 있음` : ""}`}
+            >
+              <button type="button" className="neko-gifts__drop" aria-label={`${g.title} 버리기`} title="버리기" onClick={() => askDrop(g)}>
+                <Trash2 size={12} />
+              </button>
+              {IS_PHONE ? (
+                <button type="button" className="neko-gifts__peek" onClick={() => setInfo(g)} aria-label={`${g.title} 설명 보기`}>
+                  <GiftThumb shape={g.shape} size={64} />
+                  <span className="neko-gifts__title">{g.title}</span>
                 </button>
-                {IS_PHONE ? (
-                  <button type="button" className="neko-gifts__peek" onClick={() => setInfo(g)} aria-label={`${g.title} 설명 보기`}>
-                    <GiftThumb shape={g.shape} size={64} />
-                    <span className="neko-gifts__title">{g.title}</span>
-                  </button>
-                ) : (
-                  <>
-                    <GiftThumb shape={g.shape} size={64} />
-                    <span className="neko-gifts__title">{g.title}</span>
-                  </>
+              ) : (
+                <>
+                  <GiftThumb shape={g.shape} size={64} />
+                  <span className="neko-gifts__title">{g.title}</span>
+                </>
+              )}
+              {g.placed && <GiftScale g={g} at={g.placed.at} />}
+              <div className="neko-gifts__btns">
+                <button type="button" className="settings-btn neko-gifts__btn" onClick={() => setAsk(askPlace(g))}>
+                  {g.placed ? "옮기기" : g.frame ? "걸기" : "놓기"}
+                </button>
+                {g.placed && (
+                  <button type="button" className="settings-btn neko-gifts__btn" onClick={() => useNekoGifts.getState().place(g.id, null)}>치우기</button>
                 )}
-                {g.placed && <GiftScale g={g} at={g.placed.at} />}
-                <button type="button" className="settings-btn neko-gifts__btn" onClick={act.run}>
-                  {act.label}
-                </button>
-              </li>
-            );
-          })}
+              </div>
+            </li>
+          ))}
         </ul>
         </>)}
       </div>
@@ -199,6 +208,7 @@ export function NekoGiftPanel() {
           </div>
         </div>
       )}
+      <PlacePicker ask={ask} onClose={() => setAsk(null)} />
       {/* 버리기 확인. 처음 포커스는 취소, Esc 도 취소(Radix 가 Esc 를 먹어 창은 안 닫힌다). 버리면 windowSync 로 방·거실·마당에서도 빠진다 */}
       <AlertDialog.Root open={!!drop} onOpenChange={(open) => { if (!open) setDrop(null); }}>
         <AlertDialog.Portal>
