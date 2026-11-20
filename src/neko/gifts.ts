@@ -39,7 +39,7 @@ const legacyPlace = (size?: NekoGiftSize): NekoPlacement => (size === "small" ? 
 export function scaleCapped(g: NekoGift, at: NekoPlacement): boolean {
   const st = useNekoStore.getState().stage;
   const floorY = (at === "sidebar" ? st.sidebarH : at === "dock" ? st.dockH : 1000) - 6;
-  const S = at === "screen" ? st.screenScale : stageS(Infinity, floorY); // 폭은 모른다 — 높이로만(폰은 70%)
+  const S = at === "screen" ? st.screenScale : stageS(Infinity, floorY, at); // 폭은 모른다 — 높이로만(폰은 70%, 맥 거실은 기본 높이에서 멈춤)
   return decorK(validateShape(g.shape), g.size, g.scale, at, { floorY, S }).capped;
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { skyAt, weatherKind } from "./weatherWindowDraw";
 import { roomWindow, roomWindows } from "./engine/room-window";
+import { PHONE_K, setStageK } from "./engine/stage-scale";
 
 describe("날씨 창문", () => {
   it("WMO 코드를 여섯 가지로 나눈다", () => {
@@ -36,11 +37,15 @@ describe("날씨 창문", () => {
     const tall = roomWindows("dock", 812, 375);
     expect(tall.map((r) => r.x + r.w / 2)).toEqual([203, 609]);
     expect(tall[0].h).toBe(Math.round(375 * 0.3));
-    expect(tall[0].h / 375).toBeCloseTo(roomWindows("dock", 1000, 240)[0].h / 240, 2);
+    // 폰은 240 → 가로 화면이 같은 30% 로 이어진다(맥 거실은 기본 높이 170 에서 창 크기를 멈춰 240 이 없다 — stage-scale DOCK_GROW_H)
+    setStageK(PHONE_K);
+    expect(roomWindows("dock", 812, 375)[0].h / 375).toBeCloseTo(roomWindows("dock", 1000, 240)[0].h / 240, 2);
+    setStageK(1);
     expect(tall[0].x).toBeGreaterThan(0);
     expect(tall[0].x + tall[0].w).toBeLessThan(tall[1].x);
     expect(tall[1].x + tall[1].w).toBeLessThan(812);
-    expect(roomWindows("dock", 1000, 240)[0]).toMatchObject({ h: 72, w: 187 });
+    expect(roomWindows("dock", 1000, 240)[0]).toMatchObject({ h: 68, w: 177 }); // 맥 가장 큰 거실 = 기본 높이 170 의 창
+    expect(roomWindows("dock", 1000, 170)[0]).toMatchObject({ h: 68, w: 177 });
     expect(roomWindows("dock", 375, 120)[0]).toMatchObject({ h: 48 });
     expect(roomWindow("sidebar", 0, 0)).toBeNull();
   });

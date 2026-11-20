@@ -36,7 +36,7 @@ export function FurnitureLayer({ place, still = false, onMenu }: {
   }, []);
 
   // 그린 자리(칸 가운데·바닥, 칸 맞춤 크기). 누르기 판정과 '치우기' 버튼 자리에도 쓴다
-  const { w, h } = size, floorY = h - 6, S = w && h ? stageS(w, floorY) : 1;
+  const { w, h } = size, floorY = h - 6, S = w && h ? stageS(w, floorY, place) : 1;
   const slots = furnitureSlots(place, w);
   const placed = placedAt(items, place).flatMap((f) => {
     const slot = slots[f.place!.slot];

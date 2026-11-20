@@ -6,7 +6,7 @@ import { decorItems, useNekoGifts } from "./gifts";
 import { onWeatherNow, weatherNowSnapshot } from "./weatherNow";
 import { setHolding } from "./holding";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
-import { stageK, stageS } from "./engine/stage-scale";
+import { stageS } from "./engine/stage-scale";
 import { startFurnitureHost } from "./furnitureHost";
 
 /**
@@ -38,10 +38,12 @@ export function ensureNeko(): NekoController {
     ctrl = createNeko(nekoCanvas(), { appearance: useNekoStore.getState().appearance });
     // 가구: 놓인 것을 엔진에 넘기고, 조명 켜짐·활동 중 잡은 가구를 받는다(furnitureHost)
     startFurnitureHost(ctrl);
-    // 폰은 고양이·선물을 70% 로(stage-scale): 엔진 높이 모드 식에 기기 배율을 곱한 S 를 무대 크기가 바뀔 때마다 넘긴다
-    if (stageK() !== 1) {
+    // 무대 배율은 stage-scale 한 곳: 폰은 고양이·선물을 70% 로, 맥 거실은 기본 높이부터 멈춘다. 무대 크기·장소가 바뀔 때마다 넘긴다
+    {
       const cv = nekoCanvas();
-      new ResizeObserver(() => { if (cv.clientWidth && cv.clientHeight) ctrl?.setScale(stageS(cv.clientWidth, cv.clientHeight - 6)); }).observe(cv);
+      const fit = () => { if (cv.clientWidth && cv.clientHeight) ctrl?.setScale(stageS(cv.clientWidth, cv.clientHeight - 6, useNekoStore.getState().stage.placement)); };
+      new ResizeObserver(fit).observe(cv);
+      useNekoStore.subscribe((s, prev) => { if (s.stage.placement !== prev.stage.placement) fit(); });
     }
     // 외형은 스토어를 따른다(설정에서 바꾸면 바로)
     useNekoStore.subscribe((s, prev) => {
