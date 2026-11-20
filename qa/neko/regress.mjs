@@ -1333,6 +1333,32 @@ try {
     await p.close();
   }
 
+  // 9-u3) 물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
+  //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
+  for (const furn of [false, true]) {
+    const p = await open(furn ? `?w=1100&h=240&scale=height&transparent=1` : "", { width: 1300, height: 1000 });
+    const r = await p.evaluate((furn) => {
+      const n = window.__neko, c = n.cat, cv = document.querySelector("canvas"), g = cv.getContext("2d"), k = cv.width / cv.getBoundingClientRect().width;
+      n.pause(); n.setWander(false); n.setMood("idle");
+      if (furn) n.setFurniture([{ id: "B", kind: "box", at: "dock", slot: 1 }]);
+      const img = document.createElement("canvas"); img.width = img.height = 40; const ig = img.getContext("2d"); ig.fillStyle = "#ff00ff"; ig.fillRect(0, 0, 40, 40);
+      n.carry({ id: "m", kind: "image", image: img }); n.step(60); n.act("box");
+      const magenta = (x, y, w, h) => { const d = g.getImageData(x, y, Math.max(1, w), Math.max(1, h)).data; let m = 0; for (let j = 0; j < d.length; j += 4) if (d[j] > 230 && d[j + 1] < 40 && d[j + 2] > 230) m++; return m; };
+      let frames = 0, leak = 0, seen = 0;
+      for (let i = 0; i < 120 * 14; i++) {
+        n.step(1);
+        if (i % 12 || !c.act || c.act.key !== "box" || c.mode !== "act" || c.act.t - c.act.ta < 0.8) continue;
+        n.draw(); frames++;
+        const b = c.act.box, x0 = Math.round((b.x - b.w / 2 + 4) * k), y0 = Math.round((n.floorY - b.h * 0.5) * k);
+        leak = Math.max(leak, magenta(x0, y0, Math.round((b.w - 8) * k), Math.round((b.h * 0.5 - 2) * k)));
+        if (magenta(0, 0, cv.width, cv.height)) seen++;
+      }
+      return { furn, frames, leak, seen, carrying: n.carrying };
+    }, furn);
+    check(`물고 있는 채로 상자 뒤지기(${furn ? "상자 가구" : "뿅 상자"}): 문 물건이 상자 앞면에 가려진다`, JSON.stringify(r), r.frames > 40 && r.leak === 0 && r.seen > 0 && r.carrying);
+    await p.close();
+  }
+
   // 9-p) 벽 타기: 자리 높이에 맞춰 오른다(귀 끝이 천장의 70~85%, 낮은 방은 예전처럼, 마당은 고양이 키의 4~5배까지).
   //      천장·벽에 건 선물에 닿지 않고, 성공(두리번 → 뛰어내림)·실패(미끄러짐) 모두 끝난다
   {

@@ -4443,10 +4443,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     composeCat();
 
     drawFace();
+    // 입에 문 물건은 고양이와 같은 겹: 상자 앞벽·가구 앞 겹·캣휠 테·내민 앞발·앞에 숨기 물건이 고양이처럼 가린다
+    // (맨 앞에 그리면 상자에 들어가 뒤질 때 문 물건만 상자 밖으로 보였다 — 사용자)
+    drawCarry();
     if (wf) ctx.restore();
     drawActFront();
     drawDecor(ctx, true); // 뒤에 숨기: 고양이 앞에 오는 물건
-    drawCarry();
     drawEffects();
     if (showRig) drawRigOverlay();
   }
