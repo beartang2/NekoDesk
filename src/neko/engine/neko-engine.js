@@ -2496,11 +2496,6 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
     return null;
   }
-  /** 선물함에서 무대로 끌어 놓을 때: 무대 px 의 한 점을 자리로(물건 가운데가 그 점에 오게) */
-  function decorSpotAt(x, y, shape, size) {
-    const h = decorDims(validateShape(shape), sizeK(size)).h;
-    return spotOf(x, y + h / 2, h);
-  }
 
   /** 이 점(무대 px)이 문 물건 위인가 */
   function hitCarry(x, y) {
@@ -5221,7 +5216,6 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     setDecor,
     get decorCount() { return decor.length; },
     hitDecor,
-    decorSpotAt,
     get carrying() { return carrying.length > 0; },
     hitCarry,
     carryRect: () => (carryBox ? { ...carryBox } : null),
