@@ -27,8 +27,10 @@ const TOWER_PARTS = [
 ];
 /** 캣타워 방석(포인트 색으로 따로 칠한다): 2층 발판 위 타원 */
 const TOWER_CUSHION = { x: 4, y: -27.4, rx: 6, ry: 1.5 };
-// 캣휠: 바퀴 가운데 (0, -16.5), 테 반지름 15.5 — 다리·받침·테·레일·판은 그대로, 이음 자국과 발바닥 로고만 돈다
-const WHEEL_CY = -16.5;
+// 캣휠: 바퀴 가운데 (0, -16.5), 테 반지름 15.5 — 다리·받침·테·레일·판은 그대로, 이음 자국과 발바닥 로고만 돈다.
+// 상자처럼 두 겹: 뒤 겹(다리·받침·먼 테·레일·판·발바닥)과 앞 겹(가까운 테와 레일 턱·이음 자국). 고양이가 안에서 달리면 그 사이에 그려
+// 안에 들어간 것처럼 보인다(사용자) — 발은 레일 띠 안(반지름 12.2)에 디뎌 앞 턱이 발끝을 덮는다
+const WHEEL_CY = -16.5, WHEEL_RIM = [13.4, 15.5], WHEEL_RAIL = [11.2, 13.4];
 const WHEEL_STILL = [
   { t: "poly", pts: [[-10, 0], [-6.5, 0], [0, -16], [-1.6, -16]], round: 0.6, c: "brown" },
   { t: "poly", pts: [[10, 0], [6.5, 0], [0, -16], [1.6, -16]], round: 0.6, c: "brown" },
@@ -37,12 +39,13 @@ const WHEEL_STILL = [
   { t: "circle", x: 0, y: WHEEL_CY, r: 13.4, c: "gray.dark" },
   { t: "circle", x: 0, y: WHEEL_CY, r: 11.2, c: "brown.light" },
 ];
-/** 도는 것(바퀴 가운데 기준 좌표): 테의 이음 자국 6개, 앞면 발바닥 로고(포인트 색 계열, 없으면 흰색) */
+/** 도는 것(바퀴 가운데 기준 좌표). 앞 겹: 테의 이음 자국 6개 */
+const WHEEL_MARKS = Array.from({ length: 6 }, (_, i) => {
+  const a = (i * Math.PI) / 3;
+  return { t: "rrect", x: Math.cos(a) * 14.45, y: Math.sin(a) * 14.45, w: 0.7, h: 2.2, rad: 0.3, rot: a, c: "brown.dark" };
+});
+/** 뒤 겹: 판의 발바닥 로고(포인트 색 계열, 없으면 흰색) */
 const WHEEL_SPIN = (paw) => [
-  ...Array.from({ length: 6 }, (_, i) => {
-    const a = (i * Math.PI) / 3;
-    return { t: "rrect", x: Math.cos(a) * 14.45, y: Math.sin(a) * 14.45, w: 0.7, h: 2.2, rad: 0.3, rot: a, c: "brown.dark" };
-  }),
   { t: "ellipse", x: 0, y: 1.5, rx: 2.6, ry: 2.1, rot: 0, c: paw },
   { t: "dot", x: -2.9, y: -1.8, r: 1, c: paw },
   { t: "dot", x: -1, y: -3.1, r: 1, c: paw },
@@ -83,8 +86,8 @@ export const FURNITURE_ART = {
   lamp: { size: 1.5, by: "h", span: 32, surfaces: [] },
   cattower: { size: 1.8, by: "h", span: 32, surfaces: [{ y: 0.8, x0: -0.59, x1: 0.37 }, { y: 1.5, x0: -0.22, x1: 0.62 }] },
   // 캣휠: 고양이 키 2.0(사용자: 1.3 은 고양이에 비해 작았다 — 안쪽 레일 지름 1.4 라 몸이 다 들어간다). 고양이가 디디는 곳은 어두운 회색
-  // 레일 띠의 안쪽 가장자리 — 바퀴 가운데 −16.5, 띠 안쪽 반지름 11.2(칸) → (16.5 − 11.2)/32 × 2.0 = 0.331, 가로 ±0.6
-  wheel: { size: 2.0, by: "h", span: 32, surfaces: [{ y: 0.331, x0: -0.6, x1: 0.6 }] },
+  // 레일 띠 안(반지름 12.2 — 띠는 11.2~13.4, 앞 턱이 발끝을 덮는다) → (16.5 − 12.2)/32 × 2.0 = 0.269, 가로 ±0.6
+  wheel: { size: 2.0, by: "h", span: 32, surfaces: [{ y: 0.269, x0: -0.6, x1: 0.6 }] },
   // 소파: 앉는 면은 방석 앞 가장자리(바닥에서 6.8 칸 = 0.44). 방석 뒤 가장자리(0.62)에 두면 누운 고양이 등이 등받이 위로 올라와
   // 등받이에서 자는 것처럼 보였다(사용자). 가로는 팔걸이 안쪽(±12 칸 = 0.78)
   sofa: { size: 2.2, by: "w", span: 34, surfaces: [{ y: 0.44, x0: -0.7, x1: 0.7 }] },
@@ -109,6 +112,14 @@ export function furnitureSurfaces(kind, S, slotW) {
 
 const rgb = (hex) => { const n = parseInt(hex.replace("#", ""), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
 const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
+const INK = [58, 44, 52], WHITE = [255, 255, 255];
+/** 고리(r0~r1)를 gift-shape 원과 같은 칠(위 밝게·아래 INK, 반지름 r1 원의 높이에 걸친 그라데이션)로 — 캣휠 앞 겹이 뒤 겹과 똑같이 보이게 */
+function ring(g, cx, cy, r0, r1, c) {
+  const gr = g.createLinearGradient(0, cy - r1, 0, cy + r1);
+  gr.addColorStop(0, `rgb(${mix(c, WHITE, 0.3)})`); gr.addColorStop(0.45, `rgb(${c})`); gr.addColorStop(1, `rgb(${mix(c, INK, 0.16)})`);
+  g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, r1, 0, Math.PI * 2); g.arc(cx, cy, r0, 0, Math.PI * 2, true); g.fill();
+}
+const BROWN = [176, 122, 74], RAIL = mix([167, 163, 156], INK, 0.32); // gift-shape 의 brown·gray.dark
 
 /**
  * 포인트 색(#rrggbb) → 가구 색(사용자: 강조 색과 같은 계열로 자연스럽게): 색상(hue)은 그대로, 채도는 sMax 까지, 밝기는 l(0~1).
@@ -129,7 +140,8 @@ const toneOf = (accent, k, dflt) => accentTone(accent, TONE[k][0], TONE[k][1]) |
 /**
  * 가구 하나를 (x, bottom) 에 그린다. S = 무대 배율.
  * o: on(조명 켜짐) · accent(포인트 색 #rrggbb — 캣타워 방석·캣휠 발바닥·소파 천·상자 테이프가 그 계열) · spin(캣휠 각, 라디안) · edge(가장자리 그림자 흐림 px, DPR 반영) ·
- *    layer("back"·"front"·"all" — 상자만 두 겹, 나머지는 back 이 전부·front 는 없음) · slotW(칸 폭, 칸 맞춤) · shadow(바닥 그림자 색)
+ *    layer("back"·"front"·"all" — 상자·캣휠은 두 겹(고양이가 안에 들면 그 사이에), 나머지는 back 이 전부·front 는 없음) ·
+ *    slotW(칸 폭, 칸 맞춤) · shadow(바닥 그림자 색)
  */
 export function drawFurniture(g, kind, x, bottom, S, o = {}) {
   if (!FURNITURE_ART[kind]) return;
@@ -144,6 +156,23 @@ export function drawFurniture(g, kind, x, bottom, S, o = {}) {
     if (front) drawShape(g, { v: 1, parts: BOX_FRONT(toneOf(o.accent, "tape", "white")) }, x, bottom, u, edge);
     return;
   }
+  if (kind === "wheel") {
+    const cy = bottom + WHEEL_CY * u;
+    if (back) {
+      drawShape(g, { v: 1, parts: WHEEL_STILL }, x, bottom, u, edge);
+      g.save(); g.translate(x, cy); g.rotate(o.spin || 0);
+      drawShape(g, { v: 1, parts: WHEEL_SPIN(toneOf(o.accent, "paw", "white")) }, 0, 0, u, 0);
+      g.restore();
+    }
+    if (front) {
+      ring(g, x, cy, WHEEL_RIM[0] * u, WHEEL_RIM[1] * u, BROWN);
+      ring(g, x, cy, WHEEL_RAIL[0] * u, WHEEL_RAIL[1] * u, RAIL);
+      g.save(); g.translate(x, cy); g.rotate(o.spin || 0);
+      drawShape(g, { v: 1, parts: WHEEL_MARKS }, 0, 0, u, 0);
+      g.restore();
+    }
+    return;
+  }
   if (!back) return;
   if (kind === "lamp") drawShape(g, { v: 1, parts: LAMP_PARTS(!!o.on), ...(o.on ? { glow: "yellow" } : {}) }, x, bottom, u, edge);
   else if (kind === "cattower") {
@@ -153,10 +182,5 @@ export function drawFurniture(g, kind, x, bottom, S, o = {}) {
     const ry = TOWER_CUSHION.ry * u, gr = g.createLinearGradient(0, cy - ry, 0, cy + ry);
     gr.addColorStop(0, `rgb(${mix(c, [255, 255, 255], 0.3)})`); gr.addColorStop(1, `rgb(${mix(c, [58, 44, 52], 0.18)})`);
     g.fillStyle = gr; g.beginPath(); g.ellipse(cx, cy, TOWER_CUSHION.rx * u, ry, 0, 0, Math.PI * 2); g.fill();
-  } else if (kind === "wheel") {
-    drawShape(g, { v: 1, parts: WHEEL_STILL }, x, bottom, u, edge);
-    g.save(); g.translate(x, bottom + WHEEL_CY * u); g.rotate(o.spin || 0);
-    drawShape(g, { v: 1, parts: WHEEL_SPIN(toneOf(o.accent, "paw", "white")) }, 0, 0, u, 0);
-    g.restore();
   } else if (kind === "sofa") drawShape(g, { v: 1, parts: SOFA_PARTS(toneOf(o.accent, "sofa", "blue")) }, x, bottom, u, edge);
 }

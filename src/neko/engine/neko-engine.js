@@ -2306,7 +2306,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const pf = c.actP && c.actP.pawFront; // true 면 가까운 앞발, 배열이면 그 다리들
     if (pf) for (const i of Array.isArray(pf) ? pf : [NEAR_FRONT]) drawLegOnTop(i, c.actP.pawBeans !== false);
     drawProps("front");
-    drawFurnitureFront(); // 상자 가구의 앞 겹: 들어간 고양이를 가린다
+    drawFurnitureFront(); // 상자·캣휠의 앞 겹: 들어간 고양이를 가린다
     for (const o of leftovers) if (o.drawFront) o.drawFront(o.t / o.life);
     for (const A of [c.act, c.side]) if (A) { const s = actOf(A.key); if (s.drawFront) s.drawFront(A); }
     for (const e of effects) drawEffect(e);
@@ -4778,12 +4778,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     for (const f of furniture) if (f.spinning || f.tapT > 0) {
       ctx.save();
       if (f.tapT > 0) { ctx.translate(f.x, BASE_Y); ctx.rotate(Math.sin(f.tapT * 18) * 0.05 * f.tapT); ctx.translate(-f.x, -BASE_Y); }
-      FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { on: f.on, spin: f.spin || 0, slotW: f.slotW, accent: f.accent || theme.accent, layer: f.kind === "box" ? "back" : "all" });
+      FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { on: f.on, spin: f.spin || 0, slotW: f.slotW, accent: f.accent || theme.accent, layer: f.kind === "box" || f.kind === "wheel" ? "back" : "all" });
       ctx.restore();
     }
   }
   function drawFurnitureFront() {
-    for (const f of furniture) if (f.kind === "box") FA.drawFurniture(ctx, "box", f.x, BASE_Y, S, { slotW: f.slotW, accent: f.accent || theme.accent, layer: "front", shadow: null });
+    // 상자·캣휠 앞 겹은 늘 고양이 위에(들어가 있으면 안에 있는 것처럼). 캣휠 이음 자국은 도는 각도로
+    for (const f of furniture) if (f.kind === "box" || f.kind === "wheel") FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { slotW: f.slotW, accent: f.accent || theme.accent, spin: f.spin || 0, layer: "front", shadow: null });
   }
   function furnitureMenuOf(id) {
     const f = furniture.find((o) => o.id === id);
