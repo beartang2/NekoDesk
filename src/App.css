@@ -1952,5 +1952,5 @@ html.phone.standby .phone-panel,
 html.phone.standby .neko-slot__map-btn { display: none; }
 html.phone.standby .neko-slot--dock { grid-row: 1; height: 100% !important; border: 0; }
 /* 바닥(무대 아래 6px)은 홈 막대 자리(안전 영역 아래) 위에 둔다 — 고양이·바닥 물건을 잡는 손가락이 홈 막대 손짓으로 잡혀
-   홈으로 나갔다. 벽은 화면 끝까지, 양옆은 그대로 끝까지 걷는다 */
-html.phone.standby .neko-slot__stage { bottom: env(safe-area-inset-bottom); }
+   홈으로 나갔다. 벽은 화면 끝까지, 양옆은 그대로 끝까지 걷는다. 무대·가구 그림·창문·거실 바닥선이 다 이 값을 따른다(NekoSlot.css) */
+html.phone.standby .neko-slot--dock { --stage-lift: env(safe-area-inset-bottom); }

@@ -37,7 +37,10 @@ const cell = (name: string) => screen.getByText(name, { selector: ".neko-gifts__
 const btn = (name: string, label: string) => within(cell(name)).getByRole("button", { name: label });
 const choice = (place: string) => screen.getByRole("button", { name: new RegExp(`^${place}`) }) as HTMLButtonElement;
 
-it("놓기 → 어디에 놓을까요? → 고른 자리에 놓이고 옮기기·치우기, 꽉 찬 자리는 흐리게 못 고른다", async () => {
+const at = (id: string) => useNekoFurniture.getState().items.find((f) => f.id === id)!.place;
+const slot = (n: number) => screen.getByRole("button", { name: new RegExp(`^왼쪽에서 ${n}번째 칸`) }) as HTMLButtonElement;
+
+it("놓기 → 어디에 놓을까요?(자리) → 어느 칸에 놓을까요?(칸). 찬 칸·꽉 찬 자리는 흐리게 못 고른다", async () => {
   useNekoStore.setState((s) => ({ stage: { ...s.stage, placement: "screen" } })); // 네코가 마당에 있어도 고를 수 있다
   render(<Harness />);
   for (const n of ["조명", "캣타워", "캣휠", "소파", "상자"]) expect(cell(n)).toBeTruthy();
@@ -45,11 +48,19 @@ it("놓기 → 어디에 놓을까요? → 고른 자리에 놓이고 옮기기�
   expect(screen.getByText("어디에 놓을까요?")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /^마당/ })).toBeNull(); // 가구는 마당에 안 놓는다
   fireEvent.click(choice("방"));
-  await waitFor(() => expect(btn("소파", "치우기")).toBeTruthy());
-  expect(useNekoFurniture.getState().items.find((f) => f.id === "base:sofa")!.place?.at).toBe("sidebar");
+  expect(screen.getByText("어느 칸에 놓을까요?")).toBeTruthy();
+  expect(document.querySelectorAll(".slot-pick__slot")).toHaveLength(2); // 방 2칸
+  fireEvent.click(slot(2));
+  await waitFor(() => expect(at("base:sofa")).toEqual({ at: "sidebar", slot: 1 }));
+  expect(btn("소파", "치우기")).toBeTruthy();
+
+  // 소파가 있는 칸은 못 고른다
   fireEvent.click(btn("상자", "놓기"));
   fireEvent.click(choice("방"));
-  await waitFor(() => expect(btn("상자", "옮기기")).toBeTruthy());
+  expect(slot(2).disabled).toBe(true);
+  expect(slot(2).getAttribute("aria-label")).toContain("소파 있음");
+  fireEvent.click(slot(1));
+  await waitFor(() => expect(at("base:box")).toEqual({ at: "sidebar", slot: 0 }));
 
   // 방 2/2: 조명은 방을 못 고르고 거실은 된다
   fireEvent.click(btn("조명", "놓기"));
@@ -59,13 +70,28 @@ it("놓기 → 어디에 놓을까요? → 고른 자리에 놓이고 옮기기�
   fireEvent.click(screen.getByRole("button", { name: "취소" }));
   await waitFor(() => expect(screen.queryByText("어디에 놓을까요?")).toBeNull());
 
-  // 옮기기: 지금 자리는 '놓여 있음'으로 막고 거실로 옮긴다 → 방에 자리가 난다
+  // 옮기기: 방엔 빈 칸이 없어 막히고, 거실 → 뒤로 → 거실 → 4번째 칸
   fireEvent.click(btn("소파", "옮기기"));
   expect(screen.getByText("어디로 옮길까요?")).toBeTruthy();
   expect(choice("방").disabled).toBe(true);
   expect(choice("방").textContent).toContain("놓여 있음");
   fireEvent.click(choice("거실"));
-  await waitFor(() => expect(useNekoFurniture.getState().items.find((f) => f.id === "base:sofa")!.place?.at).toBe("dock"));
+  expect(screen.getByText("어느 칸으로 옮길까요?")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "뒤로" }));
+  expect(screen.getByText("어디로 옮길까요?")).toBeTruthy();
+  fireEvent.click(choice("거실"));
+  fireEvent.click(slot(4));
+  await waitFor(() => expect(at("base:sofa")).toEqual({ at: "dock", slot: 3 }));
+
+  // 같은 자리 안에서 칸 옮기기: 지금 칸은 '지금 자리'로 막는다
+  fireEvent.click(btn("소파", "옮기기"));
+  expect(choice("거실").disabled).toBe(false);
+  fireEvent.click(choice("거실"));
+  expect(slot(4).disabled).toBe(true);
+  expect(slot(4).textContent).toBe("지금 자리");
+  fireEvent.click(slot(1));
+  await waitFor(() => expect(at("base:sofa")).toEqual({ at: "dock", slot: 0 }));
+
   fireEvent.click(btn("상자", "치우기"));
   await waitFor(() => expect(btn("상자", "놓기")).toBeTruthy());
   fireEvent.click(btn("조명", "놓기"));

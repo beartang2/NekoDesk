@@ -56,3 +56,10 @@ it("Claude 로 바꾸면 최대 응답 토큰을 그 모델의 천장(128K) 안�
   s().setGenParams({ max_tokens_agent: 200_000, max_tokens_chat: 512 });
   expect(s().genParams.max_tokens_agent).toBe(128_000);
 });
+
+it("벽지: 없어진 '아치'는 몰딩 판넬로 읽고 그 값으로 다시 적는다(0.1.24, 사용자)", async () => {
+  localStorage.setItem("nekodesk_neko_wallpaper", "arch");
+  const { useSettingsStore } = await import("./settingsStore");
+  expect(useSettingsStore.getState().nekoWallpaper).toBe("wainscot");
+  expect(localStorage.getItem("nekodesk_neko_wallpaper")).toBe("wainscot");
+});

@@ -13,9 +13,12 @@
   border-top: 1px solid var(--border);
   background: var(--bg-surface);
 }
+/* 무대 상자: 엔진·가구 그림(.neko-furniture)·창문(.weather-window)이 같은 크기여야 바닥선(아래에서 6px)이 같다.
+   폰 가로 화면은 아래를 홈 막대 자리만큼 올린다(--stage-lift, App.css). 벽·바닥 그림(DockWall)은 화면 끝까지 */
 .neko-slot__stage {
   position: absolute;
   inset: 0;
+  bottom: var(--stage-lift, 0px);
 }
 .neko-canvas {
   display: block;
@@ -32,9 +35,10 @@
 /* 놓인 가구의 정지 그림(FurnitureLayer): 고양이 무대·선물 밑, 벽·창문 위. 누르기는 받지 않는다(빈 방은 화면 전체 눌림에서 고른다) */
 .neko-furniture {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   width: 100%;
-  height: 100%;
+  height: calc(100% - var(--stage-lift, 0px)); /* 캔버스는 top·bottom 으로 늘지 않는다 */
   display: block;
   pointer-events: none;
 }

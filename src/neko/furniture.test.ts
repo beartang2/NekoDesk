@@ -38,6 +38,18 @@ describe("가구 저장", () => {
     expect(where("base:lamp")).toEqual({ at: "dock", slot: 0 });
   });
 
+  it("고른 칸에 놓는다(선물함 칸 고르기): 찬 칸·없는 칸은 거절, 같은 장소 안에서 칸을 옮길 수 있다", async () => {
+    await s().load();
+    expect(await s().place("base:sofa", "dock", 2)).toBe(true);
+    expect(where("base:sofa")).toEqual({ at: "dock", slot: 2 });
+    expect(await s().place("base:lamp", "dock", 2)).toBe(false); // 찬 칸
+    expect(await s().place("base:lamp", "dock", 4)).toBe(false); // 거실은 0~3
+    expect(await s().place("base:lamp", "dock", 3)).toBe(true);
+    expect(await s().place("base:sofa", "dock", 0)).toBe(true); // 같은 장소 안에서 옮김
+    expect(where("base:sofa")).toEqual({ at: "dock", slot: 0 });
+    expect(await s().place("base:sofa", "dock", 0)).toBe(true); // 제자리는 그대로
+  });
+
   it("산책에서 물어온 가구는 더하고 버릴 수 있다(기본 가구는 못 버린다). 저장엔 놓인 기본 가구와 물어온 것만", async () => {
     await s().load();
     await s().add({ kind: "sofa", title: "등나무 의자", body: "공원 벤치 옆에서", found: "2026-11-20" });

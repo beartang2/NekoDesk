@@ -83,8 +83,14 @@ const mirror = (field: SyncedField, value: string | null) => void settingsApi.se
 /** 오래된 대화를 지우는 기준(일). 0 이면 끔 */
 export type SessionRetention = 0 | 30 | 90;
 /** 방·거실 벽지(neko/Wallpaper.tsx). 이 기기에만 */
-export type NekoWallpaper = "plain" | "panel" | "twotone" | "arch";
-const WALLPAPERS: readonly NekoWallpaper[] = ["plain", "panel", "twotone", "arch"];
+export type NekoWallpaper = "plain" | "panel" | "twotone" | "wainscot";
+const WALLPAPERS: readonly NekoWallpaper[] = ["plain", "panel", "twotone", "wainscot"];
+/** 벽지: 없어진 '아치'(0.1.24 에 몰딩 판넬로 바꿈, 사용자)는 몰딩 판넬로 읽고 그 값으로 다시 적는다 */
+function loadWallpaper(): NekoWallpaper {
+  const raw = localStorage.getItem(K.nekoWallpaper);
+  if (raw === "arch") { try { localStorage.setItem(K.nekoWallpaper, "wainscot"); } catch { /* 못 적어도 이번엔 몰딩 판넬 */ } return "wainscot"; }
+  return WALLPAPERS.find((v) => v === raw) ?? "plain";
+}
 const toRetention = (raw: string | null): SessionRetention => (raw === "0" ? 0 : raw === "90" ? 90 : 30);
 function loadSessionRetention(): SessionRetention {
   return toRetention(localStorage.getItem(K.sessionRetention));
@@ -183,7 +189,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   toolMode: loadToolMode(),
   imageGen: loadImageGen(),
   weatherLocation: localStorage.getItem(K.weatherLocation) ?? "Seoul",
-  nekoWallpaper: WALLPAPERS.find((v) => v === localStorage.getItem(K.nekoWallpaper)) ?? "plain",
+  nekoWallpaper: loadWallpaper(),
   claudeContext: loadClaudeContext(),
   autoCompact: localStorage.getItem(K.autoCompact) !== "off",
   sessionRetention: loadSessionRetention(),

@@ -2306,7 +2306,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const pf = c.actP && c.actP.pawFront; // true 면 가까운 앞발, 배열이면 그 다리들
     if (pf) for (const i of Array.isArray(pf) ? pf : [NEAR_FRONT]) drawLegOnTop(i, c.actP.pawBeans !== false);
     drawProps("front");
-    drawFurnitureFront(); // 상자 가구의 앞 겹: 들어간 고양이를 가린다
+    drawFurnitureFront(); // 상자·캣휠의 앞 겹: 들어간 고양이를 가린다
     for (const o of leftovers) if (o.drawFront) o.drawFront(o.t / o.life);
     for (const A of [c.act, c.side]) if (A) { const s = actOf(A.key); if (s.drawFront) s.drawFront(A); }
     for (const e of effects) drawEffect(e);
@@ -4408,18 +4408,25 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = theme.floor; ctx.fillRect(0, floorY, W, H - floorY);
     }
+    // 캣휠 안(달리는 중·숨 고르는 중): 고양이를 바퀴 원으로 잘라 꼬리·머리가 테 밖으로 안 나온다. 테 안쪽 고리는 앞 겹이 덮는다.
+    // 둥근 레일 위라 바닥 그림자는 없다(납작한 그림자가 테 밖으로 삐져나왔다)
+    const wf = c.perch && furniture.find((f) => f.id === c.perch.fid && f.kind === "wheel");
     const lowest = Math.max(...c.legs.map((L) => L.footW[1])) + PAW.ry * S;
     const k = clamp(1 - Math.max(0, floorY - lowest) / (240 * S), 0.25, 1);
-    ctx.save(); ctx.globalAlpha = k; ctx.fillStyle = theme.shadow;
-    ctx.beginPath(); ctx.ellipse(c.x + c.face * 6 * S, floorY + 1.5 * S, 58 * S * (0.55 + 0.45 * k), 6.5 * S * (0.55 + 0.45 * k), 0, 0, TAU); ctx.fill();
-    ctx.restore();
+    if (!wf) {
+      ctx.save(); ctx.globalAlpha = k; ctx.fillStyle = theme.shadow;
+      ctx.beginPath(); ctx.ellipse(c.x + c.face * 6 * S, floorY + 1.5 * S, 58 * S * (0.55 + 0.45 * k), 6.5 * S * (0.55 + 0.45 * k), 0, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
 
     drawFurnitureBack();
     drawDecor();
     drawActBack();
+    if (wf) { const wc = FA.wheelCircle(S, wf.slotW); ctx.save(); ctx.beginPath(); ctx.arc(wf.x, BASE_Y + wc.dy, wc.r, 0, TAU); ctx.clip(); }
     composeCat();
 
     drawFace();
+    if (wf) ctx.restore();
     drawActFront();
     drawDecor(ctx, true); // 뒤에 숨기: 고양이 앞에 오는 물건
     drawCarry();
@@ -4751,7 +4758,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (WORLD) return;
     const prev = new Map(furniture.map((f) => [f.id, f]));
     furniture = (Array.isArray(items) ? items : []).filter((f) => f && f.id != null && FURN_KINDS.has(f.kind) && (f.at === "sidebar" || f.at === "dock") && Number.isInteger(f.slot))
-      .map((f) => ({ id: String(f.id), kind: f.kind, at: f.at, slot: f.slot, on: prev.get(String(f.id))?.on ?? !!f.on, x: 0, slotW: 0, box: null }));
+      .map((f) => ({ id: String(f.id), kind: f.kind, at: f.at, slot: f.slot, on: prev.get(String(f.id))?.on ?? !!f.on, accent: typeof f.accent === "string" ? f.accent : "", x: 0, slotW: 0, box: null }));
     layoutFurniture();
     const bs = actOf("box"); if (bs) bs.roam = !!furnOf("box"); // 상자 가구가 있으면 상자 놀이는 그리로 걸어간다
     if (cat.act && FURN_ACTS.has(cat.act.key) && !furnOf(cat.act.key)) endAct(); // 그 가구를 치웠다
@@ -4778,12 +4785,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     for (const f of furniture) if (f.spinning || f.tapT > 0) {
       ctx.save();
       if (f.tapT > 0) { ctx.translate(f.x, BASE_Y); ctx.rotate(Math.sin(f.tapT * 18) * 0.05 * f.tapT); ctx.translate(-f.x, -BASE_Y); }
-      FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { on: f.on, spin: f.spin || 0, slotW: f.slotW, accent: theme.accent, layer: f.kind === "box" ? "back" : "all" });
+      FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { on: f.on, spin: f.spin || 0, slotW: f.slotW, accent: f.accent || theme.accent, layer: f.kind === "box" || f.kind === "wheel" ? "back" : "all" });
       ctx.restore();
     }
   }
   function drawFurnitureFront() {
-    for (const f of furniture) if (f.kind === "box") FA.drawFurniture(ctx, "box", f.x, BASE_Y, S, { slotW: f.slotW, layer: "front", shadow: null });
+    // 상자·캣휠 앞 겹은 늘 고양이 위에(들어가 있으면 안에 있는 것처럼). 캣휠 이음 자국은 도는 각도로
+    for (const f of furniture) if (f.kind === "box" || f.kind === "wheel") FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { slotW: f.slotW, accent: f.accent || theme.accent, spin: f.spin || 0, layer: "front", shadow: null });
   }
   function furnitureMenuOf(id) {
     const f = furniture.find((o) => o.id === id);

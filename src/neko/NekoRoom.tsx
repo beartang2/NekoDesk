@@ -6,7 +6,7 @@ import { stageS } from "./engine/stage-scale";
 import type { NekoDecorSpot } from "./engine/neko-engine";
 import { decorItems, useNekoGifts } from "./gifts";
 import { WeatherWindow } from "./WeatherWindow";
-import { SkyTint, WallPattern } from "./Wallpaper";
+import { FloorBand, SkyTint, WallPattern } from "./Wallpaper";
 import { setHolding } from "./holding";
 import "./NekoRoom.css";
 
@@ -50,16 +50,9 @@ export function RoomBackdrop() {
     <div ref={ref} className="neko-room">
       {w > 0 && h > 0 && (
         <svg width={w} height={h} aria-hidden="true">
-          <defs>
-            <linearGradient id="neko-room-floor" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" className="neko-room__floor-far" />
-              <stop offset="1" className="neko-room__floor-near" />
-            </linearGradient>
-          </defs>
           <rect className="neko-room__wall" x={0} y={0} width={w} height={seam} />
           <WallPattern place="sidebar" w={w} wallH={seam} />
-          <rect x={0} y={seam} width={w} height={h - seam} fill="url(#neko-room-floor)" />
-          <rect className="neko-room__base" x={0} y={seam - 3 * S} width={w} height={3 * S} />
+          <FloorBand w={w} h={h} seam={seam} S={S} />
           <ellipse className="neko-room__rug" cx={w * 0.52} cy={floorY - 1} rx={w * 0.3} ry={Math.max(3, 5 * S)} />
           <SkyTint w={w} h={h} />
         </svg>

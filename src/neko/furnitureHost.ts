@@ -17,7 +17,7 @@ type FurnitureEvents = {
 };
 /** 가구 API 가 있는 엔진(없으면 undefined) */
 export type FurnitureCtrl = NekoController & {
-  setFurniture?: (items: { id: string; kind: FurnitureKind; at: "sidebar" | "dock"; slot: number; on: boolean }[]) => void;
+  setFurniture?: (items: { id: string; kind: FurnitureKind; at: "sidebar" | "dock"; slot: number; on: boolean; accent: string }[]) => void;
   on<K extends keyof FurnitureEvents>(ev: K, fn: (p: FurnitureEvents[K]) => void): () => void;
 };
 
@@ -29,6 +29,21 @@ export function accentHex(): string {
   c.fillStyle = v;
   return /^#[0-9a-f]{6}$/i.test(c.fillStyle) ? c.fillStyle : "";
 }
+/** 포인트 색이 바뀌면(설정 › 포인트 색상, 테마 — theme-colors 가 html style 에 단다) 가구를 다시 칠한다 */
+let accent = "", watching = false;
+const accentSubs = new Set<() => void>();
+export function onAccent(fn: () => void) {
+  accentSubs.add(fn);
+  if (!watching && typeof MutationObserver !== "undefined") {
+    watching = true;
+    accent = accentHex();
+    new MutationObserver(() => { const a = accentHex(); if (a !== accent) { accent = a; accentSubs.forEach((f) => f()); } })
+      .observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class"] });
+  }
+  return () => { accentSubs.delete(fn); };
+}
+/** 지금 포인트 색(#rrggbb). 바뀌면 다시 그린다 */
+export const useAccent = () => useSyncExternalStore(onAccent, () => accent);
 
 // ── 조명 켜짐: 이 기기에만(localStorage). 엔진이 바꾸고 lamp 로 알린다 ──
 const LAMP_KEY = "nekodesk_furniture_lamp";
@@ -54,8 +69,10 @@ export function startFurnitureHost(ctrl: NekoController) {
   const send = () => {
     const at = useNekoStore.getState().stage.placement;
     if (at !== "sidebar" && at !== "dock") { fc.setFurniture?.([]); return; }
-    fc.setFurniture?.(placedAt(useNekoFurniture.getState().items, at).map((f) => ({ id: f.id, kind: f.kind, at, slot: f.place!.slot, on: lampOn(f.id) })));
+    const a = accentHex();
+    fc.setFurniture?.(placedAt(useNekoFurniture.getState().items, at).map((f) => ({ id: f.id, kind: f.kind, at, slot: f.place!.slot, on: lampOn(f.id), accent: a })));
   };
+  onAccent(send);
   useNekoFurniture.subscribe((s, prev) => { if (s.items !== prev.items) send(); });
   useNekoStore.subscribe((s, prev) => { if (s.stage.placement !== prev.stage.placement) send(); });
   lampSubs.add(send);

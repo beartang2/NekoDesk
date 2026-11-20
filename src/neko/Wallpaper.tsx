@@ -2,10 +2,11 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useSettingsStore, type NekoWallpaper } from "../stores/settingsStore";
 import { useWeatherNow } from "./weatherNow";
 import { skyAt } from "./weatherWindowDraw";
+import { stageS } from "./engine/stage-scale";
 import "./Wallpaper.css";
 
 /**
- * 방·거실 벽지(설정 › 고양이, 사용자가 고른다)와 창밖 빛 연동. 무늬는 옅은 면·선만(모던): 무지·세로 판넬·투톤·아치.
+ * 방·거실 벽지(설정 › 고양이, 사용자가 고른다)와 창밖 빛 연동. 무늬는 옅은 면·선만(모던): 무지·세로 판넬·투톤·몰딩 판넬.
  * 벽색은 창밖 하늘과 같은 계산(skyAt)으로 낮엔 그대로, 해 뜨고 질 무렵엔 따뜻하게, 밤엔 어둡고 푸르게 덮는다 — 색만 바뀌고
  * 움직이지 않는다(1분에 한 번). 날씨를 모르면(커튼이 닫힘) 낮 그대로. 색은 테마마다 Wallpaper.css
  */
@@ -13,7 +14,7 @@ export const WALLPAPERS: { value: NekoWallpaper; label: string }[] = [
   { value: "plain", label: "무지" },
   { value: "panel", label: "세로 판넬" },
   { value: "twotone", label: "투톤" },
-  { value: "arch", label: "아치" },
+  { value: "wainscot", label: "몰딩 판넬" },
 ];
 
 /** 창밖 하늘의 밝기(1분마다). 날씨를 모르면 낮 */
@@ -28,7 +29,7 @@ export function useSkyLight() {
 }
 
 /**
- * 벽(0,0 ~ w×wallH)의 무늬. 방(sidebar)은 고양이 쪽(오른쪽)에, 거실(dock)은 두 창 사이 가운데에 아치를 둔다
+ * 벽(0,0 ~ w×wallH)의 무늬. 몰딩 판넬은 벽 아래쪽(56% 아래)에 액자 몰딩 판넬을 칸 폭 110(방)·120(거실) 남짓으로 나눠 둔다
  */
 export function WallPattern({ place, w, wallH }: { place: "sidebar" | "dock"; w: number; wallH: number }) {
   const kind = useSettingsStore((s) => s.nekoWallpaper);
@@ -54,11 +55,17 @@ export function WallPattern({ place, w, wallH }: { place: "sidebar" | "dock"; w:
       </>
     );
   }
-  if (kind === "arch") {
-    const cx = place === "sidebar" ? w * 0.62 : w * 0.5;
-    const aw = place === "sidebar" ? w * 0.42 : Math.min(w * 0.2, wallH * 0.8), top = wallH * 0.12;
-    const d = `M${cx - aw / 2} ${wallH} V${top + aw / 2} A${aw / 2} ${aw / 2} 0 0 1 ${cx + aw / 2} ${top + aw / 2} V${wallH} Z`;
-    return <path className="neko-wall__arch" d={d} />;
+  if (kind === "wainscot") { // 몰딩 판넬(아치 대신, 사용자 0.1.24): 벽 아래쪽 판넬 액자 몰딩과 그 위 몰딩 띠
+    const y0 = Math.round(wallH * 0.56), n = Math.max(2, Math.round(w / (place === "sidebar" ? 110 : 120))), gap = 8, pw = (w - gap * (n + 1)) / n;
+    return (
+      <>
+        <rect className="neko-wall__molding" x={0} y={y0 - 2} width={w} height={2} />
+        <rect className="neko-wall__rail" x={0} y={y0} width={w} height={1} />
+        {Array.from({ length: n }, (_, i) => (
+          <rect key={i} className="neko-wall__frame" x={gap + i * (pw + gap)} y={y0 + 7} width={pw} height={Math.max(6, wallH - y0 - 14)} rx={1.5} />
+        ))}
+      </>
+    );
   }
   return null;
 }
@@ -74,24 +81,47 @@ export function SkyTint({ w, h }: { w: number; h: number }) {
   );
 }
 
-/** 거실 벽(채팅 바 아래 띠·폰 가로 화면): 띠 전체가 벽이다. 날씨 창문과 고양이 무대 아래 */
+/** 바닥: 이음매(seam = 고양이 발 18·S 위)부터 아래 끝까지 깊이 그라데이션 + 걸레받이. 방(RoomBackdrop)과 거실(DockWall)이 같이 쓴다 */
+export function FloorBand({ w, h, seam, S }: { w: number; h: number; seam: number; S: number }) {
+  const id = useId().replace(/:/g, "");
+  return (
+    <>
+      <defs>
+        <linearGradient id={`neko-floor-${id}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" className="neko-room__floor-far" />
+          <stop offset="1" className="neko-room__floor-near" />
+        </linearGradient>
+      </defs>
+      <rect x={0} y={seam} width={w} height={h - seam} fill={`url(#neko-floor-${id})`} />
+      <rect className="neko-room__base" x={0} y={seam - 3 * S} width={w} height={3 * S} />
+    </>
+  );
+}
+
+/**
+ * 거실 벽(채팅 바 아래 띠·폰 가로 화면): 방처럼 벽과 바닥을 나눈다(사용자). 바닥선은 엔진 무대와 같다 — 무대 상자(폰 가로는
+ * 홈 막대만큼 올림, --stage-lift)를 재어 floorY = 무대 높이 − 6. 벽·바닥 그림은 띠 끝(화면 끝)까지. 날씨 창문과 고양이 무대 아래
+ */
 export function DockWall() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 0, h: 0 });
+  const ref = useRef<HTMLDivElement>(null), stageRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0, sh: 0 });
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
+    const el = ref.current, st = stageRef.current;
+    if (!el || !st) return;
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight, sh: st.clientHeight }));
     ro.observe(el);
+    ro.observe(st);
     return () => ro.disconnect();
   }, []);
-  const { w, h } = size;
+  const { w, h, sh } = size, floorY = sh - 6, S = stageS(w, floorY, "dock"), seam = floorY - 18 * S;
   return (
     <div ref={ref} className="neko-dock-wall" aria-hidden="true">
-      {w > 0 && h > 0 && (
+      <div ref={stageRef} className="neko-dock-wall__stage" />
+      {w > 0 && sh > 0 && (
         <svg width={w} height={h}>
-          <rect className="neko-room__wall" x={0} y={0} width={w} height={h} />
-          <WallPattern place="dock" w={w} wallH={h} />
+          <rect className="neko-room__wall" x={0} y={0} width={w} height={seam} />
+          <WallPattern place="dock" w={w} wallH={seam} />
+          <FloorBand w={w} h={h} seam={seam} S={S} />
           <SkyTint w={w} h={h} />
         </svg>
       )}

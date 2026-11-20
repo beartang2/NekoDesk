@@ -128,9 +128,9 @@ const mixRgb = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
 const css = ([r, g, b]) => `rgb(${r},${g},${b})`;
 const INK = [58, 44, 52]; // 그늘은 검정이 아니라 고양이 그림자와 같은 보랏빛 갈색 쪽으로
 const WHITE = [255, 255, 255];
-/** 칠할 색. .dark 는 그늘 쪽, .light 는 밝은 쪽 */
+/** 칠할 색. .dark 는 그늘 쪽, .light 는 밝은 쪽. "#rrggbb" 도 받는다(가구 그림의 포인트 색 — 모델 모양은 validateShape 가 팔레트 이름으로만 둔다) */
 function rgbFor(c) {
-  const [base, tone] = c.split("."), rgb = rgbOf(GIFT_PALETTE[base]);
+  const [base, tone] = c.split("."), rgb = rgbOf(base[0] === "#" ? base : GIFT_PALETTE[base]);
   return tone === "dark" ? mixRgb(rgb, INK, 0.32) : tone === "light" ? mixRgb(rgb, WHITE, 0.45) : rgb;
 }
 

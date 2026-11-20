@@ -82,8 +82,8 @@ interface FurnitureStore {
   loaded: boolean;
   load: () => Promise<void>;
   reload: () => Promise<void>;
-  /** 그 장소의 빈 칸에 놓는다(다른 장소에 놓였으면 옮긴다). 빈 칸이 없거나 마당이면 false */
-  place: (id: string, at: string) => Promise<boolean>;
+  /** 그 장소의 빈 칸에 놓는다(다른 장소에 놓였으면 옮긴다). slot 을 주면 그 칸(선물함에서 고른 칸). 빈 칸이 없거나 그 칸이 찼거나 마당이면 false */
+  place: (id: string, at: string, slot?: number) => Promise<boolean>;
   /** 치운다(가구 탭에 남는다) */
   unplace: (id: string) => Promise<void>;
   /** 물어온 가구를 버린다(기본 가구는 못 버린다) */
@@ -114,11 +114,13 @@ export const useNekoFurniture = create<FurnitureStore>((set, get) => ({
     if (raw === undefined) return;
     set({ items: parseFurniture(raw), loaded: true });
   },
-  async place(id, at) {
+  async place(id, at, want) {
     if (at !== "sidebar" && at !== "dock") return false;
     const next = await update((items) => {
       const f = items.find((x) => x.id === id);
-      const slot = f ? freeSlot(items, at, id) : null;
+      const taken = (i: number) => items.some((x) => x.id !== id && x.place?.at === at && x.place.slot === i);
+      const slot = !f ? null : want === undefined ? freeSlot(items, at, id)
+        : Number.isInteger(want) && want >= 0 && want < FURNITURE_SLOTS[at] && !taken(want) ? want : null;
       if (!f || slot === null) return null;
       return items.map((x) => (x.id === id ? { ...x, place: { at, slot } } : x));
     });
