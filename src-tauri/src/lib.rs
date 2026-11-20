@@ -307,6 +307,13 @@ fn ios_full_screen(window: &tauri::WebviewWindow) {
         let _: () = msg_send![scroll, setBounces: false];
         let _: () = msg_send![scroll, setScrollEnabled: false];
         ios_scroll::lock(scroll);
+        // 화면 아래 끝의 시스템 손짓(홈 막대 쓸어 올리기)을 한 번 미룬다: 처음 쓸면 막대만 나오고(앱이 손가락을 받는다),
+        // 한 번 더 쓸어야 홈으로 나간다. 바닥 물건·고양이를 잡다 홈으로 나가던 것. 세로·가로 모두, 가로의 홈 막대 숨기기
+        // (phone_standby)와 같이 써도 된다. UIRectEdgeBottom = 4 — tao 의 뷰 컨트롤러가 받아 갱신(setNeedsUpdate…)까지 한다
+        let controller = webview.view_controller() as *mut AnyObject;
+        if !controller.is_null() {
+            let _: () = msg_send![controller, setPreferredScreenEdgesDeferringSystemGestures: 4usize];
+        }
     });
 }
 
