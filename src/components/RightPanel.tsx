@@ -1202,7 +1202,7 @@ export function Shelf() {
     shelfApi.list().then(setItems).catch(() => {});
   }, []);
   useEffect(refresh, [refresh]);
-  // 마당 네코 입에 물려 넣거나 아치에서 꺼내면(Rust shelf_add_paths·shelf_take) shelf-changed 가 온다 — 다시 읽는다
+  // 마당 네코 입에 물려 넣거나 아치에서 꺼내면(Rust 의 마당 놓기 처리·shelf_take) shelf-changed 가 온다 — 다시 읽는다
   useEffect(() => {
     const off = listen("shelf-changed", refresh);
     return () => { void off.then((f) => f()).catch(() => {}); };
