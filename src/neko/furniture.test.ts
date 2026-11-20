@@ -64,6 +64,43 @@ describe("가구 저장", () => {
     expect(s().items.some((f) => f.id === walk.id)).toBe(false);
   });
 
+  it("바꾼 가구엔 바꾼 때, 버린 가구는 버린 때를 적는다 — 다른 기기 값과 가구 하나씩 합치는 재료(sync/furniture.rs)", async () => {
+    await s().load();
+    await s().add({ kind: "box", title: "상자", found: "2026-11-20" });
+    const id = s().items.find((f) => f.title === "상자")!.id;
+    await s().place("base:lamp", "dock");
+    const saved = () => JSON.parse(db.kv.get("neko_furniture")!) as { v: number; items: { id: string; at?: number; place: unknown }[]; gone: Record<string, number> };
+    const lampAt = saved().items.find((f) => f.id === "base:lamp")!.at!;
+    expect(saved().v).toBe(2);
+    expect(lampAt).toBeGreaterThan(1);
+    await s().unplace("base:lamp");
+    // 치운 기본 가구도 남는다(다른 기기의 옛 놓기를 이긴다). 같은 ms 라도 앞 바꿈보다 늦다
+    expect(saved().items.find((f) => f.id === "base:lamp")!.at!).toBeGreaterThan(lampAt);
+    await s().remove(id);
+    expect(saved().gone[id]).toBeGreaterThan(0);
+    // 버린 뒤 바뀌지 않은 가구는 다른 기기 값에 남아 와도 안 보인다
+    expect(parseFurniture(JSON.stringify({ v: 2, items: [{ id, kind: "box", place: null, at: 5 }], gone: { [id]: 9 } })).some((f) => f.id === id)).toBe(false);
+  });
+
+  it("두 기기가 같은 칸에 따로 놓았으면 먼저 놓은 것이 칸을 갖는다(어느 기기에서나 같게)", () => {
+    const dock0 = { at: "dock", slot: 0 };
+    const items = parseFurniture(JSON.stringify({ v: 2, items: [
+      { id: "base:sofa", kind: "sofa", place: dock0, at: 30 },
+      { id: "base:box", kind: "box", place: dock0, at: 20 },
+    ], gone: {} }));
+    expect(items.find((f) => f.id === "base:box")!.place).toEqual(dock0);
+    expect(items.find((f) => f.id === "base:sofa")!.place).toBeNull();
+  });
+
+  it("옛 값(v 1)은 켤 때 한 번 v 2 로 다시 적는다 — 옛 가구는 아주 오래된 것(1)으로", async () => {
+    db.kv.set("neko_furniture", JSON.stringify({ v: 1, items: [{ id: "base:sofa", kind: "sofa", place: { at: "dock", slot: 1 } }, { id: "walk:a", kind: "box", place: null, found: "2026-11-01" }] }));
+    await s().load();
+    const saved = JSON.parse(db.kv.get("neko_furniture")!) as { v: number; items: { id: string; at?: number }[] };
+    expect(saved.v).toBe(2);
+    expect(saved.items.map((f) => [f.id, f.at])).toEqual([["base:sofa", 1], ["walk:a", 1]]);
+    expect(where("base:sofa")).toEqual({ at: "dock", slot: 1 });
+  });
+
   it("망가진 값·모르는 종류·칸 밖·한 칸에 둘은 버리거나 비운다(옛·다른 기기 값)", () => {
     const items = parseFurniture(JSON.stringify({ v: 9, items: [
       { id: "base:sofa", kind: "sofa", place: { at: "dock", slot: 1 } },

@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { emit } from "@tauri-apps/api/event";
 import { Plus, Trash2 } from "lucide-react";
 import { drawFurniture, furnitureBox } from "./engine/furniture-art";
 import { FURNITURE_SLOTS, furnitureSlots } from "./engine/decor-draw";
@@ -31,8 +30,6 @@ export function FurnitureThumb({ item, size = 64 }: { item: FurnitureItem; size?
   return <canvas ref={ref} width={size * dpr} height={size * dpr} style={{ width: size, height: size }} aria-hidden />;
 }
 
-/** 다른 창(메인)의 가구 스토어에 알린다 — 맥 선물함은 따로 뜬 창이다. 폰은 같은 창이라 그냥 지나간다 */
-const changed = () => { void emit("neko-furniture-changed").catch(() => {}); };
 
 const nameOf = (f: FurnitureItem) => f.title || FURNITURE_NAME[f.kind];
 
@@ -103,7 +100,7 @@ function FurnitureSlots({ f, at, done }: { f: FurnitureItem; at: Room; done: () 
       if (o) drawFurniture(g, o.kind, s.x, floorY, S, { slotW: s.w, accent, on: !!lamps[o.id], edge: 3 * dpr, layer: "all" });
     });
   });
-  const pick = (i: number) => { void useNekoFurniture.getState().place(f.id, at, i).then(changed); done(); };
+  const pick = (i: number) => { void useNekoFurniture.getState().place(f.id, at, i); done(); };
   const top = Math.max(4 * S, floorY - 2.1 * 100 * S); // 가장 큰 가구(캣휠 2.0)가 들어가는 높이
   return (
     <div ref={boxRef} className="slot-pick">
@@ -146,7 +143,7 @@ export function FurnitureTab({ onDrop, onAsk }: { onDrop: (f: FurnitureItem) => 
   const items = useNekoFurniture((s) => s.items);
   useEffect(() => { void useNekoFurniture.getState().load(); }, []);
   const base = items.filter((f) => f.id.startsWith("base:")), found = items.filter((f) => !f.id.startsWith("base:")).reverse();
-  const unplace = (f: FurnitureItem) => void useNekoFurniture.getState().unplace(f.id).then(changed);
+  const unplace = (f: FurnitureItem) => void useNekoFurniture.getState().unplace(f.id);
 
   return (
     <>
@@ -185,5 +182,4 @@ export function FurnitureTab({ onDrop, onAsk }: { onDrop: (f: FurnitureItem) => 
 /** 물어온 가구 버리기(확인 창에서 고른 뒤). 놓여 있었으면 칸도 빈다 */
 export async function dropFurniture(f: FurnitureItem) {
   await useNekoFurniture.getState().remove(f.id);
-  changed();
 }

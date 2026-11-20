@@ -401,7 +401,9 @@ fn ios_pasteboard_text() -> Option<String> {
 #[link(name = "AVFoundation", kind = "framework")]
 extern "C" {}
 
-/// 폰의 '따라 하기': 다른 앱에서 소리가 나오는 중인가(음악·영상). 어느 앱·무슨 곡인지는 모른다 — iOS 가 안 알려 준다.
+/// 폰의 '따라 하기': 다른 앱이 음악·영상을 틀고 있나. 어느 앱·무슨 곡인지는 모른다 — iOS 가 안 알려 준다.
+/// isOtherAudioPlaying 만 보면 소리 없이 오디오 세션만 잡고 있는 앱(뒤에서 살아 있으려는 앱 등)도 true 라, 아무것도 안 트는데
+/// 헤드폰을 썼다. 섞이지 않는 세션(음악·영상 앱)이 실제로 재생 중일 때만 true 인 secondaryAudioShouldBeSilencedHint 도 같이 본다.
 #[cfg(target_os = "ios")]
 fn ios_other_audio_playing() -> bool {
     use objc2::msg_send;
@@ -413,7 +415,8 @@ fn ios_other_audio_playing() -> bool {
             return false;
         }
         let playing: Bool = msg_send![session, isOtherAudioPlaying];
-        playing.as_bool()
+        let primary: Bool = msg_send![session, secondaryAudioShouldBeSilencedHint];
+        playing.as_bool() && primary.as_bool()
     }
 }
 

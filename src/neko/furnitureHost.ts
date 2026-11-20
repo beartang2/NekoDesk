@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from "react";
-import { listen } from "@tauri-apps/api/event";
 import type { NekoController } from "./engine/neko-engine";
 import { placedAt, useNekoFurniture, type FurnitureKind } from "./furniture";
 import { useNekoStore } from "./nekoStore";
@@ -76,9 +75,8 @@ export function startFurnitureHost(ctrl: NekoController) {
   useNekoFurniture.subscribe((s, prev) => { if (s.items !== prev.items) send(); });
   useNekoStore.subscribe((s, prev) => { if (s.stage.placement !== prev.stage.placement) send(); });
   lampSubs.add(send);
+  // 다른 창(맥 선물함)·다른 기기가 바꾸면 스토어가 다시 읽는다(furniture.ts load)
   void useNekoFurniture.getState().load().then(send);
-  // 맥 선물함은 따로 뜬 창이라 거기서 놓고 치우면 이 창 스토어가 모른다 — 알려 오면 다시 읽는다(FurnitureTab)
-  void listen("neko-furniture-changed", () => void useNekoFurniture.getState().reload()).catch(() => {});
   if (!fc.setFurniture) return; // 옛 엔진: 사건도 없다
   fc.on("lamp", ({ id, on }) => setLampOn(id, on));
   fc.on("furnitureHeld", (ids) => { held = new Set(ids); heldSubs.forEach((f) => f()); });
