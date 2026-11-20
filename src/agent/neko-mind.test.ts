@@ -21,7 +21,7 @@ vi.mock("./llm-client", () => ({
   },
 }));
 
-import { chooseAmong, chooseWalkTopic, forgetNote, leaksFact, loadMind, mindMaterial, noteWonder, parseMind, recentInterests, restThink, takeGreeting, think, currentLean } from "./neko-mind";
+import { chooseAmong, chooseWalkTopic, dedupeNotes, forgetNote, leaksFact, loadMind, mindMaterial, noteWonder, parseMind, recentInterests, restThink, takeGreeting, think, currentLean } from "./neko-mind";
 import { useSessionStore } from "../stores/sessionStore";
 
 const mem = (id: number, kind: string, content: string, created_at = "2026-11-01 09:00:00"): Memory => ({ id, kind, content, created_at, use_count: 0 });
@@ -199,5 +199,17 @@ describe("산책 주제가 한쪽으로 쏠리지 않게(0.1.22): 규칙 대신 
     h.judge = "다른 답";
     expect(await recentInterests(MEMS)).toEqual(["요리", "여행", "사진"]); // 오늘은 다시 안 묻는다
     expect(h.judged).toBe(1);
+  });
+});
+
+describe("노트 중복(0.1.22, 사용자: 같은 글이면 새로 쌓지 않기)", () => {
+  it("같은 종류·무엇·글이면 하나만, 가장 최근 자리·날짜로", async () => {
+    await noteWonder("고양이 꿈은 무슨 색일까");
+    await noteWonder("비 오는 날 새들은?");
+    await noteWonder("고양이 꿈은 무슨 색일까");
+    const m = await loadMind();
+    expect(m.notes.map((n) => n.text)).toEqual(["비 오는 날 새들은?", "고양이 꿈은 무슨 색일까"]);
+    const n = (kind: "wonder" | "chose", text: string, what?: string) => ({ at: "2026-11-20T00:00:00Z", kind, text, ...(what ? { what } : {}) });
+    expect(dedupeNotes([n("chose", "날씨", "walk_gift"), n("chose", "날씨", "walk_topic")])).toHaveLength(2); // 무엇이 다르면 따로
   });
 });

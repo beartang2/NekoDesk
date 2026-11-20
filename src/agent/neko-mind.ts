@@ -94,10 +94,21 @@ export async function loadMind(): Promise<NekoMind> {
 /** 지금 저장된 값(다른 기기에서 받아 온 것 포함)을 읽어 고친 뒤 쓴다 */
 export async function updateMind(fn: (m: NekoMind) => NekoMind): Promise<NekoMind> {
   const next = fn(await loadMind());
-  const out: NekoMind = { v: 1, notes: next.notes.slice(-NOTES_MAX), topics: next.topics.slice(-TOPICS_MAX), ...(next.lean ? { lean: next.lean } : {}) };
+  const out: NekoMind = { v: 1, notes: dedupeNotes(next.notes).slice(-NOTES_MAX), topics: next.topics.slice(-TOPICS_MAX), ...(next.lean ? { lean: next.lean } : {}) };
   leanCache = out.lean;
   await settingsApi.set(MIND_KEY, JSON.stringify(out)).catch(() => {});
   return out;
+}
+
+/**
+ * 같은 노트(종류·무엇·글이 같은 것)가 또 오면 새로 쌓지 않고 있던 줄을 뒤로(가장 최근으로) 옮긴다. 까닭은 새 것을 쓴다
+ * (사용자: 같은 글이면 새로 쌓지 않기, 0.1.22 — 쉴 때 정리는 기억 목록만 다룬다). 모델은 안 부른다
+ */
+export function dedupeNotes(notes: MindNote[]): MindNote[] {
+  const key = (n: MindNote) => `${n.kind}|${n.what ?? ""}|${n.text}`;
+  const last = new Map<string, number>();
+  notes.forEach((n, i) => last.set(key(n), i));
+  return notes.filter((n, i) => last.get(key(n)) === i);
 }
 
 /** 설정에서 노트 하나 지우기(at·글이 같은 것) */
