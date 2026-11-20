@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Archive, ChevronDown, FileText, Pencil, StickyNote, X } from "lucide-react";
+import { Archive, ChevronDown, FileText, Folder, Pencil, StickyNote, X } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { todosApi, scheduleApi, settingsApi, shelfApi, type ShelfItem } from "../api/tauri";
 import { shelfPick } from "./shelfPick";
@@ -1201,6 +1202,11 @@ export function Shelf() {
     shelfApi.list().then(setItems).catch(() => {});
   }, []);
   useEffect(refresh, [refresh]);
+  // 마당 네코 입에 물려 넣거나 아치에서 꺼내면(Rust shelf_add_paths·shelf_take) shelf-changed 가 온다 — 다시 읽는다
+  useEffect(() => {
+    const off = listen("shelf-changed", refresh);
+    return () => { void off.then((f) => f()).catch(() => {}); };
+  }, [refresh]);
 
   async function onDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -1272,7 +1278,10 @@ export function Shelf() {
                 onDragStart={(e) => dragOut(e, item)}
                 title={`${item.name} — 끌어서 다른 곳에 놓기(⌘·⇧ 로 여러 개 고르기)`}
               >
-                <FileText size={11} strokeWidth={2} className="shelf__icon" />
+                {/* 폴더는 네코 입으로만 들어온다(앱 보관함에 HTML 로 놓는 길은 파일만) */}
+                {(item as ShelfItem & { dir?: boolean }).dir
+                  ? <Folder size={11} strokeWidth={2} className="shelf__icon" />
+                  : <FileText size={11} strokeWidth={2} className="shelf__icon" />}
                 <span className="shelf__name">{item.name}</span>
                 <span className="shelf__size">{formatBytes(item.size)}</span>
                 <button className="shelf__remove" onClick={() => remove(item.name)} title="보관함에서 지우기">

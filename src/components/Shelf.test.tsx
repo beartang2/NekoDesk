@@ -7,10 +7,12 @@ const invoke = vi.hoisted(() => vi.fn());
 const startDrag = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@crabnebula/tauri-plugin-drag", () => ({ startDrag }));
+const handlers = vi.hoisted(() => new Map<string, () => void>());
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async (ev: string, f: () => void) => { handlers.set(ev, f); return () => handlers.delete(ev); }) }));
 
 import { Shelf } from "./RightPanel";
 
-const items = ["a.txt", "b.png", "c.pdf", "d.zip"].map((name) => ({ name, path: `/shelf/${name}`, size: 10 }));
+let items = ["a.txt", "b.png", "c.pdf", "d.zip"].map((name) => ({ name, path: `/shelf/${name}`, size: 10, dir: false }));
 
 afterEach(cleanup);
 beforeEach(() => {
@@ -38,4 +40,13 @@ it("⌘·⇧ 로 여러 개 고르고, 고른 것을 끌면 한 번에 넘긴다
   expect(sel()).toEqual(["a.txt"]);
   fireEvent.keyDown(window, { key: "Escape" });
   expect(sel()).toEqual([]);
+});
+
+it("마당 네코 입·아치가 보관함을 바꾸면(shelf-changed) 다시 읽고, 폴더는 폴더 아이콘", async () => {
+  const { container } = render(<Shelf />);
+  await screen.findByText("a.txt");
+  items = [...items, { name: "사진들", path: "/shelf/사진들", size: 0, dir: true }];
+  handlers.get("shelf-changed")?.();
+  await screen.findByText("사진들");
+  expect(container.querySelectorAll(".lucide-folder")).toHaveLength(1);
 });
