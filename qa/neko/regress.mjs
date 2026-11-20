@@ -971,6 +971,33 @@ try {
     await p.close();
   }
 
+  // 9-t3) 토라짐(react "sulk"): 마당에서 못 받는 걸(디스크·2GB 넘는 폴더) 입 앞에 놓으면 고개째 반대쪽으로 돌아서고 짜증 얼굴(사용자: 거절이 한눈에).
+  //       커서가 멀면(채팅 중 도구 오류) 얼굴만, 하던 활동 중엔 돌아서지 않는다
+  {
+    const p = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, o = {};
+      n.setGround(830); c.x = 700; n.step(240);
+      const f0 = c.face; n.react("sulk"); n.step(60); o.far = { turned: c.face !== f0, sulk: c.petSulk > 0 }; // 커서를 본 적 없음
+      n.step(120 * 3);
+      const m = () => [c.head.x + c.face * 20 * n.S, c.head.y + 12 * n.S];
+      n.act("typing"); n.step(300); const f1 = c.face; n.fileDrag(m()); n.fileDrag(null); n.act("typing"); n.step(240);
+      n.react("sulk"); n.step(60); o.busy = { turned: c.face !== f1, act: n.activity };
+      n.act(null); n.step(120 * 3);
+      for (let i = 0; i < 120 * 2; i++) { n.fileDrag(m()); n.step(1); } // 입 앞으로 끌고 와
+      const f2 = c.face; n.fileDrag(null); n.react("sulk"); n.step(60); // 못 받았다
+      o.drop = { turned: c.face === -f2, sulk: c.petSulk > 0, mode: c.mode };
+      return o;
+    });
+    check("토라짐: 입 앞에 놓은 걸 못 받으면 고개째 돌아서고 짜증 얼굴, 커서가 멀거나 활동 중이면 돌아서지 않는다", JSON.stringify(r),
+      r.drop.turned && r.drop.sulk && !r.far.turned && r.far.sulk && !r.busy.turned && r.busy.act === "typing");
+    await p.close();
+  }
+
   // 9-u) 캣타워 2단계(창 탐험): 창 옆면을 타고 올라 윗변에 올라서고, 다른 창 윗변으로 뛰어 건넌다. 순간이동 없이(한 프레임 이동 작게).
   //      오르는 중에 다른 활동이 오면 뛰어내려 착지한 뒤 넘긴다. 갈 곳이 없으면(창 없음) 바로 끝난다
   {

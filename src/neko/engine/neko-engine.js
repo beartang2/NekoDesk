@@ -5059,6 +5059,19 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       j.vx += Math.sign(lx || 1) * c.face * 80 * S * amp * j.w; // 옆으로 퍼진다
     }
   }
+  /**
+   * 토라짐(react "sulk": 마당에서 못 받는 걸 놓음 — 디스크·2GB 넘는 폴더, 세션 오류·실패). 꼬리 탁탁에 너무 만졌을 때와 같은 얼굴
+   * (코를 들고 시선을 돌리고 귀를 젖히고 반쯤 감은 눈)을 잠깐. 커서가 코앞이면(놓은 걸 안 받음) 그 반대쪽으로 고개째 돌아선다 —
+   * 꼬리·귀만으로는 거절인지 안 보였다(사용자). 커서가 멀면(채팅 중 도구 오류) 돌아서지 않고, 하던 활동·누워 자기도 그대로
+   */
+  function sulk() {
+    const c = cat;
+    startTailEp("thump", 3);
+    c.petSulk = Math.max(c.petSulk || 0, 1.8);
+    const near = mouseActive() && Math.hypot(mouse.x - c.head.x, mouse.y - c.head.y) < 140 * S;
+    const away = Math.sign(c.x - mouse.x) || -c.face;
+    if (near && !c.act && !fileAt && (c.mode === "idle" || c.mode === "sit" || c.mode === "loaf") && away !== c.face) { c.face = away; c.sulkAway = away; }
+  }
   function petReact() {
     const c = cat;
     c.annoy += 0.12;
@@ -5216,7 +5229,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       else if (kind === "greet") startTailEp("up", 2.6);
       else if (kind === "cheer") startTailEp("quiver", 1.5);
       else if (kind === "proud") startTailEp("up", 2.5);
-      else if (kind === "sulk") startTailEp("thump", 3);
+      else if (kind === "sulk") sulk();
       else if (kind === "down") startTailEp("down", 2.6);
       return true;
     },
