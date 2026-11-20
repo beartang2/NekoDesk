@@ -48,9 +48,9 @@ describe("선물함", () => {
     expect(freeSpot([0, 1])).toBe(0.5);
   });
 
-  it("벽에 건 자리(v)도 그대로 저장하고, 빈 바닥 자리를 찾을 땐 벽 물건은 안 센다", () => {
+  it("벽에 건 자리(v)도 그대로 저장하고(액자), 빈 바닥 자리를 찾을 땐 벽 물건은 안 센다", () => {
     const s = useNekoGifts.getState();
-    s.add({ id: "w", title: "나뭇잎", body: "", shape: { parts: [{ t: "circle", x: 0, y: -4, r: 4, c: "green" }] } });
+    s.add({ id: "w", title: "나뭇잎 그림", body: "", shape: { parts: [{ t: "circle", x: 0, y: -4, r: 4, c: "green" }] }, frame: true });
     s.add({ id: "f", title: "도토리", body: "", shape: { parts: [{ t: "circle", x: 0, y: -4, r: 4, c: "brown" }] } });
     useNekoGifts.getState().place("w", { surface: "wall", u: 0.35, v: 0.6 }, "dock");
     useNekoGifts.getState().place("f", "auto", "dock");
@@ -162,7 +162,7 @@ describe("선물함", () => {
     ]));
     await useNekoGifts.getState().load();
     expect(useNekoGifts.getState().gifts.map((g) => g.placed?.at)).toEqual(["sidebar", "dock", "screen", "screen"]);
-    expect(useNekoGifts.getState().gifts[1].placed).toEqual({ surface: "wall", u: 0.5, v: 0.5, at: "dock" });
+    expect(useNekoGifts.getState().gifts[1].placed).toEqual({ surface: "floor", u: 0.5, at: "dock" }); // 액자가 아니라 바닥으로(0.1.24)
   });
 });
 
@@ -259,5 +259,34 @@ describe("선물함 저장은 하나씩", () => {
     expect(dbGifts().find((g) => g.id === a)).toMatchObject({ lastPlayed: 5, placed: { at: "dock" } });
     await useNekoGifts.getState().reload();
     expect(useNekoGifts.getState().gifts.map((g) => g.title)).toEqual(["a", "받은 것", "b"]);
+  });
+});
+
+describe("액자만 벽에 건다(0.1.24)", () => {
+  const wall = (id: string, at: "sidebar" | "dock" | "screen", frame = false): NekoGift => ({
+    ...gift(id), placed: { surface: "wall", u: 0.4, v: 0.6, at }, ...(frame ? { frame: true as const } : {}),
+  });
+
+  it("업데이트 뒤 불러오면 방·거실 벽의 액자 아닌 물건은 같은 가로 자리 바닥으로 내리고 저장을 고친다(액자·마당은 그대로)", async () => {
+    saveDb([wall("cup", "sidebar"), wall("pic", "dock", true), wall("yard", "screen")] as unknown as Record<string, unknown>[]);
+    store.set("neko_gifts", JSON.stringify(dbGifts()));
+    await useNekoGifts.getState().load();
+    const by = (id: string) => useNekoGifts.getState().gifts.find((g) => g.id === id)!.placed;
+    expect(by("cup")).toEqual({ surface: "floor", u: 0.4, at: "sidebar" });
+    expect(by("pic")).toMatchObject({ surface: "wall", v: 0.6 });
+    expect(by("yard")).toMatchObject({ surface: "wall" });
+    expect(dbGifts().find((g) => g.id === "cup")!.placed).toEqual({ surface: "floor", u: 0.4, at: "sidebar" }); // 동기화로 다른 기기도
+  });
+
+  it("옛 버전이 벽 자리를 보내와도 받을 때 바닥으로, place 에 벽 자리가 와도 액자가 아니면 바닥", async () => {
+    useNekoGifts.setState({ gifts: [gift("ball", 0.2), { ...gift("art", 0.3), frame: true }], loaded: true });
+    useNekoGifts.getState().place("ball", { surface: "wall", u: 0.5, v: 0.5 });
+    useNekoGifts.getState().place("art", { surface: "wall", u: 0.5, v: 0.5 });
+    const by = (id: string) => useNekoGifts.getState().gifts.find((g) => g.id === id)!.placed;
+    expect(by("ball")).toEqual({ surface: "floor", u: 0.5, at: "dock" });
+    expect(by("art")).toMatchObject({ surface: "wall", u: 0.5, v: 0.5 });
+    store.set("neko_gifts", JSON.stringify([wall("ball", "dock")]));
+    await useNekoGifts.getState().reload();
+    expect(by("ball")).toMatchObject({ surface: "floor" });
   });
 });

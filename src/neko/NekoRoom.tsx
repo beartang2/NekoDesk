@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onShapeImage } from "./engine/gift-shape";
-import { decorBoxes, dragDecor, drawDecor, hitDecorAt } from "./engine/decor-draw";
+import { decorBoxes, decorDims, decorK, dragDecor, drawDecor, fallStep, hitDecorAt, spotOf } from "./engine/decor-draw";
+import { validateShape } from "./engine/gift-shape";
 import type { NekoDecorSpot } from "./engine/neko-engine";
 import { decorItems, useNekoGifts } from "./gifts";
 import { WeatherWindow } from "./WeatherWindow";
@@ -85,8 +86,9 @@ export function RoomGifts({ isDark, onMenu }: { isDark: boolean; onMenu?: (m: { 
   const view = useMemo(() => { const { floorY, S } = stageMetrics(w, h); return { W: w, H: h, floorY, scale: S }; }, [w, h]);
   // 끄는 중인 물건(물건 가운데 x, 바닥 y). 그리기가 무대 안으로 묶고 들어 올린 모양으로 맨 위에 그린다
   const [drag, setDrag] = useState<{ id: string; x: number; bottom: number } | null>(null);
-  const press = useRef<{ id: string; pid: number; dx: number; dy: number; x0: number; y0: number; hold: number; spot: NekoDecorSpot | null } | null>(null);
-  useEffect(() => () => { clearTimeout(press.current?.hold); if (press.current) setHolding(false); }, []);
+  const press = useRef<{ id: string; pid: number; dx: number; dy: number; x0: number; y0: number; hold: number; spot: NekoDecorSpot | null; vx: number; vy: number; mt: number; x: number; bottom: number } | null>(null);
+  const fallRaf = useRef(0);
+  useEffect(() => () => { clearTimeout(press.current?.hold); cancelAnimationFrame(fallRaf.current); if (press.current) setHolding(false); }, []);
   useEffect(() => {
     const cv = ref.current;
     if (!cv || !w || !h) return;
@@ -102,7 +104,7 @@ export function RoomGifts({ isDark, onMenu }: { isDark: boolean; onMenu?: (m: { 
     if (!b) return;
     e.preventDefault();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터 */ }
-    const p = { id: b.id, pid: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x0: x, y0: y, hold: 0, spot: null };
+    const p = { id: b.id, pid: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x0: x, y0: y, hold: 0, spot: null, vx: 0, vy: 0, mt: performance.now(), x: b.x + b.w / 2, bottom: b.y + b.h };
     // 터치·펜으로 꾹 누르면 끌기를 접고 '정리' 메뉴(iOS 웹뷰엔 contextmenu 가 안 온다). 마우스는 우클릭만
     if (e.pointerType !== "mouse") p.hold = window.setTimeout(() => { if (press.current !== p) return; press.current = null; setHolding(false); setDrag(null); menu(p.id); }, HOLD_MS);
     press.current = p;
@@ -114,12 +116,34 @@ export function RoomGifts({ isDark, onMenu }: { isDark: boolean; onMenu?: (m: { 
     if (!p || e.pointerId !== p.pid) { e.currentTarget.classList.toggle("can-grab", hitDecorAt(items, view, x, y) !== null); return; }
     if (p.hold && Math.hypot(x - p.x0, y - p.y0) > HOLD_SLOP) { clearTimeout(p.hold); p.hold = 0; } // 움직이면 그냥 끌기
     const r = dragDecor(items, view, p.id, x - p.dx, y - p.dy);
-    if (r) { p.spot = r.spot; setDrag({ id: p.id, x: r.x, bottom: r.bottom }); }
+    if (!r) return;
+    const now = performance.now(), ds = Math.max(0.008, (now - p.mt) / 1000); // 놓을 때 던지는 속도
+    p.vx = (p.vx + (r.x - p.x) / ds) / 2; p.vy = (p.vy + (r.bottom - p.bottom) / ds) / 2; p.mt = now; p.x = r.x; p.bottom = r.bottom;
+    p.spot = r.spot; setDrag({ id: p.id, x: r.x, bottom: r.bottom });
+  };
+  /** 액자 아닌 물건을 벽 쪽에 놓았다: 엔진과 같은 중력·튕김으로 떨어뜨리고(fallStep) 내려앉은 바닥 자리를 적는다(사용자, 0.1.24) */
+  const dropToFloor = (p: NonNullable<typeof press.current>) => {
+    const it = items.find((d) => d.id === p.id);
+    if (!it) return;
+    const shape = validateShape(it.shape), geom = { W: view.W, floorY: view.floorY, S: view.scale };
+    const h = decorDims(shape, decorK(shape, it.size, it.scale, "sidebar", geom).k, geom.S).h, lim = 900 * geom.S;
+    const f = { x: p.x, bottom: p.bottom, vx: Math.max(-lim, Math.min(lim, p.vx)), vy: Math.max(-lim, Math.min(lim, p.vy)) };
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      if (fallStep(f, dt, geom)) { setDrag(null); useNekoGifts.getState().place(p.id, spotOf(f.x, f.bottom, h, geom)); return; }
+      setDrag({ id: p.id, x: f.x, bottom: f.bottom });
+      fallRaf.current = requestAnimationFrame(tick);
+    };
+    fallRaf.current = requestAnimationFrame(tick);
   };
   const onPointerEnd = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const p = press.current;
     if (!p || e.pointerId !== p.pid) return;
-    clearTimeout(p.hold); press.current = null; setHolding(false); setDrag(null);
+    clearTimeout(p.hold); press.current = null; setHolding(false);
+    const frame = items.find((d) => d.id === p.id)?.frame;
+    if (p.spot?.surface === "wall" && !frame && e.type === "pointerup") { dropToFloor(p); return; } // 액자만 벽에 건다
+    setDrag(null);
     if (p.spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, p.spot); // 움직이지 않고 떼면 그대로
   };
   const onContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {

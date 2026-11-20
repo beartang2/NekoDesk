@@ -2383,7 +2383,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const keep = o && o.surface === surface && o.u === u && (surface === "floor" || o.v === v);
       return {
         id: String(d.id), surface, u, v,
-        shape, play: PLAYS.has(d.play) ? d.play : defaultPlay(shape), size: d.size, scale: d.scale, at: d.at, k: 1,
+        shape, play: PLAYS.has(d.play) ? d.play : defaultPlay(shape), size: d.size, scale: d.scale, at: d.at, k: 1, frame: !!d.frame,
+        fall: keep && o.fall ? o.fall : null, // 떨어지는 중(액자 아닌 걸 벽 쪽에 놓음)이면 이어서
         // 새로 놓인 것만 '뿅'. 화면 모드는 안 한다 — 선물 창이 멈춘 그림으로 그린다(모니터를 건너가도 다 뿅 하지 않게)
         t0: o ? o.t0 : WORLD ? -1e9 : time, box: null, showTo: o ? o.showTo : 0,
         px: keep ? o.px : null, vx: keep ? o.vx : 0, rot: o ? o.rot : 0, wob: o ? o.wob : new Spring(0), hidden: o ? o.hidden : false, front: o ? o.front : false,
@@ -2453,6 +2454,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (WORLD) syncHeld();
     for (const d of decor) {
       d.wob.step(0, 160, 7, dt);
+      if (d.fall) { // 떨어지는 중: 바닥에 내려앉으면 그 자리를 알린다
+        if (DD.fallStep(d.fall, dt, geomNow())) { d.px = [d.fall.x, BASE_Y]; d.fall = null; d.wob.v += 2; settleDecor(d); }
+        else d.px = [d.fall.x, d.fall.bottom];
+        continue;
+      }
       if (d.vx) {
         const h = decorDims(d.shape, d.k).h, m = decorM() + h / 2;
         d.px[0] += d.vx * dt; d.vx *= Math.exp(-dt * 1.6); d.rot += (d.vx / (h / 2)) * dt;
@@ -4654,7 +4660,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const hold = decorDrag.hold; // 꾹 누르기 중 손가락이 움직이면 그냥 끌기
       if (hold && Math.hypot(x - hold.x, y - hold.y) > HOLD_SLOP) { clearTimeout(hold.t); decorDrag.hold = null; }
       const d = decor.find((o) => o.id === decorDrag.id), h = d ? decorDims(d.shape, d.k).h : 0;
-      [decorDrag.x, decorDrag.bottom] = DD.clampDrag(h, geomNow(), x - decorDrag.dx, y - decorDrag.dy);
+      const [nx, nb] = DD.clampDrag(h, geomNow(), x - decorDrag.dx, y - decorDrag.dy), now = performance.now();
+      const ds = Math.max(0.008, (now - (decorDrag.mt ?? now - 16)) / 1000); // 놓을 때 던지는 속도(액자 아닌 걸 벽 쪽에 놓으면)
+      decorDrag.vx = lerp(decorDrag.vx ?? 0, (nx - decorDrag.x) / ds, 0.5); decorDrag.vy = lerp(decorDrag.vy ?? 0, (nb - decorDrag.bottom) / ds, 0.5);
+      decorDrag.mt = now; decorDrag.x = nx; decorDrag.bottom = nb;
       return;
     }
     if (press && e.pointerId === press.id && !press.grabbing &&
@@ -4671,9 +4680,16 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const d = decor.find((o) => o.id === decorDrag.id);
       if (d) {
         const spot = spotOf(decorDrag.x, decorDrag.bottom, decorDims(d.shape, d.k).h);
-        Object.assign(d, spot.surface === "wall" ? spot : { ...spot, v: d.v }); // 호스트가 다시 넣기 전까지도 제자리에
-        d.px = null; d.vx = 0; // 굴러가던 걸 잡아 옮겼으면 굴러가던 자리로 돌아가지 않게
-        emit("decorMove", { id: d.id, ...spot });
+        if (spot.surface === "wall" && !d.frame) {
+          // 액자만 벽에 건다(사용자, 0.1.24): 다른 물건은 고양이를 던졌을 때처럼 떨어져 바닥에 놓인다(내려앉으면 settleDecor 가 알린다)
+          const lim = 900 * S;
+          d.fall = { x: decorDrag.x, bottom: decorDrag.bottom, vx: clamp(decorDrag.vx ?? 0, -lim, lim), vy: clamp(decorDrag.vy ?? 0, -lim, lim) };
+          d.px = [decorDrag.x, decorDrag.bottom]; d.vx = 0;
+        } else {
+          Object.assign(d, spot.surface === "wall" ? spot : { ...spot, v: d.v }); // 호스트가 다시 넣기 전까지도 제자리에
+          d.px = null; d.vx = 0; // 굴러가던 걸 잡아 옮겼으면 굴러가던 자리로 돌아가지 않게
+          emit("decorMove", { id: d.id, ...spot });
+        }
       }
       decorDrag.el.classList.remove("dragging"); decorDrag = null; emit("hold", false);
       return;

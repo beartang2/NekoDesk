@@ -80,4 +80,17 @@ describe("빈 방의 선물(RoomGifts)", () => {
     expect(onMenu).toHaveBeenCalledTimes(1);
     expect(h.place).not.toHaveBeenCalled();
   });
+
+  it("액자 아닌 물건을 벽 쪽으로 끌어 놓으면 떨어져 바닥에 놓인다(0.1.24)", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas")!;
+    fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 6, pointerType: "mouse" });
+    fireEvent.pointerMove(cv, { clientX: 150, clientY: 110, pointerId: 6, pointerType: "mouse" });
+    fireEvent.pointerMove(cv, { clientX: 160, clientY: 60, pointerId: 6, pointerType: "mouse" });
+    fireEvent.pointerUp(cv, { clientX: 160, clientY: 60, pointerId: 6, pointerType: "mouse" });
+    expect(h.place).not.toHaveBeenCalled(); // 떨어지는 중
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(h.place).toHaveBeenCalledTimes(1);
+    expect(h.place.mock.calls[0][1]).toMatchObject({ surface: "floor" });
+  });
 });

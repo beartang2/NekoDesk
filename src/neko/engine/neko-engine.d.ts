@@ -236,7 +236,8 @@ export interface NekoController {
    * 새로 놓인 것만 '뿅' 하고 나온다. 잡고 끌면 decorMove, 우클릭하면 decorMenu(저장·버튼은 호스트).
    * 화면 모드(world)는 자리·크기만 쓰고(놀 것 고르기·피하기) 그리기·누르기는 잡은 것만(decorHeld). 뿅은 없다
    */
-  setDecor(items: ({ id: string; shape: unknown; play?: NekoGiftPlay; size?: NekoGiftSize; lastPlayed?: number } & NekoDecorSpot)[]): void;
+  /** frame = 액자(그림 선물): 액자만 벽에 걸린다. 다른 물건을 벽 쪽에 놓으면 떨어져 바닥에 놓인다(0.1.24) */
+  setDecor(items: ({ id: string; shape: unknown; play?: NekoGiftPlay; size?: NekoGiftSize; lastPlayed?: number; frame?: boolean } & NekoDecorSpot)[]): void;
   /** 놓아 둔 물건 수(감독이 '선물 갖고 놀기'를 고를지 볼 때) */
   readonly decorCount: number;
   /** 이 점(무대 px)이 놓아 둔 물건 위면 그 id */

@@ -80,7 +80,7 @@ export function decorItems(gifts: NekoGift[], at: NekoPlacement, screen?: Screen
     if (g.placed?.at !== at) return [];
     if (at === "screen" && screen && shownScreen(g.placed, screen) !== screen.id) return [];
     const { at: _at, screen: _scr, ...spot } = g.placed;
-    return [{ id: g.id, shape: g.shape, play: g.play, size: g.size, lastPlayed: g.lastPlayed, scale: g.scale, at, ...spot }];
+    return [{ id: g.id, shape: g.shape, play: g.play, size: g.size, lastPlayed: g.lastPlayed, scale: g.scale, at, ...(g.frame ? { frame: true } : {}), ...spot }];
   });
 }
 
@@ -127,6 +127,27 @@ interface GiftStore {
 }
 
 /** 저장된 JSON 을 선물 목록으로. 모양도 한 번 더 검사한다 — 손으로 고친 DB, 예전 꼴, 다른 기기에서 온 것이 엔진까지 가지 않게 */
+/**
+ * 액자만 벽에 건다(사용자, 0.1.24). 방·거실 벽에 걸려 있던 다른 물건은 같은 가로 자리의 바닥으로 내린다 — 업데이트 뒤 한 번,
+ * 그리고 옛 버전이 벽 자리를 다시 보내와도 받을 때마다. 바닥 자리는 옛 버전도 그대로 읽는다. 마당(screen)은 화면 창 몫이라 둔다
+ */
+export function hangOnlyFrames(gifts: NekoGift[]): { gifts: NekoGift[]; moved: NekoGift[] } {
+  const moved: NekoGift[] = [];
+  const out = gifts.map((g) => {
+    const p = g.placed;
+    if (!p || g.frame || p.surface !== "wall" || p.at === "screen") return g;
+    const placed: GiftPlacement = { surface: "floor", u: p.u, at: p.at, ...(p.screen ? { screen: p.screen } : {}) };
+    const next = { ...g, placed };
+    moved.push(next);
+    return next;
+  });
+  return { gifts: out, moved };
+}
+/** 고친 자리를 저장한다(동기화로 다른 기기도 바닥 자리를 받는다) */
+function saveMoved(moved: NekoGift[]) {
+  for (const g of moved) quiet(giftsApi.patch(g.id, { placed: g.placed }));
+}
+
 function parseGifts(raw: string | null): NekoGift[] {
   try {
     const parsed = raw ? (JSON.parse(raw) as NekoGift[]) : [];
@@ -151,14 +172,17 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
   loaded: false,
   async load() {
     if (get().loaded) return;
-    const list = parseGifts(await settingsApi.get(KEY).catch(() => null));
+    const { gifts: list, moved } = hangOnlyFrames(parseGifts(await settingsApi.get(KEY).catch(() => null)));
+    saveMoved(moved);
     // 불러오는 사이 들어온 선물(산책에서 막 돌아옴)은 뒤에 붙인다
     set((s) => ({ gifts: capGifts([...list, ...s.gifts.filter((g) => !list.some((o) => o.id === g.id))]), loaded: true }));
   },
   async reload() {
     const raw = await settingsApi.get(KEY).catch(() => undefined);
     if (raw === undefined) return;
-    set({ gifts: capGifts(parseGifts(raw)), loaded: true });
+    const { gifts, moved } = hangOnlyFrames(parseGifts(raw));
+    saveMoved(moved);
+    set({ gifts: capGifts(gifts), loaded: true });
   },
   add(g) {
     const play = PLAYS.includes(g.play as NekoGiftPlay) ? (g.play as NekoGiftPlay) : undefined;
@@ -188,7 +212,9 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
       const face = gift.frame ? "wall" : "floor";
       const us = get().gifts.filter((g) => g.id !== id && g.placed?.at === where && g.placed.surface === face && g.placed.screen === scr).map((g) => g.placed!.u);
       const s: NekoDecorSpot = spot !== "auto" ? spot : gift.frame ? { surface: "wall", u: freeSpot(us), v: FRAME_V[where] } : { surface: "floor", u: freeSpot(us) };
-      placed = s.surface === "wall" ? { surface: "wall", u: s.u, v: s.v, at: where } : { surface: "floor", u: s.u, at: where };
+      // 액자만 벽에(마당 빼고). 벽 자리가 와도 액자가 아니면 같은 가로 자리의 바닥으로
+      const hang = s.surface === "wall" && (gift.frame || where === "screen");
+      placed = hang && s.surface === "wall" ? { surface: "wall", u: s.u, v: s.v, at: where } : { surface: "floor", u: s.u, at: where };
       if (scr) placed.screen = scr;
     }
     const gifts = get().gifts.map((g) => {

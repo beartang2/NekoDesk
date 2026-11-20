@@ -74,6 +74,24 @@ export function decorAt(d, h, g, w = 0) {
   return [x, bottom];
 }
 /** 끄는 중인 물건(높이 h)을 무대 안에 묶는다: 양끝 여백 안, 바닥 아래로는 안 내려가고 무대 위로도 안 나간다 */
+/**
+ * 던진 물건이 바닥으로 떨어진다 — 고양이를 던졌을 때와 같은 중력·최고 속도(엔진 GRAV·FALL_VMAX), 바닥에서 FALL_BOUNCE 만큼 튕긴다.
+ * 액자 아닌 물건을 벽 쪽에 놓으면 이걸로 떨어뜨린다(사용자, 0.1.24). 엔진과 빈 방 그림(RoomGifts)이 같이 쓴다.
+ * f = { x, bottom, vx, vy }(무대 px, px/초)를 고친다. 바닥에 내려앉아 멈추면 true
+ */
+export const FALL_G = 2050, FALL_VMAX = 1500, FALL_BOUNCE = 0.35;
+export function fallStep(f, dt, g) {
+  const S = g.S, m = decorM(S);
+  f.vy = Math.min(f.vy + FALL_G * S * dt, FALL_VMAX * S);
+  f.x += f.vx * dt; f.bottom += f.vy * dt;
+  if (f.x < m) { f.x = m; f.vx = Math.abs(f.vx) * 0.5; } else if (f.x > g.W - m) { f.x = g.W - m; f.vx = -Math.abs(f.vx) * 0.5; }
+  if (f.bottom >= g.floorY) {
+    f.bottom = g.floorY;
+    if (f.vy < 140 * S) { f.vy = 0; return true; }
+    f.vy = -f.vy * FALL_BOUNCE; f.vx *= 0.75;
+  }
+  return false;
+}
 export const clampDrag = (h, g, x, bottom) => [clamp(x, decorM(g.S), g.W - decorM(g.S)), clamp(bottom, h + 10 * g.S, g.floorY)];
 /** 끌어 들어 올린 모양: 조금 크고 가장자리 그림자가 더 흐리다. 바닥 가까이면 바닥 그림자 */
 const LIFT = 1.08;

@@ -35,6 +35,11 @@ export function paintDecor(g: CanvasRenderingContext2D, shape: GiftShape, L: Dec
   o?: { shadow?: string; sc?: [number, number]; rot?: number; wob?: number; edge?: number }): void;
 /** 끄는 중인 물건(높이 h)을 무대 안에 묶는다(엔진 끌기와 같다). [x, bottom] */
 export function clampDrag(h: number, g: DecorGeom, x: number, bottom: number): [number, number];
+export const FALL_G: number;
+export const FALL_VMAX: number;
+export const FALL_BOUNCE: number;
+/** 던진 물건 떨어뜨리기 한 걸음(고양이와 같은 중력·튕김). f 를 고친다. 바닥에 내려앉아 멈추면 true */
+export function fallStep(f: { x: number; bottom: number; vx: number; vy: number }, dt: number, g: { W: number; floorY: number; S: number }): boolean;
 /** 사용자가 끄는 물건: 물건 가운데 x, 바닥 y(css px). 잡은 점과 칸 가운데·바닥의 차이는 창이 기억해 뺀다 */
 export interface DecorDrag { id: string; x: number; bottom: number }
 interface DecorView { W: number; floorY: number; scale: number }

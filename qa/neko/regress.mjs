@@ -281,14 +281,14 @@ try {
       const n = window.__neko, cv = document.getElementById("stage"), rect = () => cv.getBoundingClientRect(), ev = [];
       n.on("decorMove", (e) => ev.push(["move", e])); n.on("decorMenu", (e) => ev.push(["menu", e]));
       n.setWander(false); n.cat.x = n.W * 0.8; n.step(60);
-      n.setDecor([{ id: "g", surface: "floor", u: 0.1, size: "small", scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]); // 가장 작게(한 변 29)
+      n.setDecor([{ id: "g", surface: "floor", u: 0.1, size: "small", scale: 0.5, frame: true, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } }]); // 가장 작게(한 변 29), 액자(액자만 벽에 건다)
       n.step(90); n.draw();
       const boxOf = () => { for (let y = 0; y < n.floorY; y += 2) for (let x = 0; x < n.W; x += 2) if (n.hitDecor(x, y)) return [x, y]; return null; };
       const at = boxOf(), R = rect(), fire = (type, x, y, extra = {}) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 7, bubbles: true, button: extra.button ?? 0 }));
       const [x0, y0] = [at[0] + 4, at[1] + 4];
       fire("pointerdown", x0, y0); fire("pointermove", x0 + 40, y0 - 90); fire("pointerup", x0 + 40, y0 - 90);
       const moved = ev[0] && ev[0][1];
-      n.setDecor([{ id: "g", size: "small", scale: 0.5, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] }, ...moved }]); n.step(60); n.draw();
+      n.setDecor([{ id: "g", size: "small", scale: 0.5, frame: true, shape: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] }, ...moved }]); n.step(60); n.draw();
       const hitBefore = !!boxOf();
       cv.style.width = "900px"; cv.style.height = "150px"; n.resize(); n.step(60); n.draw();
       const b2 = boxOf(), span = n.floorY - (32 * n.S) - 10 * n.S, wallOk = !!b2 && moved && moved.surface === "wall";
@@ -1201,6 +1201,36 @@ try {
     });
     check("파일 물려주기: 끌면 하던 걸 멈추고(자던 것도 깨서) 입이 커서 밑으로, 쓰다듬기 꺼짐, 그사이 활동은 끝난 뒤에, 아이콘 3장 물기", JSON.stringify(r),
       r.actAfter === null && r.near && r.pet === false && r.afterAct === "box" && r.lay === "lie" && r.woke && r.carried === 3 && r.mouthR > 0 && r.head > 0);
+    await p.close();
+  }
+
+  // 9-g) 액자만 벽에 건다(0.1.24, 사용자): 액자 아닌 물건을 벽 쪽에 끌어 놓으면 고양이를 던졌을 때처럼 떨어져 튕기고 바닥에
+  //      놓인다(decorMove 는 내려앉은 뒤 바닥 자리로 한 번). 액자는 벽에 그대로 걸린다
+  {
+    const p = await open(`?w=680&h=300&scale=height&transparent=1`, { width: 1000, height: 600 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, cv = document.getElementById("stage"), shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      n.pause(); n.setWander(false); n.cat.x = n.W * 0.8; n.step(30);
+      const moves = []; n.on("decorMove", (e) => moves.push(e));
+      const drop = async (frame) => {
+        moves.length = 0;
+        n.setDecor([{ id: "g", surface: "floor", u: 0.2, size: "small", shape, ...(frame ? { frame: true } : {}) }]); n.step(60); n.draw();
+        const rect = cv.getBoundingClientRect();
+        let gx = 0, gy = 0;
+        for (let x = 0; x < n.W && !gx; x += 2) for (let y = n.floorY - 4; y > 0; y -= 2) if (n.hitDecor(x, y) === "g") { gx = x; gy = y; break; }
+        const ev = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { clientX: rect.left + x, clientY: rect.top + y, pointerId: 3, button: 0, pointerType: "mouse", bubbles: true }));
+        ev("pointerdown", gx, gy); n.step(2);
+        for (let k = 1; k <= 6; k++) { ev("pointermove", gx + 10 * k, gy - 25 * k); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
+        ev("pointerup", gx + 60, gy - 150);
+        const right = moves.length;
+        let landed = -1;
+        for (let i = 0; i < 120 * 3; i++) { n.step(1); if (moves.length && landed < 0) landed = i; }
+        return { right, moves: moves.map((m) => m.surface), landedSec: +(landed / 120).toFixed(2) };
+      };
+      return { plain: await drop(false), frame: await drop(true) };
+    });
+    check("액자만 벽에: 액자 아닌 물건은 떨어져 바닥에(내려앉은 뒤 바닥 자리 한 번), 액자는 벽에 걸린다", JSON.stringify(r),
+      r.plain.right === 0 && r.plain.moves.join() === "floor" && r.plain.landedSec > 0.1 && r.frame.moves.join() === "wall");
     await p.close();
   }
 

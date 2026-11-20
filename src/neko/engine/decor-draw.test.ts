@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { roomWindows } from "./room-window.js";
-import { TALL_DOCK_K, capPx, decorAt, decorM, decorBoxes, decorDims, decorK, dragDecor, spotOf, hitDecorAt, sizeK, type DecorItem } from "./decor-draw.js";
+import { TALL_DOCK_K, fallStep, capPx, decorAt, decorM, decorBoxes, decorDims, decorK, dragDecor, spotOf, hitDecorAt, sizeK, type DecorItem } from "./decor-draw.js";
 
 const shape = { v: 1 as const, parts: [{ t: "circle" as const, x: 0, y: -8, r: 8, c: "red" as const }] };
 const geom = { W: 1200, floorY: 600, S: 0.8 };
@@ -88,5 +88,15 @@ describe("decor-draw", () => {
     expect(decorAt(mid, 20, g, 20)).toEqual(decorAt(mid, 20, g));
     // 마당엔 창이 없다
     expect(decorAt({ ...spot, at: "screen" }, h, g, w)).toEqual(decorAt({ ...spot, at: "screen" }, h, g));
+  });
+
+  it("떨어뜨리기(fallStep): 고양이와 같은 중력으로 바닥까지, 튕기고 멈춘다. 무대 밖으로 안 나간다", () => {
+    const g = { W: 300, floorY: 194, S: 0.8 }, f = { x: 20, bottom: 40, vx: -400, vy: -100 };
+    let t = 0, bounced = false, prevVy = 0;
+    while (!fallStep(f, 1 / 120, g) && t < 5) { t += 1 / 120; if (prevVy > 0 && f.vy < 0) bounced = true; prevVy = f.vy; }
+    expect(f.bottom).toBe(194);
+    expect(bounced).toBe(true);
+    expect(t).toBeLessThan(2);
+    expect(f.x).toBeGreaterThanOrEqual(16 * 0.8);
   });
 });
