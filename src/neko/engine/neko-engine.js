@@ -3589,7 +3589,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       if (!f) { endAct(); return; }
       if (c.treadmill) return;
       if (A.pause > 0) return;
-      const rail = topsOf(f).find((t) => t.rail);
+      const rail = topsOf(f)[0]; // 바퀴 안 레일
       if (!rail || !goOnto(A, rail) || c.mode !== "idle" || c.modeT < 0.2) return; // 안으로 폴짝
       c.treadmill = { r: f.box.h * 0.42, get spin() { return f.spin || 0; }, set spin(v) { f.spin = v; } };
       f.spinning = true; syncFurnHeld();
@@ -4742,11 +4742,12 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const b = FA.furnitureBox(f.kind, S, f.slotW);
       f.box = { x: f.x - b.w / 2, y: BASE_Y - b.h, w: b.w, h: b.h };
     }
-    TOPS = furniture.flatMap((f) => [
-      ...FA.furnitureSurfaces(f.kind, S, f.slotW).map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y })),
-      // 캣휠 안쪽 레일 바닥: 안으로 폴짝 들어가 그 위에서 달린다(바퀴 아래 받침만큼 바닥보다 높다)
-      ...(f.kind === "wheel" ? [{ id: `f:${f.id}:rail`, win: "furniture", fid: f.id, rail: true, x0: f.x - f.box.w * 0.3, x1: f.x + f.box.w * 0.3, y: BASE_Y - f.box.h * 0.13 }] : []),
-    ]);
+    TOPS = furniture.flatMap((f) => {
+      const tops = FA.furnitureSurfaces(f.kind, S, f.slotW).map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y }));
+      // 캣휠 안쪽 레일(디딜 곳 = 어두운 레일 띠 안쪽 가장자리, 바닥에서 h × 0.166): 그림(furniture-art)에 면이 생기면 그걸 쓴다
+      if (f.kind === "wheel" && !tops.length) tops.push({ id: `f:${f.id}:0`, win: "furniture", fid: f.id, x0: f.x - f.box.w * 0.3, x1: f.x + f.box.w * 0.3, y: BASE_Y - f.box.h * 0.166 });
+      return tops;
+    });
     const c = cat, was = c.perch;
     if (!was) return;
     const t = TOPS.find((o) => o.id === was.id);
