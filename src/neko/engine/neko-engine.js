@@ -4408,18 +4408,25 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = theme.floor; ctx.fillRect(0, floorY, W, H - floorY);
     }
+    // 캣휠 안(달리는 중·숨 고르는 중): 고양이를 바퀴 원으로 잘라 꼬리·머리가 테 밖으로 안 나온다. 테 안쪽 고리는 앞 겹이 덮는다.
+    // 둥근 레일 위라 바닥 그림자는 없다(납작한 그림자가 테 밖으로 삐져나왔다)
+    const wf = c.perch && furniture.find((f) => f.id === c.perch.fid && f.kind === "wheel");
     const lowest = Math.max(...c.legs.map((L) => L.footW[1])) + PAW.ry * S;
     const k = clamp(1 - Math.max(0, floorY - lowest) / (240 * S), 0.25, 1);
-    ctx.save(); ctx.globalAlpha = k; ctx.fillStyle = theme.shadow;
-    ctx.beginPath(); ctx.ellipse(c.x + c.face * 6 * S, floorY + 1.5 * S, 58 * S * (0.55 + 0.45 * k), 6.5 * S * (0.55 + 0.45 * k), 0, 0, TAU); ctx.fill();
-    ctx.restore();
+    if (!wf) {
+      ctx.save(); ctx.globalAlpha = k; ctx.fillStyle = theme.shadow;
+      ctx.beginPath(); ctx.ellipse(c.x + c.face * 6 * S, floorY + 1.5 * S, 58 * S * (0.55 + 0.45 * k), 6.5 * S * (0.55 + 0.45 * k), 0, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
 
     drawFurnitureBack();
     drawDecor();
     drawActBack();
+    if (wf) { const wc = FA.wheelCircle(S, wf.slotW); ctx.save(); ctx.beginPath(); ctx.arc(wf.x, BASE_Y + wc.dy, wc.r, 0, TAU); ctx.clip(); }
     composeCat();
 
     drawFace();
+    if (wf) ctx.restore();
     drawActFront();
     drawDecor(ctx, true); // 뒤에 숨기: 고양이 앞에 오는 물건
     drawCarry();
