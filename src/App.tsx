@@ -29,6 +29,7 @@ import { useNekoApp } from "./neko/director/stores";
 import { watchWalkIdle } from "./neko/walkWatch";
 import { restThink, takeGreeting } from "./agent/neko-mind";
 import { reportBigState, watchPresence } from "./neko/presence";
+import { watchDreams } from "./neko/dream";
 import { useNekoNeeds } from "./neko/director/needsStore";
 import { SLEEPY_MS } from "./neko/director/derive";
 import { useNekoStore } from "./neko/nekoStore";
@@ -1921,6 +1922,10 @@ export default function App() {
 
   // 산책이 출발 전 네코 상태를 가지고 나간다(walk.ts WalkBefore). 졸 땐 활동이 없으니 마지막으로 한 활동을 기억해 둔다
   const nekoCtrl = useNekoController();
+  // 꿈(0.1.25): 길게 깊이 잘 때 하루 한두 번 — 무엇을 꿀지는 네코의 마음이 고른다(neko/dream). 산책 중엔 안 꾼다
+  const awayRef = useRef(away);
+  awayRef.current = away;
+  useEffect(() => (nekoCtrl ? watchDreams(nekoCtrl, () => awayRef.current) : undefined), [nekoCtrl]);
   const lastActRef = useRef<string | null>(null);
   useEffect(() => nekoCtrl?.on("activity", (a) => { if (a) lastActRef.current = a; }), [nekoCtrl]);
   const beforeWalk = async (): Promise<WalkBefore> => {
@@ -1945,7 +1950,7 @@ export default function App() {
     const blocked = budgetBlockReason();
     if (blocked) return blocked;
     if (walk && !walk.done) return "지난 산책 보고를 기다리는 중";
-    // 정기 산책(아침·점심·저녁)이면 간격을 안 보고, 아니면 지난 산책 끝나고 2시간(lib/walk nextWalkAt)
+    // 정기 산책(아침·점심·저녁)이면 지난 산책 끝나고 1시간, 아니면 3시간(lib/walk nextWalkAt)
     const plan = nextWalkAt({ dozeAt: Date.now(), lastWalk: lastWalkWith(lastWalkOf(walk), shared), extraWait: 0 });
     if (plan.at > Date.now() + 1000) {
       return plan.routine
@@ -1986,7 +1991,8 @@ export default function App() {
     return () => useDevTools.setState({ walk: null });
   }, []);
 
-  // 졸고 있으면 정기 산책 시간대(아침 7–9·점심 12–14·저녁 18–20시)엔 바로, 아니면 5–20분 더 조용하고 지난 산책 2시간 뒤 나간다(lib/walk nextWalkAt).
+  // 졸고 있으면 정기 산책 시간대(아침 7–9·점심 12–14·저녁 18–20시)엔 바로(지난 산책 끝나고 1시간은 지나서), 아니면 5–20분 더 조용하고
+  // 지난 산책 3시간 뒤 나간다(lib/walk nextWalkAt).
   // 그사이 사용자가 돌아오거나 일을 시키면 취소하고, 다시 졸 때 새로 구한다.
   const dozing = idle && !isRunning;
   const eating = useNekoApp((s) => !!s.feeding);
@@ -1994,7 +2000,7 @@ export default function App() {
   useEffect(() => { reportBigState(away ? "walk" : eating ? "eat" : idle ? "sleep" : "awake"); }, [away, eating, idle]);
   useEffect(() => {
     if (!dozing || gone || eating || (walk && !walk.done)) return;
-    const plan = nextWalkAt({ dozeAt: dozeRef.current.at, lastWalk: lastWalkWith(lastWalkOf(walk), shared), extraWait: dozeRef.current.extraWait });
+    const plan = nextWalkAt({ dozeAt: dozeRef.current.at, now: Date.now(), lastWalk: lastWalkWith(lastWalkOf(walk), shared), extraWait: dozeRef.current.extraWait });
     const id = window.setTimeout(() => void departRef.current(), Math.max(0, plan.at - Date.now()));
     return () => window.clearTimeout(id);
   }, [dozing, gone, eating, walk, shared]);

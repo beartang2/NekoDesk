@@ -7,9 +7,9 @@ import { PLAYS } from "../neko/gifts";
  * 선물 그리기: 물건 이름을 받아 네코 그림체로 그릴 모양(도형 목록)을 모델에게 받는다. 설계 docs/neko-gifts.md §2.
  *
  * 그림체(입체감·그림자·색)는 엔진(gift-shape.js)이 입히고, 여기선 모양만 받는다. 엔진은 잘 적힌 모양이면
- * 무엇이든 알아보게 그린다 — 약한 고리는 모양을 적는 쪽이라, 그 일만 하는 호출을 따로 두고 잘 그린 본보기를
- * 보여 준다(산책 보고에 끼워 받으면 일지·선물 글에 밀려 동그라미 몇 개로 끝나기 쉬웠다). 그린 뒤엔 실제로
- * 그려진 모습을 한 번 보여 주고 고치게 한다.
+ * 무엇이든 알아보게 그린다 — 약한 고리는 모양을 적는 쪽이라, 그 일만 하는 호출을 따로 두고(산책 보고에 끼워 받으면
+ * 일지·선물 글에 밀려 동그라미 몇 개로 끝나기 쉬웠다) 그리는 법만 준다. 본보기 그림(도토리·단풍잎·열쇠)은 0.1.25 에
+ * 뺐다 — 선물이 그쪽으로 쏠릴 수 있다(사용자: 편향되는 예시는 싫다). 그린 뒤엔 실제로 그려진 모습을 한 번 보여 주고 고치게 한다.
  *
  * 산책(walk.ts)과 선물 시험(GiftLab)이 같은 길을 쓴다.
  */
@@ -53,14 +53,14 @@ const DRAW_TOOL = {
         gift_size: {
           type: "string",
           enum: ["small", "medium", "large"],
-          description: "실제 물건 크기. small 병뚜껑·도토리·단추, medium 단풍잎·조약돌·솔방울, large 나뭇가지·깃털 다발(그래도 고양이보다 작은 것)",
+          description: "실제 물건 크기. small 손끝에 올라가는 것, medium 손바닥에 드는 것, large 그보다 크지만 고양이보다 작은 것",
         },
         gift_play: {
           type: "string",
           enum: PLAYS,
           description: "고양이가 그걸로 노는 방식. roll 굴리기(동근 것)·bat 앞발로 톡·sniff 냄새 맡기·sit_on 위에 앉기(납작한 것)·carry 물고 옮기기",
         },
-        gift_glow: { type: "string", enum: GIFT_COLORS, description: "스스로 빛나는 물건(등불·반딧불 병·별 조각)일 때만 빛 색. 아니면 빼" },
+        gift_glow: { type: "string", enum: GIFT_COLORS, description: "스스로 빛을 내는 물건일 때만 빛 색. 아니면 빼" },
       },
       required: ["gift_shape"],
     },
@@ -76,54 +76,14 @@ const FIX_TOOL = {
   },
 } as OpenAiToolSchema;
 
-/**
- * 본보기. 엔진으로 그려 보고 고른 것 — 덩어리를 겹쳐 쌓기(도토리), 뾰족한 실루엣과 잎맥(단풍잎), 만든 물건(열쇠).
- * 시스템 프롬프트가 아니라 그리기 요청에만 싣는다.
- */
-const EXAMPLES: Record<string, unknown[]> = {
-  "도토리": [
-    { t: "poly", pts: [[-6, -13], [6, -13], [6.5, -8], [4, -3], [0, 0], [-4, -3], [-6.5, -8]], round: 3, c: "brown" },
-    { t: "ellipse", x: -2.6, y: -8, rx: 1.1, ry: 3, rot: 0.15, c: "brown.light" },
-    { t: "poly", pts: [[-7.5, -12.5], [-7, -17], [-3, -20], [3, -20], [7, -17], [7.5, -12.5]], round: 2.5, c: "brown.dark" },
-    { t: "line", pts: [[-5, -13.5], [-2, -19]], w: 0.4, c: "brown" },
-    { t: "line", pts: [[-1, -13.5], [2, -19.5]], w: 0.4, c: "brown" },
-    { t: "line", pts: [[3, -13.5], [5.5, -18]], w: 0.4, c: "brown" },
-    { t: "line", pts: [[5, -13.5], [2, -19]], w: 0.4, c: "brown" },
-    { t: "line", pts: [[1, -13.5], [-2, -19.5]], w: 0.4, c: "brown" },
-    { t: "line", pts: [[-3, -13.5], [-5.5, -18]], w: 0.4, c: "brown" },
-    { t: "line", pts: [[0, -19.5], [0.3, -21.5], [1.2, -23]], w: 1.3, c: "brown.dark" },
-  ],
-  "단풍잎": [
-    { t: "line", pts: [[0, -8], [0.4, -3.5], [2, 0]], w: 0.9, c: "red.dark" },
-    { t: "poly", round: 0, c: "red", pts: [[0, -30], [2.5, -25], [6, -27], [5.5, -21], [11, -23], [9, -17.5], [14, -15.5], [9.5, -12], [11, -9], [3.5, -9.5], [0.8, -6.5], [-0.8, -6.5], [-3.5, -9.5], [-11, -9], [-9.5, -12], [-14, -15.5], [-9, -17.5], [-11, -23], [-5.5, -21], [-6, -27], [-2.5, -25]] },
-    { t: "line", pts: [[0, -7], [0, -27]], w: 0.5, c: "red.dark" },
-    { t: "line", pts: [[0, -12], [9.5, -21]], w: 0.4, c: "red.dark" },
-    { t: "line", pts: [[0, -12], [-9.5, -21]], w: 0.4, c: "red.dark" },
-    { t: "line", pts: [[0, -10], [11.5, -14.5]], w: 0.4, c: "red.dark" },
-    { t: "line", pts: [[0, -10], [-11.5, -14.5]], w: 0.4, c: "red.dark" },
-  ],
-  "열쇠": [
-    { t: "rrect", x: 3, y: -6, w: 17, h: 2.2, rad: 1, rot: 0, c: "gold" },
-    { t: "rrect", x: 7.5, y: -3.8, w: 2, h: 3.2, rad: 0.4, rot: 0, c: "gold" },
-    { t: "rrect", x: 10.6, y: -3.4, w: 1.8, h: 4, rad: 0.4, rot: 0, c: "gold" },
-    { t: "circle", x: -9, y: -6, r: 5.8, c: "gold" },
-    { t: "circle", x: -9.6, y: -6, r: 2.4, c: "gold.dark" },
-    { t: "line", pts: [[-3, -6], [11, -6]], w: 0.4, c: "gold.light" },
-    { t: "dot", x: -11.5, y: -9.5, r: 0.8, c: "white" },
-  ],
-};
-
 const HOW = [
   "그리는 법:",
-  "- 먼저 그 물건을 한눈에 알아보게 하는 것 두세 가지를 정해(도토리면 깍정이와 뾰족한 끝, 단풍잎이면 갈라진 끝과 잎맥).",
+  "- 먼저 그 물건을 한눈에 알아보게 하는 것 두세 가지를 정해.",
   "- 큰 덩어리부터 적고 그 위에 특징을 얹어. 실루엣은 poly 로 정확히(뾰족한 데는 round 0), 결·주름·꼭지는 가는 line 으로.",
   "- 그늘·무늬는 같은 색의 .dark, 밝은 데는 .light. 색은 두세 가지만.",
   "- 긴 쪽이 20~28칸이 되게 크게 그리고, 맨 아래가 바닥(y=0)에 닿게. 좌우 대칭인 물건은 좌표도 대칭으로.",
   "- 글자·숫자는 못 그린다. 그 물건이 놓인 바닥·배경도 그리지 마.",
 ].join("\n");
-
-const examplesText = () =>
-  Object.entries(EXAMPLES).map(([name, parts]) => `${name}: ${JSON.stringify({ parts })}`).join("\n");
 
 export interface DrawnGift {
   /** 검사를 거친 최종 모양 */
@@ -187,7 +147,7 @@ export async function drawGift(title: string, about = "", signal?: AbortSignal):
       { role: "system", content: "너는 작은 물건을 도형 몇 개로 그리는 화가야. gift_draw 툴로 답해." },
       {
         role: "user",
-        content: [`그릴 물건: ${title}`, about && `설명: ${about}`, HOW, `본보기(이대로 베끼지 말고 이만큼 공들여):\n${examplesText()}`]
+        content: [`그릴 물건: ${title}`, about && `설명: ${about}`, HOW]
           .filter(Boolean).join("\n\n"),
       },
     ],

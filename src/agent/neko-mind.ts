@@ -24,7 +24,7 @@ import type { Memory, OpenAiToolSchema } from "./types";
  */
 
 export const MIND_KEY = "neko_mind";
-export type NoteKind = "wonder" | "want" | "chose";
+export type NoteKind = "wonder" | "want" | "chose" | "dream";
 export interface MindNote {
   /** ISO 시각 */
   at: string;
@@ -59,7 +59,7 @@ export function parseMind(raw: string | null): NekoMind {
   const o = (p && typeof p === "object" ? p : {}) as { notes?: unknown; topics?: unknown };
   const notes = (Array.isArray(o.notes) ? o.notes : []).flatMap((n): MindNote[] => {
     const r = (n ?? {}) as Record<string, unknown>;
-    const kind = r.kind === "wonder" || r.kind === "want" || r.kind === "chose" ? r.kind : null;
+    const kind = r.kind === "wonder" || r.kind === "want" || r.kind === "chose" || r.kind === "dream" ? r.kind : null;
     const text = line(r.text), at = typeof r.at === "string" && !Number.isNaN(Date.parse(r.at)) ? r.at : "";
     if (!kind || !text || !at) return [];
     return [{ at, kind, text, ...(line(r.what) ? { what: line(r.what) } : {}), ...(line(r.why) ? { why: line(r.why) } : {}) }];
@@ -146,7 +146,7 @@ export function leaksFact(text: string, memories: Memory[]): boolean {
 const ymd = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: timeZone() });
 const md = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()}`; };
 const dayPart = (h: number) => (h < 6 ? "새벽" : h < 11 ? "아침" : h < 14 ? "점심 무렵" : h < 18 ? "오후" : h < 21 ? "저녁" : "밤");
-const KIND_NAME: Record<NoteKind, string> = { wonder: "궁금", want: "하고 싶음", chose: "고름" };
+const KIND_NAME: Record<NoteKind, string> = { wonder: "궁금", want: "하고 싶음", chose: "고름", dream: "꿈" };
 const WHAT_NAME: Record<string, string> = { walk_topic: "산책 주제", walk_gift: "가져올 선물", drawing: "그림" };
 function section(title: string, body: string): string {
   return body ? `## ${title}\n${body}` : "";
@@ -470,4 +470,57 @@ export async function recentNotesText(n = 10): Promise<string> {
 export async function noteChose(what: string, text: string, why: string, memories: Memory[]): Promise<void> {
   if (!line(text) || leaksFact(text, memories)) return;
   await updateMind((m) => ({ ...m, notes: [...m.notes, { at: new Date().toISOString(), kind: "chose", what, text: line(text), ...(line(why) && !leaksFact(why, memories) ? { why: line(why) } : {}) }] }));
+}
+
+// ── 꿈(0.1.25, 사용자: 중간중간 잘 때 꿈을 꾸게) ─────────────────────────────────
+
+export const DREAMS_PER_DAY = 2;
+export const DREAM_GAP_MS = 3 * 3_600_000;
+
+/** 오늘(로컬) 꾼 꿈 수와 마지막 꿈 시각 — 노트(neko_mind, 맥·폰 같이)로 센다 */
+export function dreamCount(mind: NekoMind, now = new Date()): { today: number; last: number } {
+  const dreams = mind.notes.filter((n) => n.kind === "dream");
+  return { today: dreams.filter((n) => ymd(new Date(n.at)) === ymd(now)).length, last: Math.max(0, ...dreams.map((n) => Date.parse(n.at))) };
+}
+
+/** 오늘 더 꿀 수 있나(하루 DREAMS_PER_DAY 번, DREAM_GAP_MS 간격) */
+export function mayDream(mind: NekoMind, now = new Date()): boolean {
+  const c = dreamCount(mind, now);
+  return c.today < DREAMS_PER_DAY && now.getTime() - c.last >= DREAM_GAP_MS;
+}
+
+export interface Dream { text: string; see: number; draw: string; greet: string }
+
+/**
+ * 자면서 꿀 꿈 하나. 재료만 준다 — 노트·알아본 주제·산책 기억·사용자 취향(사실은 안 보인다, 노트가 된다)과 그림으로 있는 것(최근 선물·가구)
+ * 목록. 예시 글귀·예시 물건은 주지 않는다(사용자: 편향되는 예시는 싫다). see = 그림 번호(1부터, 없으면 0), draw = 그림에 없으면 그릴 것,
+ * greet = 깨면 건넬 말(꿈 얘기를 하고 싶을 때만). 실패·시간 초과·예산 막힘이면 null(꿈 없이 잔다)
+ */
+export async function dreamThink(pictures: string[], signal?: AbortSignal): Promise<Dream | null> {
+  const memories = await memoryApi.list().catch((): Memory[] => []);
+  const mind = await loadMind();
+  if (signal?.aborted) return null;
+  const pics = pictures.map((p, i) => `${i + 1}. ${line(p, 80)}`).join("\n");
+  const t = await think(
+    "pick 엔 방금 자면서 꾼 꿈 한 줄. see 엔 꿈에 나온 것이 '그림으로 있는 것'에 있으면 그 번호(없으면 0), 없으면 draw 에 꿈에 나온 것 하나를 짧게. " +
+      "greet 는 깨어나 사용자에게 꿈 얘기를 하고 싶을 때만 한 줄",
+    [...mindMaterial(mind, memories, { facts: false }), section("그림으로 있는 것", pics)].filter(Boolean), signal, THINK_MS,
+    {
+      see: { type: "integer", description: "꿈에 나온 것의 그림 번호. 없으면 0" },
+      draw: { type: "string", description: "그림 번호에 없을 때 꿈에 나온 것(짧게). 있으면 빼" },
+      greet: { type: "string", description: "깨어나 먼저 건넬 말 한 줄. 꿈 얘기를 하고 싶지 않으면 빼" },
+    });
+  if (!t || signal?.aborted || leaksFact(t.pick, memories)) return null;
+  const n = Number(t.extra?.see), see = Number.isInteger(n) && n >= 1 && n <= pictures.length ? n : 0;
+  const draw = line(t.extra?.draw, 30), greet = line(t.extra?.greet);
+  return { text: t.pick, see, draw: draw && !leaksFact(draw, memories) ? draw : "", greet: greet && !leaksFact(greet, memories) ? greet : "" };
+}
+
+/** 꿈을 꿨다: 노트에 '꿈' 한 줄, 깨서 할 말이 있으면 첫마디로(이 기기 말풍선 — takeGreeting) */
+export async function noteDream(d: Dream): Promise<void> {
+  const at = new Date().toISOString();
+  await updateMind((m) => ({ ...m, notes: [...m.notes, { at, kind: "dream", text: d.text }] }));
+  if (!d.greet) return;
+  const prev = await readGreet();
+  await settingsApi.set(GREET_KEY, JSON.stringify({ text: d.greet, at: Date.now(), askedAt: prev?.askedAt ?? Date.now() })).catch(() => {});
 }

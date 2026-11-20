@@ -72,7 +72,7 @@ export interface WalkBrain {
 
 // ponytail: base 가 선물 빈도의 손잡이다. 써 보며 고친다.
 const GIFTS: Record<GiftKind, { base: number; label: string; hint: string }> = {
-  trinket: { base: 5, label: "주운 것", hint: "길에서 주운 작은 물건(나뭇잎·병뚜껑 같은 것). 뭘 주웠는지는 네가 정해. 그림은 선물 이름을 보고 따로 그리니 이름을 또렷하게" },
+  trinket: { base: 5, label: "주운 것", hint: "길에서 주운 작은 물건. 뭘 주웠는지는 네가 정해. 그림은 선물 이름을 보고 따로 그리니 이름을 또렷하게" },
   place: { base: 3, label: "가 본 곳", hint: "지나온 곳 하나를 소개하고, 거기서 주운 기념품(나뭇잎·각설탕 같은 것)을 선물 이름으로" },
   weather: { base: 2, label: "날씨 쪽지", hint: "날씨를 보고 사용자에게 남기는 쪽지" },
   link: { base: 2, label: "읽을거리", hint: "알아본 것 중 재밌어서 가져온 읽을거리 링크" },
