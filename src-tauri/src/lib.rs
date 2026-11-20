@@ -125,6 +125,29 @@ unsafe fn boot_frames(
     Some((from, NSRect::new(NSPoint::new(x, y), NSSize::new(w, h))))
 }
 
+/// 메인 창 최소 크기. 부팅 창(tauri.conf 360×300)이 작아야 하는 동안만 걸지 않는다.
+#[cfg(desktop)]
+const MAIN_MIN: (f64, f64) = (720.0, 520.0);
+/// 부팅 화면이 이만큼 지나도 안 끝나면(창이 안 보여 프런트가 늦음·키우기가 멈춤) 최소 크기를 먼저 건다
+#[cfg(desktop)]
+const BOOT_GRACE: std::time::Duration = std::time::Duration::from_secs(8);
+#[cfg(desktop)]
+static BOOT_SETTLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 부팅이 끝났다(다 키웠든, 못 키웠든, 시간이 지났든): 메인 창에 최소 크기를 건다. 작으면 tao 가 최소 크기까지
+/// 키우고, recenter 면 그 화면 가운데로 다시 둔다(작은 창이 오른쪽 위로만 커져 화면 밖으로 나가지 않게).
+/// 창 크기를 읽지 않는다 — 읽기는 메인 스레드를 기다려, 메인이 막혔을 때 여기서도 멈춘다.
+#[cfg(desktop)]
+fn settle_main_window(win: &tauri::WebviewWindow, recenter: bool) {
+    BOOT_SETTLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    if let Err(e) = win.set_min_size(Some(tauri::LogicalSize::new(MAIN_MIN.0, MAIN_MIN.1))) {
+        log::warn!("메인 창 최소 크기를 못 걸었어: {e}");
+    }
+    if recenter {
+        crate::place::center(win, crate::place::Screen::Of(win), false);
+    }
+}
+
 /// 부팅 창을 같은 가운데에서 본 크기로 키운다. 끝날 때까지 돌아오지 않는다.
 ///
 /// NSWindow 의 animate:YES 는 시간을 못 고르고, 커지는 동안 웹뷰가 다시 그려지지 않아
@@ -141,16 +164,21 @@ fn grow_boot_window(window: &tauri::WebviewWindow, max_w: f64, max_h: f64) -> Re
     const DURATION: Duration = Duration::from_millis(600);
     const FRAME: Duration = Duration::from_millis(16);
 
+    // 메인 스레드가 이만큼 답하지 않으면 키우기를 그만둔다. 예전엔 끝없이 기다려, 그동안 최소 크기도 안 걸렸다
+    const STALL: Duration = Duration::from_secs(2);
+
     let ns = window.ns_window()? as usize;
     let (tx, rx) = mpsc::channel();
     window.run_on_main_thread(move || {
         let _ = tx.send(unsafe { boot_frames(ns as *mut AnyObject, max_w, max_h) });
     })?;
+    let frames = rx.recv_timeout(STALL).map_err(|_| AppError::msg("메인 스레드가 답하지 않아 부팅 창을 못 키웠어"))?;
     // 창이 놓인 화면을 못 찾으면(켜자마자 최소화·다른 앱으로 넘어감) 애니메이션 없이 그냥 키운다.
     // 예전엔 여기서 그대로 돌아가, 창이 부팅 크기(360×300)로 남아 최소 크기보다 작았다.
-    let Some((from, to)) = rx.recv().ok().flatten() else {
+    let Some((from, to)) = frames else {
+        log::warn!("부팅 창이 놓인 화면을 못 찾아 애니메이션 없이 키운다");
         window.set_size(tauri::LogicalSize::new(max_w, max_h))?;
-        window.center()?;
+        crate::place::center(window, crate::place::Screen::Of(window), false);
         return Ok(());
     };
 
@@ -170,7 +198,7 @@ fn grow_boot_window(window: &tauri::WebviewWindow, max_w: f64, max_h: f64) -> Re
             let _ = tx.send(());
         })?;
         // 이 프레임이 실제로 그려진 뒤 다음으로 간다. 메인이 밀리면 쌓이지 않고 건너뛴다.
-        let _ = rx.recv();
+        rx.recv_timeout(STALL).map_err(|_| AppError::msg("메인 스레드가 답하지 않아 부팅 창 키우기를 멈췄어"))?;
         if t >= 1.0 {
             return Ok(());
         }
@@ -682,16 +710,12 @@ mod commands {
         };
         #[cfg(not(target_os = "macos"))]
         let grown = window.set_size(tauri::LogicalSize::new(W, H)).and_then(|_| window.center()).map_err(AppError::from);
-        // 부팅 창은 작아야 해서 최소 크기는 다 커진 뒤에 건다. 키우다 실패해도 건다 — 예전엔 `?` 로
-        // 먼저 돌아가 최소 크기가 아예 안 걸렸다. 작게 남았으면 최소 크기까지라도 키운다.
-        window.set_min_size(Some(tauri::LogicalSize::new(720.0, 520.0)))?;
-        if grown.is_err() {
-            let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
-            if size.width < 720.0 || size.height < 520.0 {
-                window.set_size(tauri::LogicalSize::new(size.width.max(720.0), size.height.max(520.0)))?;
-                window.center()?;
-            }
+        // 부팅 창은 작아야 해서 최소 크기는 다 커진 뒤에 건다. 키우다 실패해도 건다 — 작게 남았으면
+        // 최소 크기까지 커져 그 화면 가운데로. 프런트가 아예 못 부르면 setup 의 BOOT_GRACE 가 건다.
+        if let Err(e) = &grown {
+            log::warn!("부팅 창 키우기 실패: {e}");
         }
+        crate::settle_main_window(&window, grown.is_err());
         grown
     }
 
@@ -1704,6 +1728,15 @@ pub fn run() {
                 // 메인 창은 보이기 전에 마우스가 있는 모니터 가운데로(설정의 center 는 주 모니터)
                 if let Some(win) = app.get_webview_window("main") {
                     place::center(&win, place::Screen::Cursor, false);
+                    // 부팅 화면이 끝나야(window_boot_done) 최소 크기가 걸린다. 끝내 안 오면 여기서라도 건다 —
+                    // 안 걸리면 창이 부팅 크기로 남고 사용자가 줄여도 막지 못해 좁은 배치가 나온다.
+                    std::thread::spawn(move || {
+                        std::thread::sleep(BOOT_GRACE);
+                        if !BOOT_SETTLED.load(std::sync::atomic::Ordering::SeqCst) {
+                            log::warn!("부팅 화면이 {}초 안에 안 끝나 메인 창 최소 크기를 먼저 건다", BOOT_GRACE.as_secs());
+                            settle_main_window(&win, true);
+                        }
+                    });
                 }
                 if let Err(e) = app
                     .global_shortcut()

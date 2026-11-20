@@ -286,6 +286,8 @@ function TitleBar({
  * window_boot_done 이 창을 본 크기로 부드럽게 키운다. 다 커지면 걷힌다.
  */
 const BOOT_MS = 1400;
+/** 창 키우기(보통 0.6초)를 이만큼만 기다리고 걷는다. 못 키워도 최소 크기는 Rust 가 따로 건다 */
+const BOOT_GROW_WAIT_MS = 4000;
 
 function BootSplash() {
   const nekoName = useSettingsStore(nekoNameOf);
@@ -294,8 +296,8 @@ function BootSplash() {
 
   useEffect(() => {
     if (!animDone) return;
-    document.fonts.ready
-      .then(() => invoke("window_boot_done"))
+    const wait = new Promise((r) => setTimeout(r, BOOT_GROW_WAIT_MS));
+    Promise.race([document.fonts.ready.then(() => invoke("window_boot_done")), wait])
       .catch(() => {}) // 브라우저(vite 만 띄운 경우)엔 창이 없다. 그냥 걷는다.
       .finally(() => setPhase("leaving"));
   }, [animDone]);
