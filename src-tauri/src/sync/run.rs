@@ -1,17 +1,18 @@
 //! 동기화의 Tauri 쪽: 열쇠·토큰(키체인), 주기 작업, `sync-changed` 이벤트, 설정 › 동기화 커맨드.
 //!
 //! 기본은 꺼져 있다. 사용자가 서버를 넣고 켜기 전엔 아무것도 밖으로 안 나간다(sync_state.enabled).
-//! 주기: 메인 창이 앞에 있으면 15초, 아니면 5분. 로컬에서 쓴 직후·창이 앞으로 올 때는 kick 으로 바로.
+//! 주기: 메인 창이 앞에 있으면 15초, 아니면 30초. 로컬에서 쓴 직후는 kick, 앱이 앞으로 올 때는 kick_front 로 바로.
 
 use super::*;
 use crate::DbState;
 use chacha20poly1305::aead::rand_core::RngCore;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-static KICK: OnceLock<mpsc::Sender<()>> = OnceLock::new();
+/// true: 꼭 돈다(로컬에서 씀·사용자가 누름). false: 앱이 앞으로 옴 — 방금 돌았으면 건너뛴다
+static KICK: OnceLock<mpsc::Sender<bool>> = OnceLock::new();
 /// 이번 실행에서 한 번이라도 다 맞췄나 — 오래된 대화 자동 삭제는 그 뒤에만 돈다(§2.5 규칙 1)
 static SYNCED: AtomicBool = AtomicBool::new(false);
 
@@ -89,11 +90,31 @@ fn hw_model() -> Option<String> {
     (ok && !text.is_empty()).then_some(text)
 }
 
-/// 곧 맞춘다(로컬에서 쓴 직후, 창이 앞으로 왔을 때). 꺼져 있으면 아무 일도 없다.
+/// 곧 맞춘다(로컬에서 쓴 직후). 꺼져 있으면 아무 일도 없다.
 pub fn kick() {
     if let Some(tx) = KICK.get() {
-        let _ = tx.send(());
+        let _ = tx.send(true);
     }
+}
+
+/// 앱이 앞으로 왔다(맥 창 포커스, 폰 다시 열기). 주기 차례와 겹치면 두 번 돌지 않는다(`due`)
+pub fn kick_front() {
+    if let Some(tx) = KICK.get() {
+        let _ = tx.send(false);
+    }
+}
+
+/// 다음 주기까지. 뒤(마당 모드처럼 메인 창이 숨어 있을 때도)는 30초 — 5분이면 폰에서 쓴 대화가 맥에 한참 뒤에 보였다
+fn period(front: bool) -> Duration {
+    Duration::from_secs(if front { 15 } else { 30 })
+}
+
+/// 이만큼 안에 맞췄으면 앞으로 왔다는 kick 은 건너뛴다
+const FRESH: Duration = Duration::from_secs(5);
+
+/// kick 을 받고 지금 돌까. 로컬에서 쓴 것은 늘, 앞으로 온 것은 지난번에서 FRESH 가 지났을 때만
+fn due(must: bool, since_last: Duration) -> bool {
+    must || since_last >= FRESH
 }
 
 fn enabled(conn: &Connection) -> bool {
@@ -194,15 +215,21 @@ pub fn start(app: AppHandle) {
         let _ = rx.recv_timeout(Duration::from_secs(3));
         loop {
             tick(&app);
-            let wait = Duration::from_secs(if in_front(&app) { 15 } else { 300 });
-            match rx.recv_timeout(wait) {
-                // 연달아 쓴 것(질문·답 저장)을 한 번에 올린다
-                Ok(()) => {
-                    std::thread::sleep(Duration::from_secs(1));
-                    while rx.try_recv().is_ok() {}
+            // 벽시계로 잰다: Instant 는 기기가 잠든 동안 멈춰, 폰을 잠갔다 한참 뒤 열어도 "방금 맞췄다"로 보인다
+            let last = SystemTime::now();
+            let since = || last.elapsed().unwrap_or_default();
+            loop {
+                match rx.recv_timeout(period(in_front(&app)).saturating_sub(since())) {
+                    // 연달아 쓴 것(질문·답 저장)을 한 번에 올린다
+                    Ok(must) => {
+                        std::thread::sleep(Duration::from_secs(1));
+                        if due(rx.try_iter().fold(must, |a, b| a || b), since()) {
+                            break;
+                        }
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => return,
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(mpsc::RecvTimeoutError::Disconnected) => return,
             }
         }
     });
@@ -679,6 +706,15 @@ pub fn gift_remove(db: State<'_, DbState>, ids: Vec<String>) -> Result<(), AppEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn front_kick_skips_a_round_that_just_ran() {
+        assert_eq!((period(true), period(false)), (Duration::from_secs(15), Duration::from_secs(30)));
+        // 앱이 앞으로 온 때와 주기 차례가 겹쳤다: 1초 뒤 kick 은 건너뛴다. 로컬에서 쓴 것은 바로 올린다
+        assert!(!due(false, Duration::from_secs(1)));
+        assert!(due(false, FRESH));
+        assert!(due(true, Duration::ZERO));
+    }
 
     #[test]
     fn pairing_string_round_trips_and_rejects_junk() {

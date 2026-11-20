@@ -600,3 +600,26 @@ fn live() {
         println!("live sync ok (A {}, B {})", sa.device, sb.device);
     });
 }
+
+#[test]
+fn sessions_list_by_last_message_the_same_on_every_device() {
+    let (a, b) = (db(), db());
+    let msg = |s: &str, role: &str, at: &str| {
+        a.execute("INSERT INTO conversation_messages (session_id, role, content, created_at) VALUES (?1, ?2, 'x', ?3)", params![s, role, at]).unwrap();
+    };
+    session_put(&a, "old-asked", "old-asked", 1_000).unwrap();
+    session_put(&a, "answered", "answered", 2_000).unwrap();
+    session_put(&a, "empty-old", "empty-old", 500).unwrap();
+    session_put(&a, "empty-new", "empty-new", now_ms()).unwrap();
+    // 늦게 만든 세션이라도 마지막 메시지가 이르면 아래로. 질문만 있어도 그 시각으로 올라온다
+    msg("answered", "user", "2026-01-01 00:00:01");
+    msg("answered", "assistant", "2026-01-01 00:00:05");
+    msg("old-asked", "user", "2026-01-01 00:00:09");
+    let order = |c: &Connection| session_list(c).unwrap().into_iter().map(|s| (s.id, s.unread)).collect::<Vec<_>>();
+    let want: Vec<(String, bool)> = [("empty-new", false), ("old-asked", false), ("answered", true), ("empty-old", false)]
+        .map(|(id, u)| (id.to_owned(), u))
+        .into();
+    assert_eq!(order(&a), want, "메시지가 없으면 만든 때로 친다. 새 답 점은 답만 본다");
+    apply_all(&b, "B", &push_all(&a, "A"));
+    assert_eq!(order(&b), want, "다른 기기도 같은 순서");
+}

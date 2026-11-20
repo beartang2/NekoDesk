@@ -15,7 +15,7 @@ vi.mock("../api/tauri", () => ({
   },
 }));
 
-import { hydrateSessions, pruneOldSessions, useSessionStore } from "./sessionStore";
+import { hydrateSessions, pruneOldSessions, relistSessions, useSessionStore } from "./sessionStore";
 
 const DAY = 86_400_000;
 
@@ -62,6 +62,20 @@ describe("세션 목록 DB", () => {
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["old"]);
     expect(useSessionStore.getState().activeId).toBe("old");
     expect(db.deleted).toEqual([]); // 받은 목록을 다시 지우러 가지 않는다
+  });
+
+  it("질문·답을 적은 뒤 DB 순서(마지막 메시지 순)로 다시 읽는다. 열린 세션이 아직 DB 에 없으면 두고 넘어간다", async () => {
+    const ids = () => useSessionStore.getState().sessions.map((s) => s.id);
+    db.rows = [{ id: "old", title: "b", created_at: 1, summary: null }, { id: "open", title: "a", created_at: 2, summary: null }];
+    relistSessions();
+    await vi.waitFor(() => expect(ids()).toEqual(["old", "open"]));
+    expect(useSessionStore.getState().activeId).toBe("open");
+    // 막 만든 세션(열림)이 아직 안 적혔다: 목록에서 빠져 다른 세션이 열리는 일이 없게 그대로 둔다
+    useSessionStore.setState({ sessions: [{ id: "fresh", title: "새 대화", date: "" }, ...useSessionStore.getState().sessions], activeId: "fresh" });
+    relistSessions();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ids()).toEqual(["fresh", "old", "open"]);
+    expect(useSessionStore.getState().activeId).toBe("fresh");
   });
 
   it("setSessions 는 새 세션·바뀐 제목만 적고, 목록에서 빠졌다고 DB 에서 지우지 않는다", () => {

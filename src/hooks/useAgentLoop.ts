@@ -3,7 +3,7 @@ import { conversationApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { notifyIfAway, toNotificationBody } from "../lib/notify";
 import { useMessageStore } from "../stores/messageStore";
-import { useSessionStore } from "../stores/sessionStore";
+import { relistSessions, useSessionStore } from "../stores/sessionStore";
 import { runAgentLoop, runTextTask } from "../agent/agent-loop";
 import type {
   AgentStep,
@@ -528,6 +528,7 @@ export function useAgentPool() {
       const llmContent = buildLlmContent(userText, files);
       conversationApi
         .save(sessionId, "user", visibleText, serializeAttachments(files), serializeMeta({ label: task?.label, prompt: userMsg.prompt }))
+        .then(relistSessions) // 질문을 보낸 세션이 목록 맨 위로
         .catch(() => {});
 
       // 방금 넣은 질문은 빼고 담는다. 루프가 현재 요청으로 따로 싣는다 — 같이 담으면 두 번 간다.
@@ -681,7 +682,7 @@ export function useAgentPool() {
                 )
               );
             }
-            chain.catch(() => {});
+            chain.then(relistSessions).catch(() => {});
 
             stepOffset = event.stepCount;
             finalSteps = [];

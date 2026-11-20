@@ -22,7 +22,7 @@ export interface Session {
   id: string;
   title: string;
   date: string;
-  /** 만든 때(ms). 목록 순서(새 것이 위). 예전 캐시엔 없다 */
+  /** 만든 때(ms). 메시지가 없는 세션의 목록 순서(DB 가 마지막 메시지 순으로 준다). 예전 캐시엔 없다 */
   createdAt?: number;
   /** 수동 요약(상단 요약 바). 예전엔 localStorage nekodesk_compact_<id> */
   summary?: string;
@@ -64,7 +64,7 @@ interface SessionStore {
   setSessions: (updater: SessionsUpdater) => void;
   /** 수동 요약을 적고 그 세션의 DB 메시지를 지운다 */
   compact: (id: string, summary: string) => Promise<void>;
-  /** 답이 끝났다. 열려 있지 않은 세션이면 새 답 점을 단다 */
+  /** 답이 끝났다(DB 에 적은 뒤). 열려 있지 않은 세션이면 새 답 점을 달고, 목록 맨 위로 올린다 */
   replied: (id: string) => void;
 }
 
@@ -99,8 +99,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({ activeId: id, sessions: get().sessions.map((s) => (s.id === id && s.unread ? { ...s, unread: false } : s)) });
   },
   replied: (id) => {
-    if (id === get().activeId) return markRead(id);
-    set({ sessions: get().sessions.map((s) => (s.id === id ? { ...s, unread: true } : s)) });
+    if (id === get().activeId) markRead(id);
+    else set({ sessions: get().sessions.map((s) => (s.id === id ? { ...s, unread: true } : s)) });
+    relistSessions();
   },
   setSessions: (updater) => {
     const next = typeof updater === "function" ? updater(get().sessions) : updater;
@@ -145,6 +146,16 @@ function applyRows(rows: SessionRow[]) {
   for (const s of sessions) if (s.summary) localStorage.setItem(COMPACT_KEY(s.id), s.summary);
   useSessionStore.setState({ sessions });
   if (!sessions.some((s) => s.id === activeId)) useSessionStore.getState().setActiveId(sessions[0].id);
+}
+
+/**
+ * 이 기기에서 질문·답을 DB 에 적은 뒤: 그 세션이 맨 위로 오게 DB 순서(마지막 메시지 순 — 다른 기기와 같다)로 다시 읽는다.
+ * 지금 열린 세션이 아직 DB 에 없으면(막 만든 세션의 put 이 뒤에 돈다) 이번엔 두고 다음에 맞춘다 — 열린 세션이 바뀌지 않게.
+ */
+export function relistSessions(): void {
+  void sessionApi.list().then((rows) => {
+    if (rows.some((r) => r.id === useSessionStore.getState().activeId)) applyRows(rows);
+  }).catch(() => {});
 }
 
 const IMPORTED_KEY = "nekodesk_sessions_in_db";

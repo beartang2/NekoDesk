@@ -8,7 +8,7 @@ import type { AgentStep, LoopEvent } from "../agent/types";
  * 루프를 대본대로 흘려보내는 가짜로 바꾼다.
  */
 const save = vi.fn(async (..._args: unknown[]) => {});
-vi.mock("../api/tauri", () => ({ conversationApi: { save: (...args: unknown[]) => save(...args) } }));
+vi.mock("../api/tauri", () => ({ conversationApi: { save: (...args: unknown[]) => save(...args) }, sessionApi: { list: async () => [], read: async () => {}, put: async () => {} } }));
 vi.mock("../lib/notify", () => ({ notifyIfAway: vi.fn(), toNotificationBody: (s: string) => s }));
 
 type Take = () => unknown[];

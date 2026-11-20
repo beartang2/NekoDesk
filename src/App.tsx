@@ -48,7 +48,7 @@ import { maskHome } from "./lib/home";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi, mapApi, SYNC_CHANGED, type SyncChanged, syncApi } from "./api/tauri";
 import { appEvents, resolveWordchainFirstWord } from "./lib/events";
-import { removeSession, useSessionStore, makeSession, type Session } from "./stores/sessionStore";
+import { relistSessions, removeSession, useSessionStore, makeSession, type Session } from "./stores/sessionStore";
 import { isClaudeActive, nekoNameOf, useSettingsStore } from "./stores/settingsStore";
 import { budgetBlockReason } from "./stores/claudeBudget";
 import { startWalkBrain, type WalkBefore, type WalkBrain } from "./agent/walk";
@@ -2053,7 +2053,7 @@ export default function App() {
         ...prev,
         { id: crypto.randomUUID(), role: "assistant", content: report.content, prompt, time: clock(), steps: [], isStreaming: false },
       ]);
-      conversationApi.save(sid, "assistant", report.content, undefined, serializeMeta({ prompt })).catch(() => {});
+      conversationApi.save(sid, "assistant", report.content, undefined, serializeMeta({ prompt })).then(relistSessions).catch(() => {});
       saveWalk({ ...w, done: true, pin: report.gift?.place });
       void syncApi.walkEnd(walkStart(w), walkEnd(w)).catch(() => {});
       playAction();
