@@ -207,11 +207,13 @@ export async function migrateLegacySecrets() {
   localStorage.removeItem(LEGACY);
 }
 
-/** 임시 보관함에 둔 파일. path 는 끌어낼 때(startDrag) 쓴다. */
+/** 임시 보관함에 둔 파일·폴더. path 는 끌어낼 때(startDrag) 쓴다. 최근 것부터 온다(마당 네코가 앞 3개를 문다) */
 export interface ShelfItem {
   name: string;
   path: string;
+  /** 폴더면 안의 파일을 다 더한 바이트 */
   size: number;
+  dir: boolean;
 }
 
 export const shelfApi = {
@@ -222,6 +224,10 @@ export const shelfApi = {
       headers: { "x-name": encodeURIComponent(file.name) },
     }),
   remove: (name: string) => invoke<void>("shelf_remove", { name }),
+  /** 아치에서 끌어내 놓았다 — 보관함에서 꺼낸다 */
+  take: (name: string) => invoke<void>("shelf_take", { name }),
+  /** 보관함 안 파일·폴더의 macOS 아이콘(64px PNG data URL) */
+  icon: (path: string) => invoke<string>("file_icon", { path }),
 };
 
 export const conversationApi = {

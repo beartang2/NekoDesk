@@ -1,0 +1,73 @@
+/* 마당 네코 머리 위 꺼내기 아치(NekoFileArch). 상자는 아치 기준점 한 점이고, 칸은 그 점에서 --x·--y 만큼 떨어진 자리.
+   처음엔 머리(--fx·--fy)에 작게 모여 있다가 펼친다. 움직임은 transform·opacity 만 — 투명 창(마당)이라 합성만 하게 */
+.neko-arch {
+  position: fixed;
+  width: 0;
+  height: 0;
+  z-index: 20;
+}
+.neko-arch__item {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 64px;
+  margin: -24px 0 0 -32px; /* 아이콘 가운데가 자리에 오게(NekoFileArch.tsx 의 HALF_W·TOP 과 같다) */
+  cursor: grab;
+  opacity: 0;
+  transform: translate(var(--fx), var(--fy)) scale(0.3);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.neko-arch--open .neko-arch__item {
+  opacity: 1;
+  transform: translate(var(--x), var(--y)) scale(1);
+  /* 안쪽 띠 왼쪽부터 차례로 날아올라 살짝 넘쳤다 앉는다 */
+  transition:
+    transform 380ms cubic-bezier(0.34, 1.4, 0.64, 1) calc(var(--i) * 28ms),
+    opacity 200ms ease-out calc(var(--i) * 28ms);
+}
+.neko-arch__item:active { cursor: grabbing; }
+.neko-arch__icon {
+  width: 44px;
+  height: 44px;
+  filter: drop-shadow(0 2px 4px rgb(40 28 48 / 0.28));
+  -webkit-user-drag: none;
+  transition: transform 120ms ease-out;
+}
+.neko-arch__item:hover .neko-arch__icon { transform: scale(1.08); }
+
+/* 이름 알약: 반투명 유리. 투명 창이라 뒤(바탕화면)는 흐려지지 않는다 — 진한 반투명 바탕과 얇은 테로 읽히게 */
+.neko-arch__name {
+  max-width: 64px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.55);
+  background: rgb(255 255 255 / 0.72);
+  color: #2a2630;
+  font: 600 10px/1.35 var(--font-ui, -apple-system, system-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 8px rgb(40 28 48 / 0.18);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4);
+  backdrop-filter: blur(10px) saturate(1.4);
+}
+/* 폴더: macOS 폴더 아이콘에 더해 알약 앞에 작은 표시 */
+.neko-arch__item--dir .neko-arch__name::before {
+  content: "▸ ";
+  opacity: 0.55;
+}
+:root:not(.light) .neko-arch__name {
+  border-color: rgb(255 255 255 / 0.14);
+  background: rgb(36 33 42 / 0.72);
+  color: #f1eef5;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neko-arch--open .neko-arch__item { transition: none; }
+}

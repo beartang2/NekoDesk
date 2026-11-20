@@ -86,6 +86,8 @@
 
 .shelf__list {
   list-style: none;
+  user-select: none; /* ⇧ 클릭이 글자 선택으로 새지 않게 */
+  -webkit-user-select: none;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -105,6 +107,12 @@
 .shelf__item:hover {
   background: var(--layer-hover);
 }
+/* 고른 것(⌘·⇧ 클릭): 끌면 한 번에 넘어간다. Esc·다른 곳 누르기로 푼다 */
+.shelf__item--sel,
+.shelf__item--sel:hover {
+  background: var(--accent-dim);
+}
+.shelf__item--sel .shelf__icon { color: var(--accent); }
 
 .shelf__item:active {
   cursor: grabbing;
