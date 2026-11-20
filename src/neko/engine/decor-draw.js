@@ -55,6 +55,15 @@ export function decorDims(shape, k, S) {
   return { bd, u, w: bd.w * u, h: bd.h * u };
 }
 export const decorM = (S) => 16 * S;
+/**
+ * 가구 칸(docs/neko-furniture.md §4·§6): 방(sidebar) 2칸·거실(dock) 4칸, 마당은 없다. 무대 폭을 칸 수로 똑같이 나눈 자리 —
+ * [{ x: 칸 가운데, w: 칸 폭 }](무대 px). 가구는 칸 바닥 가운데에 놓이고, 칸 폭의 90% 를 넘으면 줄여 그린다(furniture-art)
+ */
+export const FURNITURE_SLOTS = { sidebar: 2, dock: 4 };
+export function furnitureSlots(at, W) {
+  const n = FURNITURE_SLOTS[at] ?? 0, w = n ? W / n : 0;
+  return Array.from({ length: n }, (_, i) => ({ x: (i + 0.5) * w, w }));
+}
 /** 벽 v = 1 이면 물건 위가 무대 위에서 10 아래 */
 export const wallSpan = (h, g) => Math.max(1, g.floorY - h - 10 * g.S);
 /**
