@@ -99,8 +99,8 @@ export function FloorBand({ w, h, seam, S }: { w: number; h: number; seam: numbe
 }
 
 /**
- * 거실 벽(채팅 바 아래 띠·폰 가로 화면): 방처럼 벽과 바닥을 나눈다(사용자). 바닥선은 엔진 무대와 같다 — 무대 상자(폰 가로는
- * 홈 막대만큼 올림, --stage-lift)를 재어 floorY = 무대 높이 − 6. 벽·바닥 그림은 띠 끝(화면 끝)까지. 날씨 창문과 고양이 무대 아래
+ * 거실 벽(채팅 바 아래 띠·폰 가로 화면): 방처럼 벽과 바닥을 나눈다(사용자). 바닥선은 엔진 무대와 같다 — 무대 상자(올릴 때는
+ * --stage-lift, App.css)를 재어 floorY = 무대 높이 − 6. 벽·바닥 그림은 띠 끝(화면 끝)까지. 날씨 창문과 고양이 무대 아래
  */
 export function DockWall() {
   const ref = useRef<HTMLDivElement>(null), stageRef = useRef<HTMLDivElement>(null);
