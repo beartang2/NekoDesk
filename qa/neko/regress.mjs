@@ -1423,6 +1423,34 @@ try {
     await p.close();
   }
 
+  // 9-u2c) 캣휠 안 폴짝(0.1.26, 사용자: 안에서 점프해 테를 뚫고 위로 나갔다): 달리다 뛰면(냥) 귀 끝이 테 안쪽 원 위로 안 나가고
+  //        제자리(레일 위·달리기 그대로)에 내려앉는다. 바퀴 앞 바닥에서 뛰면 레일에 안 내린다(테를 뚫고 안 들어간다)
+  {
+    const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
+    const r = await p.evaluate(async () => {
+      const FA = await import("/src/neko/engine/furniture-art.js");
+      const n = window.__neko, c = n.cat, out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
+      n.setFurniture([{ id: "Wh", kind: "wheel", at: "dock", slot: 2 }]);
+      c.x = n.W * 0.2; n.step(60);
+      const wc = FA.wheelCircle(n.S, n.W / 4), fx = n.W * 0.625, top = n.floorY + wc.dy - wc.rIn;
+      n.act("wheel");
+      for (let i = 0; i < 120 * 15 && !(c.treadmill && c.modeT > 0.5); i++) n.step(1);
+      out.hops = [0, 1].map(() => {
+        const x0 = c.x; let air = 0, over = -1e9; n.react("nyang");
+        for (let i = 0; i < 120 * 1.2; i++) { n.step(1); if (c.mode === "air") air++; over = Math.max(over, top - (c.y - (84 + 18 * c.soft) * n.S)); }
+        return { air: +(air / 120).toFixed(2), over: +over.toFixed(1), dx: +(c.x - x0).toFixed(1), perch: c.perch && c.perch.fid, tread: !!c.treadmill };
+      });
+      n.act(null); for (let i = 0; i < 120 * 4 && c.perch; i++) n.step(1); n.step(120);
+      c.x = fx; n.step(60); n.react("nyang"); for (let i = 0; i < 120 * 2; i++) n.step(1);
+      out.floor = c.perch ? c.perch.fid : null;
+      return out;
+    });
+    check("캣휠 안 폴짝: 귀 끝이 테 안쪽 원 안, 제자리 레일 위에 내려앉아 계속 달림, 바퀴 앞 바닥 점프는 레일에 안 내림", JSON.stringify(r),
+      r.hops.every((h) => h.air > 0.1 && h.over <= 1 && h.dx === 0 && h.perch === "Wh" && h.tread) && r.floor === null);
+    await p.close();
+  }
+
   // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {

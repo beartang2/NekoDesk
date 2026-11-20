@@ -104,10 +104,13 @@ export function furnitureBox(kind, S, slotW) {
   return { u, w: ew * u, h: eh * u, fit: u / ((a.size * CAT * S) / a.span) };
 }
 
-/** 캣휠 바퀴 원(px): 바닥에서 가운데까지 dy(위가 음수)·테 바깥 반지름 r. 안에 든 고양이를 이 원으로 잘라 꼬리가 테 밖으로 안 나오게(사용자) */
+/**
+ * 캣휠 바퀴 원(px): 바닥에서 가운데까지 dy(위가 음수)·테 바깥 반지름 r·테 안쪽 반지름 rIn. 안에 든 고양이를 r 원으로 잘라 꼬리가 테 밖으로
+ * 안 나오게(사용자), 안에서 폴짝할 땐 머리 끝이 rIn 원 안에 머물게(사용자)
+ */
 export function wheelCircle(S, slotW) {
   const { u } = furnitureBox("wheel", S, slotW);
-  return { dy: WHEEL_CY * u, r: WHEEL_RIM[1] * u };
+  return { dy: WHEEL_CY * u, r: WHEEL_RIM[1] * u, rIn: WHEEL_RIM[0] * u };
 }
 
 /** 올라앉는 면(px, 가운데 x·바닥 y 기준): 엔진이 캣타워·소파 위에 앉을 때. 칸 맞춤으로 줄면 면도 같이 */
