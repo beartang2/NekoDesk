@@ -371,10 +371,29 @@ pub fn set_catch(on: bool, cat: bool) -> Result<(), AppError> {
     Ok(())
 }
 
-/// 화면 창이 아치에서 파일을 끌어내기 시작했다. 버튼을 놓을 때까지 클릭을 흘린다(폴러가 놓으면 푼다).
-pub fn set_drag_out() -> Result<(), AppError> {
-    STATE.lock()?.drag_out = true;
-    Ok(())
+/// 아치에서 보관함 파일을 끌어낸다(§7). 웹뷰는 이름만 준다 — 경로는 보관함 안에서만 찾는다.
+/// 버튼을 놓을 때까지 클릭을 흘리고(폴러가 놓으면 푼다, 아래 Finder 에 놓이게), 놓았으면 보관함에서 꺼낸다(사용자).
+/// 끌기는 여기서 바로 연다 — 플러그인 명령은 마당 창 권한에 없어 조용히 막혔고, 실패를 웹뷰가 삼켰다.
+pub fn drag_out(app: &AppHandle, name: String) -> Result<(), AppError> {
+    let win = app.get_webview_window(LABEL).ok_or("마당 창이 없어.")?;
+    let dir = crate::shelf::dir(app)?;
+    let path = crate::shelf::path_of(&dir, &name)?;
+    let app2 = app.clone();
+    on_main(app, move || -> Result<(), AppError> {
+        let png = unsafe { crate::shelf::macos::icon_png(&path.to_string_lossy()) }.ok_or("아이콘을 못 만들었어.")?;
+        // 끌기 페이스트보드가 바뀌기 전에 — 폴러가 이 끌기를 들어오는 파일로 보지 않게
+        STATE.lock()?.drag_out = true;
+        let done = move |r: drag::DragResult, _: drag::CursorPosition| {
+            if matches!(r, drag::DragResult::Dropped) {
+                match crate::shelf::take(&dir, &name) {
+                    Ok(()) => crate::commands::shelf_changed(&app2),
+                    Err(e) => log::warn!("아치에서 꺼낸 파일을 보관함에서 못 뺐어({name}): {e}"),
+                }
+            }
+        };
+        drag::start_drag(&win, drag::DragItem::Files(vec![path]), drag::Image::Raw(png), done, drag::Options::default())
+            .map_err(|e| AppError::msg(format!("끌기를 못 열었어: {e}")))
+    })?
 }
 
 /// 화면 창: 고양이 자리(창 좌표, 크게 움직였을 때만)와 올라탄 창 번호(엔진 perch 의 창).

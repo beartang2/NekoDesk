@@ -758,15 +758,6 @@ mod commands {
         Ok(())
     }
 
-    /// 마당 아치에서 끌어내 놓았다: 보관함에서 꺼낸다(목록에서 바로 빼고 파일은 조금 뒤에 지운다).
-    #[cfg(desktop)]
-    #[tauri::command(async)]
-    pub fn shelf_take(app: tauri::AppHandle, name: String) -> Result<(), AppError> {
-        crate::shelf::take(&crate::shelf::dir(&app)?, &name)?;
-        shelf_changed(&app);
-        Ok(())
-    }
-
     /// 보관함 안 파일·폴더의 macOS 아이콘(64px PNG data URL).
     #[cfg(target_os = "macos")]
     #[tauri::command(async)]
@@ -1256,11 +1247,11 @@ mod commands {
         crate::neko_screen::set_catch(on, cat.unwrap_or(false))
     }
 
-    /// 화면 창: 아치에서 파일을 끌어내기 시작했다 — 버튼을 놓을 때까지 클릭을 흘린다(아래 Finder 에 놓이게).
+    /// 화면 창: 아치에서 보관함 파일(이름)을 끌어내기 시작했다 — 끌기를 열고, 놓았으면 보관함에서 꺼낸다.
     #[cfg(target_os = "macos")]
-    #[tauri::command]
-    pub fn neko_screen_drag_out() -> Result<(), AppError> {
-        crate::neko_screen::set_drag_out()
+    #[tauri::command(async)]
+    pub fn neko_screen_drag_out(app: tauri::AppHandle, name: String) -> Result<(), AppError> {
+        crate::neko_screen::drag_out(&app, name).inspect_err(|e| log::warn!("마당 아치에서 끌어내기 실패: {e}"))
     }
 
     /// 마당 선물 창: 그린 선물 칸(창 좌표 x, y, w, h). 커서가 이 안일 때만 그 창이 클릭을 받는다.
@@ -1704,7 +1695,7 @@ pub fn run() {
             }
             // 마당 네코 몸·입에 파일을 놓았다(§7). 경로는 웹뷰가 아니라 macOS 놓기 이벤트에서만 받는다 — 웹뷰가 준
             // 경로를 믿으면 아무 파일이나 보관함으로 복사할 수 있다. 받는 자리에서만 클릭을 받으니 거기서만 온다.
-            // 복사는 오래 걸릴 수 있어 따로 돌린다. 2GB 넘는 등 실패면 화면 창이 고개를 돌린다
+            // 복사는 오래 걸릴 수 있어 따로 돌린다. 디스크·2GB 넘음 등 실패면 까닭을 로그에 남기고 화면 창이 토라진다(sulk)
             #[cfg(target_os = "macos")]
             ("neko-screen", tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. })) if !paths.is_empty() => {
                 let (app, paths) = (window.app_handle().clone(), paths.clone());
@@ -1713,7 +1704,7 @@ pub fn run() {
                     match crate::shelf::dir(&app).and_then(|d| crate::shelf::add_paths(&d, &paths)) {
                         Ok(_) => commands::shelf_changed(&app),
                         Err(e) => {
-                            log::warn!("마당 네코 입에 못 넣었어: {e}");
+                            log::warn!("마당 네코 입에 못 넣었어({paths:?}): {e}");
                             let _ = app.emit_to("neko-screen", "neko-screen-drop-refused", e.to_string());
                         }
                     }
@@ -1804,13 +1795,13 @@ pub fn run() {
                 }
             }
 
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // 로그: ~/Library/Logs/<앱 id>/NekoDesk.log(40KB 넘으면 하나만 남기고 갈아 쓴다). 배포 빌드는 경고부터만 —
+            // 사용자가 겪은 실패(마당 네코가 못 문 까닭 등)를 남긴다
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(if cfg!(debug_assertions) { log::LevelFilter::Info } else { log::LevelFilter::Warn })
+                    .build(),
+            )?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1886,8 +1877,6 @@ pub fn run() {
             commands::shelf_add,
             #[cfg(desktop)]
             commands::shelf_remove,
-            #[cfg(desktop)]
-            commands::shelf_take,
             #[cfg(target_os = "macos")]
             commands::file_icon,
             commands::haptic_feedback,
