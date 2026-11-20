@@ -697,7 +697,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       // 접을 땐 위·아래 마디를 비슷하게(한쪽이 길면 끝까지 접히지 못하고 발이 밀려난다)
       const total = (L.def.a + L.def.b) * c.ll.len, share = lerp(L.front ? c.ll.front : c.ll.hind, 0.5, lf);
       let reach = (P && P.reach && P.reach[L.idx]) || 1;
-      if (L.front && sv > 0) { // 다리가 짧아도 앉았을 때 앞발이 바닥에 닿을 만큼은 편다(활동이 들어 올린 발은 원래 길이로)
+      // 바닥에 있을 때만: 떨어지거나 잡힌 순간엔 앉기가 아직 덜 풀렸고 floorY 는 저 아래 땅이라, 그 거리만큼 팔이 늘어났다(사용자: 창 위 활동 중 창을 옮기면 팔이 튀어나가며 늘어남)
+      if (L.front && sv > 0 && GROUND.has(m)) { // 다리가 짧아도 앉았을 때 앞발이 바닥에 닿을 만큼은 편다(활동이 들어 올린 발은 원래 길이로)
         const need = (floorY - PAW.ry * S - hipWorld(L)[1]) / (S * total) * 1.03;
         reach *= lerp(1, Math.max(1.22, need), sv * (1 - fw));
       }
@@ -718,6 +719,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     updateHead(dt); updateFace(dt); updateTail(dt); updateJiggle(dt);
   }
 
+  const RELEASE_S = 0.25; // 활동이 갑자기 끝났을 때 든 발을 내려놓는 시간
   function groundFeet() {
     const c = cat, sweep = BETA * STRIDE * S, l = clamp(c.loaf.x, 0, 1), sv = clamp(c.sit.x, 0, 1), lv = clamp(c.lie.x, 0, 1), P = c.actP;
     c.legs.forEach((L, i) => {
@@ -756,16 +758,23 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         const t = L.front ? [h[0] + c.face * 24 * S, ground] : L2W(L.hip[0] + 12, 23);
         fx = lerp(fx, t[0], lv); fy = Math.min(lerp(fy, t[1], lv), floorY - PAW.ry * S);
       }
-      if (P && P.feet && P.feet[i] && (P.feetW == null || P.feetW > 0)) { // 활동: 이 발은 활동이 정한 자리로(붓 든 앞발, 기지개 등)
+      let t = null, w = 0;
+      if (P && P.feet && P.feet[i] && (P.feetW == null || P.feetW > 0)) { t = P.feet[i](L, h); w = P.feetW == null ? 1 : P.feetW; L.rel = null; } // 활동: 이 발은 활동이 정한 자리로(붓 든 앞발, 기지개 등)
+      else if (L.held) L.rel = { dx: L.held[0] - h[0], dy: L.held[1] - h[1], t0: time }; // 활동이 갑자기 끝났다(창이 움직여 떨어짐·act(null)): 든 발을 한 번에 내리지 않는다
+      if (!t && L.rel) { // 든 자리(어깨 기준)에서 RELEASE_S 동안 같은 호로 내려놓는다 — 안 그러면 한 프레임에 발이 수십 단위 튀었다
+        w = 1 - smooth((time - L.rel.t0) / RELEASE_S);
+        if (w > 0) t = [h[0] + L.rel.dx, h[1] + L.rel.dy]; else L.rel = null;
+      }
+      if (t) {
         // 섞는 동안은 엉덩이(어깨) 둘레로 호를 그리며 옮기고, 중간엔 관절을 접어 몸 가까이로 든다.
         // (곧게 섞으면 발이 어깨 바로 옆을 스쳐 관절이 휙 돌고, 반지름을 그대로 두면 바닥을 쓸며 앞으로 크게 뻗는다)
-        const t = P.feet[i](L, h), w = P.feetW == null ? 1 : P.feetW;
         // 각도는 몸 앞쪽을 0 으로 재서 섞는다: 항상 앞을 지나가는 호(바로 위·아래 사이를 오갈 때 뒤로 도는 일 없이)
         const fa = Math.atan2(c.face * Math.sin(c.rot), c.face * Math.cos(c.rot));
         const a0 = wrapAng(Math.atan2(fy - h[1], fx - h[0]) - fa), a1 = wrapAng(Math.atan2(t[1] - h[1], t[0] - h[0]) - fa);
         const a = fa + lerp(a0, a1, w), r = lerp(Math.hypot(fx - h[0], fy - h[1]), Math.hypot(t[0] - h[0], t[1] - h[1]), w) * (1 - 0.3 * Math.sin(Math.PI * w));
         fx = h[0] + Math.cos(a) * r; fy = Math.min(h[1] + Math.sin(a) * r, Math.max(t[1], floorY - PAW.ry * S));
       }
+      L.held = t && !L.rel ? [fx, fy] : null;
       L.foot.set(fx, fy);
       L.ptMode = "";
     });
@@ -774,6 +783,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function airFeet(dt) {
     const c = cat;
     for (const L of c.legs) {
+      L.held = null; L.rel = null; // 공중·잡힘은 발이 스프링으로 따라온다(내려놓기 필요 없음). 내린 뒤 옛 자리에서 다시 내려놓지 않게
       let t, k = 420, d = 32;
       if (c.mode === "grabbed" && L.front) { // 앞발: 힘 빼고 아래로 대롱대롱
         const h = hipWorld(L);
@@ -4574,9 +4584,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (GROUND.has(c.mode)) c.y = floorY - standH() * S;
     for (const j of c.jig) j.init = false;
     c.tailRoot.init = false;
-    const A = c.act, spec = A && actOf(A.key);
+    restageAct();
+  }
+  /** 하던 활동을 지금 무대에서 다시 편다: restage 훅이 있으면 그것(그림은 두고 이젤만), 없으면 처음부터(소품이 새 자리·새 배율로 '뿅') */
+  function restageAct() {
+    const A = cat.act, spec = A && actOf(A.key);
     if (spec && spec.restage) spec.restage(A);
-    else if (A) { startAct(A.key); leftovers.length = 0; } // 새 무대에서 처음부터(소품이 새 자리·새 배율로 '뿅')
+    else if (A) { startAct(A.key); leftovers.length = 0; }
   }
   /** 고양이가 바닥 선물을 덮지 않는 가장 가까운 자리(없으면 그대로) */
   function clearOfGifts(x) {
@@ -4648,6 +4662,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (GROUND.has(c.mode)) c.y = floorY - standH() * S; // 바닥에 선 채로(dy 가 바닥 차이와 달라도)
     for (const j of c.jig) j.init = false;
     c.tailRoot.init = false; // 순간이동한 뿌리를 빠른 움직임으로 읽지 않게
+    // 제자리 활동은 다시 편다: transformWorld 는 x 를 가진 소품만 옮겨 이젤(cx)·붓 끝(tip)이 옛 모니터 자리에 남고, 바닥 차이가 dy 와
+    // 다르면 소품이 떠 있었다 — 붓 든 앞발이 그쪽으로 늘어났다(사용자: 마당에서 활동 중 팔이 늘어남). 돌아다니는 놀이는 소품이 x 로 따라온다
+    if (c.act && c.mode === "act") restageAct();
     edgeFired = null;
     if (AWAY) { AWAY.x += dx; AWAY.drawn = false; }
     if (!paused) draw(); // 다시 보이는 첫 프레임부터 새 자리에

@@ -926,6 +926,51 @@ try {
     await p.close();
   }
 
+  // 9-t2) 활동이 갑자기 끊길 때 팔(사용자: 창 위 활동 중 창을 옮기면 떨어지며 팔이 튀어나가 늘어남). 다리 길이 = 엉덩이~발 / 제 길이.
+  //       창이 움직여 떨어짐·다른 모니터로 옮김(shiftWorld)·act(null)·앉은 채 잡아 들기
+  {
+    const p = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    p.on("pageerror", (e) => errors.push(String(e)));
+    await p.goto(`${base}/qa/neko/harness.html?world=1&fixed=0.8`);
+    await p.waitForFunction(() => window.__nekoReady === true);
+    await p.click("#wander");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, S = n.S, o = { fall: {}, stop: {} };
+      n.setGround(830); n.step(120);
+      const legLen = () => Math.max(...c.legs.map((L) => Math.hypot(L.footW[0] - L.hipW[0], L.footW[1] - L.hipW[1]) / ((L.def.a + L.def.b) * c.ll.len * S)));
+      const watch = (sec) => { let len = 0, jump = 0, prev = c.legs.map((L) => [...L.footW]);
+        for (let i = 0; i < 120 * sec; i++) { n.step(1); len = Math.max(len, legLen()); c.legs.forEach((L, j) => { jump = Math.max(jump, Math.hypot(L.footW[0] - prev[j][0], L.footW[1] - prev[j][1]) / S); prev[j] = [...L.footW]; }); }
+        return { len: +len.toFixed(2), jump: +jump.toFixed(1) }; };
+      for (const key of ["draw", "typing", "groom"]) {
+        n.act(null); n.setPerches({ tops: [{ id: "7:0", win: 7, x0: 300, x1: 1100, y: 500 }], walls: [] });
+        c.x = 700; c.y = 300; c.vx = 0; c.vy = 0; c.mode = "fall"; c.modeT = 0; n.step(240);
+        n.act(key); n.step(300);
+        const on = n.perch === "7:0" && n.activity === key;
+        n.setPerches({ tops: [{ id: "7:0", win: 7, x0: 320, x1: 1120, y: 520 }], walls: [], partial: 7 }); // 창을 옮겼다
+        o.fall[key] = { on, ...watch(2), act: n.activity };
+        n.setPerches({ tops: [], walls: [] }); n.act(null); n.step(120);
+        n.act(key); n.step(360); n.act(null); o.stop[key] = watch(1);
+      }
+      c.x = 700; n.step(120); n.act("draw"); n.step(300);
+      n.shiftWorld(-600, 60, 760); n.setEdges({ left: false, right: false });
+      o.shift = watch(2);
+      n.act(null); n.shiftWorld(600, -60, 830); n.step(120);
+      return o;
+    });
+    // 앉아서 활동하다 잡혀 들림: 앞발이 저 아래 바닥까지 늘어나지 않는다
+    await p.evaluate(() => { const n = window.__neko, c = n.cat, S = n.S; window.__len = 0; c.x = 700; n.step(120); n.act("typing"); n.step(300);
+      const st = n.step; n.step = (k) => { for (let i = 0; i < k; i++) { st(1); for (const L of c.legs) window.__len = Math.max(window.__len, Math.hypot(L.footW[0] - L.hipW[0], L.footW[1] - L.hipW[1]) / ((L.def.a + L.def.b) * c.ll.len * S)); } }; });
+    const h = await p.evaluate(() => [window.__neko.cat.head.x, window.__neko.cat.head.y]);
+    await p.mouse.move(h[0], h[1]); await p.mouse.down();
+    for (let k = 1; k <= 8; k++) { await p.mouse.move(h[0], h[1] - 30 * k, { steps: 2 }); await p.evaluate(() => window.__neko.step(6)); }
+    await p.evaluate(() => window.__neko.step(60)); await p.mouse.up(); await p.evaluate(() => window.__neko.step(240));
+    r.grab = +(await p.evaluate(() => window.__len)).toFixed(2);
+    const fallOk = Object.values(r.fall).every((f) => f.on && f.act === null && f.len <= 1.15 && f.jump <= 15);
+    check("활동이 갑자기 끊겨도 팔이 늘거나 튀지 않는다: 창 위 활동 중 창이 움직여 떨어짐·모니터 옮김·활동 끝냄·앉은 채 잡혀 들림", JSON.stringify(r),
+      fallOk && Object.values(r.stop).every((s) => s.jump <= 8) && r.shift.len <= 1.15 && r.grab <= 1.15);
+    await p.close();
+  }
+
   // 9-u) 캣타워 2단계(창 탐험): 창 옆면을 타고 올라 윗변에 올라서고, 다른 창 윗변으로 뛰어 건넌다. 순간이동 없이(한 프레임 이동 작게).
   //      오르는 중에 다른 활동이 오면 뛰어내려 착지한 뒤 넘긴다. 갈 곳이 없으면(창 없음) 바로 끝난다
   {
