@@ -4,6 +4,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { REPAINT } from "./useShown";
 import { useNekoStore, type NekoPlacement } from "../neko/nekoStore";
 import { usePhonePanel } from "../neko/panel";
 
@@ -350,6 +351,22 @@ function watchStandby(root: HTMLElement): void {
   apply();
 }
 
+/**
+ * iOS 가 화면 그림(GPU)을 버리면(가로 화면을 오래 띄워 둠 등) 흰 화면만 남고, 돌려서 크기가 바뀌어야 다시 그렸다. 엔진이 알아채면
+ * (REPAINT, neko/nekoHost) 가로 화면이면 앱 칸의 높이를 1px 줄였다가 두 프레임 뒤 되돌려 모든 층(벽·가구·창문·고양이)이 다시
+ * 그리게 한다. 세로는 아래 여백(안전 영역)이 1px 로 튀니 흔들지 않는다 — 정지 그림 층은 useShown 이 다시 그린다
+ */
+function watchRepaint(root: HTMLElement): void {
+  let busy = false;
+  window.addEventListener(REPAINT, () => {
+    const app = root.querySelector<HTMLElement>(".app");
+    if (!app || busy || !root.classList.contains("standby")) return;
+    busy = true;
+    app.style.setProperty("padding-bottom", "1px");
+    requestAnimationFrame(() => requestAnimationFrame(() => { app.style.removeProperty("padding-bottom"); busy = false; }));
+  });
+}
+
 export function startPhone(): void {
   const root = document.documentElement;
   root.classList.add("phone");
@@ -359,4 +376,5 @@ export function startPhone(): void {
   dropHover();
   watchEdgeDrags(root);
   watchStandby(root);
+  watchRepaint(root);
 }

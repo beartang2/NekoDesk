@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useShown } from "./useShown";
+import { REPAINT, useShown } from "./useShown";
 
 const setHidden = (hidden: boolean) => {
   Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
@@ -21,5 +21,8 @@ describe("useShown", () => {
     expect(result.current).toBe(1);
     act(() => { vi.advanceTimersByTime(1500); });
     expect(result.current).toBe(2);
+    // 엔진이 iOS 가 그림을 버린 것을 알아챘다(띄워 둔 채로, 보이기 바뀜 없이)
+    act(() => { window.dispatchEvent(new Event(REPAINT)); });
+    expect(result.current).toBe(3);
   });
 });

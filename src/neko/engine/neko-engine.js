@@ -5791,6 +5791,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (paused) return;
     if (document.hidden) { last = now; return; } // 다시 보이면 visibilitychange 가 건다
     lastDraw = performance.now(); frames++; // rAF 시각(now)은 화면 갱신 시각이라 실제보다 이를 수 있다
+    if (lastDraw - lostAt > LOST_CHECK_MS) { lostAt = lastDraw; if (coatLost()) revive(); } // 띄워 둔 채로 그림을 잃었나(아래 revive)
     acc += Math.min(0.1, (now - last) / 1000); last = now;
     try {
       while (acc >= DT) { step(DT); acc -= DT; }
@@ -5808,13 +5809,20 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const t = cat.coatTex?.body;
     try { return !!t && t.canvas.getContext("2d").getImageData(0, 0, 1, 1).data[3] === 0; } catch { return false; }
   }
-  let reviveT = 0;
-  function revive() {
-    if (coatLost()) generateCoat();
+  let reviveT = 0, lostAt = 0;
+  /** 띄워 둔 채로도(폰 가로 화면) 잃을 수 있어 가끔 본다 — 1px 읽기라 가볍다 */
+  const LOST_CHECK_MS = 20_000;
+  function revive(restored) {
+    const lost = coatLost();
+    if (lost) generateCoat();
     if (AWAY) AWAY.drawn = false;
     resize();
     kick();
+    // 그림을 잃었다(털 무늬가 비었거나 캔버스 문맥이 돌아왔다) = iOS 가 화면 그림(GPU)을 버렸다. 화면의 다른 층(벽·가구·창문)도
+    // 다시 그리게 알린다 — 그대로 두면 흰 화면이 남고 돌려서 크기가 바뀌어야 돌아왔다
+    if (lost || restored === true) emit("repaint");
   }
+  const onRestored = () => revive(true);
   const onVisible = () => {
     if (document.hidden) return;
     last = performance.now();
@@ -5822,7 +5830,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     clearTimeout(reviveT); reviveT = setTimeout(revive, 1500);
   };
   document.addEventListener("visibilitychange", onVisible);
-  canvas.addEventListener("contextrestored", revive);
+  canvas.addEventListener("contextrestored", onRestored);
   canvas.addEventListener("pointerdown", kick, true);
   schedule();
 
@@ -5881,7 +5889,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     destroy() {
       cancelAnimationFrame(raf); clearTimeout(timer); clearTimeout(restageT); clearTimeout(reviveT); raf = 0; timer = 0; paused = true; listeners.clear(); ro.disconnect();
       window.removeEventListener("resize", resize); dprMq?.removeEventListener("change", onDpr); document.removeEventListener("visibilitychange", onVisible);
-      canvas.removeEventListener("contextrestored", revive);
+      canvas.removeEventListener("contextrestored", onRestored);
     },
     // 화면 모드(docs/neko-screen-mode.md §9): E2 크기 고정 · E3 바닥
     setScale(v) { FIXED_S = Number.isFinite(v) ? clamp(v, 0.35, 1.4) : null; resize(); },

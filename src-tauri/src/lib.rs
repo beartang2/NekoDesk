@@ -1721,6 +1721,15 @@ pub fn run() {
     // 자동 업데이트와, 보관함에서 파일을 끌어내 다른 앱에 놓기(macOS 드래그 세션)는 데스크탑만.
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_drag::init());
+    // 폰: iOS 가 웹 프로세스(WebContent)를 메모리 때문에 끝내면 웹뷰가 흰 채로 남는다. 다시 불러온다 — 대화·네코 상태는 DB 에
+    // 있어 이어진다. tauri 의 기본 처리도 다시 불러오지만 창 표를 빌리지 못하면(try_borrow) 조용히 건너뛰어 직접 건다
+    #[cfg(target_os = "ios")]
+    let builder = builder.on_web_content_process_terminate(|webview| {
+        log::warn!("웹 프로세스가 끝났다 — 다시 불러온다");
+        if let Err(e) = webview.reload() {
+            log::error!("다시 불러오지 못함: {e}");
+        }
+    });
     builder
         .on_window_event(|window, event| {
             // 앱이 앞으로 오면 곧 맞춘다(다른 기기에서 쓴 것을 바로 보게)

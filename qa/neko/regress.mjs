@@ -2191,6 +2191,34 @@ try {
     await p.close();
   }
 
+  // 13) 가로 화면(네코만 보기)을 오래 띄워 두기: 812×375 무대·가구 넷으로 6시간을 빨리 돌려도 몸이 무대 안(수가 유한)
+  {
+    const p = await open("?transparent=1&w=812&h=375");
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat;
+      let s = 7; const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+      n.setScale(0.62);
+      n.setFurniture([{ id: "a", kind: "sofa", at: "dock", slot: 0 }, { id: "b", kind: "wheel", at: "dock", slot: 1 }, { id: "c", kind: "cattower", at: "dock", slot: 2 }, { id: "d", kind: "lamp", at: "dock", slot: 3 }]);
+      n.setWander(true);
+      const acts = [...n.activities, null];
+      let worst = 0, perch = 0;
+      for (let t = 0; t < 6 * 3600; t++) {
+        if (rnd() < 1 / 90) n.act(acts[Math.floor(rnd() * acts.length)]);
+        if (rnd() < 1 / 400) n.setPose("lie");
+        if (rnd() < 1 / 300) n.boing(1);
+        n.step(120);
+        if (c.perch) perch++;
+        for (const [x, y] of [...n.debug.bodyWorld(), [c.head.x, c.head.y], ...c.tail.map((q) => [q.x, q.y])]) {
+          worst = Math.max(worst, Number.isFinite(x) && Number.isFinite(y) ? Math.max(Math.abs(x - n.W / 2) / n.W, Math.abs(y - n.H / 2) / n.H) : Infinity);
+        }
+        if (t % 60 === 0) n.draw();
+      }
+      return { worst, perch };
+    });
+    check("가로 6시간(가구 넷): 몸이 무대 안", `가장 멀리 ${r.worst.toFixed(2)}배 · 가구 위 ${r.perch}초`, r.worst < 1 && r.perch > 0);
+    await p.close();
+  }
+
   check("실행 오류", errors.length ? errors.slice(0, 3).join(" | ") : 0, errors.length === 0);
 } finally {
   await browser.close();
