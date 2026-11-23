@@ -765,13 +765,16 @@ export function DrawingPadCard({
   const [canvasHeight, setCanvasHeight] = useState(160);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
+  /** 그리는 손가락·마우스 하나. 두 번째 손가락은 무시한다 */
+  const pointerRef = useRef<number | null>(null);
   const lastPtRef = useRef<{ x: number; y: number } | null>(null);
   const undoStackRef = useRef<ImageData[]>([]);
   const redoStackRef = useRef<ImageData[]>([]);
 
   const isGameActive = !!(gameMode && gameMode.phase !== "idle");
 
-  function onResizeMouseDown(e: React.MouseEvent) {
+  // 마우스·손가락 둘 다(포인터). 폰은 마우스 이벤트가 끌기 중엔 안 온다
+  function onResizePointerDown(e: React.PointerEvent) {
     e.preventDefault();
     e.stopPropagation();
     const startY = e.clientY;
@@ -779,16 +782,18 @@ export function DrawingPadCard({
     // 안 그러면 내려도 한동안 그대로인 구간이 생긴다.
     const wrapper = (e.currentTarget as HTMLElement).nextElementSibling as HTMLElement | null;
     const startH = wrapper?.offsetHeight ?? canvasHeight;
-    function onMouseMove(ev: MouseEvent) {
+    function onMove(ev: PointerEvent) {
       const delta = startY - ev.clientY;
       setCanvasHeight(Math.max(80, Math.min(MAX_CANVAS_H, startH + delta)));
     }
-    function onMouseUp() {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
     }
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }
 
   function getCtx() {
@@ -843,7 +848,7 @@ export function DrawingPadCard({
     gameMode.submitDrawing(dataUrl);
   }, [gameMode?.timedOut]);
 
-  function getPos(e: React.MouseEvent<HTMLCanvasElement>) {
+  function getPos(e: { clientX: number; clientY: number }) {
     const rect = canvasRef.current!.getBoundingClientRect();
     const scaleX = canvasRef.current!.width / rect.width;
     const scaleY = canvasRef.current!.height / rect.height;
@@ -853,10 +858,14 @@ export function DrawingPadCard({
     };
   }
 
-  function onMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
+  // 포인터 이벤트(마우스·손가락·펜). 폰은 손가락으로 끌 때 마우스 이벤트가 오지 않아 그려지지 않았다.
+  // 붙잡아(capture) 캔버스 밖으로 나가도 놓을 때까지 한 획이다. 캔버스는 touch-action: none(스크롤·서랍 손짓이 안 가져가게)
+  function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     const ctx = getCtx();
     const canvas = canvasRef.current;
-    if (!ctx || !canvas) return;
+    if (!ctx || !canvas || pointerRef.current !== null) return;
+    pointerRef.current = e.pointerId;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터 */ }
     // undo 스택에 현재 상태 저장
     undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
     redoStackRef.current = [];
@@ -869,8 +878,8 @@ export function DrawingPadCard({
     ctx.fill();
   }
 
-  function onMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
-    if (!isDrawingRef.current) return;
+  function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!isDrawingRef.current || e.pointerId !== pointerRef.current) return;
     const ctx = getCtx();
     const last = lastPtRef.current;
     if (!ctx || !last) return;
@@ -886,7 +895,9 @@ export function DrawingPadCard({
     lastPtRef.current = pt;
   }
 
-  function onMouseUp() {
+  function onPointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (e.pointerId !== pointerRef.current) return;
+    pointerRef.current = null;
     isDrawingRef.current = false;
     lastPtRef.current = null;
   }
@@ -1050,10 +1061,10 @@ export function DrawingPadCard({
         <canvas
           ref={attachCanvas}
           className={`draw-canvas draw-canvas--game${canvasLocked ? " draw-canvas--locked" : ""}`}
-          onMouseDown={canvasLocked ? undefined : onMouseDown}
-          onMouseMove={canvasLocked ? undefined : onMouseMove}
-          onMouseUp={canvasLocked ? undefined : onMouseUp}
-          onMouseLeave={canvasLocked ? undefined : onMouseUp}
+          onPointerDown={canvasLocked ? undefined : onPointerDown}
+          onPointerMove={canvasLocked ? undefined : onPointerMove}
+          onPointerUp={canvasLocked ? undefined : onPointerUp}
+          onPointerCancel={canvasLocked ? undefined : onPointerUp}
         />
         {!canvasLocked && (
           <div className="draw-game-toolbar">
@@ -1135,15 +1146,15 @@ export function DrawingPadCard({
             renderGameBody()
           ) : (
             <div className="panel-card__body draw-body">
-              <div className="draw-resize-handle" onMouseDown={onResizeMouseDown} onDoubleClick={() => setCanvasHeight(160)} />
+              <div className="draw-resize-handle" onPointerDown={onResizePointerDown} onDoubleClick={() => setCanvasHeight(160)} />
               <div className="draw-canvas-wrapper" style={{ height: `${canvasHeight}px` }}>
                 <canvas
                   ref={attachCanvas}
                   className="draw-canvas"
-                  onMouseDown={onMouseDown}
-                  onMouseMove={onMouseMove}
-                  onMouseUp={onMouseUp}
-                  onMouseLeave={onMouseUp}
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={onPointerUp}
                 />
               </div>
               <div className="draw-colors">

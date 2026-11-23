@@ -886,6 +886,7 @@
 }
 
 .draw-resize-handle {
+  touch-action: none; /* 폰: 끌면 스크롤 대신 높이 조절 */
   height: 5px;
   margin: -4px -8px 2px;
   cursor: ns-resize;
@@ -910,6 +911,7 @@
 .draw-canvas {
   width: 100%;
   height: 100%;
+  touch-action: none; /* 폰: 손가락 끌기가 스크롤·확대로 빠지지 않고 그리기로 온다 */
   cursor: crosshair;
   display: block;
   background: #fff;
