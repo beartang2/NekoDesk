@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Archive, ChevronDown, FileText, Folder, Pencil, StickyNote, X } from "lucide-react";
+import { Archive, ChevronDown, FileText, Folder, Pencil, RotateCcw, StickyNote, Trash2, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { todosApi, scheduleApi, settingsApi, shelfApi, type ShelfItem } from "../api/tauri";
@@ -88,6 +88,8 @@ function CheckRow({
   title,
   className = "",
   onAnimationEnd,
+  onEdit,
+  actions,
 }: {
   label: string;
   checked: boolean;
@@ -97,6 +99,10 @@ function CheckRow({
   title?: string;
   className?: string;
   onAnimationEnd?: React.AnimationEventHandler<HTMLLIElement>;
+  /** 글자를 두 번 누르면 고치기 */
+  onEdit?: () => void;
+  /** 줄에 올려 두면 보이는 버튼(고치기·지우기·되돌리기) */
+  actions?: React.ReactNode;
 }) {
   const ref = useRef<HTMLLIElement>(null);
   const prev = useRef(checked);
@@ -138,11 +144,12 @@ function CheckRow({
           <path d="M5 12.5l4.5 4.5L19 7.5" pathLength={1} />
         </svg>
       </button>
-      <span className="todo-item__text">
+      <span className="todo-item__text" onDoubleClick={onEdit}>
         <span className="todo-item__word">{label}</span>
         <span className="todo-item__rule" aria-hidden="true" />
       </span>
       {meta && <span className="todo-item__due">{meta}</span>}
+      {actions && <span className="todo-item__acts">{actions}</span>}
     </li>
   );
 }
@@ -155,12 +162,65 @@ function TodoList({ children }: { children: React.ReactNode }) {
   return <ul className="todo-list" ref={ref}>{children}</ul>;
 }
 
+/**
+ * 고친 칸에서 바뀐 것만(없으면 null). 빈 내용은 안 바꾼다. 날짜를 그대로 두면 시각까지 있던 마감을 건드리지 않고, 비우면 마감을 지운다
+ */
+export function todoPatch(t: Todo, text: string, due: string): { content?: string; dueAt?: string; clearDue: boolean } | null {
+  const c = text.trim();
+  const content = c && c !== t.content ? c : undefined;
+  const dueAt = due && due !== (t.due_at?.slice(0, 10) ?? "") ? due : undefined;
+  const clearDue = !due && !!t.due_at;
+  return content || dueAt || clearDue ? { content, dueAt, clearDue } : null;
+}
+
+/** 줄 버튼 하나(아이콘). 누름이 줄의 두 번 누르기·체크로 번지지 않게 */
+function RowAct({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" className="todo-item__act" title={label} aria-label={label} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+      {children}
+    </button>
+  );
+}
+
+/**
+ * 할 일 고치기(맥 패널, 폰은 패널이 없다): 내용과 마감 날짜. Enter·밖을 누르면 저장, Esc 는 그대로. 날짜를 비우면 마감을 지운다.
+ * 한 번만 끝낸다 — Esc 로 닫히며 포커스가 빠져도 저장하지 않게
+ */
+function TodoEdit({ todo, onSave, onCancel }: { todo: Todo; onSave: (content: string, due: string) => void; onCancel: () => void }) {
+  const [content, setContent] = useState(todo.content);
+  const [due, setDue] = useState(todo.due_at?.slice(0, 10) ?? "");
+  const ended = useRef(false);
+  const end = (save: boolean) => {
+    if (ended.current) return;
+    ended.current = true;
+    if (save) onSave(content, due);
+    else onCancel();
+  };
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === "Enter") end(true);
+    else if (e.key === "Escape") { e.stopPropagation(); end(false); }
+  };
+  return (
+    <li
+      className="todo-item todo-item--edit"
+      data-in=""
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) end(true); }}
+    >
+      <input className="todo-edit__text" autoFocus value={content} onChange={(e) => setContent(e.target.value)} onKeyDown={onKey} aria-label="할 일 내용" />
+      <input className="todo-edit__due" type="date" value={due} onChange={(e) => setDue(e.target.value)} onKeyDown={onKey} aria-label="마감 날짜" title="마감 날짜(비우면 마감 없음)" />
+    </li>
+  );
+}
+
 function TodoCard() {
   const [todos, setTodos] = useState<Todo[]>([]);
   // 완료한 줄은 바로 빼지 않고 스프링 체크·줄긋기를 보여준 뒤 접혀 나간다.
   const [leaving, setLeaving] = useState<Set<number>>(new Set());
   const [doneTodos, setDoneTodos] = useState<Todo[]>([]);
   const [showDone, setShowDone] = useState(false);
+  /** 고치는 중인 할 일 */
+  const [editing, setEditing] = useState<number | null>(null);
 
   async function load() {
     try {
@@ -209,6 +269,29 @@ function TodoCard() {
     unmarkLeaving(id);
   }
 
+  // 고치기·지우기·되돌리기도 바로 화면에 보이고, 저장이 실패하면 다시 읽는다. 다른 기기에도 간다(동기화)
+  const reloadAll = () => { load(); loadDone(); };
+
+  function save(t: Todo, text: string, due: string) {
+    setEditing(null);
+    const p = todoPatch(t, text, due);
+    if (!p) return;
+    const { content, dueAt, clearDue } = p;
+    setTodos((prev) => prev.map((o) => (o.id === t.id ? { ...o, content: content ?? o.content, due_at: clearDue ? null : dueAt ?? o.due_at } : o)));
+    todosApi.update(t.id, { content, dueAt, clearDue }).then(load).catch(reloadAll);
+  }
+
+  function remove(id: number) {
+    setTodos((prev) => prev.filter((t) => t.id !== id));
+    setDoneTodos((prev) => prev.filter((t) => t.id !== id));
+    todosApi.delete([id]).catch(reloadAll);
+  }
+
+  function reopen(id: number) {
+    setDoneTodos((prev) => prev.filter((t) => t.id !== id));
+    todosApi.reopen(id).then(load).catch(reloadAll);
+  }
+
   return (
     <div className="panel-card">
       <div className="panel-card__header">
@@ -234,6 +317,10 @@ function TodoCard() {
                   checked
                   meta={t.completed_at ? dbDate(t.completed_at).slice(5) : undefined}
                   title={t.completed_at ? `완료: ${dbDate(t.completed_at)}` : t.content}
+                  actions={<>
+                    <RowAct label="완료 되돌리기" onClick={() => reopen(t.id)}><RotateCcw size={11} /></RowAct>
+                    <RowAct label="지우기" onClick={() => remove(t.id)}><Trash2 size={11} /></RowAct>
+                  </>}
                 />
               ))}
             </TodoList>
@@ -242,7 +329,9 @@ function TodoCard() {
           <span className="panel-empty">할 일 없음</span>
         ) : (
           <TodoList>
-            {todos.map((t) => (
+            {todos.map((t) => editing === t.id ? (
+              <TodoEdit key={t.id} todo={t} onSave={(text, due) => save(t, text, due)} onCancel={() => setEditing(null)} />
+            ) : (
               <CheckRow
                 key={t.id}
                 label={t.content}
@@ -252,6 +341,11 @@ function TodoCard() {
                 title={t.due_at ? `${t.content}\n기한: ${t.due_at.slice(0, 10)}` : t.content}
                 className={leaving.has(t.id) ? "todo-item--leaving" : ""}
                 onAnimationEnd={(e) => { if (e.animationName === "todo-leave") removeLeft(t.id); }}
+                onEdit={leaving.has(t.id) ? undefined : () => setEditing(t.id)}
+                actions={leaving.has(t.id) ? undefined : <>
+                  <RowAct label="고치기" onClick={() => setEditing(t.id)}><Pencil size={11} /></RowAct>
+                  <RowAct label="지우기" onClick={() => remove(t.id)}><Trash2 size={11} /></RowAct>
+                </>}
               />
             ))}
           </TodoList>
