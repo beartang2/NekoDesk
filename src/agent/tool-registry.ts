@@ -941,7 +941,8 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       required: ["query"],
     },
     readOnly: true,
-    execute: async (p) => memoryApi.search(p["query"] as string),
+    // 잊은 기억도 찾는다 — 찾아 쓰면 되살아난다(사람처럼 떠오른다, 0.1.29). 자동 떠올리기(recallMemories)는 안 찾는다
+    execute: async (p) => memoryApi.search(p["query"] as string, undefined, true),
     summarize: (r) => {
       const found = r as Memory[];
       if (found.length === 0) return "기억에 없음";

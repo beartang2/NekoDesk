@@ -110,10 +110,18 @@ export const mcpApi = {
 export const memoryApi = {
   save: (content: string, kind?: string) =>
     invoke<Memory>("memory_save", { content, kind }),
-  /** 자유 문장으로 검색. 떠올린 기억은 사용 횟수가 올라간다. */
-  search: (query: string, limit?: number) =>
-    invoke<Memory[]>("memory_search", { query, limit }),
+  /**
+   * 자유 문장으로 검색. 떠올린 기억은 사용 횟수가 올라가고 마지막으로 쓴 때가 지금이 된다(잊는 순서가 뒤로 밀린다).
+   * forgotten: 잊은 기억도 찾는다 — 기억 검색 도구만(찾아 쓰면 되살아난다). 자동 떠올리기엔 안 나온다
+   */
+  search: (query: string, limit?: number, forgotten?: boolean) =>
+    invoke<Memory[]>("memory_search", { query, limit, forgotten }),
+  /** 보이는(안 잊은) 기억 전부 */
   list: () => invoke<Memory[]>("memory_list"),
+  /** 생각하기·산책 등의 재료로 꺼내 쓴 기억에 표시한다(마지막으로 쓴 때) */
+  touch: (ids: number[]) => invoke<void>("memory_touch", { ids }),
+  /** 쉴 때 잊기: 잊은 지 30일 지난 것을 지우고, 보이는 기억이 cap 을 넘으면 오래 안 쓴 것부터 하루 5개까지 잊는다 */
+  forget: (cap: number) => invoke<{ forgot: number; purged: number; visible: number }>("memory_forget", { cap }),
   delete: (id: number) => invoke<boolean>("memory_delete", { id }),
 };
 

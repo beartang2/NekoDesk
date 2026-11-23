@@ -109,15 +109,18 @@ struct Table {
     key: &'static str,
     natural: bool,
     cols: &'static [&'static str],
+    /// 받을 때 큰 쪽을 남기는 칸(기억의 쓴 때·잊은 때, 0.1.29). 기록에 없으면(옛 기기) 지금 값을 지킨다
+    maxed: &'static [&'static str],
 }
 
 const TABLES: &[Table] = &[
-    Table { coll: "session", table: "sessions", key: "id", natural: true, cols: &["title", "created_at", "summary"] },
-    Table { coll: "setting", table: "settings", key: "key", natural: true, cols: &["value"] },
-    Table { coll: "msg", table: "conversation_messages", key: "id", natural: false, cols: &["session_id", "role", "content", "created_at", "attachments", "meta"] },
-    Table { coll: "memory", table: "memories", key: "id", natural: false, cols: &["kind", "content", "created_at"] },
-    Table { coll: "todo", table: "todos", key: "id", natural: false, cols: &["content", "status", "priority", "due_at", "created_at", "completed_at"] },
-    Table { coll: "event", table: "events", key: "id", natural: false, cols: &["title", "start_at", "end_at", "notes", "all_day", "created_at"] },
+    Table { coll: "session", table: "sessions", key: "id", natural: true, cols: &["title", "created_at", "summary"], maxed: &[] },
+    Table { coll: "setting", table: "settings", key: "key", natural: true, cols: &["value"], maxed: &[] },
+    Table { coll: "msg", table: "conversation_messages", key: "id", natural: false, cols: &["session_id", "role", "content", "created_at", "attachments", "meta"], maxed: &[] },
+    // 기억: 쓴 때·잊은 때(ms)는 큰 쪽을 남긴다 — 잊음 = 잊은 때가 쓴 때보다 나중(db::memories), 어느 순서로 받아도 같은 값
+    Table { coll: "memory", table: "memories", key: "id", natural: false, cols: &["kind", "content", "created_at", "used_ms", "forgot_ms"], maxed: &["used_ms", "forgot_ms"] },
+    Table { coll: "todo", table: "todos", key: "id", natural: false, cols: &["content", "status", "priority", "due_at", "created_at", "completed_at"], maxed: &[] },
+    Table { coll: "event", table: "events", key: "id", natural: false, cols: &["title", "start_at", "end_at", "notes", "all_day", "created_at"], maxed: &[] },
 ];
 
 fn table(coll: &str) -> Option<&'static Table> {
@@ -133,7 +136,9 @@ fn read_row(conn: &Connection, t: &Table, local_key: &str) -> AppResult<Option<S
 
 /// 기록 내용을 행에 적고 로컬 키를 돌려준다. 트리거가 dirty 를 찍지만 바로 뒤 adopt 가 덮는다.
 fn write_row(conn: &Connection, t: &Table, local_key: Option<&str>, uid: &str, plain: &str) -> AppResult<String> {
-    let ext = |c: &&str| format!("json_extract(?1, '$.{c}')");
+    let ext = |c: &&str| {
+        if t.maxed.contains(c) { format!("COALESCE(json_extract(?1, '$.{c}'), 0)") } else { format!("json_extract(?1, '$.{c}')") }
+    };
     let cols = t.cols.join(", ");
     let vals = t.cols.iter().map(ext).collect::<Vec<_>>().join(", ");
     if t.natural {
@@ -145,7 +150,9 @@ fn write_row(conn: &Connection, t: &Table, local_key: Option<&str>, uid: &str, p
         return Ok(uid.to_owned());
     }
     if let Some(k) = local_key {
-        let set = t.cols.iter().map(|c| format!("{c} = {}", ext(c))).collect::<Vec<_>>().join(", ");
+        let set = t.cols.iter()
+            .map(|c| if t.maxed.contains(c) { format!("{c} = MAX({c}, {})", ext(c)) } else { format!("{c} = {}", ext(c)) })
+            .collect::<Vec<_>>().join(", ");
         if conn.execute(&format!("UPDATE {} SET {set} WHERE {} = ?2", t.table, t.key), params![plain, k])? > 0 {
             return Ok(k.to_owned());
         }

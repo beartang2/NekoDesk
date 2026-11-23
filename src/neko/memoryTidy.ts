@@ -1,5 +1,6 @@
-import { settingsApi } from "../api/tauri";
+import { memoryApi, settingsApi } from "../api/tauri";
 import { tidyMemories } from "../agent/memory-tidy";
+import { appEvents } from "../lib/events";
 import { walkEnd, type Walk } from "../lib/walk";
 import { budgetBlockReason } from "../stores/claudeBudget";
 import { isClaudeActive, useSettingsStore } from "../stores/settingsStore";
@@ -37,6 +38,11 @@ export async function tidyBlock(): Promise<string | null> {
 
 let running = false;
 async function run(): Promise<void> {
+  // 기억 잊기(0.1.29): 졸 때마다 — 모델을 안 부르니 프로필·예산과 상관없다. 잊은 지 30일 지난 것을 지우고, 보이는 기억이 상한을
+  // 넘으면 오래 안 쓴 것부터 하루 5개까지 잊는다(db::memories::forget). 기억 화면은 sync-changed 처럼 다시 읽는다
+  void memoryApi.forget(useSettingsStore.getState().memoryCap).then((o) => {
+    if (o.forgot || o.purged) appEvents.emit("syncChanged", { colls: ["memory"] });
+  }).catch(() => {});
   if (running || (await tidyBlock().catch(() => "확인 실패"))) return;
   running = true;
   // 실패해도 오늘은 다시 안 한다(같은 실패로 매번 비용을 쓰지 않게)

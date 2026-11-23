@@ -260,6 +260,18 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         sync_named_triggers!("setting", "settings", "key", concat!("NEW.key IN ", synced_keys!()), "OLD.value IS NOT NEW.value"),
         sync_tombstone!("setting", "settings", "OLD.key", concat!("OLD.key IN ", synced_keys!())),
     ),
+    // 13 — 기억 잊기(0.1.29, 사용자: 오래됐다고 지우지 말고, 몇백 개 넘으면 오래 안 쓴 것부터 조금씩 잊게 — db::memories::forget).
+    // used_ms = 마지막으로 꺼내 쓴 때(ms, 0 이면 만든 때), forgot_ms = 잊은 때(ms, 0 이면 안 잊음). 잊음 = forgot_ms 가 쓴 때보다 나중.
+    // 둘 다 동기화 기록에 싣고 받을 때 큰 쪽을 남긴다(sync::write_row) — 어느 순서로 받아도 같은 값이 되고, 잊은 뒤 쓰면 되살아난다.
+    // 기억 갱신 트리거를 두 칸이 바뀔 때도 찍게 다시 만든다(use_count·last_used_at 만 바뀌면 지금처럼 안 찍는다)
+    concat!(
+        "ALTER TABLE memories ADD COLUMN used_ms INTEGER NOT NULL DEFAULT 0;
+         ALTER TABLE memories ADD COLUMN forgot_ms INTEGER NOT NULL DEFAULT 0;
+         DROP TRIGGER IF EXISTS sync_memory_upd;
+         CREATE TRIGGER sync_memory_upd AFTER UPDATE OF kind, content, used_ms, forgot_ms ON memories
+         WHEN (OLD.kind IS NOT NEW.kind OR OLD.content IS NOT NEW.content OR OLD.used_ms IS NOT NEW.used_ms OR OLD.forgot_ms IS NOT NEW.forgot_ms) BEGIN
+             UPDATE sync_meta SET ts = MAX(", now_ms!(), ", ts + 1), dirty = 1 WHERE coll = 'memory' AND local_key = CAST(NEW.id AS TEXT); END;",
+    ),
 ];
 
 /// 스키마를 최신으로 올린다. 앱 시작 시 1회 호출.

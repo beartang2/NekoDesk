@@ -1196,12 +1196,13 @@ mod commands {
     }
 
     /// 자유 문장으로 검색한다. 검색어 분해는 백엔드가 한다 — 조사 처리 규칙을
-    /// 프런트엔드와 나눠 가지면 둘이 어긋난다.
+    /// 프런트엔드와 나눠 가지면 둘이 어긋난다. forgotten: 잊은 기억도 찾는다(기억 검색 도구 — 찾아 쓰면 되살아난다)
     #[tauri::command(async)]
     pub fn memory_search(
         db: State<'_, DbState>,
         query: String,
         limit: Option<usize>,
+        forgotten: Option<bool>,
     ) -> Result<Vec<crate::db::memories::Memory>, AppError> {
         let terms = crate::db::terms::extract(&query);
         let conn = db.0.lock()?;
@@ -1209,11 +1210,26 @@ mod commands {
             &conn,
             &terms,
             limit.unwrap_or(crate::db::memories::RECALL_LIMIT),
+            forgotten.unwrap_or(false),
         )?;
         // 떠올린 것에 표시해 다음 검색에서 우선순위를 올린다.
         let ids: Vec<i64> = found.iter().map(|m| m.id).collect();
         crate::db::memories::mark_used(&conn, &ids)?;
         Ok(found)
+    }
+
+    /// 생각하기·산책 등의 재료로 꺼내 쓴 기억에 표시한다(마지막으로 쓴 때 — 잊는 순서가 뒤로 밀린다)
+    #[tauri::command(async)]
+    pub fn memory_touch(db: State<'_, DbState>, ids: Vec<i64>) -> Result<(), AppError> {
+        let conn = db.0.lock()?;
+        crate::db::memories::mark_used(&conn, &ids)
+    }
+
+    /// 쉴 때 잊기: 잊은 지 30일 지난 것을 지우고, 보이는 기억이 cap 을 넘으면 오래 안 쓴 것부터 하루 5개까지 잊는다
+    #[tauri::command(async)]
+    pub fn memory_forget(db: State<'_, DbState>, cap: usize) -> Result<crate::db::memories::ForgetOut, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::memories::forget(&conn, cap.max(1), 5)
     }
 
     #[tauri::command(async)]
@@ -1975,6 +1991,8 @@ pub fn run() {
             commands::skills_load,
             commands::memory_save,
             commands::memory_search,
+            commands::memory_touch,
+            commands::memory_forget,
             commands::memory_list,
             commands::memory_delete,
             #[cfg(desktop)]

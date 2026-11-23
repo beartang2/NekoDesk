@@ -71,7 +71,8 @@ fn existing_data_is_marked_for_upload_by_the_migration() {
     c.execute_batch("PRAGMA user_version = 0").unwrap();
     crate::db::run_migrations(&c, &crate::db::MIGRATIONS[..3]).unwrap();
     conversations::save(&c, "s1", "user", "안녕", None, None).unwrap();
-    memories::save(&c, "fact", "고양이를 키운다").unwrap();
+    // 그때의 표 모양으로 넣는다(지금 memories::save 는 13번의 칸을 쓴다)
+    c.execute("INSERT INTO memories (kind, content) VALUES ('fact', '고양이를 키운다')", []).unwrap();
     settings::set(&c, "neko_appearance", "{}").unwrap();
     settings::set(&c, "neko_stage", "{}").unwrap(); // 기기 전용
     crate::db::init_schema(&c).unwrap();
@@ -891,4 +892,66 @@ fn live_reconcile() {
         let (out, _) = reconcile::reconcile(&b, &sb).await.unwrap();
         assert_eq!(out.pushed, 0, "{out:?}");
     });
+}
+
+#[test]
+fn forgetting_and_using_memories_reach_the_other_device_in_any_order() {
+    // 기억 잊기(0.1.29): 쓴 때·잊은 때는 받을 때 큰 쪽을 남긴다 — 잊음 = 잊은 때가 쓴 때보다 나중
+    let (a, b) = (db(), db());
+    memories::save(&a, "fact", "사용자는 참치를 좋아한다").unwrap();
+    memories::save(&a, "fact", "사용자는 산책을 좋아한다").unwrap();
+    a.execute("UPDATE memories SET created_at = '2026-01-01 00:00:00' WHERE content LIKE '%참치%'", []).unwrap();
+    apply_all(&b, "B", &push_all(&a, "A"));
+    assert_eq!(memories::list(&b).unwrap().len(), 2);
+    // A 가 잊는다(상한 1) → B 에서도 숨는다
+    assert_eq!(memories::forget(&a, 1, 5).unwrap().forgot, 1);
+    apply_all(&b, "B", &push_all(&a, "A"));
+    assert_eq!(memories::list(&b).unwrap().iter().map(|m| m.content.as_str()).collect::<Vec<_>>(), ["사용자는 산책을 좋아한다"]);
+    // B 가 기억 검색 도구로 찾아 쓴다 → 되살아나 A 에서도 보인다
+    let found = memories::search(&b, &["참치".to_string()], 5, true).unwrap();
+    memories::mark_used(&b, &[found[0].id]).unwrap();
+    assert_eq!(memories::list(&b).unwrap().len(), 2);
+    apply_all(&a, "A", &push_all(&b, "B"));
+    assert_eq!(memories::list(&a).unwrap().len(), 2);
+}
+
+#[test]
+fn an_old_version_memory_record_keeps_the_recency_fields() {
+    // 옛 기기(0.1.28 까지)는 쓴 때·잊은 때를 모른다: 내용을 고쳐 올린 기록엔 그 칸이 없다. 받는 쪽은 지금 값을 지킨다
+    let (a, b) = (db(), db());
+    memories::save(&a, "fact", "사용자는 참치를 좋아한다").unwrap();
+    a.execute("UPDATE memories SET created_at = '2026-01-01 00:00:00'", []).unwrap();
+    memories::save(&a, "fact", "사용자는 산책을 좋아한다").unwrap();
+    memories::forget(&a, 1, 5).unwrap();
+    let recs = push_all(&a, "A");
+    apply_all(&b, "B", &recs);
+    let old = recs.iter().find(|r| {
+        let p = String::from_utf8(unseal(&KEY, r).unwrap()).unwrap();
+        p.contains("참치")
+    }).unwrap();
+    let plain = r#"{"kind":"preference","content":"사용자는 참치를 좋아한다","created_at":"2026-01-01 00:00:00"}"#;
+    let mut newer = Record { ts: old.ts + 10, device: "OLD".into(), ..old.clone() };
+    newer.blob = Some(seal(&KEY, &newer, plain.as_bytes()).unwrap());
+    apply_all(&b, "B", &[newer]);
+    let (kind, forgot): (String, i64) = b.query_row("SELECT kind, forgot_ms FROM memories WHERE content LIKE '%참치%'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert_eq!(kind, "preference", "내용·종류는 받는다");
+    assert!(forgot > 0, "잊은 때는 지킨다");
+    assert_eq!(memories::list(&b).unwrap().len(), 1);
+}
+
+#[test]
+fn migration_13_adds_the_recency_fields_without_reuploading_every_memory() {
+    // 0.1.28 설치(12번까지): 기억이 이미 올라가 있다. 13번은 칸만 더한다 — 기억을 다 다시 올리지 않는다
+    let c = Connection::open_in_memory().unwrap();
+    crate::db::run_migrations(&c, &crate::db::MIGRATIONS[..12]).unwrap();
+    c.execute("INSERT INTO memories (kind, content, created_at) VALUES ('fact', '고양이를 키운다', '2026-01-01 00:00:00')", []).unwrap();
+    c.execute("UPDATE sync_meta SET dirty = 0", []).unwrap(); // 이미 올렸다
+    crate::db::init_schema(&c).unwrap();
+    assert_eq!(dirty(&c), 0);
+    // 그 뒤 꺼내 쓰면(쓴 때가 바뀌면) 그 기억만 올라간다
+    let id: i64 = c.query_row("SELECT id FROM memories", [], |r| r.get(0)).unwrap();
+    memories::mark_used(&c, &[id]).unwrap();
+    let up = push_all(&c, "A");
+    assert_eq!(up.len(), 1);
+    assert!(String::from_utf8(unseal(&KEY, &up[0]).unwrap()).unwrap().contains("\"used_ms\""));
 }

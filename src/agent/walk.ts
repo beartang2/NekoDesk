@@ -11,7 +11,7 @@ import { validateShape, type GiftShape } from "../neko/engine/gift-shape";
 import { useNekoGifts } from "../neko/gifts";
 import { drawGift, type DrawnGift } from "./gift-draw";
 import { drawFurniture, type DrawnFurniture } from "./furniture-draw";
-import { chooseAmong, chooseWalkTopic, noteWonder } from "./neko-mind";
+import { chooseAmong, chooseWalkTopic, noteWonder, touchMemories } from "./neko-mind";
 import { FURNITURE_KEY, parseFurniture, useNekoFurniture } from "../neko/furniture";
 
 /** 산책에서 가져올 수 있는 선물 종류. */
@@ -346,7 +346,9 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
     } else if (g.kind === "weather" && ctx.here) {
       g.material = String(await getTool("weather.get").execute({ location: `(${ctx.here.lat},${ctx.here.lon})` }));
     } else if (g.kind === "memory") {
-      g.material = `사용자에 대해 기억해 둔 것: ${pick(userMems).content}`;
+      const m = pick(userMems);
+      touchMemories([m]); // 선물 재료로 꺼내 썼다(기억 잊기)
+      g.material = `사용자에 대해 기억해 둔 것: ${m.content}`;
     }
   } catch {
     g.kind = "trinket";

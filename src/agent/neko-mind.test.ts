@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Memory } from "./types";
 
 /** 네코의 마음 1단계(docs/neko-mind.md): 노트 저장, 사용자 사실이 새는지, 생각하기 실패 처리, 산책 주제 */
-const h = vi.hoisted(() => ({ kv: new Map<string, string>(), reply: null as unknown, fail: false, slow: false, mems: [] as unknown[], judge: "", judged: 0, sent: "" }));
+const h = vi.hoisted(() => ({ kv: new Map<string, string>(), reply: null as unknown, fail: false, slow: false, mems: [] as unknown[], judge: "", judged: 0, sent: "", touched: [] as number[][] }));
 vi.hoisted(() => {
   const kv = new Map<string, string>();
   globalThis.localStorage = { getItem: (k: string) => kv.get(k) ?? null, setItem: (k: string, v: string) => void kv.set(k, v), removeItem: (k: string) => void kv.delete(k) } as Storage;
 });
 vi.mock("../api/tauri", () => ({
-  memoryApi: { list: async () => h.mems },
+  memoryApi: { list: async () => h.mems, touch: async (ids: number[]) => void h.touched.push(ids) },
   settingsApi: { get: async (k: string) => h.kv.get(k) ?? null, set: async (k: string, v: string) => void h.kv.set(k, v) },
 }));
 vi.mock("./llm-client", () => ({
@@ -70,6 +70,17 @@ describe("사용자 사실이 새는지", () => {
     expect(noFacts).not.toContain("망원동");
     expect(noFacts).toContain("비 오는 날을 좋아한다");
     expect(mindMaterial({ v: 1, notes: [], topics: [] }, MEMS, { facts: true }).join("\n")).toContain("김하린");
+  });
+
+  it("재료로 들어간 기억만 꺼내 쓴 것으로 찍는다(기억 잊기, 0.1.29) — 사실을 안 보이는 생각하기면 사실 기억은 안 찍는다", async () => {
+    h.touched = [];
+    mindMaterial({ v: 1, notes: [], topics: [] }, MEMS, { facts: false });
+    await new Promise((ok) => setTimeout(ok, 0));
+    expect(h.touched).toEqual([[4, 3]]);
+    h.touched = [];
+    mindMaterial({ v: 1, notes: [], topics: [] }, MEMS, { facts: true });
+    await new Promise((ok) => setTimeout(ok, 0));
+    expect(h.touched[0].sort()).toEqual([1, 2, 3, 4]);
   });
 });
 

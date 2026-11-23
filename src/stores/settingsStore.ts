@@ -63,6 +63,7 @@ const K = {
   autoCompact: "nekodesk_auto_compact",
   sessionRetention: "nekodesk_session_retention",
   memoryTidy: "nekodesk_memory_tidy",
+  memoryCap: "nekodesk_memory_cap",
   nekoWallpaper: "nekodesk_neko_wallpaper",
 } as const;
 
@@ -158,6 +159,8 @@ interface SettingsStore {
   sessionRetention: SessionRetention;
   /** 네코가 졸 때 하루 한 번 겹치는 기억을 합친다(neko/memoryTidy.ts). Claude 프로필일 때만 돈다 */
   memoryTidy: boolean;
+  /** 보이는 기억 상한(기억 잊기, 0.1.29). 넘으면 쉴 때 오래 안 쓴 것부터 하루 5개씩 잊는다(neko/memoryTidy.ts → db::memories::forget) */
+  memoryCap: number;
   nekoWallpaper: NekoWallpaper;
   /** auto 모드에서 서버가 `tools` 를 거부해 json 으로 내려앉았다. 영속화하지 않는다. */
   nativeToolsDegraded: boolean;
@@ -174,11 +177,19 @@ interface SettingsStore {
   setAutoCompact: (on: boolean) => void;
   setSessionRetention: (days: SessionRetention) => void;
   setMemoryTidy: (on: boolean) => void;
+  setMemoryCap: (n: number) => void;
   setNekoWallpaper: (v: NekoWallpaper) => void;
   setNativeToolsDegraded: (v: boolean) => void;
 }
 
 const initialUrl = localStorage.getItem(K.llmUrl) ?? DEFAULT_LLM_URL;
+
+/** 기억 상한 기본값과 범위(사용자가 바꾼다 — 설정의 기억 칸) */
+export const MEMORY_CAP = { default: 300, min: 50, max: 2000 } as const;
+export function memoryCapOf(raw: string | null): number {
+  const n = Math.round(Number(raw));
+  return raw !== null && Number.isFinite(n) && n > 0 ? Math.min(MEMORY_CAP.max, Math.max(MEMORY_CAP.min, n)) : MEMORY_CAP.default;
+}
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   llmUrl: initialUrl,
@@ -194,6 +205,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   autoCompact: localStorage.getItem(K.autoCompact) !== "off",
   sessionRetention: loadSessionRetention(),
   memoryTidy: localStorage.getItem(K.memoryTidy) !== "off",
+  memoryCap: memoryCapOf(localStorage.getItem(K.memoryCap)),
   nativeToolsDegraded: false,
 
   setLlmUrl: (url) => {
@@ -258,6 +270,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setMemoryTidy: (on) => {
     localStorage.setItem(K.memoryTidy, on ? "on" : "off");
     set({ memoryTidy: on });
+  },
+  setMemoryCap: (n) => {
+    const v = memoryCapOf(String(n));
+    localStorage.setItem(K.memoryCap, String(v));
+    set({ memoryCap: v });
   },
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));

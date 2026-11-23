@@ -26,7 +26,7 @@ import { getStoredAccent, saveAccentHex, setAccentVars } from "../theme-colors";
 import { useThemePref } from "../lib/theme";
 import { NekoSettingsSection } from "../neko/NekoSettingsSection";
 import { NekoDevSection } from "../neko/NekoDevSection";
-import { DEFAULT_NEKO_NAME, nekoNameOf, useSettingsStore, type ImageProvider, type ToolMode } from "../stores/settingsStore";
+import { DEFAULT_NEKO_NAME, MEMORY_CAP, nekoNameOf, useSettingsStore, type ImageProvider, type ToolMode } from "../stores/settingsStore";
 import { josa } from "../lib/hangul";
 import { getAllTools, getTool } from "../agent/tool-registry";
 import {
@@ -1128,6 +1128,9 @@ export function MemoriesSection() {
   // 쉴 때 정리(agent/memory-tidy): 켜고 끄기와 최근에 무엇을 합쳤는지
   const tidy = useSettingsStore((s) => s.memoryTidy);
   const setTidy = useSettingsStore((s) => s.setMemoryTidy);
+  // 기억 상한(기억 잊기, 0.1.29): 넘으면 졸 때 오래 안 쓴 것부터 하루 5개씩 잊는다. 다 적고 나서(blur) 정한다 — 적는 중에 범위로 바꾸지 않게
+  const cap = useSettingsStore((s) => s.memoryCap);
+  const setCap = useSettingsStore((s) => s.setMemoryCap);
   const name = useSettingsStore(nekoNameOf);
   const [tidyLog, setTidyLog] = useState<TidyRecord[]>([]);
   useEffect(() => { void loadTidyLog().then(setTidyLog); }, []);
@@ -1167,6 +1170,20 @@ export function MemoriesSection() {
         </div>
       )}
       <Pager {...memPage} />
+      <div className="gen-params-grid">
+        <label className="gen-param">
+          <span className="gen-param__label">기억 상한</span>
+          <input
+            key={cap} className="gen-param__input" type="number" step="50" min={MEMORY_CAP.min} max={MEMORY_CAP.max} defaultValue={cap}
+            onBlur={(e) => setCap(Number(e.target.value))}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+          />
+        </label>
+      </div>
+      <p className="settings-section__desc">
+        기억이 이 수를 넘으면 {josa(name, "이/가")} 졸 때 오래 꺼내 쓰지 않은 기억부터 하루 5개씩 잊습니다. 잊은 기억은 목록에서
+        숨겨지고 30일 뒤에 지워집니다. 그 사이 대화에서 다시 찾아 쓰면 되살아납니다.
+      </p>
       <SwitchRow label="쉴 때 정리하기" checked={tidy} onChange={setTidy} />
       <p className="settings-section__desc">
         {josa(name, "이/가")} 졸 때 하루 한 번 겹치는 기억을 합치고, 일정·할 일처럼 바로 찾아볼 수 있는 기억은 지웁니다.

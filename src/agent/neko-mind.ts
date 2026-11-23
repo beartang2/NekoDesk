@@ -157,6 +157,12 @@ function section(title: string, body: string): string {
  * 생각하기 재료 덩이들(§6). 사용자 기억은 취향 위주로 12개까지. facts=false 면 사용자 사실(fact·project·reference)을 빼고 취향만 —
  * 노트를 쓰는 생각하기(노트가 웹으로 가는 산책 주제의 재료가 된다)는 늘 false 다
  */
+/** 재료로 꺼내 쓴 기억에 표시한다(기억 잊기 — db::memories). 실패해도 재료는 그대로 */
+export function touchMemories(ms: Memory[]): void {
+  const ids = ms.map((m) => m.id).filter((id) => Number.isInteger(id));
+  if (ids.length) void Promise.resolve().then(() => memoryApi.touch(ids)).catch(() => {});
+}
+
 export function mindMaterial(mind: NekoMind, memories: Memory[], o: { facts?: boolean; now?: Date; places?: string[]; interests?: string[] } = {}): string[] {
   const now = o.now ?? new Date();
   const n = useNekoNeeds.getState().needs;
@@ -175,10 +181,12 @@ export function mindMaterial(mind: NekoMind, memories: Memory[], o: { facts?: bo
     ...mind.topics.map((t) => `- ${t.topic}${t.field ? ` [${t.field}]` : ""} — ${t.at.length}번: ${t.at.map((d) => md(d)).join(", ")}`),
     fieldsLine(mind.topics),
   ].filter(Boolean).join("\n");
-  const walked = memories.filter((m) => m.kind === "neko").slice(0, 12)
-    .map((m) => `- (${md(m.created_at)}, 떠올림 ${m.use_count ?? 0}번) ${m.content}`).join("\n");
-  const user = [...memories.filter((m) => m.kind === "preference"), ...(o.facts ? memories.filter((m) => USER_FACT.has(m.kind)) : [])]
-    .slice(0, 12).map((m) => `- (${md(m.created_at)}) ${m.content}`).join("\n");
+  const walkedMems = memories.filter((m) => m.kind === "neko").slice(0, 12);
+  const userMems = [...memories.filter((m) => m.kind === "preference"), ...(o.facts ? memories.filter((m) => USER_FACT.has(m.kind)) : [])].slice(0, 12);
+  // 재료로 들어간 기억은 꺼내 쓴 것 — 마지막으로 쓴 때를 찍는다(잊는 순서가 뒤로 밀린다, 0.1.29). 6시간에 한 번만 찍혀 비용이 없다
+  touchMemories([...walkedMems, ...userMems]);
+  const walked = walkedMems.map((m) => `- (${md(m.created_at)}, 떠올림 ${m.use_count ?? 0}번) ${m.content}`).join("\n");
+  const user = userMems.map((m) => `- (${md(m.created_at)}) ${m.content}`).join("\n");
   return [
     section("지금", nowText),
     section("내 노트", notes),

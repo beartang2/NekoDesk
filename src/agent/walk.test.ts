@@ -23,6 +23,7 @@ vi.mock("./neko-mind", () => ({
   chooseWalkTopic: (...a: unknown[]) => topic(...(a as [])),
   noteWonder: (...a: unknown[]) => wonder(...(a as [])),
   chooseAmong: (...a: unknown[]) => among(...(a as [])),
+  touchMemories: () => {},
 }));
 vi.mock("./tool-registry", () => ({ getTool: () => ({ execute: vi.fn(async () => "맑음") }) }));
 // 가구 그리기(모양 + 쓰임새)는 furniture-draw·furnitureUses 가 따로 시험한다
