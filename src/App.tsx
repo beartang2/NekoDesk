@@ -6,7 +6,7 @@ import { bindPanels, dismissKeyboard, drawer, type Panels } from "./lib/phone";
 import { IS_PHONE } from "./lib/platform";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { MD_PLUGINS } from "./lib/markdown";
 import { Sun, Moon, Monitor, Settings, Paperclip, ArrowUp, Zap, Copy, Check, X, Gift, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { historyStep, type HistoryPos } from "./lib/input-history";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -433,7 +433,6 @@ function Sidebar({
 /** 처음에 그리는 말풍선 수, 그리고 위로 올릴 때마다 더 붙이는 수. */
 const MESSAGE_PAGE = 60;
 
-const MD_PLUGINS = [remarkGfm];
 const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = {
   table: ({ children }) => (
     <div className="table-wrapper"><table>{children}</table></div>
@@ -491,7 +490,7 @@ const MessageItem = React.memo(function MessageItem({
       <details className="message-compacted">
         <summary>여기까지 요약했어 — {josa(nekoName, "은/는")} 이 위 대화를 요약으로 기억해</summary>
         <div className="message-compacted__body">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{maskHome(m.content)}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={MD_PLUGINS}>{maskHome(m.content)}</ReactMarkdown>
         </div>
       </details>
     );
@@ -1210,7 +1209,7 @@ function CompactSummaryBar({
       {expanded && (
         <div className="compact-tab__panel">
           <div className="compact-tab__panel-inner">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown remarkPlugins={MD_PLUGINS}>
               {stripThink(summary)}
             </ReactMarkdown>
           </div>
