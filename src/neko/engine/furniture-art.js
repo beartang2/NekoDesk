@@ -89,17 +89,18 @@ const BOX_FRONT = (tape) => [
 
 /**
  * 가구마다: 기준 크기(고양이 키 단위, by = 키 "h" 나 폭 "w" 에 맞춘다), 모양 칸(span = 그 방향의 칸 수), 올라앉는 면
- * (y = 바닥에서 높이, x0·x1 = 가운데에서 가로 — 모두 고양이 키 단위. hold = 물건도 얹는다)
+ * (y = 바닥에서 높이, x0·x1 = 가운데에서 가로 — 모두 고양이 키 단위. hold = 물건도 얹는다 — 탁자 윗면·소파 방석·캣타워 발판.
+ * 캣휠 레일은 바퀴 안이라, 조명·상자는 올라앉는 면이 없어서 빠진다)
  */
 export const FURNITURE_ART = {
   lamp: { size: 1.5, by: "h", span: 32, surfaces: [] },
-  cattower: { size: 1.8, by: "h", span: 32, surfaces: [{ y: 0.8, x0: -0.59, x1: 0.37 }, { y: 1.5, x0: -0.22, x1: 0.62 }] },
+  cattower: { size: 1.8, by: "h", span: 32, surfaces: [{ y: 0.8, x0: -0.59, x1: 0.37, hold: true }, { y: 1.5, x0: -0.22, x1: 0.62, hold: true }] },
   // 캣휠: 고양이 키 2.0(사용자: 1.3 은 고양이에 비해 작았다 — 안쪽 레일 지름 1.4 라 몸이 다 들어간다). 고양이가 디디는 곳은 어두운 회색
   // 레일 띠 안(반지름 12.2 — 띠는 11.2~13.4, 앞 턱이 발끝을 덮는다) → (16.5 − 12.2)/32 × 2.0 = 0.269, 가로 ±0.6
   wheel: { size: 2.0, by: "h", span: 32, surfaces: [{ y: 0.269, x0: -0.6, x1: 0.6 }] },
   // 소파: 앉는 면은 방석 앞 가장자리(바닥에서 6.8 칸 = 0.44). 방석 뒤 가장자리(0.62)에 두면 누운 고양이 등이 등받이 위로 올라와
   // 등받이에서 자는 것처럼 보였다(사용자). 가로는 팔걸이 안쪽(±12 칸 = 0.78)
-  sofa: { size: 2.2, by: "w", span: 34, surfaces: [{ y: 0.44, x0: -0.7, x1: 0.7 }] },
+  sofa: { size: 2.2, by: "w", span: 34, surfaces: [{ y: 0.44, x0: -0.7, x1: 0.7, hold: true }] },
   box: { size: 0.8, by: "h", span: 18.5, surfaces: [] },
   // 탁자: 상판 위(바닥에서 11.7 칸 = 0.72), 가로 상판 안쪽(±12 칸 = 0.74). 물건도 얹는다
   table: { size: 1.6, by: "w", span: 26, surfaces: [{ y: 0.72, x0: -0.74, x1: 0.74, hold: true }] },
@@ -162,7 +163,17 @@ export function boxOpening(S, slotW) {
 export function furnitureSurfaces(kind, S, slotW, list, shape) {
   // 면 목록은 가구 항목이 주면 그것(자유 가구 uses 의 perch 등, docs/neko-furniture-free.md §8), 없으면 종류 표
   const { fit } = furnitureBox(kind, S, slotW, shape), k = CAT * S * fit, src = Array.isArray(list) ? list : FURNITURE_ART[kind]?.surfaces || [];
-  return src.map((s) => ({ y: s.y * k, x0: s.x0 * k, x1: s.x1 * k, ...(s.hold ? { hold: true } : {}) }));
+  return src.map((s) => ({ y: s.y * k, x0: s.x0 * k, x1: s.x1 * k, ...(s.hold ? { hold: true } : {}), ...(s.off ? { off: true } : {}) }));
+}
+/** 자유 가구 면(perch, 높이 py: 위가 음수 FREE_U 칸)에 앉은 고양이(키 0.8)가 무대(바닥 floorY) 위로 안 나가나. u = 그 가구 한 칸 px */
+export const perchFits = (py, u, S, floorY) => -py * u + 0.8 * CAT * S + 4 <= floorY;
+/**
+ * 자유 가구의 올라앉는 면(perch 쓰임새 → furnitureSurfaces 의 list, 고양이 키 단위). 물건도 얹는다(hold). 이 무대에서 앉은 고양이가
+ * 무대 위로 나가는 면은 off(엔진·빈 방 모두 안 쓴다) — 번호는 그대로 둬, 무대가 다른 기기에서도 같은 번호가 같은 면이다
+ */
+export function freeSurfaces(uses, S, slotW, shape, floorY) {
+  const u = furnitureBox("free", S, slotW, shape).u;
+  return (uses || []).filter((x) => x.u === "perch").map((x) => ({ y: -x.y / FREE_U, x0: x.x0 / FREE_U, x1: x.x1 / FREE_U, hold: true, ...(x.soft ? { soft: true } : {}), ...(perchFits(x.y, u, S, floorY) ? {} : { off: true }) }));
 }
 
 const rgb = (hex) => { const n = parseInt(hex.replace("#", ""), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };

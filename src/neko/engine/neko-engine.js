@@ -5326,13 +5326,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
   /** 감독에 알릴 쓰임새 이름: 켜진 것, perch 는 물건이 안 얹힌 면이 하나라도 있을 때만 */
   function freeUsesNow(f) {
-    const perchFree = (f.surfaces || []).some((_, i) => !decor.some((d) => d.surface === "furniture" && d.fid === f.id && d.fi === i));
+    const perchFree = (f.surfaces || []).some((s, i) => !s.off && !decor.some((d) => d.surface === "furniture" && d.fid === f.id && d.fi === i));
     return [...new Set((f.usesOn || []).filter((x) => x.u !== "perch" || perchFree).map((x) => x.u))];
   }
   /** 이 무대에서 켜진 쓰임새(§7): perch 면은 앉은 고양이(키 0.8)가 무대 위로 안 나가면, inside 는 입구가 고양이 키 0.5 이상, bat 은 높이 0.4 이상 */
   function freeOn(f) {
     const u = FA.furnitureBox("free", S, f.slotW, f.shape).u, cat1 = 100 * S;
-    return f.uses.filter((x) => x.u === "perch" ? -x.y * u + 0.8 * cat1 + 4 <= BASE_Y : x.u === "inside" ? (x.x1 - x.x0) * u >= 0.5 * cat1 : x.u === "bat" ? -x.y * u >= 0.4 * cat1 : true);
+    return f.uses.filter((x) => x.u === "perch" ? FA.perchFits(x.y, u, S, BASE_Y) : x.u === "inside" ? (x.x1 - x.x0) * u >= 0.5 * cat1 : x.u === "bat" ? -x.y * u >= 0.4 * cat1 : true);
   }
   function layoutFurniture() {
     if (WORLD) return;
@@ -5341,14 +5341,14 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       f.x = s ? s.x : -1e6; f.slotW = s ? s.w : 0;
       const b = FA.furnitureBox(f.kind, S, f.slotW, f.shape);
       f.box = { x: f.x - b.w / 2, y: BASE_Y - b.h, w: b.w, h: b.h };
-      if (f.kind === "free") { // 이 무대에서 켜진 쓰임새와 올라앉는 면(perch → 고양이 키 단위)
+      if (f.kind === "free") { // 이 무대에서 켜진 쓰임새와 올라앉는 면(perch 전부 — 못 쓰는 면은 off, 번호는 선물 자리가 같이 쓴다)
         f.usesOn = freeOn(f);
-        f.surfaces = f.usesOn.filter((x) => x.u === "perch").map((x) => ({ y: -x.y / FA.FREE_U, x0: x.x0 / FA.FREE_U, x1: x.x1 / FA.FREE_U, ...(x.soft ? { soft: true } : {}) }));
+        f.surfaces = FA.freeSurfaces(f.uses, S, f.slotW, f.shape, BASE_Y);
       }
     }
-    // 올라앉는 면(그림 furniture-art 한 곳): 캣타워 발판·소파 쿠션·캣휠 안 레일
+    // 올라앉는 면(그림 furniture-art 한 곳): 캣타워 발판·소파 쿠션·캣휠 안 레일·탁자 윗면·자유 가구 perch(off 는 빼되 번호 i 는 그대로)
     TOPS = furniture.flatMap((f) => FA.furnitureSurfaces(f.kind, S, f.slotW, f.surfaces, f.shape)
-      .map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, i, wheel: f.kind === "wheel", hold: !!sf.hold, soft: !!f.surfaces?.[i]?.soft, x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y })));
+      .flatMap((sf, i) => (sf.off ? [] : [{ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, i, wheel: f.kind === "wheel", hold: !!sf.hold, soft: !!f.surfaces?.[i]?.soft, x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y }])));
     HOLD_TOPS = TOPS.filter((t) => t.hold).map((t) => ({ fid: t.fid, i: t.i, x0: t.x0, x1: t.x1, y: t.y }));
     const c = cat, was = c.perch;
     if (!was) return;

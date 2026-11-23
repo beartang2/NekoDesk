@@ -1973,6 +1973,49 @@ try {
     await p.close();
   }
 
+  // 9-u2o) 다른 가구 위에도 물건(0.1.29, 사용자: 다른 가구 위에도 물건 올라갈 수 있게): 소파 방석·캣타워 발판 둘·자유 가구 perch 에
+  //        끌어 놓으면 그 면 위(decorMove furniture, 가구 id·면 번호), 면 위에 그린다. 캣휠 레일 근처는 안 얹힌다. 가구를 치우고 호스트가 바닥
+  //        u 로 다시 넣으면 그 자리에서 떨어져 바닥에 선다
+  {
+    const p = await open(`?w=760&h=200&scale=height&transparent=1`, { width: 900, height: 320 });
+    const r = await p.evaluate(async () => {
+      const FA = await import("/src/neko/engine/furniture-art.js");
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
+      const rr = (x, y, w, h) => ({ t: "rrect", x, y, w, h, rad: 0, rot: 0, c: "brown" });
+      const free = { id: "F", kind: "free", at: "dock", slot: 3, shape: { v: 1, parts: [rr(0, -10, 24, 2), rr(-10, -4.5, 2, 9), rr(10, -4.5, 2, 9)] }, uses: [{ u: "perch", y: -11, x0: -11, x1: 11 }] };
+      const furn = [{ id: "S", kind: "sofa", at: "dock", slot: 0 }, { id: "C", kind: "cattower", at: "dock", slot: 1 }, { id: "W", kind: "wheel", at: "dock", slot: 2 }, free];
+      n.setFurniture(furn); c.x = n.W * 0.5; n.step(10);
+      const slotW = n.W / 4, topsOf = (f) => FA.furnitureSurfaces(f.kind, n.S, slotW, f.kind === "free" ? FA.freeSurfaces(f.uses, n.S, slotW, f.shape, n.floorY) : undefined, f.shape)
+        .map((t, i) => ({ i, x: (f.slot + 0.5) * slotW + (t.x0 + t.x1) / 2, y: n.floorY - t.y, hold: !!t.hold }));
+      const moves = []; n.on("decorMove", (e) => moves.push(e));
+      const shape = { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "red" }] };
+      const boxOf = (id) => { n.draw(); let x0 = 1e9, x1 = -1, y1 = -1; for (let x = 0; x < n.W; x++) for (let y = 0; y < n.H; y++) if (n.hitDecor(x, y) === id) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } return x1 < 0 ? null : { cx: (x0 + x1) / 2, bottom: y1 - 3 * n.S }; };
+      const pe = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 9, button: 0, pointerType: "mouse", bubbles: true }));
+      const dropOn = async (tx, ty) => {
+        n.setDecor([{ id: "b", surface: "floor", u: 0.5, size: "small", shape }]); n.step(60); c.x = -500; n.step(1);
+        const b = boxOf("b"); moves.length = 0;
+        pe("pointerdown", b.cx, b.bottom - 4); n.step(2);
+        for (let k = 1; k <= 12; k++) { pe("pointermove", b.cx + (tx - b.cx) * k / 12, b.bottom - 4 + (ty - 4 - b.bottom) * k / 12); await new Promise((ok) => setTimeout(ok, 30)); n.step(4); }
+        await new Promise((ok) => setTimeout(ok, 150));
+        pe("pointerup", tx, ty - 4); n.step(4);
+        const m = moves[moves.length - 1], bb = boxOf("b");
+        return { surface: m && m.surface, fid: m && m.fid, i: m && m.i, onTop: !!bb && Math.abs(bb.bottom - ty) < 4 };
+      };
+      for (const f of furn) for (const t of topsOf(f)) out[`${f.id}${t.i}`] = { hold: t.hold, ...(await dropOn(t.x, t.y)) };
+      // 소파 위에 둔 채 소파를 치운다 → 호스트가 바닥 u 로 → 떨어져 바닥에
+      const sofa = topsOf(furn[0])[0]; await dropOn(sofa.x, sofa.y); const m = moves[moves.length - 1];
+      moves.length = 0; n.setFurniture(furn.slice(1)); n.setDecor([{ id: "b", surface: "floor", u: m.u, size: "small", shape }]); n.step(4);
+      const mid = boxOf("b").bottom; for (let i = 0; i < 240; i++) n.step(1);
+      out.fall = { midAir: mid < n.floorY - 8, moves: moves.map((q) => q.surface), end: Math.abs(boxOf("b").bottom - n.floorY) < 4 };
+      return out;
+    });
+    check("다른 가구 위 물건: 소파 방석·캣타워 발판 둘·자유 가구 perch 에 얹히고 그 위에 그린다, 캣휠 레일은 아니다, 가구를 치우면 떨어져 바닥", JSON.stringify(r),
+      ((ok) => ok("S0", "S", 0) && ok("C0", "C", 0) && ok("C1", "C", 1) && ok("F0", "F", 0))((k, fid, i) => r[k] && r[k].hold && r[k].surface === "furniture" && r[k].fid === fid && r[k].i === i && r[k].onTop) &&
+        r.W0 && !r.W0.hold && r.W0.surface !== "furniture" && r.fall.midAir && r.fall.moves.join() === "floor" && r.fall.end);
+    await p.close();
+  }
+
   // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {

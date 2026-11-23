@@ -163,16 +163,31 @@ describe("이미 물어온 가구(0.1.27 까지 — 결정 A)", () => {
   });
 });
 
-describe("가구 윗면(탁자) 위 선물", () => {
-  const T = (place: { at: "sidebar" | "dock"; slot: number } | null) => [{ id: "base:table", kind: "table" as const, place }, { id: "base:sofa", kind: "sofa" as const, place: { at: "dock" as const, slot: 0 } }];
+describe("가구 윗면(탁자·소파·캣타워·자유 가구 perch) 위 선물", () => {
+  const T = (place: { at: "sidebar" | "dock"; slot: number } | null) => [{ id: "base:table", kind: "table" as const, place }, { id: "base:sofa", kind: "sofa" as const, place: { at: "dock" as const, slot: 0 } }, { id: "base:wheel", kind: "wheel" as const, place: { at: "dock" as const, slot: 3 } }];
   const on = (id: string, fid: string, at = "dock", i = 0) => ({ id, placed: { surface: "furniture", at, u: 0.4, fid, i, fu: 0.5 } });
-  it("탁자가 그 장소에 있으면 그대로, 치웠거나 다른 장소·면 없는 가구면 바닥 u 로", () => {
-    const gifts = [on("a", "base:table"), on("b", "base:table", "sidebar"), on("c", "base:sofa"), on("d", "walk:gone"), { id: "e", placed: { surface: "floor", at: "dock", u: 0.1 } }];
-    expect(orphansOnFurniture(gifts, T({ at: "dock", slot: 2 }))).toEqual([["b", 0.4], ["c", 0.4], ["d", 0.4]]);
-    expect(orphansOnFurniture(gifts, T(null)).map(([id]) => id)).toEqual(["a", "b", "c", "d"]); // 탁자를 치웠다
+  it("그 가구가 그 장소에 있고 그 면이 물건 얹는 면이면 그대로, 치웠거나 다른 장소·없는 면·얹지 않는 면(캣휠 레일)이면 바닥 u 로", () => {
+    const gifts = [on("a", "base:table"), on("b", "base:table", "sidebar"), on("c", "base:sofa"), on("d", "walk:gone"), { id: "e", placed: { surface: "floor", at: "dock", u: 0.1 } }, on("f", "base:wheel"), on("g", "base:sofa", "dock", 1)];
+    expect(orphansOnFurniture(gifts, T({ at: "dock", slot: 2 }))).toEqual([["b", 0.4], ["d", 0.4], ["f", 0.4], ["g", 0.4]]);
+    expect(orphansOnFurniture(gifts, T(null)).map(([id]) => id)).toEqual(["a", "b", "d", "f", "g"]); // 탁자를 치웠다
+  });
+  it("얹는 면: 소파 방석·캣타워 발판 둘·탁자 윗면, 캣휠·조명·상자는 없다", () => {
+    const at = (kind: "sofa" | "cattower" | "wheel" | "lamp" | "box" | "table") => holdTops([{ id: kind, kind, place: { at: "sidebar", slot: 0 } }], "sidebar", 280, 320, 320 / 240);
+    expect(at("sofa").map((t) => t.i)).toEqual([0]);
+    expect(at("cattower").map((t) => t.i)).toEqual([0, 1]);
+    expect(at("table").map((t) => t.i)).toEqual([0]);
+    expect([...at("wheel"), ...at("lamp"), ...at("box")]).toEqual([]);
+  });
+  it("자유 가구 perch 도 얹는다. 이 무대에서 고양이가 못 앉는(무대 위로 나가는) 면은 빼되 번호는 그대로", () => {
+    const rr = (x: number, y: number, w: number, h: number) => ({ t: "rrect", x, y, w, h, rad: 0, rot: 0, c: "brown" });
+    const shape = { v: 1, parts: [rr(0, -10, 24, 2), rr(-10, -4.5, 2, 9), rr(10, -4.5, 2, 9), rr(6, -30, 10, 2), rr(6, -20, 2, 18)] };
+    const free = [{ id: "walk:f", kind: "free" as const, shape: shape as never, uses: [{ u: "perch" as const, y: -11, x0: -11, x1: 11 }, { u: "bat" as const, x: 0, y: -5 }, { u: "perch" as const, y: -31, x0: 1, x1: 11 }], place: { at: "dock" as const, slot: 1 } }];
+    expect(holdTops(free, "dock", 760, 400, 1).map((t) => t.i)).toEqual([0, 1]); // 높은 거실: 둘 다
+    expect(holdTops(free, "dock", 760, 200, 1).map((t) => t.i)).toEqual([0]); // 낮은 거실: 위 면은 고양이 머리가 무대 위로 나간다
+    expect(orphansOnFurniture([on("x", "walk:f", "dock", 1), on("y", "walk:f", "dock", 2)], free)).toEqual([["y", 0.4]]); // perch 는 둘뿐
   });
   it("물건 얹는 윗면: 놓인 탁자 칸의 상판 위(엔진과 같은 칸·면 번호)", () => {
-    const tops = holdTops(T({ at: "dock", slot: 1 }), "dock", 760, 164, 0.68);
+    const tops = holdTops(T({ at: "dock", slot: 1 }), "dock", 760, 164, 0.68).filter((t) => t.fid === "base:table");
     expect(tops).toHaveLength(1);
     expect(tops[0]).toMatchObject({ fid: "base:table", i: 0 });
     expect((tops[0].x0 + tops[0].x1) / 2).toBeCloseTo(285, 0); // 둘째 칸 가운데
