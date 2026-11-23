@@ -3670,7 +3670,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       for (let i = 1; i <= last; i++) P[i].y = Math.min(P[i].y, BASE_Y - 2 * S); // 바닥 위
     }
   }
-  /** 바구니(바닥 구석)와 거기 꽂힌 막대 — 잡지 않았을 때. 고양이 뒤 바닥 겹 */
+  /** 바구니(바닥 구석)와 거기 꽂힌 막대 — 잡지 않았을 때. 맨 위 겹(draw 끝) */
   function drawBasket() {
     if (!wandOn()) return;
     const [bx, by] = basketAt(), s = S;
@@ -4922,7 +4922,6 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
     drawFurnitureBack();
     drawDecor();
-    drawBasket(); // 낚싯대 바구니(바닥 구석)
     drawActBack();
     if (wf) { const wc = FA.wheelCircle(S, wf.slotW); ctx.save(); ctx.beginPath(); ctx.arc(wf.x, BASE_Y + wc.dy, wc.r * (1 + 2.5 * (1 - wf.inV)), 0, TAU); ctx.clip(); }
     // 상자 안(상자 놀이): 테두리 아래는 상자 앞벽 폭(바닥까지), 그 위는 머리 둘레만 보인다 — 상자는 칸에 맞춰 크기가 정해져 몸·털이
@@ -4950,7 +4949,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (dreamC && dreamV > 0.01) DR.drawDream(ctx, c.head.x, c.head.y, S, { face: c.face, k: dreamV, t: reduced.matches ? 0 : time, dark: themeDark, W, H, edge: 3 * DPR, content: dreamC });
     drawDecor(ctx, true); // 뒤에 숨기: 고양이 앞에 오는 물건
     drawEffects();
-    if (wand && wandOn() && (wand.held || wand.back > 0)) drawWand(); // 잡은 낚싯대는 맨 위
+    // 낚싯대 바구니·막대·실·장난감은 맨 위(사용자: 캣휠 뒤로 막대가 박혀 보였다) — 가구(정지 층·엔진 가구 앞 겹)·선물·고양이보다 앞.
+    // 꽂혀 있을 땐 막대 아래가 바구니 앞면 뒤로 들어가고, 잡았거나 돌아가는 중엔 바구니보다도 앞. 물고 있으면 장난감이 입 앞에
+    drawBasket();
+    if (wand && wandOn() && (wand.held || wand.back > 0)) drawWand();
     if (showRig) drawRigOverlay();
   }
 
