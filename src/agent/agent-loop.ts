@@ -14,7 +14,7 @@ import {
 } from "./permissions";
 import { fsApi, memoryApi } from "../api/tauri";
 import { isMcpTool, executeMcpTool } from "./mcp-registry";
-import { AgentContext, prefixContent, type ExecutedCall } from "./agent-context";
+import { AgentContext, INTERNAL_TOOLS, prefixContent, type ExecutedCall } from "./agent-context";
 import { findDangerReason, findExternalSendReason, isSafeReadOnly } from "./danger-patterns";
 import { outboundConcern } from "./outbound-guard";
 import { isClaudeActive, shouldUseNativeTools } from "../stores/settingsStore";
@@ -639,12 +639,16 @@ export async function* runAgentLoop(
     const steps = calls.map((c) => newStep(++stepId, c, turn!.text));
     const executed: ExecutedCall[] = [...lockedSteps];
     toolCallCount += calls.length;
-    for (const locked of lockedSteps) yield { type: "step_error", step: locked.step };
-    for (const r of repeated) yield { type: "step_done", step: r.step };
+    for (const locked of lockedSteps) if (!INTERNAL_TOOLS.has(locked.call.name)) yield { type: "step_error", step: locked.step };
+    for (const r of repeated) if (!INTERNAL_TOOLS.has(r.call.name)) yield { type: "step_done", step: r.step };
+
+    // 네코 안에서만 쓰는 도구(제 상태 보기)는 먼저 조용히 — 이벤트를 안 내 채팅 도구 표시·네코 도구 동작·대화 기록에 안 나온다
+    const innerIdx = calls.map((_, idx) => idx).filter((idx) => INTERNAL_TOOLS.has(calls[idx].name));
+    for (const idx of innerIdx) executed.push({ call: calls[idx], step: await runCall(calls[idx], steps[idx]) });
 
     // 부작용 없는 조회는 동시에 돌린다. 나머지는 원래 순서대로 하나씩 —
     // 확인 다이얼로그·사용자 질문이 끼어들고, 앞 호출의 부작용에 의존할 수 있다.
-    const parallelIdx = calls.map((_, idx) => idx).filter((idx) => isParallelSafe(calls[idx].name));
+    const parallelIdx = calls.map((_, idx) => idx).filter((idx) => !innerIdx.includes(idx) && isParallelSafe(calls[idx].name));
     if (parallelIdx.length > 1) {
       for (const idx of parallelIdx) yield { type: "tool_start", tool: calls[idx].name, params: calls[idx].params };
       await Promise.all(parallelIdx.map((idx) => runCall(calls[idx], steps[idx])));
@@ -658,7 +662,7 @@ export async function* runAgentLoop(
 
     const sequentialIdx = calls
       .map((_, idx) => idx)
-      .filter((idx) => !(parallelIdx.length > 1 && parallelIdx.includes(idx)));
+      .filter((idx) => !innerIdx.includes(idx) && !(parallelIdx.length > 1 && parallelIdx.includes(idx)));
 
     for (const idx of sequentialIdx) {
       const call = calls[idx];

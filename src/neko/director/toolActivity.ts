@@ -18,8 +18,8 @@ export function writesSomething(name: string): boolean {
   return isStaticTool(name) && getTool(name).changes === true;
 }
 
-/** 빠진 도구는 타입 검사가 잡는다(user.ask 는 기다림이라 뺀다) */
-const TABLE: Record<Exclude<ToolName, "user.ask">, NekoActivity> = {
+/** 빠진 도구는 타입 검사가 잡는다(user.ask 는 기다림이라, neko.self 는 안에서만 쓰여 네코 동작이 없어 뺀다) */
+const TABLE: Record<Exclude<ToolName, "user.ask" | "neko.self">, NekoActivity> = {
   "todo.list": "reading",
   "todo.list_done": "reading",
   "todo.add": "typing",
