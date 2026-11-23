@@ -104,7 +104,18 @@ fn tomb(h: &Head) -> Record {
     Record { coll: h.coll.clone(), id: h.id.clone(), parent: h.parent.clone(), ts: h.ts, device: h.device.clone(), deleted: 1, cut: h.cut, blob: None }
 }
 
-/// 옛 서버: 기록을 전부 다시 올리고(자동 삭제 표시는 빼고) 처음부터 다시 받는다. 찍은 수
+/// 옛 서버(목록 API 없음): 전부 다시 올리고 받기는 무거워 주 1회만 한다 — 버튼(설정 › 동기화)을 자주 눌러도. 찍은 수(안 했으면 0)
+pub fn heavy_fallback(conn: &Connection, now: i64) -> AppResult<usize> {
+    let last = if state(conn, "reconcile_heavy")?.is_some() { state_i64(conn, "reconciled_at")? } else { 0 };
+    set_state(conn, "reconcile_heavy", "1")?;
+    if now - last < 7 * 86_400_000 {
+        return Ok(0);
+    }
+    set_state(conn, "reconciled_at", &now.to_string())?;
+    resend_all(conn)
+}
+
+/// 기록을 전부 다시 올리고(자동 삭제 표시는 빼고) 처음부터 다시 받는다. 찍은 수
 pub fn resend_all(conn: &Connection) -> AppResult<usize> {
     let n = conn.execute("UPDATE sync_meta SET dirty = 1 WHERE dirty = 0 AND NOT (coll = 'session' AND deleted = 1 AND cut IS NOT NULL)", [])?;
     set_state(conn, "since", "0")?;
@@ -138,10 +149,7 @@ pub async fn reconcile(db: &Mutex<Connection>, srv: &Server) -> AppResult<(Outco
             Ok(p) => p,
             // 목록 API 가 없는 옛 서버(사용자가 Worker 를 아직 안 바꿈)
             Err(e) if e.to_string().contains("(404)") => {
-                let conn = db.lock()?;
-                let pushed = resend_all(&conn)?;
-                set_state(&conn, "reconciled_at", &now_ms().to_string())?;
-                set_state(&conn, "reconcile_heavy", "1")?;
+                let pushed = heavy_fallback(&*db.lock()?, now_ms())?;
                 return Ok((Outcome { pushed, heavy: true, ..Default::default() }, Changes::default()));
             }
             Err(e) => return Err(e),
