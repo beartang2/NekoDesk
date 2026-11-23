@@ -677,3 +677,96 @@ fn furniture_changed_on_two_devices_merges_and_both_end_the_same() {
     assert_eq!(ids(&a), want, "폰: 둘 다");
     assert_eq!(ids(&b), want, "맥: 같은 값");
 }
+
+fn session_ids(c: &Connection) -> Vec<String> {
+    session_list(c).unwrap().into_iter().map(|s| s.id).collect()
+}
+
+#[test]
+fn deleted_session_goes_away_on_the_other_device_and_stale_writes_do_not_revive_it() {
+    let (a, b) = (db(), db());
+    session_put(&a, "s", "이미지 대화", 1).unwrap();
+    conversations::save(&a, "s", "user", "그림 봐", None, None).unwrap();
+    session_put(&a, "keep", "남는 대화", 2).unwrap();
+    apply_all(&b, "B", &push_all(&a, "A"));
+    assert_eq!(session_ids(&b).len(), 2);
+    // 맥(a)에서 지웠다 → 폰(b)에서도 지워진다
+    session_delete(&a, "s").unwrap();
+    apply_all(&b, "B", &push_all(&a, "A"));
+    assert_eq!(session_ids(&b), ["keep"]);
+    assert!(conversations::load(&b, "s").unwrap().is_empty());
+    // 폰 화면의 낡은 목록이 제목을 고치거나(put) 요약하거나 옮기려 해도 되살지 않는다
+    session_put(&b, "s", "새 제목", 1).unwrap();
+    session_compact(&b, "s", "요약").unwrap();
+    session_import(&b, &[SessionRow { id: "s".into(), title: "옛 목록".into(), created_at: 1, summary: None, unread: false }]).unwrap();
+    assert_eq!(session_ids(&b), ["keep"]);
+    // 올라가는 것은 지움 표시뿐 — 맥에서도 다시 안 생긴다
+    let up = push_all(&b, "B");
+    assert!(up.iter().filter(|r| r.coll == "session" && r.id == "s").all(|r| r.deleted == 1));
+    apply_all(&a, "A", &up);
+    assert_eq!(session_ids(&a), ["keep"]);
+}
+
+#[test]
+fn big_messages_always_fit_the_server_and_pushes_are_cut_by_bytes() {
+    let c = db();
+    let img = format!("data:image/png;base64,{}", "A".repeat(900_000));
+    let text = "본문".repeat(450_000); // 첨부 파일의 글(그림이 아니라 data: 가 아니다)
+    let att = serde_json::json!([{ "name": "a.png", "dataUrl": img }, { "name": "b.txt", "content": text }]).to_string();
+    conversations::save(&c, "s", "user", "그림과 글", Some(&att), None).unwrap();
+    conversations::save(&c, "s", "user", &"긴 말".repeat(600_000), None, None).unwrap();
+    let recs = collect(&c, "A", &KEY).unwrap();
+    // 서버 한 건 상한(server/src/index.ts BLOB_MAX) 아래 — 넘으면 조용히 거절돼 다른 기기에 안 갔다
+    const BLOB_MAX: usize = (1_048_576usize * 4).div_ceil(3) + 64;
+    assert!(recs.iter().all(|r| r.blob.as_ref().is_some_and(|b| b.len() <= BLOB_MAX)), "{:?}", recs.iter().map(|r| r.blob.as_ref().map(|b| b.len())).collect::<Vec<_>>());
+    let first: Value = serde_json::from_slice(&unseal(&KEY, &recs[0]).unwrap()).unwrap();
+    assert_eq!(first["content"], "그림과 글", "말은 그대로, 그림 본문과 긴 첨부 글만 줄인다");
+    // 한 요청에 싣는 양은 1MB 남짓까지: 큰 말 여럿은 나눠 올린다
+    let c = db();
+    for i in 0..5 {
+        conversations::save(&c, "s", "user", &format!("{i}{}", "가".repeat(100_000)), None, None).unwrap();
+    }
+    let n = collect(&c, "A", &KEY).unwrap().len();
+    assert!((1..5).contains(&n), "{n}");
+    assert_eq!(push_all(&c, "A").len(), 5, "나머지는 다음 요청에");
+}
+
+#[test]
+fn resend_once_puts_conversations_back_on_the_wire_except_auto_deletes() {
+    let c = db();
+    session_put(&c, "s", "대화", 1).unwrap();
+    conversations::save(&c, "s", "user", "안녕", None, None).unwrap();
+    session_put(&c, "gone", "지운 대화", 2).unwrap();
+    session_put(&c, "old", "오래된 대화", 3).unwrap();
+    push_all(&c, "A");
+    session_delete(&c, "gone").unwrap();
+    session_delete(&c, "old").unwrap();
+    mark_pruned(&c, &["old".into()], 30).unwrap();
+    push_all(&c, "A");
+    set_state(&c, "since", "99").unwrap();
+    resend_once(&c).unwrap();
+    let up = push_all(&c, "A");
+    let mut what: Vec<_> = up.iter().map(|r| (r.coll.as_str(), r.id.as_str() == "s" || r.coll == "msg", r.deleted)).collect();
+    what.sort();
+    assert_eq!(what, [("msg", true, 0), ("session", false, 1), ("session", true, 0)], "말·세션·사용자가 지운 표시만, 자동 삭제는 빼고");
+    assert_eq!(state(&c, "since").unwrap().as_deref(), Some("0"), "처음부터 다시 받는다");
+    // 한 번만
+    set_state(&c, "since", "99").unwrap();
+    resend_once(&c).unwrap();
+    assert!(push_all(&c, "A").is_empty());
+    assert_eq!(state(&c, "since").unwrap().as_deref(), Some("99"));
+}
+
+#[test]
+fn resent_old_messages_do_not_revive_a_session_another_device_auto_deleted() {
+    let (a, b) = (db(), db());
+    session_put(&a, "s", "옛 대화", 1).unwrap();
+    conversations::save(&a, "s", "user", "옛 말", None, None).unwrap();
+    apply_all(&b, "B", &push_all(&a, "A"));
+    resend_once(&a).unwrap(); // 옛 말이 다시 올릴 거리가 됐다
+    // 폰(b)이 오래된 대화로 자동 삭제했다(기준 시각 = 지금보다 나중으로 잡아 옛 말이 다 그 안쪽)
+    session_delete(&b, "s").unwrap();
+    b.execute("UPDATE sync_meta SET cut = ?1 WHERE coll = 'session' AND uid = 's'", [now_ms() + 60_000]).unwrap();
+    apply_all(&a, "A", &push_all(&b, "B"));
+    assert!(session_ids(&a).is_empty(), "다시 올리던 옛 말로는 되살리지 않는다");
+}

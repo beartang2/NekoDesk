@@ -259,7 +259,14 @@ pub fn sync_status(db: State<'_, DbState>) -> Result<Status, AppError> {
         // 풀지 못해 건너뛴 기록이 있으면 그것부터 알린다(동기화 자체는 됐다고 나와도 일부가 안 보인다)
         last_error: match state(&c, "skipped")?.and_then(|n| n.parse::<i64>().ok()).filter(|n| *n > 0) {
             Some(n) => Some(format!("기록 {n}개를 받지 못했습니다. 다른 암호 키로 올라간 기록입니다. 맥에서 '암호 키 재설정'을 한 뒤 이 기기를 다시 연결하십시오.")),
-            None => state(&c, "last_error")?.filter(|e| !e.is_empty()),
+            None => match state(&c, "last_error")?.filter(|e| !e.is_empty()) {
+                Some(e) => Some(e),
+                // 서버가 받지 않은 기록(너무 큼·시계 어긋남 등): 그 기록은 다른 기기에 안 간다(sync::settle)
+                None => state(&c, "rejected")?.and_then(|n| n.parse::<i64>().ok()).filter(|n| *n > 0).map(|n| {
+                    let why = state(&c, "rejected_why").ok().flatten().unwrap_or_default();
+                    format!("서버가 기록 {n}개를 받지 않았습니다({why}). 그 기록은 다른 기기에 보이지 않습니다.")
+                }),
+            },
         },
     })
 }
