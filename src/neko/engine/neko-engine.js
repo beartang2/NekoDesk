@@ -5562,9 +5562,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const d = decor.find((o) => o.id === decorDrag.id);
       if (d) {
         if (decorDrag.moved) d.rot = 0; // 집어 옮기면 똑바로(던지면 0 에서 굴러간다). 누르고 떼기만 했으면 그 각도 그대로
-        const s0 = spotOf(decorDrag.x, decorDrag.bottom, decorDims(d.shape, d.k).h);
-        // 액자는 바닥 근처에 놓아도 벽 맨 아래에 건다(떨어진 액자를 집어 다시 걸 때도) — 바닥에 눕는 건 네코가 떨군 것뿐
-        const spot = d.frame && s0.surface === "floor" && !WORLD && decorDrag.moved ? { surface: "wall", u: s0.u, v: 0 } : s0;
+        const dm = decorDims(d.shape, d.k), s0 = spotOf(decorDrag.x, decorDrag.bottom, dm.h);
+        // 액자는 바닥 근처에 놓아도 벽 맨 아래에 건다(떨어진 액자를 집어 다시 걸 때도) — 바닥에 눕는 건 네코가 떨군 것뿐.
+        // 벽 자리는 날씨 창문을 비킨 자리로 저장한다(hungSpot)
+        const spot = DD.hungSpot(d.frame && s0.surface === "floor" && !WORLD && decorDrag.moved ? { surface: "wall", u: s0.u, v: 0 } : s0, dm.h, geomNow(), dm.w, d.at);
         // 놓기 전 잠깐(THROW_STILL) 손이 멈춰 있었으면 빠르기 0 — 빨리 끌다 멈춰 두었다 놓으면 던지지 않는다
         const moving = performance.now() - (decorDrag.mt ?? 0) < DD.THROW_STILL;
         const tvx = moving ? decorDrag.vx ?? 0 : 0, tvy = moving ? decorDrag.vy ?? 0 : 0, fast = Math.hypot(tvx, tvy) > DD.THROW_MIN * S;

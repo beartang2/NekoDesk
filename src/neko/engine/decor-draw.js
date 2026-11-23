@@ -6,7 +6,7 @@
  * 벽: u 와 v = 바닥 위 쓸 수 있는 높이 비율(0~1).
  */
 import { validateShape, shapeBounds, shapeTop, drawShape } from "./gift-shape.js";
-import { roomWindows, WINDOW_PAD, WINDOW_SILL } from "./room-window.js";
+import { roomWindows, windowBox } from "./room-window.js";
 
 export const DECOR_SIZE = 96;  // 한 변(S 단위). 32 → 64 → 96: 사용자가 두 번 키웠다(아직 작다). 배율 0.5~3 은 이 기준
 export const WALL_GAP = 18;    // 바닥에서 이만큼(S) 넘게 띄워 놓으면 벽에 건다
@@ -67,8 +67,8 @@ export function furnitureSlots(at, W) {
 /** 벽 v = 1 이면 물건 위가 무대 위에서 10 아래 */
 export const wallSpan = (h, g) => Math.max(1, g.floorY - h - 10 * g.S);
 /**
- * 자리(면·비율) → 그릴 자리(가운데 x, 바닥 y). 방·거실 벽에 건 것(d.at, 폭 w 를 알 때)은 날씨 창문(커튼·창턱까지)과 겹치면
- * 창턱 아래로 내려 건다(사용자) — 저장한 자리는 그대로, 그릴 때만. 무대 높이는 바닥 + 6(엔진 resize 와 같다)
+ * 자리(면·비율) → 그릴 자리(가운데 x, 바닥 y). 방·거실 벽에 건 것(d.at, 폭 w 를 알 때)은 날씨 창문과 겹치면 비켜 건다(clearWindows) —
+ * 받은 자리·창 크기가 바뀐 때도 같은 규칙이라 그릴 때 한다. 끌어 놓을 땐 비킨 자리를 저장한다(hungSpot). 무대 높이는 바닥 + 6(엔진 resize 와 같다)
  */
 export function decorAt(d, h, g, w = 0) {
   const m = decorM(g.S), x = m + d.u * Math.max(0, g.W - 2 * m);
@@ -77,15 +77,32 @@ export function decorAt(d, h, g, w = 0) {
     if (t) { const half = Math.min(w / 2, (t.x1 - t.x0) / 2); return [clamp(t.x0 + (d.fu ?? 0.5) * (t.x1 - t.x0), t.x0 + half, t.x1 - half), t.y]; }
   }
   if (d.surface !== "wall") return [x, g.floorY];
-  let bottom = g.floorY - (d.v ?? 0.5) * wallSpan(h, g);
-  if (w > 0) {
-    for (const r of roomWindows(d.at, g.W, g.floorY + 6)) {
-      const overX = x + w / 2 > r.x - WINDOW_PAD && x - w / 2 < r.x + r.w + WINDOW_PAD;
-      const below = r.y + r.h + WINDOW_SILL + 3 * g.S; // 창턱 아래
-      if (overX && bottom - h < below && bottom > r.y - WINDOW_PAD) bottom = Math.min(g.floorY, below + h);
-    }
-  }
-  return [x, bottom];
+  const bottom = g.floorY - (d.v ?? 0.5) * wallSpan(h, g);
+  return w > 0 ? clearWindows(x, bottom, w, h, roomWindows(d.at, g.W, g.floorY + 6).map(windowBox), g) : [x, bottom];
+}
+/**
+ * 벽에 건 것(가운데 x, 바닥 bottom, w×h)이 창(그린 테두리 칸)과 겹치면 위·아래·왼쪽·오른쪽 중 가장 조금 움직여 안 겹치는 쪽으로
+ * 민다(사용자: 창 근처에 걸면 아래로 꺼졌다). 민 자리가 벽 밖(무대 위 10·S·바닥선·무대 옆 끝)이거나 다른 창과 겹치면 다음으로
+ * 가까운 쪽, 넷 다 안 되면 창턱 아래(바닥선까지). 테두리에 맞닿는 건 겹침이 아니다(0.5px 여유 — 비율로 저장했다 읽어도 같게)
+ */
+function clearWindows(x, bottom, w, h, wins, g) {
+  const E = 0.5, m = decorM(g.S);
+  const hit = (cx, b) => wins.find((r) => cx + w / 2 > r.x0 + E && cx - w / 2 < r.x1 - E && b > r.y0 + E && b - h < r.y1 - E);
+  const r = hit(x, bottom);
+  if (!r) return [x, bottom];
+  const fits = ([cx, b]) => cx >= Math.max(m, w / 2) - E && cx <= Math.min(g.W - m, g.W - w / 2) + E && b - h >= 10 * g.S - E && b <= g.floorY + E && !hit(cx, b);
+  const ways = [[r.x0 - w / 2, bottom], [r.x1 + w / 2, bottom], [x, r.y0], [x, r.y1 + h]];
+  const best = ways.sort((a, b) => Math.abs(a[0] - x) + Math.abs(a[1] - bottom) - Math.abs(b[0] - x) - Math.abs(b[1] - bottom)).find(fits);
+  return best ?? [x, Math.min(g.floorY, r.y1 + h)];
+}
+/**
+ * 끌어 놓은 벽 자리를 그려질 자리(창을 비킨 자리)의 비율로 — 저장해 맥·폰이 같은 자리에서 시작한다. 벽이 아니면 그대로.
+ * at = 장소(방·거실만 창이 있다), w·h = 그릴 칸
+ */
+export function hungSpot(spot, h, g, w, at) {
+  if (spot.surface !== "wall") return spot;
+  const [x, bottom] = decorAt({ ...spot, at }, h, g, w), m = decorM(g.S);
+  return { surface: "wall", u: clamp((x - m) / Math.max(0, g.W - 2 * m) || 0, 0, 1), v: clamp((g.floorY - bottom) / wallSpan(h, g), 0, 1) };
 }
 /**
  * 물건을 얹는 가구 윗면(사용자: 탁자 위에 물건을 둔다). g.tops = [{ fid(가구 id), i(면 번호), x0, x1, y }](무대 px, 면 위가 y).
@@ -250,6 +267,6 @@ export function hitDecorAt(items, view, x, y) {
 export function dragDecor(items, view, id, x, bottom) {
   const geom = geomOf(view), it = layoutAll(items, geom, { id: String(id), x, bottom }).find((o) => o.id === String(id)); // 든 모양(누운 액자도 세운 칸)
   if (!it) return null;
-  const [cx, cb] = clampDrag(it.L.h, geom, x, bottom);
-  return { x: cx, bottom: cb, spot: spotOf(cx, cb, it.L.h, geom) };
+  const [cx, cb] = clampDrag(it.L.h, geom, x, bottom), at = items.find((d) => String(d.id) === String(id))?.at;
+  return { x: cx, bottom: cb, spot: hungSpot(spotOf(cx, cb, it.L.h, geom), it.L.h, geom, it.L.w, at) }; // 벽이면 창을 비킨 자리
 }

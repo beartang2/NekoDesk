@@ -1840,6 +1840,39 @@ try {
     await p.close();
   }
 
+  // 9-u2l) 벽 선물 창문 비키기(0.1.29, 사용자: 창 근처에 걸면 아래로 꺼졌다 — 네 방향 중 가까운 쪽으로, 겹침 범위는 더 타이트하게): 액자를
+  //        창 옆 테두리에 조금 걸치게 끌어 놓으면 그 옆으로 비켜 테두리(커튼 봉·창턱까지 그린 칸)에 맞닿게 걸리고 높이는 그대로다. 저장한 자리
+  //        (decorMove)를 다시 받아도(다른 기기) 같은 자리. 방은 창 오른쪽(왼쪽은 무대 끝이라), 거실은 왼쪽 창의 왼쪽
+  for (const [q, at, side] of [["?w=280&h=326&scale=height&transparent=1", "sidebar", 1], ["?w=760&h=170&scale=height&transparent=1", "dock", -1]]) {
+    const p = await open(q, { width: 900, height: 400 });
+    const r = await p.evaluate(async ({ at, side }) => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect();
+      const RW = await import("/src/neko/engine/room-window.js");
+      n.pause(); n.setWander(false); n.setMood("idle"); n.step(30); c.x = n.W * 0.92; n.step(60);
+      const wb = RW.roomWindows(at, n.W, n.floorY + 6).map(RW.windowBox)[0];
+      const moves = []; n.on("decorMove", (e) => moves.push(e));
+      const pe = (type, x, y, id) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: "mouse", bubbles: true }));
+      const shape = { parts: [{ t: "rrect", x: 0, y: -12, w: 20, h: 24, rad: 1, rot: 0, c: "white" }] };
+      const box = () => { n.draw(); let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; for (let x = 0; x < n.W; x++) for (let y = 0; y < n.floorY; y++) if (n.hitDecor(x, y) === "f") { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } const pad = 3 * n.S; return { x0: x0 + pad, x1: x1 - pad, y0: y0 + pad, y1: y1 - pad }; };
+      n.setDecor([{ id: "f", shape, size: "small", frame: true, surface: "wall", u: 0.6, v: 0.5, at }]); n.step(120);
+      const b0 = box(), w = b0.x1 - b0.x0, cx0 = (b0.x0 + b0.x1) / 2, cy0 = (b0.y0 + b0.y1) / 2;
+      // 창 옆 테두리에 6px 걸치게, 창 세로 가운데로
+      const tx = side > 0 ? wb.x1 - 6 + w / 2 : wb.x0 + 6 - w / 2, ty = (wb.y0 + wb.y1) / 2;
+      pe("pointerdown", cx0, cy0, 2); n.step(2);
+      for (let k = 1; k <= 8; k++) { pe("pointermove", cx0 + ((tx - cx0) * k) / 8, cy0 + ((ty - cy0) * k) / 8, 2); await new Promise((ok) => setTimeout(ok, 30)); n.step(4); }
+      await new Promise((ok) => setTimeout(ok, 150));
+      pe("pointerup", tx, ty, 2); n.step(30);
+      const after = box(), m = moves[moves.length - 1];
+      n.setDecor([]); n.step(2); n.setDecor([{ id: "f", shape, size: "small", frame: true, at, surface: m.surface, u: m.u, v: m.v }]); n.step(120);
+      const again = box();
+      return { wb, w: Math.round(w), ty: Math.round(ty), surface: m.surface, after, again };
+    }, { at, side });
+    const edge = side > 0 ? r.after.x0 - r.wb.x1 : r.wb.x0 - r.after.x1, cy = (r.after.y0 + r.after.y1) / 2;
+    check(`벽 선물 창문 비키기(${at}): 창 ${side > 0 ? "오른쪽" : "왼쪽"} 테두리에 걸쳐 놓으면 그쪽으로 비켜 맞닿고 높이 그대로, 다시 받아도 같은 자리`, JSON.stringify(r),
+      r.surface === "wall" && Math.abs(edge) <= 1.5 && Math.abs(cy - r.ty) <= 2 && ["x0", "x1", "y0", "y1"].every((k) => Math.abs(r.again[k] - r.after[k]) <= 1));
+    await p.close();
+  }
+
   // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {
