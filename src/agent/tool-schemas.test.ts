@@ -19,7 +19,7 @@ describe("buildToolSchemas", () => {
     for (const gone of ["fs.read", "fs.write", "code.exec", "skill.read", "file.upload", "image.trace", "security.check", "process.list", "airdrop.send"]) {
       expect(phone).not.toContain(gone);
     }
-    for (const kept of ["todo.add", "schedule.list", "web.search", "web.scrape", "weather.get", "memory.save", "memory.search", "user.ask", "plan.set", "game.start", "agent.delegate"]) {
+    for (const kept of ["todo.add", "todo.edit", "todo.delete", "todo.reopen", "schedule.list", "web.search", "web.scrape", "weather.get", "memory.save", "memory.search", "user.ask", "plan.set", "game.start", "agent.delegate"]) {
       expect(phone).toContain(kept);
     }
     expect(all.filter((n) => onThisDevice(n, false))).toEqual(all);

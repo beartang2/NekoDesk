@@ -29,6 +29,9 @@ describe("도구 → 활동", () => {
     expect(c).toMatchObject({ activity: "stamp", oneShot: true, writes: true });
     expect(toolCue("todo.list")).toMatchObject({ oneShot: false, writes: false });
     expect(toolCue("schedule.delete")).toMatchObject({ activity: "erase", oneShot: true, writes: true });
+    expect(toolCue("todo.delete")).toMatchObject({ activity: "erase", oneShot: true, writes: true });
+    expect(toolCue("todo.reopen")).toMatchObject({ activity: "erase", oneShot: true, writes: true });
+    expect(toolCue("todo.edit")).toMatchObject({ activity: "typing", writes: true });
     expect(toolCue("fs.write").writes).toBe(true);
   });
 

@@ -54,7 +54,7 @@ export function clipList<T>(items: T[], max: number, line: (item: T) => string):
 
 function summarizeTodos(todos: Todo[], max: number): string {
   if (todos.length === 0) return "할 일 없음";
-  return clipList(todos, max, (t) => `- [${t.status}] ${t.content}${t.due_at ? ` (마감: ${t.due_at})` : ""}`);
+  return clipList(todos, max, (t) => `- [id:${t.id}] [${t.status}] ${t.content}${t.due_at ? ` (마감: ${t.due_at})` : ""}`);
 }
 
 function summarizeEvents(events: ScheduleEvent[], max: number): string {
@@ -201,6 +201,63 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     changes: true,
     execute: async (p) => todosApi.complete(p["id"] as number),
     summarize: () => "완료 처리됨",
+  },
+
+  "todo.edit": {
+    name: "todo.edit",
+    description: "할 일의 내용이나 마감을 고친다. 반드시 todo.list(완료한 것은 todo.list_done)로 실제 id를 확인한 후 사용할 것",
+    params: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "고칠 할 일 id" },
+        content: { type: "string", description: "새 내용. 그대로면 생략" },
+        due_at: { type: "string", description: "새 마감 시각 (ISO 8601). 그대로면 생략" },
+        clear_due: { type: "boolean", description: "true 면 마감을 지운다" },
+      },
+      required: ["id"],
+    },
+    readOnly: false,
+    changes: true,
+    execute: async (p) => todosApi.update(p["id"] as number, {
+      content: (p["content"] as string | undefined) || undefined,
+      dueAt: (p["due_at"] as string | undefined) || undefined,
+      clearDue: p["clear_due"] === true,
+    }),
+    summarize: (r) => (r ? "할 일 고침" : "할 일 고치기 실패: 해당 ID의 할 일이 존재하지 않음"),
+  },
+
+  "todo.delete": {
+    name: "todo.delete",
+    description: "할 일을 삭제한다. ids 배열로 여러 개 동시 삭제 가능. 반드시 todo.list(완료한 것은 todo.list_done)로 실제 id를 확인한 후 사용할 것",
+    params: {
+      type: "object",
+      properties: {
+        ids: { type: "array", items: { type: "number" }, description: "삭제할 할 일 id 배열" },
+      },
+      required: ["ids"],
+    },
+    readOnly: false,
+    changes: true,
+    execute: async (p) => todosApi.delete(p["ids"] as number[]),
+    summarize: (r) => {
+      const n = r as number;
+      if (n === 0) return "할 일 삭제 실패: 해당 ID의 할 일이 존재하지 않음";
+      return `할 일 ${n}개 삭제됨`;
+    },
+  },
+
+  "todo.reopen": {
+    name: "todo.reopen",
+    description: "완료한 할 일을 다시 열린 할 일로 되돌린다",
+    params: {
+      type: "object",
+      properties: { id: { type: "number", description: "todo.list_done 으로 확인한 할 일 id" } },
+      required: ["id"],
+    },
+    readOnly: false,
+    changes: true,
+    execute: async (p) => todosApi.reopen(p["id"] as number),
+    summarize: (r) => (r ? "다시 열림" : "되돌리기 실패: 해당 ID의 완료한 할 일이 없음"),
   },
 
   "schedule.list": {

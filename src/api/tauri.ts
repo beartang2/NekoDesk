@@ -39,6 +39,16 @@ export const todosApi = {
 
   /** 완료 처리. 실제로 바뀐 항목이 있으면 true. */
   complete: (id: number) => invoke<boolean>("todo_complete", { id }),
+
+  /** 내용·마감 고치기(안 준 것은 그대로, clearDue 면 마감을 지운다). 실제로 바뀐 항목이 있으면 true. */
+  update: (id: number, p: { content?: string; dueAt?: string; clearDue?: boolean }) =>
+    invoke<boolean>("todo_update", { id, content: p.content ?? null, dueAt: p.dueAt ?? null, clearDue: p.clearDue ?? false }),
+
+  /** 지우기(열린 것·완료한 것). 지운 개수. 다른 기기에서도 지워진다. */
+  delete: (ids: number[]) => invoke<number>("todo_delete", { ids }),
+
+  /** 완료 되돌리기. 완료한 것이 아니면 false. */
+  reopen: (id: number) => invoke<boolean>("todo_reopen", { id }),
 };
 
 export type ScheduleRange = "today" | "week" | "all";

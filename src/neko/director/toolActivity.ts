@@ -24,6 +24,9 @@ const TABLE: Record<Exclude<ToolName, "user.ask">, NekoActivity> = {
   "todo.list_done": "reading",
   "todo.add": "typing",
   "todo.complete": "stamp",
+  "todo.edit": "typing", // 고쳐 쓴다
+  "todo.delete": "erase",
+  "todo.reopen": "erase", // 완료 표시를 지운다
   "schedule.list": "calendar",
   "schedule.add": "stamp",
   "schedule.delete": "erase",
