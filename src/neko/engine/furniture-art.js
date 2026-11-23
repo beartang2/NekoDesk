@@ -63,6 +63,15 @@ const SOFA_PARTS = (c) => [
   { t: "rrect", x: -14.5, y: -6.5, w: 5, h: 9, rad: 2.3, rot: 0, c },
   { t: "rrect", x: 14.5, y: -6.5, w: 5, h: 9, rad: 2.3, rot: 0, c },
 ];
+// 탁자(0.1.28, 사용자: 기본 가구에 탁자 하나 — 그 위에 물건을 둔다): 폭 26 칸 = 고양이 키 1.6, 높이 12 칸 ≈ 0.74. 나무 상판·앞판·다리 둘,
+// 상판 가운데 짧은 덮개(포인트 색 계열, 없으면 흰색). 윗면(상판 위)은 고양이가 올라앉고 물건도 얹는다(hold)
+const TABLE_PARTS = (runner) => [
+  { t: "rrect", x: -9.6, y: -4.6, w: 2, h: 9.2, rad: 0.7, rot: 0, c: "brown" },
+  { t: "rrect", x: 9.6, y: -4.6, w: 2, h: 9.2, rad: 0.7, rot: 0, c: "brown" },
+  { t: "rrect", x: 0, y: -9, w: 22, h: 2, rad: 0.6, rot: 0, c: "brown.dark" },
+  { t: "rrect", x: 0, y: -10.8, w: 26, h: 1.8, rad: 0.8, rot: 0, c: "brown.light" },
+  { t: "rrect", x: 0, y: -10.5, w: 8, h: 1.3, rad: 0.4, rot: 0, c: runner },
+];
 // 상자: 뒤 겹(안쪽 그늘 벽·뒤 날개)과 앞 겹(앞 벽·앞 날개·테이프). 고양이가 들어가면 그 사이에 그린다. 18.5 칸 = 0.8
 const BOX_BACK = [
   { t: "poly", pts: [[-10.5, -16], [-1, -16], [-3, -18.5], [-11.5, -18]], round: 0.4, c: "orange" },
@@ -80,7 +89,7 @@ const BOX_FRONT = (tape) => [
 
 /**
  * 가구마다: 기준 크기(고양이 키 단위, by = 키 "h" 나 폭 "w" 에 맞춘다), 모양 칸(span = 그 방향의 칸 수), 올라앉는 면
- * (y = 바닥에서 높이, x0·x1 = 가운데에서 가로 — 모두 고양이 키 단위)
+ * (y = 바닥에서 높이, x0·x1 = 가운데에서 가로 — 모두 고양이 키 단위. hold = 물건도 얹는다)
  */
 export const FURNITURE_ART = {
   lamp: { size: 1.5, by: "h", span: 32, surfaces: [] },
@@ -92,9 +101,11 @@ export const FURNITURE_ART = {
   // 등받이에서 자는 것처럼 보였다(사용자). 가로는 팔걸이 안쪽(±12 칸 = 0.78)
   sofa: { size: 2.2, by: "w", span: 34, surfaces: [{ y: 0.44, x0: -0.7, x1: 0.7 }] },
   box: { size: 0.8, by: "h", span: 18.5, surfaces: [] },
+  // 탁자: 상판 위(바닥에서 11.7 칸 = 0.72), 가로 상판 안쪽(±12 칸 = 0.74). 물건도 얹는다
+  table: { size: 1.6, by: "w", span: 26, surfaces: [{ y: 0.72, x0: -0.74, x1: 0.74, hold: true }] },
 };
 /** 모양의 폭·높이(칸) */
-const EXTENT = { lamp: [14, 32], cattower: [22, 32], wheel: [31, 32], sofa: [34, 14], box: [27.6, 18.5] };
+const EXTENT = { lamp: [14, 32], cattower: [22, 32], wheel: [31, 32], sofa: [34, 14], box: [27.6, 18.5], table: [26, 12] };
 
 /** 한 칸의 px 와 그린 크기(px). slotW 를 주면 폭이 칸의 90% 를 넘지 않게 줄인다(키·폭을 같이, 고양이 대비보다 칸이 먼저) */
 export function furnitureBox(kind, S, slotW) {
@@ -123,9 +134,10 @@ export function boxOpening(S, slotW) {
 }
 
 /** 올라앉는 면(px, 가운데 x·바닥 y 기준): 엔진이 캣타워·소파 위에 앉을 때. 칸 맞춤으로 줄면 면도 같이 */
-export function furnitureSurfaces(kind, S, slotW) {
-  const { fit } = furnitureBox(kind, S, slotW), k = CAT * S * fit;
-  return FURNITURE_ART[kind].surfaces.map((s) => ({ y: s.y * k, x0: s.x0 * k, x1: s.x1 * k }));
+export function furnitureSurfaces(kind, S, slotW, list) {
+  // 면 목록은 가구 항목이 주면 그것(자유 가구 uses 의 perch 등, docs/neko-furniture-free.md §8), 없으면 종류 표
+  const { fit } = furnitureBox(kind, S, slotW), k = CAT * S * fit, src = Array.isArray(list) ? list : FURNITURE_ART[kind].surfaces;
+  return src.map((s) => ({ y: s.y * k, x0: s.x0 * k, x1: s.x1 * k, ...(s.hold ? { hold: true } : {}) }));
 }
 
 const rgb = (hex) => { const n = parseInt(hex.replace("#", ""), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
@@ -152,7 +164,7 @@ export function accentTone(hex, sMax, l) {
   return `#${[R, G, B].map((v) => Math.round((v + m) * 255).toString(16).padStart(2, "0")).join("")}`;
 }
 /** 가구마다 포인트 색 계열(밝기·채도 상한): 소파 천은 넓어 차분하게, 방석·발바닥·테이프는 조금 더 또렷하게 */
-const TONE = { sofa: [0.45, 0.64], cushion: [0.6, 0.66], paw: [0.62, 0.6], tape: [0.6, 0.62] };
+const TONE = { sofa: [0.45, 0.64], cushion: [0.6, 0.66], paw: [0.62, 0.6], tape: [0.6, 0.62], runner: [0.5, 0.7] };
 const toneOf = (accent, k, dflt) => accentTone(accent, TONE[k][0], TONE[k][1]) || dflt;
 
 /**
@@ -201,4 +213,5 @@ export function drawFurniture(g, kind, x, bottom, S, o = {}) {
     gr.addColorStop(0, `rgb(${mix(c, [255, 255, 255], 0.3)})`); gr.addColorStop(1, `rgb(${mix(c, [58, 44, 52], 0.18)})`);
     g.fillStyle = gr; g.beginPath(); g.ellipse(cx, cy, TOWER_CUSHION.rx * u, ry, 0, 0, Math.PI * 2); g.fill();
   } else if (kind === "sofa") drawShape(g, { v: 1, parts: SOFA_PARTS(toneOf(o.accent, "sofa", "blue")) }, x, bottom, u, edge);
+  else if (kind === "table") drawShape(g, { v: 1, parts: TABLE_PARTS(toneOf(o.accent, "runner", "white")) }, x, bottom, u, edge);
 }

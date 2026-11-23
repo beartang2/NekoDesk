@@ -248,7 +248,9 @@ export interface NekoController {
    * 이 장소에 놓인 가구(칸 번호로, docs/neko-furniture.md §4). 자리·크기는 엔진이 무대가 바뀔 때마다 칸과 그림으로 다시 잰다.
    * 캣타워 발판·소파 쿠션은 올라앉는 면이 된다. on = 조명 켜짐(엔진이 바꾸면 lamp 사건)
    */
-  setFurniture(items: { id: string; kind: "lamp" | "cattower" | "wheel" | "sofa" | "box"; at: "sidebar" | "dock"; slot: number; on?: boolean; accent?: string }[]): void;
+  setFurniture(items: { id: string; kind: "lamp" | "cattower" | "wheel" | "sofa" | "box" | "table"; at: "sidebar" | "dock"; slot: number; on?: boolean; accent?: string;
+    /** 올라앉는 면 목록(고양이 키 단위, hold = 물건도 얹는다). 없으면 종류 표(furniture-art) */
+    surfaces?: { y: number; x0: number; x1: number; hold?: boolean }[] }[]): void;
   /**
    * 벽에 건 선물(액자 등)만 그릴 캔버스. 호스트가 정지 가구 층 밑에 고양이 캔버스와 같은 크기로 둔다 — 벽 → 벽 선물 → 가구 → 고양이.
    * 끄는 것·떨어지는 것은 고양이 캔버스에. null 이면 다 고양이 캔버스에(엔진이 맡은 가구보다 먼저). 화면 모드는 안 쓴다

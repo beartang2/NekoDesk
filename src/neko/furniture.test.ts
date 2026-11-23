@@ -21,9 +21,9 @@ describe("가구 저장", () => {
     expect(furnitureSlots("screen", 1000)).toEqual([]);
   });
 
-  it("기본 다섯은 처음부터 있고, 빈 칸에 놓고, 꽉 차면 거절, 마당은 못 놓는다", async () => {
+  it("기본 여섯(탁자 더함)은 처음부터 있고, 빈 칸에 놓고, 꽉 차면 거절, 마당은 못 놓는다", async () => {
     await s().load();
-    expect(s().items.map((f) => f.id)).toEqual(["base:lamp", "base:cattower", "base:wheel", "base:sofa", "base:box"]);
+    expect(s().items.map((f) => f.id)).toEqual(["base:lamp", "base:cattower", "base:wheel", "base:sofa", "base:box", "base:table"]);
     expect(await s().place("base:sofa", "sidebar")).toBe(true);
     expect(await s().place("base:lamp", "sidebar")).toBe(true);
     expect(await s().place("base:box", "sidebar")).toBe(false); // 방은 2칸
@@ -114,6 +114,6 @@ describe("가구 저장", () => {
     expect(items.find((f) => f.id === "base:lamp")!.place).toBeNull();
     expect(items.some((f) => f.id === "walk:x")).toBe(false);
     expect(items.find((f) => f.id === "base:wheel")!.kind).toBe("wheel");
-    expect(parseFurniture("{망가짐").length).toBe(5);
+    expect(parseFurniture("{망가짐").length).toBe(6);
   });
 });

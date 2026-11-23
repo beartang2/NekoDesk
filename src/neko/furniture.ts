@@ -15,7 +15,7 @@ import { cleanShownText } from "../lib/replyTags";
  * 선물함(neko_gifts)엔 넣지 않는다 — 옛 버전이 선물로 그려 끌고 다닌다.
  */
 export const FURNITURE_KEY = "neko_furniture";
-export const FURNITURE_KINDS = ["lamp", "cattower", "wheel", "sofa", "box"] as const;
+export const FURNITURE_KINDS = ["lamp", "cattower", "wheel", "sofa", "box", "table"] as const;
 export type FurnitureKind = (typeof FURNITURE_KINDS)[number];
 export type FurniturePlace = { at: "sidebar" | "dock"; slot: number };
 export interface FurnitureItem {
@@ -31,9 +31,9 @@ export interface FurnitureItem {
   at?: number;
 }
 
-/** 기본 가구 다섯: 처음부터 가구 탭에 있다. 이름은 화면이 쓴다 */
+/** 기본 가구 여섯(0.1.28 탁자 더함): 처음부터 가구 탭에 있다. 이름은 화면이 쓴다. 옛 버전은 모르는 kind(탁자)를 읽을 때 뺀다 */
 export const BASE_FURNITURE: FurnitureItem[] = FURNITURE_KINDS.map((kind) => ({ id: `base:${kind}`, kind, place: null }));
-export const FURNITURE_NAME: Record<FurnitureKind, string> = { lamp: "조명", cattower: "캣타워", wheel: "캣휠", sofa: "소파", box: "상자" };
+export const FURNITURE_NAME: Record<FurnitureKind, string> = { lamp: "조명", cattower: "캣타워", wheel: "캣휠", sofa: "소파", box: "상자", table: "탁자" };
 const KINDS = new Set<string>(FURNITURE_KINDS);
 const isBase = (id: string) => id.startsWith("base:");
 

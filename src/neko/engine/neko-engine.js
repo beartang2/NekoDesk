@@ -4999,7 +4999,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      조명)만 그린 뒤 furnitureHeld 로 알린다(그 층은 그걸 빼고 그린다). 상자 앞 겹은 늘 엔진이 고양이 위에 그린다.
      캣타워 발판·소파 쿠션은 올라앉는 면(TOPS)이 된다 — 화면 모드의 창 윗변과 같은 길이라 잡았다 놓아도 그 위에 내린다. */
   let furniture = []; // [{ id, kind, at, slot, on, x, slotW, box: { x, y, w, h } }]
-  const FURN_KINDS = new Set(["lamp", "cattower", "wheel", "sofa", "box"]);
+  const FURN_KINDS = new Set(["lamp", "cattower", "wheel", "sofa", "box", "table"]);
   function layoutFurniture() {
     if (WORLD) return;
     for (const f of furniture) {
@@ -5009,8 +5009,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       f.box = { x: f.x - b.w / 2, y: BASE_Y - b.h, w: b.w, h: b.h };
     }
     // 올라앉는 면(그림 furniture-art 한 곳): 캣타워 발판·소파 쿠션·캣휠 안 레일
-    TOPS = furniture.flatMap((f) => FA.furnitureSurfaces(f.kind, S, f.slotW)
-      .map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, wheel: f.kind === "wheel", x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y })));
+    TOPS = furniture.flatMap((f) => FA.furnitureSurfaces(f.kind, S, f.slotW, f.surfaces)
+      .map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, i, wheel: f.kind === "wheel", hold: !!sf.hold, x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y })));
     const c = cat, was = c.perch;
     if (!was) return;
     const t = TOPS.find((o) => o.id === was.id);
@@ -5022,7 +5022,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (WORLD) return;
     const prev = new Map(furniture.map((f) => [f.id, f]));
     furniture = (Array.isArray(items) ? items : []).filter((f) => f && f.id != null && FURN_KINDS.has(f.kind) && (f.at === "sidebar" || f.at === "dock") && Number.isInteger(f.slot))
-      .map((f) => ({ id: String(f.id), kind: f.kind, at: f.at, slot: f.slot, on: prev.get(String(f.id))?.on ?? !!f.on, accent: typeof f.accent === "string" ? f.accent : "", inV: prev.get(String(f.id))?.inV ?? 0, spin: prev.get(String(f.id))?.spin ?? 0, spinV: prev.get(String(f.id))?.spinV ?? 0, x: 0, slotW: 0, box: null }));
+      .map((f) => ({ id: String(f.id), kind: f.kind, at: f.at, slot: f.slot, on: prev.get(String(f.id))?.on ?? !!f.on, accent: typeof f.accent === "string" ? f.accent : "",
+        surfaces: Array.isArray(f.surfaces) ? f.surfaces.filter((s) => s && [s.y, s.x0, s.x1].every(Number.isFinite) && s.x1 > s.x0) : undefined, inV: prev.get(String(f.id))?.inV ?? 0, spin: prev.get(String(f.id))?.spin ?? 0, spinV: prev.get(String(f.id))?.spinV ?? 0, x: 0, slotW: 0, box: null }));
     layoutFurniture();
     const bs = actOf("box"); if (bs) bs.roam = !!furnOf("box"); // 상자 가구가 있으면 상자 놀이는 그리로 걸어간다
     if (cat.act && FURN_ACTS.has(cat.act.key) && !furnOf(cat.act.key)) endAct(); // 그 가구를 치웠다
