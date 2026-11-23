@@ -5259,8 +5259,28 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
     schedule();
   }
-  const onVisible = () => { if (!document.hidden) { last = performance.now(); schedule(); } };
+  /* 오래 뒤에 있다 오면(폰) iOS 가 캔버스 내용을 버릴 수 있다(GPU 프로세스 정리 등). 고양이 캔버스는 매 프레임 다시 그리지만
+     털 무늬(coatTex 몸·머리 캔버스)는 한 번만 그려 두어, 비면 몸·머리가 안 보였다(네코가 사라짐). 산책 팻말도 한 번만 그린다.
+     다시 보일 때(늦게 비워지는 때를 위해 조금 뒤 한 번 더)·캔버스 문맥이 돌아올 때 비었으면 다시 만들고 다시 그린다 */
+  function coatLost() {
+    const t = cat.coatTex?.body;
+    try { return !!t && t.canvas.getContext("2d").getImageData(0, 0, 1, 1).data[3] === 0; } catch { return false; }
+  }
+  let reviveT = 0;
+  function revive() {
+    if (coatLost()) generateCoat();
+    if (AWAY) AWAY.drawn = false;
+    resize();
+    kick();
+  }
+  const onVisible = () => {
+    if (document.hidden) return;
+    last = performance.now();
+    revive();
+    clearTimeout(reviveT); reviveT = setTimeout(revive, 1500);
+  };
   document.addEventListener("visibilitychange", onVisible);
+  canvas.addEventListener("contextrestored", revive);
   canvas.addEventListener("pointerdown", kick, true);
   schedule();
 
@@ -5317,8 +5337,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     pause() { paused = true; cancelAnimationFrame(raf); clearTimeout(timer); raf = 0; timer = 0; },
     resume() { if (paused) { paused = false; last = performance.now(); schedule(); } },
     destroy() {
-      cancelAnimationFrame(raf); clearTimeout(timer); clearTimeout(restageT); raf = 0; timer = 0; paused = true; listeners.clear(); ro.disconnect();
+      cancelAnimationFrame(raf); clearTimeout(timer); clearTimeout(restageT); clearTimeout(reviveT); raf = 0; timer = 0; paused = true; listeners.clear(); ro.disconnect();
       window.removeEventListener("resize", resize); dprMq?.removeEventListener("change", onDpr); document.removeEventListener("visibilitychange", onVisible);
+      canvas.removeEventListener("contextrestored", revive);
     },
     // 화면 모드(docs/neko-screen-mode.md §9): E2 크기 고정 · E3 바닥
     setScale(v) { FIXED_S = Number.isFinite(v) ? clamp(v, 0.35, 1.4) : null; resize(); },
