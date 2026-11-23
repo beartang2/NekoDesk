@@ -4,7 +4,7 @@ import { drawFurniture, furnitureBox } from "./engine/furniture-art";
 import { FURNITURE_SLOTS, furnitureSlots } from "./engine/decor-draw";
 import { stageS } from "./engine/stage-scale";
 import { roomWindows } from "./engine/room-window";
-import { FURNITURE_NAME, useNekoFurniture, type FurnitureItem } from "./furniture";
+import { FURNITURE_NAME, isArtKind, useNekoFurniture, type FurnitureItem } from "./furniture";
 import { useNekoStore } from "./nekoStore";
 import { FloorBand, WallPattern } from "./Wallpaper";
 import "./NekoRoom.css"; // 벽·바닥 색(방과 같다)
@@ -20,7 +20,7 @@ export function FurnitureThumb({ item, size = 64 }: { item: FurnitureItem; size?
   const dpr = Math.min(window.devicePixelRatio || 1, 2), accent = useAccent();
   useEffect(() => {
     const g = ref.current?.getContext("2d");
-    if (!g || item.shape) return;
+    if (!g || item.shape || !isArtKind(item)) return;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, size, size);
     const b = furnitureBox(item.kind, 1), S = (size * 0.82) / Math.max(b.w, b.h);
@@ -97,7 +97,7 @@ function FurnitureSlots({ f, at, done }: { f: FurnitureItem; at: Room; done: () 
     g.clearRect(0, 0, W, H);
     slots.forEach((s, i) => {
       const o = owner(i);
-      if (o) drawFurniture(g, o.kind, s.x, floorY, S, { slotW: s.w, accent, on: !!lamps[o.id], edge: 3 * dpr, layer: "all" });
+      if (o) drawFurniture(g, o.kind, s.x, floorY, S, { slotW: s.w, accent, on: !!lamps[o.id], edge: 3 * dpr, layer: "all", shape: o.shape }); // 자유 가구는 제 모양
     });
   });
   const pick = (i: number) => { void useNekoFurniture.getState().place(f.id, at, i); done(); };

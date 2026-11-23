@@ -45,7 +45,7 @@ describe("activity-mix", () => {
 
   it("2단계: 혼자 놀기 후보는 채움(fills)이 있고, 상자 뒤지기·쳐다보기도 후보다", () => {
     const solo = Object.keys(MIX).filter((k) => MIX[k].solo).sort();
-    expect(solo).toEqual(["box", "butterfly", "cattower", "climb", "dig", "draw", "gaze", "giftplay", "groom", "knead", "lamp", "music", "reading", "snack", "sofa", "stretch", "table", "tower", "wheel", "window", "yarn"]);
+    expect(solo).toEqual(["box", "butterfly", "cattower", "climb", "dig", "draw", "fbat", "fhide", "fperch", "fscratch", "gaze", "giftplay", "groom", "knead", "lamp", "music", "reading", "snack", "sofa", "stretch", "table", "tower", "wheel", "window", "yarn"]);
     for (const k of solo) expect(Object.values(MIX[k].fills ?? {}).some((v) => v !== 0)).toBe(true);
   });
 

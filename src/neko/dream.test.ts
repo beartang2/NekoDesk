@@ -38,6 +38,9 @@ describe("꿈 그림과 엔진", () => {
   it("그림 목록은 최근 선물과 가구", () => {
     expect(dreamPictures().map((p) => p.label)).toEqual(["빨간 열매 — 동그랗다", "소파(가구)"]);
     expect(dreamPictures()[1].content).toEqual({ furniture: "sofa", accent: "#aa66cc" });
+    // 자유 가구(물어온 것)는 kind 그림이 없다 — 제 모양으로
+    useNekoFurniture.setState({ items: [{ id: "walk:f", kind: "free", title: "걸상", shape: SHAPE as never, uses: [], place: null }] } as never);
+    expect(dreamPictures()[1]).toEqual({ label: "걸상(가구)", content: { shape: SHAPE } });
   });
   it("고른 번호의 그림으로 꿈을 띄우고 노트에 남긴다", async () => {
     h.dream = { text: "소파가 구름이 되는 꿈", see: 2, draw: "", greet: "" };

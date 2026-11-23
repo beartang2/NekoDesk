@@ -96,7 +96,14 @@ export interface SoloWhere {
   like?: NekoActivity[]; tired?: NekoActivity[];
   /** 이 장소에 놓인 가구 종류(docs/neko-furniture.md §3). 가구 놀이는 그 가구가 있을 때만, 조명은 lampWant 일 때만 */
   furniture?: string[]; lampWant?: boolean;
+  /**
+   * 이 장소의 자유 가구가 내주는 쓰임새(엔진이 그 칸·무대에서 다시 보고 켠 것 — 물건 찬 면은 뺀다, docs/neko-furniture-free.md §8·§9).
+   * 쓰임새 놀이는 그 쓰임새가 있을 때만. 같은 쓰임새 가구가 여럿이어도 후보는 하나(어느 가구로 할지는 엔진이 고른다)
+   */
+  furnitureUses?: string[];
 }
+/** 자유 가구 쓰임새 놀이 → 있어야 하는 쓰임새 */
+const NEEDS_USE: Partial<Record<string, string>> = { fperch: "perch", fhide: "inside", fscratch: "scratch", fbat: "bat" };
 /** 놓인 가구가 있어야 하는 혼자 놀기(상자 놀이도 상자 가구로 옮겼다 — 사용자) */
 const NEEDS_FURNITURE: Partial<Record<string, string>> = { lamp: "lamp", cattower: "cattower", wheel: "wheel", sofa: "sofa", box: "box", table: "table" };
 /** 기울기 손잡이(docs/neko-mind.md §6.3) */
@@ -108,7 +115,11 @@ export const LIKE_K = 1.6, TIRED_K = 0.5;
  */
 export function soloOdds(s: Needs, o: SoloWhere): { key: NekoActivity; p: number }[] {
   const recent = new Set([o.last, ...(o.recent ?? [])]);
-  const has = (k: string) => { const f = NEEDS_FURNITURE[k]; return !f || (!!o.furniture?.includes(f) && (k !== "lamp" || !!o.lampWant)); };
+  const has = (k: string) => {
+    const f = NEEDS_FURNITURE[k], u = NEEDS_USE[k];
+    if (u) return !!o.furnitureUses?.includes(u);
+    return !f || (!!o.furniture?.includes(f) && (k !== "lamp" || !!o.lampWant));
+  };
   const w = SOLO_KEYS
     .filter((k) => !recent.has(k) && (k !== "giftplay" || o.hasGifts) && (k !== "tower" || !!o.towerOk) && has(k))
     .map((key) => ({ key, w: score(s, fillsOf(key), o.play) * (o.like?.includes(key) ? LIKE_K : o.tired?.includes(key) ? TIRED_K : 1) }));

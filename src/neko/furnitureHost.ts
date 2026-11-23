@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { NekoController } from "./engine/neko-engine";
-import { orphansOnFurniture, placedAt, useNekoFurniture, type FurnitureKind } from "./furniture";
+import { orphansOnFurniture, placedAt, useNekoFurniture, type FurnitureItemKind } from "./furniture";
 import { useNekoGifts } from "./gifts";
 import { useNekoStore } from "./nekoStore";
 
@@ -17,7 +17,7 @@ type FurnitureEvents = {
 };
 /** 가구 API 가 있는 엔진(없으면 undefined) */
 export type FurnitureCtrl = NekoController & {
-  setFurniture?: (items: { id: string; kind: FurnitureKind; at: "sidebar" | "dock"; slot: number; on: boolean; accent: string }[]) => void;
+  setFurniture?: (items: { id: string; kind: FurnitureItemKind; at: "sidebar" | "dock"; slot: number; on: boolean; accent: string; shape?: unknown; uses?: unknown[] }[]) => void;
   on<K extends keyof FurnitureEvents>(ev: K, fn: (p: FurnitureEvents[K]) => void): () => void;
 };
 
@@ -70,7 +70,9 @@ export function startFurnitureHost(ctrl: NekoController) {
     const at = useNekoStore.getState().stage.placement;
     if (at !== "sidebar" && at !== "dock") { fc.setFurniture?.([]); return; }
     const a = accentHex();
-    fc.setFurniture?.(placedAt(useNekoFurniture.getState().items, at).map((f) => ({ id: f.id, kind: f.kind, at, slot: f.place!.slot, on: lampOn(f.id), accent: a })));
+    // 자유 가구는 모양·쓰임새를 같이(엔진이 그리고 그 무대에서 쓰임새를 다시 본다)
+    fc.setFurniture?.(placedAt(useNekoFurniture.getState().items, at).map((f) => ({ id: f.id, kind: f.kind, at, slot: f.place!.slot, on: lampOn(f.id), accent: a,
+      ...(f.kind === "free" ? { shape: f.shape, uses: f.uses ?? [] } : {}) })));
   };
   onAccent(send);
   useNekoFurniture.subscribe((s, prev) => { if (s.items !== prev.items) send(); });

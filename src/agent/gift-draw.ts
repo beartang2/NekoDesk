@@ -14,8 +14,8 @@ import { PLAYS } from "../neko/gifts";
  * 산책(walk.ts)과 선물 시험(GiftLab)이 같은 길을 쓴다.
  */
 
-/** 선물 모양 스키마. 그림체는 앱이 입히고 모델은 모양만 */
-const GIFT_SHAPE_SCHEMA = {
+/** 선물 모양 스키마. 그림체는 앱이 입히고 모델은 모양만. 가구 그리기(furniture-draw.ts)도 칸 설명만 바꿔 쓴다 */
+export const GIFT_SHAPE_SCHEMA = {
   type: "object",
   description:
     "물건 모양. 32칸(가운데 x=0, 바닥 y=0, 위는 음수, 좌우 ±16). 도형 8~20개, 뒤에 적은 게 위에 그려진다. " +
@@ -76,14 +76,16 @@ const FIX_TOOL = {
   },
 } as OpenAiToolSchema;
 
-const HOW = [
+/** 그리는 법. size = 크기 줄(가구는 고양이와 견준 축척으로 바꾼다 — furniture-draw.ts) */
+export const drawingHow = (size = "- 긴 쪽이 20~28칸이 되게 크게 그리고, 맨 아래가 바닥(y=0)에 닿게. 좌우 대칭인 물건은 좌표도 대칭으로.") => [
   "그리는 법:",
   "- 먼저 그 물건을 한눈에 알아보게 하는 것 두세 가지를 정해.",
   "- 큰 덩어리부터 적고 그 위에 특징을 얹어. 실루엣은 poly 로 정확히(뾰족한 데는 round 0), 결·주름·꼭지는 가는 line 으로.",
   "- 그늘·무늬는 같은 색의 .dark, 밝은 데는 .light. 색은 두세 가지만.",
-  "- 긴 쪽이 20~28칸이 되게 크게 그리고, 맨 아래가 바닥(y=0)에 닿게. 좌우 대칭인 물건은 좌표도 대칭으로.",
+  size,
   "- 글자·숫자는 못 그린다. 그 물건이 놓인 바닥·배경도 그리지 마.",
 ].join("\n");
+const HOW = drawingHow();
 
 export interface DrawnGift {
   /** 검사를 거친 최종 모양 */

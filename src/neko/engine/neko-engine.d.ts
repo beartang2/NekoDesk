@@ -68,6 +68,8 @@ export type NekoActivity =
   | "wheel"
   | "sofa"
   | "table"
+  // 자유 가구 쓰임새(docs/neko-furniture-free.md §8): 올라앉기·들어가 숨기·발톱 긁기·매달린 것 치기
+  | "fperch" | "fhide" | "fscratch" | "fbat"
   // 창 탐험(캣타워, 화면 모드)
   | "tower"
   // 쳐다보기: 애정이 낮을 때(docs/neko-activity-mix.md §2.3)
@@ -254,7 +256,9 @@ export interface NekoController {
    * 이 장소에 놓인 가구(칸 번호로, docs/neko-furniture.md §4). 자리·크기는 엔진이 무대가 바뀔 때마다 칸과 그림으로 다시 잰다.
    * 캣타워 발판·소파 쿠션은 올라앉는 면이 된다. on = 조명 켜짐(엔진이 바꾸면 lamp 사건)
    */
-  setFurniture(items: { id: string; kind: "lamp" | "cattower" | "wheel" | "sofa" | "box" | "table"; at: "sidebar" | "dock"; slot: number; on?: boolean; accent?: string;
+  setFurniture(items: { id: string; kind: "lamp" | "cattower" | "wheel" | "sofa" | "box" | "table" | "free"; at: "sidebar" | "dock"; slot: number; on?: boolean; accent?: string;
+    /** 자유 가구만: 모양(고양이 키 12칸 축척)·쓰임새(검사를 거친 칸 단위, neko/furnitureUses FurnUse) */
+    shape?: unknown; uses?: unknown[];
     /** 올라앉는 면 목록(고양이 키 단위, hold = 물건도 얹는다). 없으면 종류 표(furniture-art) */
     surfaces?: { y: number; x0: number; x1: number; hold?: boolean }[] }[]): void;
   /**
@@ -265,7 +269,8 @@ export interface NekoController {
   /** 낚싯대 장난감 바구니(방·거실 바닥 구석)를 켜고 끈다(같이 놀기). 기본 끔 — 앱 호스트가 켠다 */
   setToys(on: boolean): void;
   /** 놓인 가구와 조명 켜짐(감독이 혼자 놀기 후보를 고를 때) */
-  readonly furniture: { id: string; kind: string; on: boolean }[];
+  /** itemsOn = 윗면에 얹힌 물건 수, uses = 자유 가구가 이 무대에서 내주는 쓰임새(감독 후보) */
+  readonly furniture: { id: string; kind: string; on: boolean; itemsOn?: number; uses?: string[] }[];
   /** 이 점(무대 px)이 가구 위면 그 id */
   hitFurniture(x: number, y: number): string | null;
   /**

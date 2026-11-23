@@ -137,6 +137,25 @@ mod tests {
     }
 
     #[test]
+    fn free_furniture_survives_old_version_rewrites() {
+        // 자유 가구(0.1.28, kind "free" — docs/neko-furniture-free.md §10): 옛 화면(0.1.27 까지)은 모르는 kind 라 빼고 읽고, 다른 가구를 바꾸며
+        // 값을 다시 쓸 때 그 항목 없이 쓴다(버린 때 gone 도 안 적는다). 받는 쪽은 가구 하나씩 합쳐 자유 가구와 그 모양·쓰임새를 그대로 남긴다
+        let dock0: Value = serde_json::from_str(DOCK0).unwrap();
+        let free = json!({ "id": "walk:f", "kind": "free", "title": "걸상", "shape": { "v": 1, "parts": [] },
+            "uses": [{ "u": "perch", "y": -11, "x0": -11.5, "x1": 11.5 }], "place": { "at": "dock", "slot": 1 }, "at": 10 });
+        let new_device = val(json!([free.clone()]), json!({}));
+        let old_device = val(json!([{ "id": "base:sofa", "kind": "sofa", "place": dock0, "at": 20 }]), json!({}));
+        let (got, upload) = merge_values(Some(&new_device), &old_device, 20);
+        let got: Value = serde_json::from_str(&got.unwrap()).unwrap();
+        assert!(upload, "옛 기기 값엔 자유 가구가 없다 — 다시 올린다");
+        let kept = got["items"].as_array().unwrap().iter().find(|i| i["id"] == "walk:f").unwrap();
+        assert_eq!(kept, &free, "모양·쓰임새·자리가 한 글자도 안 바뀐다");
+        // 옛 기기가 합친 값을 받으면(Rust 는 옛 버전에도 0.1.26 부터 같다) 자유 가구 항목을 글 그대로 들고 있다
+        let (old_now, _) = merge_values(Some(&old_device), &got.to_string(), 30);
+        assert!(old_now.unwrap().contains("\"kind\":\"free\""));
+    }
+
+    #[test]
     fn old_version_values() {
         let dock0: Value = serde_json::from_str(DOCK0).unwrap();
         // 이 기기의 옛 값(1)은 받은 새 바꿈에 진다. 받은 옛 값(0.1.25 맥)은 기록 시각에 그 전체 — 안 적힌 기본 가구는 치운 것

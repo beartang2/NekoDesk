@@ -1,4 +1,8 @@
 export type FurnitureKind = "lamp" | "cattower" | "wheel" | "sofa" | "box" | "table";
+/** 그리는 종류: 기본 표 가구, 또는 자유 가구 "free"(모양 shape 을 고양이 키 FREE_U 칸 축척으로) */
+export type FurnitureDrawKind = FurnitureKind | "free";
+/** 자유 가구 축척: 고양이 키 = 12칸(neko/furnitureUses CAT_U 와 같다) */
+export const FREE_U: number;
 /** 올라앉는 면. hold = 물건도 얹는다(탁자 윗면) */
 export interface FurnitureSurface { y: number; x0: number; x1: number; hold?: boolean }
 /** 가구마다 기준 크기(고양이 키 단위, by = 키 "h"·폭 "w"), 모양 칸, 올라앉는 면(고양이 키 단위) */
@@ -10,14 +14,16 @@ export function accentTone(hex: string | undefined, sMax: number, l: number): st
 /** 상자 입구(px, 가운데·바닥 기준): 앞벽 끝 x0·x1, 테두리 높이 rim(위가 음수) — 안에 든 고양이를 테두리 아래에선 이 폭으로 자른다 */
 export function boxOpening(S: number, slotW?: number): { x0: number; x1: number; rim: number };
 export function wheelCircle(S: number, slotW?: number): { dy: number; r: number; rIn: number };
-export function furnitureBox(kind: FurnitureKind, S: number, slotW?: number): { u: number; w: number; h: number; fit: number };
+/** free 는 shape 로 잰다(없으면 0) */
+export function furnitureBox(kind: FurnitureDrawKind, S: number, slotW?: number, shape?: unknown): { u: number; w: number; h: number; fit: number };
 /** 올라앉는 면(px, 가운데 x·바닥 y 기준). list = 가구 항목이 준 면 목록(고양이 키 단위) — 있으면 종류 표 대신 */
-export function furnitureSurfaces(kind: FurnitureKind, S: number, slotW?: number, list?: FurnitureSurface[]): FurnitureSurface[];
+export function furnitureSurfaces(kind: FurnitureDrawKind, S: number, slotW?: number, list?: FurnitureSurface[], shape?: unknown): FurnitureSurface[];
 export function drawFurniture(
   g: CanvasRenderingContext2D,
-  kind: FurnitureKind,
+  kind: FurnitureDrawKind,
   x: number,
   bottom: number,
   S: number,
-  o?: { on?: boolean; accent?: string; spin?: number; edge?: number; layer?: "back" | "front" | "all"; slotW?: number; shadow?: string | null },
+  /** shape·front = 자유 가구만(모양, 앞 겹에 다시 그릴 도형 번호) */
+  o?: { on?: boolean; accent?: string; spin?: number; edge?: number; layer?: "back" | "front" | "all"; slotW?: number; shadow?: string | null; shape?: unknown; front?: number[] },
 ): void;
