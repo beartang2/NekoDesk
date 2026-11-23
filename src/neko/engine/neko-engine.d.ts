@@ -123,6 +123,8 @@ export interface NekoEvents {
   furnitureMenu: { id: string; x: number; y: number };
   /** 꿈 말풍선이 떴다(true)·접혔다(false) */
   dream: boolean;
+  /** iOS 가 화면 그림(GPU)을 버린 것을 알아채 고양이를 다시 그렸다. 호스트는 다른 층도 다시 그리게 한다(흰 화면이 남지 않게) */
+  repaint: void;
   /** 네코가 조명을 톡: 켜짐이 바뀌었다(호스트가 이 기기에 기억해 setFurniture 의 on 으로 돌려준다) */
   lamp: { id: string; on: boolean };
   /** 고양이나 놓아 둔 물건을 누르기 시작(true)·뗌(false). 폰은 그동안 가장자리 손짓(대화 목록 열기)을 막는다(neko/holding) */

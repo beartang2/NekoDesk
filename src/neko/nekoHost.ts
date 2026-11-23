@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { REPAINT } from "../lib/useShown";
 import { createNeko, type NekoController } from "./engine/neko-engine";
 import { useNekoStore } from "./nekoStore";
 import { getRemoteNeko, onRemoteNeko } from "./remoteNeko";
@@ -50,6 +51,8 @@ export function ensureNeko(): NekoController {
     ctrl = createNeko(nekoCanvas(), { appearance: useNekoStore.getState().appearance });
     ctrl.setWallCanvas(nekoWallCanvas());
     ctrl.setToys(true); // 낚싯대 바구니(같이 놀기)
+    // iOS 가 화면 그림(GPU)을 버렸다: 다른 층도 다시 그리게 알린다(lib/useShown, 폰은 lib/phone 이 크기를 살짝 흔든다)
+    ctrl.on("repaint", () => window.dispatchEvent(new Event(REPAINT)));
     // 가구: 놓인 것을 엔진에 넘기고, 조명 켜짐·활동 중 잡은 가구를 받는다(furnitureHost)
     startFurnitureHost(ctrl);
     // 무대 배율은 stage-scale 한 곳: 폰은 고양이·선물을 70% 로, 맥 거실은 기본 높이부터 멈춘다. 무대 크기·장소가 바뀔 때마다 넘긴다
