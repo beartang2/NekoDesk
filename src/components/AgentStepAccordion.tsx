@@ -44,7 +44,7 @@ interface ToolMeta {
  * 내장 툴은 빠짐없이 적는다 — ToolName 에 툴을 더하고 여기를 빠뜨리면 tsc 가 잡는다.
  * 표에 없는 툴(MCP)은 이름 그대로 나온다.
  */
-const TOOL_META: Record<ToolName, ToolMeta> = {
+const TOOL_META: Record<Exclude<ToolName, "neko.self">, ToolMeta> = { // neko.self 는 화면에 안 나온다(agent-context INTERNAL_TOOLS)
   "todo.list": { label: "할 일 확인", icon: ListChecks },
   "todo.list_done": { label: "끝낸 일 확인", icon: ListChecks },
   "todo.add": { label: "할 일 추가", icon: ListChecks },

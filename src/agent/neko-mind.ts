@@ -7,6 +7,7 @@ import { budgetBlockReason } from "../stores/claudeBudget";
 import { timeZone } from "../lib/time";
 import { useNekoNeeds } from "../neko/director/needsStore";
 import { SOLO_KEYS } from "../neko/director/needs";
+import { recentDoings } from "../neko/selfState";
 import type { NekoActivity } from "../neko/engine/neko-engine";
 import type { Memory, OpenAiToolSchema } from "./types";
 
@@ -436,11 +437,12 @@ export async function restThink(o: { greet: boolean }, signal?: AbortSignal): Pr
   if (prev && Date.now() - prev.askedAt < GREET_EVERY_MS) return;
   await settingsApi.set(GREET_KEY, JSON.stringify({ text: prev?.text ?? "", at: prev?.at ?? 0, askedAt: Date.now() })).catch(() => {});
   const memories = await memoryApi.list().catch((): Memory[] => []);
-  const mind = await loadMind(), played = await activityText();
+  // 최근 몇 시간 한 일(이 기기 행동 기록·산책·꿈, neko/selfState) — 돌아온 사용자에게 꺼낼지는 네코가 정한다
+  const mind = await loadMind(), played = await activityText(), doings = await recentDoings().catch(() => "");
   const options = SOLO_KEYS.map((k) => `${k}(${ACT_LABEL[k] ?? k})`).join(", ");
   const ask = (o.greet ? "pick 엔 사용자가 돌아오면 먼저 건넬 말 한 줄(네 말투로, 짧게)" : "pick 엔 요즘 네 기분 한 줄")
     + `. like 엔 요즘 하고 싶은 혼자 놀기 1–3개, tired 엔 좀 질린 것 0–2개를 보기에서(영어 이름으로): ${options}. why 엔 그 까닭`;
-  const t = await think(ask, [...mindMaterial(mind, memories, { facts: o.greet }), played ? `## 최근 이틀 한 혼자 놀기\n${played}` : ""].filter(Boolean), signal, THINK_MS, {
+  const t = await think(ask, [...mindMaterial(mind, memories, { facts: o.greet }), played ? `## 최근 이틀 한 혼자 놀기\n${played}` : "", doings ? `## 최근 몇 시간 내가 한 일\n${doings}` : ""].filter(Boolean), signal, THINK_MS, {
     like: { type: "array", items: { type: "string", enum: SOLO_KEYS }, description: "요즘 하고 싶은 혼자 놀기 1–3개" },
     tired: { type: "array", items: { type: "string", enum: SOLO_KEYS }, description: "좀 질린 것 0–2개(없으면 빈 배열)" },
   });

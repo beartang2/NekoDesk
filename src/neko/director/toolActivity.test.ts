@@ -3,11 +3,13 @@
 
 import { describe, expect, it } from "vitest";
 import { getAllTools } from "../../agent/tool-registry";
+import { INTERNAL_TOOLS } from "../../agent/agent-context";
 import { isMusicScript, MAPPED_TOOLS, toolCue } from "./toolActivity";
 
 describe("도구 → 활동", () => {
   it("등록된 도구는 모두 표에 있다(새 도구를 넣고 표를 잊지 않게)", () => {
-    const missing = getAllTools().map((t) => t.name as string).filter((n) => n !== "user.ask" && !MAPPED_TOOLS.includes(n));
+    // user.ask 는 기다림, 안에서만 쓰는 도구(neko.self)는 이벤트를 안 내 네코 동작이 없다
+    const missing = getAllTools().map((t) => t.name as string).filter((n) => n !== "user.ask" && !INTERNAL_TOOLS.has(n) && !MAPPED_TOOLS.includes(n));
     expect(missing).toEqual([]);
   });
 

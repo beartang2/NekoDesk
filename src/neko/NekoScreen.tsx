@@ -58,7 +58,7 @@ const CAT_AT_STEP = 60;
 const CLOSED = { left: false, right: false } as const;
 /** 다른 모니터로 걸어 나가라고 다시 이르는 간격(하던 활동이 끝나 한가해졌을 때 이어 가게) */
 const WALK_OUT_EVERY_MS = 1000;
-const FORWARD: (keyof NekoEvents)[] = ["pet", "nyang", "annoyed", "grab", "drop", "activity", "error", "decorMove", "decorPlayed", "decorHeld"];
+const FORWARD: (keyof NekoEvents)[] = ["pet", "nyang", "annoyed", "grab", "drop", "activity", "label", "error", "decorMove", "decorPlayed", "decorHeld"];
 /** 엔진이 파일 물려주기(§7)에 더하는 것(집사). 엔진이 아직 없으면 건너뛴다 */
 interface FileDragApi {
   fileDrag(at: [number, number] | null): void;

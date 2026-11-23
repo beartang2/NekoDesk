@@ -52,6 +52,12 @@ export function stripLlmHints(summary: string): string {
   return summary;
 }
 
+/**
+ * 네코 안에서만 쓰는 도구(제 상태 보기). 루프는 실행만 하고 이벤트를 안 낸다 — 채팅 도구 표시·네코 도구 동작이 없다.
+ * 결과는 이번 요청 안에서만 모델이 보고, steps(끝 이벤트·저장·대화 기록)에서 빠진다
+ */
+export const INTERNAL_TOOLS: ReadonlySet<string> = new Set(["neko.self"]);
+
 /** 요약해도 예산을 넘으면 오래된 것부터 이 표시로 접는다. */
 const ELIDED = "[이전 단계 생략됨]";
 
@@ -130,9 +136,9 @@ export class AgentContext {
     (last.followUps ??= []).push(content);
   }
 
-  /** UI 표시·최종 이벤트용 평평한 스텝 목록. 실행 순서를 보존한다. */
+  /** UI 표시·최종 이벤트용 평평한 스텝 목록. 실행 순서를 보존한다. 안에서만 쓰는 도구는 뺀다(INTERNAL_TOOLS). */
   get steps(): AgentStep[] {
-    return this.turns.flatMap((t) => t.calls.map((c) => c.step));
+    return this.turns.flatMap((t) => t.calls.map((c) => c.step)).filter((s) => !INTERNAL_TOOLS.has(s.tool));
   }
 
   /**

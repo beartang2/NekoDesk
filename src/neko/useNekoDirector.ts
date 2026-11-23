@@ -11,6 +11,7 @@ import { CHASE_BELOW, pickByNeeds } from "./director/needs";
 import { useNekoNeeds } from "./director/needsStore";
 import { createScheduler, realClock, type Scheduler } from "./director/scheduler";
 import { onNekoSignal, useNekoApp, useNekoSessions } from "./director/stores";
+import { noteLabel, setShownNeeds } from "./selfState";
 import type { DirectorInput } from "./director/types";
 import { emotionPlan } from "./emotionMap";
 import { useNekoController } from "./nekoHost";
@@ -63,6 +64,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
 
   useEffect(() => {
     ctrl?.setNeeds({ hunger: needs.hunger, play: needs.play });
+    setShownNeeds(needs); // 네코가 제 상태를 볼 때(neko/selfState)
     syncBoxRef.current();
     schRef.current?.update();
   }, [ctrl, needs.hunger, needs.play]);
@@ -201,6 +203,8 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       if (a && a !== shown) noteActivity(a); // 기울기 재료: 최근 이틀 한 혼자 놀기 셈
       shown = a;
     }));
+    // 최근 행동 기록(네코 제 상태 보기·첫마디 재료, neko/selfState). 화면 자리면 화면 창 엔진이 neko-evt 로 넘긴다
+    offs.push(ctrl.on("label", (l) => noteLabel(l)));
     // 다른 기기의 큰 상태가 바뀌면 다시 계획한다
     offs.push(onPresence(() => { syncBox(); sch.update(); }));
     // 기울기는 맥·폰이 같이(neko_mind): 처음 한 번, 다른 기기에서 바뀌면 다시 읽는다

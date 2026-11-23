@@ -73,6 +73,8 @@ export function reportBigState(state: BigState): void {
 export function followState(): BigState | null {
   return otherLeads() ? shared!.state : null;
 }
+/** 지금 큰 상태: 다른 기기가 앞이면 그 기기 것, 아니면 이 기기 것(네코 제 상태 보기 — neko/selfState) */
+export const bigState = (): BigState => followState() ?? local;
 /** 따르는 중이면 앞 기기가 마지막으로 쓰인 때와 지금 상태를 적은 때(epoch) */
 export const leaderUsedAt = (): number | null => (otherLeads() ? shared!.used : null);
 export const leaderStateAt = (): number | null => (otherLeads() ? shared!.at : null);
