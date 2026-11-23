@@ -955,3 +955,16 @@ fn migration_13_adds_the_recency_fields_without_reuploading_every_memory() {
     assert_eq!(up.len(), 1);
     assert!(String::from_utf8(unseal(&KEY, &up[0]).unwrap()).unwrap().contains("\"used_ms\""));
 }
+
+#[test]
+fn old_server_heavy_resync_runs_at_most_weekly_even_when_pressed_often() {
+    let c = db();
+    conversations::save(&c, "s", "user", "안녕", None, None).unwrap();
+    push_all(&c, "A");
+    let t = 1_000 * 86_400_000;
+    assert!(reconcile::heavy_fallback(&c, t).unwrap() > 0, "처음엔 전부 다시");
+    push_all(&c, "A");
+    assert_eq!(reconcile::heavy_fallback(&c, t + 3_600_000).unwrap(), 0, "한 시간 뒤 버튼: 다시 안 한다");
+    assert!(push_all(&c, "A").is_empty());
+    assert!(reconcile::heavy_fallback(&c, t + 7 * 86_400_000).unwrap() > 0, "일주일 뒤엔 다시");
+}
