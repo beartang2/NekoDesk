@@ -1873,6 +1873,57 @@ try {
     await p.close();
   }
 
+  // 9-u2m) 구르는 물건 잡기(0.1.29, 사용자: 구르던 걸 집고 있으면 버버벅거려·방에서 구른 물건이 다시 원래대로 돌아와): 던져 굴러가는
+  //        중에 잡으면 그 순간 굴림이 멈추고 지금 자리를 알린다(decorMove — 저장). 든 채 가만히 있으면 칸이 안 움직이고, 쫓던 네코는
+  //        그만둔다. 그냥 떼면 그 자리. 터치로 꾹 눌러 메뉴만 띄워도 선 자리가 저장돼 있다
+  {
+    const p = await open(`?w=280&h=326&scale=height&transparent=1`, { width: 400, height: 420 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.step(30);
+      const shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      let placed = { surface: "floor", u: 0.3 };
+      const feed = () => n.setDecor([{ id: "g", shape, size: "small", at: "sidebar", ...placed }]); // 호스트 흉내: 알린 자리를 저장해 다시 넣는다
+      const moves = []; n.on("decorMove", ({ id: _id, ...spot }) => { moves.push(spot); placed = spot.surface === "wall" ? { surface: "floor", u: spot.u } : spot; feed(); });
+      n.on("play", (e) => { if (n.activity !== e.kind) n.act(e.kind); });
+      const pe = (type, x, y, id, pt = "mouse") => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: pt, bubbles: true }));
+      const box = () => { n.draw(); let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; for (let x = 0; x < n.W; x += 1) for (let y = 0; y < n.floorY + 6; y += 1) if (n.hitDecor(x, y) === "g") { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } return x1 < 0 ? null : { cx: (x0 + x1) / 2, y0, y1 }; };
+      const m = 16 * n.S, uOf = (x) => (x - m) / (n.W - 2 * m);
+      const fling = async (id) => {
+        feed(); c.x = n.W * 0.9; n.step(90); const b = box();
+        pe("pointerdown", b.cx, b.y0 + 4, id); n.step(2);
+        for (let k = 1; k <= 5; k++) { pe("pointermove", b.cx + 12 * k, b.y0 + 4 - 6 * k, id); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
+        pe("pointerup", b.cx + 60, b.y0 - 26, id);
+        // 내려앉아 바닥에서 구르는 중일 때까지
+        for (let i = 0, prev = null; i < 120; i++) { n.step(3); const q = box(); if (prev && q.y1 >= n.floorY && Math.abs(q.cx - prev.cx) > 0.8) return true; prev = q; }
+        return false;
+      };
+      // 마우스로 구르는 중에 잡고 가만히
+      moves.length = 0; out.rolled = await fling(2);
+      c.x = n.W * 0.05; n.step(1); // 쫓던 고양이가 물건을 가리면 고양이를 잡는다 — 잠깐 비켜 둔다
+      const before = moves.length, b1 = box(), cy1 = (b1.y0 + b1.y1) / 2, wasChase = n.activity === "chase";
+      pe("pointerdown", b1.cx, cy1, 3); n.step(1);
+      const grabMove = moves.length > before ? moves[moves.length - 1] : null;
+      const xs = []; for (let i = 0; i < 12; i++) { n.step(10); xs.push(box().cx); }
+      out.mouse = { wasChase, grabSaved: !!grabMove && Math.abs(grabMove.u - uOf(b1.cx)) < 0.03, still: Math.max(...xs) - Math.min(...xs), chase: n.activity === "chase", movesWhileHeld: moves.length - before - 1 };
+      pe("pointerup", b1.cx, cy1, 3); n.step(240);
+      out.mouse.stays = Math.abs(box().cx - b1.cx) < 2 && Math.abs(placed.u - uOf(b1.cx)) < 0.03;
+      // 터치로 구르는 중에 꾹(메뉴) — 선 자리가 저장돼 있다
+      n.act(null); placed = { surface: "floor", u: 0.3 }; moves.length = 0; out.rolled2 = await fling(4);
+      n.act(null); c.x = n.W * 0.05; n.step(1);
+      const b2 = box(), cy2 = (b2.y0 + b2.y1) / 2; let menu = 0; n.on("decorMenu", () => menu++);
+      pe("pointerdown", b2.cx, cy2, 5, "touch"); n.step(1); n.draw(); // 멈춘 하네스: 한 번 그려 칸을 둔다(앱은 매 프레임 그린다)
+      await new Promise((ok) => setTimeout(ok, 650)); n.step(240);
+      pe("pointerup", b2.cx, cy2, 5, "touch"); n.step(10);
+      const b3 = box();
+      out.touch = { menu, stays: Math.abs(b3.cx - b2.cx) < 2, saved: Math.abs(placed.u - uOf(b3.cx)) < 0.03 };
+      return out;
+    });
+    check("구르는 물건 잡기: 잡는 순간 굴림이 멈추고 그 자리를 저장, 든 채로는 안 움직이고 네코는 쫓기를 그만, 떼면 그 자리, 꾹 눌러 메뉴여도 선 자리 저장", JSON.stringify(r),
+      r.rolled && r.rolled2 && r.mouse.wasChase && r.mouse.grabSaved && r.mouse.still < 1 && !r.mouse.chase && r.mouse.movesWhileHeld === 0 && r.mouse.stays && r.touch.menu === 1 && r.touch.stays && r.touch.saved);
+    await p.close();
+  }
+
   // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {

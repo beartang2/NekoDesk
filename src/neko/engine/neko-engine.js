@@ -2588,6 +2588,16 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     d.rot = spot.surface === "wall" ? 0 : DD.normRot(d.rot); // 멈춘 각도도 저장한다(동기화로 다른 기기도 같은 각도)
     emit("decorMove", { id: d.id, ...spot, rot: d.rot });
   }
+  /**
+   * 사용자가 움직이는 물건(굴러감·날아감·미끄러짐)을 잡았다: 움직임을 멈추고 지금 자리를 알린다 — 그다음은 끌기만 자리를 정한다.
+   * 굴림이 끌기 밑에서 계속 돌아 각도가 끌기와 싸워 버벅였고, 꾹 눌러 메뉴만 띄우면 선 자리가 저장되지 않았다(사용자)
+   */
+  function stopDecor(d) {
+    if (!d.px) return;
+    if (d.fall && !d.frame) d.px[1] = BASE_Y; // 날던 것은 그 아래 바닥 자리로(액자는 떨어지던 높이의 벽)
+    d.fall = null; d.slide = null; d.vx = 0;
+    settleDecor(d);
+  }
   /** 알린 자리를 물건에 바로 적는다(호스트가 다시 넣기 전까지도 제자리에). 가구 윗면 번호는 엔진에선 fi */
   function takeSpot(d, spot) {
     if (spot.surface === "furniture") Object.assign(d, { surface: "furniture", u: spot.u, fid: spot.fid, fi: spot.i, fu: spot.fu });
@@ -5502,6 +5512,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       e.preventDefault(); emit("hold", true);
     } else if (hitDecor(x, y)) { // 놓아 둔 물건: 잡고 끌어 옮긴다(고양이 뒤에 있으니 고양이 다음에 본다)
       const d = decor.find((o) => o.id === hitDecor(x, y)), b = d.box;
+      stopDecor(d);
+      // 네코가 갖고 놀던(쫓던) 그 물건이면 그만둔다 — 잡은 물건을 다시 쳐서 끌기 밑에서 굴리지 않게
+      if (cat.act && (cat.act.key === "giftplay" || cat.act.key === "chase") && cat.act.id === d.id) endAct();
       decorDrag = { id: d.id, pointerId: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x: b.x + b.w / 2, bottom: b.y + b.h, el };
       // 터치·펜으로 꾹 누르면(HOLD_MS 동안 HOLD_SLOP 안) 끌기를 접고 우클릭처럼 '정리' 메뉴. iOS 웹뷰엔 contextmenu 가
       // 안 온다. 마우스는 우클릭만 — 누른 채 잠깐 있다 끄는 손버릇을 막지 않게

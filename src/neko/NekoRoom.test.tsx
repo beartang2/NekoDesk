@@ -6,6 +6,8 @@ import { render, fireEvent, cleanup, act } from "@testing-library/react";
 /** 빈 방의 선물(RoomGifts): 엔진 없이도 끌어 옮기고, 우클릭·꾹 누르기로 '정리' 메뉴 자리를 알린다(폰은 방이 늘 이 그림) */
 const h = vi.hoisted(() => ({
   place: vi.fn(),
+  drag: null as { x: number; bottom: number; fly?: boolean } | null, // 마지막으로 그린 끄는·나는 물건
+
   gifts: [{ id: "g", title: "", body: "", at: "", size: "medium", shape: { v: 1, parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "gray" }] }, placed: { at: "sidebar", surface: "floor", u: 0.5 } }],
 }));
 vi.mock("./gifts", () => ({
@@ -13,9 +15,14 @@ vi.mock("./gifts", () => ({
   decorItems: (gs: typeof h.gifts, at: string) => gs.filter((g) => g.placed.at === at).map((g) => ({ ...g.placed, id: g.id, shape: g.shape, size: g.size, at })),
 }));
 vi.mock("./WeatherWindow", () => ({ WeatherWindow: () => null }));
-vi.mock("./engine/decor-draw", async (orig) => ({ ...(await orig<object>()), drawDecor: () => {} })); // jsdom 엔 캔버스 그리기가 없다
+vi.mock("./engine/decor-draw", async (orig) => ({ ...(await orig<object>()), drawDecor: (_c: unknown, _i: unknown, o: { drag: typeof h.drag }) => { h.drag = o.drag; } })); // jsdom 엔 캔버스 그리기가 없다
 
 import { RoomGifts } from "./NekoRoom";
+import { decorM } from "./engine/decor-draw";
+import { stageS } from "./engine/stage-scale";
+
+/** 방 280×200 에서 물건 가운데 x 의 바닥 비율 자리 */
+const uOf = (x: number) => { const m = decorM(stageS(280, 194, "sidebar")); return (x - m) / (280 - 2 * m); };
 
 beforeAll(() => {
   // 방 280×200: 바닥 194, S 0.81 → 가운데(u 0.5) 선물은 x 140, 바닥 194, 높이 약 78
@@ -116,5 +123,43 @@ describe("빈 방의 선물(RoomGifts)", () => {
     expect(h.place.mock.calls[0][1]).toMatchObject({ surface: "floor" });
     expect(h.place.mock.calls[0][1].u).toBeGreaterThan(0.75); // 놓은 자리(200 → 0.7 쯤)보다 오른쪽으로 굴러갔다
     expect(Math.abs(h.place.mock.calls[0][1].rot)).toBeGreaterThan(0.5); // 굴러간 만큼 돈 각도도 적는다
+  });
+
+  const fling = (cv: Element) => {
+    fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 7, pointerType: "mouse" });
+    fireEvent.pointerMove(cv, { clientX: 170, clientY: 150, pointerId: 7, pointerType: "mouse" });
+    fireEvent.pointerMove(cv, { clientX: 200, clientY: 140, pointerId: 7, pointerType: "mouse" });
+    fireEvent.pointerUp(cv, { clientX: 200, clientY: 140, pointerId: 7, pointerType: "mouse" });
+  };
+  it("구르는 중에 잡으면 굴림을 멈추고 그 자리를 저장한다. 끌기는 지금 그린 자리에서 이어 가고 굴림이 끼어들지 않는다(사용자: 버벅임·원래대로 돌아옴)", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas:not(.neko-room__gifts--wall)")!;
+    fling(cv);
+    act(() => { vi.advanceTimersByTime(700); });
+    const at = h.drag!;
+    expect(at.fly).toBe(true);
+    expect(h.place).not.toHaveBeenCalled();
+    fireEvent.pointerDown(cv, { clientX: at.x, clientY: at.bottom - 4, button: 0, pointerId: 8, pointerType: "mouse" });
+    expect(h.place).toHaveBeenCalledTimes(1); // 잡은 자리(지금 굴러간 자리)를 저장
+    expect(h.place.mock.calls[0][1]).toMatchObject({ surface: "floor" });
+    expect(h.place.mock.calls[0][1].u).toBeCloseTo(uOf(at.x), 6);
+    expect(Math.abs(h.place.mock.calls[0][1].u - 0.5)).toBeGreaterThan(0.1); // 던지기 전 자리가 아니다
+    act(() => { vi.advanceTimersByTime(3000); }); // 굴림이 남아 있으면 여기서 자리를 바꾸고 한 번 더 저장한다
+    expect(h.place).toHaveBeenCalledTimes(1);
+    expect(h.drag).toMatchObject({ x: at.x, bottom: at.bottom });
+    expect(h.drag!.fly).toBeFalsy(); // 든 모양
+    fireEvent.pointerUp(cv, { clientX: at.x, clientY: at.bottom - 4, pointerId: 8, pointerType: "mouse" });
+  });
+
+  it("구르는 중에 방이 닫혀도(사라짐) 그 자리를 저장한다", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    const r = render(<RoomGifts isDark={false} />);
+    fling(r.container.querySelector("canvas:not(.neko-room__gifts--wall)")!);
+    act(() => { vi.advanceTimersByTime(700); });
+    expect(h.place).not.toHaveBeenCalled();
+    const at = h.drag!;
+    r.unmount();
+    expect(h.place).toHaveBeenCalledTimes(1);
+    expect(h.place.mock.calls[0][1].u).toBeCloseTo(uOf(at.x), 6);
   });
 });
