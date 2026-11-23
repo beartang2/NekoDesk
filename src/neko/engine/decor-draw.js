@@ -193,7 +193,9 @@ export function paintDecor(g, shape, L, geom, o = {}) {
   // 바닥에 누운 액자(lie): 칸(L.w·L.h)은 가로세로가 바뀐 것 — 그림은 칸 가운데에 두고 돌린다(o.rot ±90°)
   drawShape(g, shape, x - ((bd.x0 + bd.x1) / 2) * u, L.lie ? bottom - h / 2 + L.h0 / 2 : bottom, u, o.edge ?? 4);
   g.restore();
-  if (!onFloor) { // 벽에 건 것: 그린 모양의 맨 위 가장자리에 작은 압정. h(칸)는 회전한 네모·타원을 넉넉히 잡아 실제보다 높다
+  // 벽에 건 것: 그린 모양의 맨 위 가장자리에 작은 압정. h(칸)는 회전한 네모·타원을 넉넉히 잡아 실제보다 높다.
+  // pin false = 벽 높이로 들었지만 걸리지 않는 것(방·거실의 액자 아닌 물건 — 놓으면 떨어진다, 0.1.24)
+  if (!onFloor && L.pin !== false) {
     const top = bottom + shapeTop(shape) * u;
     g.fillStyle = "#8f8a86"; g.beginPath(); g.arc(x, top + 1.5 * S, 1.8 * S, 0, Math.PI * 2); g.fill();
     g.fillStyle = "rgba(255,255,255,0.6)"; g.beginPath(); g.arc(x - 0.5 * S, top + 1 * S, 0.7 * S, 0, Math.PI * 2); g.fill();
@@ -208,8 +210,8 @@ function layoutAll(items, geom, drag) {
     const shape = validateShape(d.shape), dims = decorDims(shape, decorK(shape, d.size, d.scale, d.at, geom).k, geom.S), id = String(d.id);
     if (drag && String(drag.id) === id) {
       const [x, bottom] = clampDrag(dims.h, geom, drag.x, drag.bottom);
-      // 던져 날아가거나 굴러가는 중(fly)은 들어 올린 모양 없이 돈다(rot)
-      return { id, shape, L: { ...dims, x, bottom, onFloor: liftedOnFloor(bottom, geom) }, lifted: !drag.fly, fly: !!drag.fly, rot: drag.rot || 0 };
+      // 던져 날아가거나 굴러가는 중(fly)은 들어 올린 모양 없이 돈다(rot). 압정은 벽에 걸리는 것만(액자, 마당은 다)
+      return { id, shape, L: { ...dims, x, bottom, onFloor: liftedOnFloor(bottom, geom), pin: !!d.frame || d.at === "screen" }, lifted: !drag.fly, fly: !!drag.fly, rot: drag.rot || 0 };
     }
     const on = d.surface === "furniture" && topOf(geom, d.fid, d.i); // 가구 윗면 위(그 면이 있을 때만, 없으면 바닥)
     // 바닥의 액자는 떨어진 것: 옆으로 눕는다(사용자가 다시 벽에 걸 때까지) — 칸 가로세로를 바꾸고 떨어진 쪽(rot 부호)으로 90° 돌려 그린다

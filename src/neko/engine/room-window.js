@@ -35,7 +35,3 @@ export function roomWindows(place, W, H) {
   return [0.25, 0.75].map((k) => ({ x: Math.round(W * k - w / 2), y, w, h }));
 }
 
-/** 창문 하나(거실이면 왼쪽 것). 없으면 null — 엔진의 '창밖 구경'이 이 앞으로 간다 */
-export function roomWindow(place, W, H) {
-  return roomWindows(place, W, H)[0] ?? null;
-}

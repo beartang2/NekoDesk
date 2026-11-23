@@ -2491,7 +2491,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const onTop = !drag && !d.px && d.surface === "furniture" && HOLD_TOPS.some((t) => t.fid === d.fid && t.i === d.fi);
     // 바닥의 액자는 떨어진 것: 옆으로 눕는다(사용자가 다시 벽에 걸 때까지) — 칸 가로세로를 바꾸고 바닥에 붙인다(그림은 drawDecorItem 이 90° 돌린다)
     if (d.frame && d.surface === "floor" && !drag && !d.fall) return { bd, u, w: h, h: w, h0: h, lie: true, x, bottom: d.px ? d.px[1] : BASE_Y, drag, onFloor: true };
-    return { bd, u, w, h, x, bottom, drag, onFloor: drag ? floorY - bottom < DD.WALL_GAP * S : d.surface !== "wall", ...(onTop ? { shadowY: bottom } : {}) };
+    // 들어 올린 것의 압정은 벽에 걸리는 것만(액자, 마당은 다) — 방·거실의 다른 물건은 놓으면 떨어진다
+    return { bd, u, w, h, x, bottom, drag, onFloor: drag ? floorY - bottom < DD.WALL_GAP * S : d.surface !== "wall", pin: !drag || d.frame || WORLD, ...(onTop ? { shadowY: bottom } : {}) };
   }
   /** 물건 하나를 g 에 그린다(앱 무대는 고양이 캔버스, 화면 모드는 선물 캔버스) */
   /*

@@ -27,7 +27,7 @@ export function stageMetrics(W: number, H: number) {
   return { floorY, S: stageS(W, floorY) };
 }
 
-/** 벽과 바닥이 만나는 줄: 발 위. 이보다 높이 띄운 물건은 엔진이 벽에 건다(WALL_GAP 18) */
+/** 벽과 바닥이 만나는 줄: 발 위(WALL_GAP 18). 이보다 높이 놓은 액자는 벽에 걸리고, 다른 물건은 떨어진다 */
 const seamOf = (floorY: number, S: number) => floorY - 18 * S;
 
 function useSize<T extends Element>() {

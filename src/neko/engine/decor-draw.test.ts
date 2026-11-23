@@ -192,3 +192,29 @@ describe("놀다 멈춘 각도(placed.rot)", () => {
     expect(draw({ surface: "floor", u: 0.5, frame: true })).toEqual([Math.PI / 2]); // 옛 기기(각도 없음)는 오른쪽으로
   });
 });
+
+describe("들어 올린 물건의 압정", () => {
+  it("벽 높이로 들면 걸리는 것(액자, 마당은 다)만 압정을 그린다 — 방·거실의 다른 물건은 놓으면 떨어지니 없다", () => {
+    let arcs = 0;
+    const g: object = new Proxy({}, {
+      get: (t: Record<string | symbol, unknown>, k) => (k in t ? t[k] : k === "arc" ? () => { arcs++; } : () => g),
+      set: (t, k, v) => { t[k] = v; return true; },
+    });
+    const cv = { width: 0, height: 0, getContext: () => g } as unknown as HTMLCanvasElement;
+    const shape = { parts: [{ t: "rrect" as const, x: 0, y: -10, w: 20, h: 20, rad: 0, rot: 0, c: "blue" }] };
+    const pins = (it: Partial<DecorItem>, high = true) => {
+      arcs = 0;
+      drawDecor(cv, [{ id: "a", shape, size: "medium", surface: "floor", u: 0.5, ...it } as DecorItem], { W: 280, H: 320, floorY: 300, scale: 1, drag: { id: "a", x: 140, bottom: high ? 150 : 300 } });
+      return arcs;
+    };
+    expect(pins({ at: "sidebar" })).toBe(0);
+    expect(pins({ at: "dock" })).toBe(0);
+    expect(pins({ at: "sidebar", frame: true })).toBe(2); // 압정 = 동그라미 둘(머리·반짝임)
+    expect(pins({ at: "screen" })).toBe(2);
+    expect(pins({ at: "sidebar", frame: true }, false)).toBe(0); // 바닥 가까이면 압정 없음
+    // 벽에 걸린 것(들지 않음)은 그대로 압정
+    arcs = 0;
+    drawDecor(cv, [{ id: "a", shape, size: "medium", surface: "wall", u: 0.5, v: 0.5, frame: true, at: "sidebar" } as DecorItem], { W: 280, H: 320, floorY: 300, scale: 1 });
+    expect(arcs).toBe(2);
+  });
+});
