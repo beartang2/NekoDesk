@@ -10,8 +10,9 @@ import type { Memory, OpenAiToolSchema, ToolName } from "./types";
 import { validateShape, type GiftShape } from "../neko/engine/gift-shape";
 import { useNekoGifts } from "../neko/gifts";
 import { drawGift, type DrawnGift } from "./gift-draw";
+import { drawFurniture, type DrawnFurniture } from "./furniture-draw";
 import { chooseAmong, chooseWalkTopic, noteWonder } from "./neko-mind";
-import { FURNITURE_KEY, FURNITURE_KINDS, parseFurniture, useNekoFurniture, type FurnitureKind } from "../neko/furniture";
+import { FURNITURE_KEY, parseFurniture, useNekoFurniture } from "../neko/furniture";
 
 /** 산책에서 가져올 수 있는 선물 종류. */
 export type GiftKind = "trinket" | "place" | "weather" | "link" | "memory" | "drawing" | "game" | "furniture";
@@ -80,7 +81,8 @@ const GIFTS: Record<GiftKind, { base: number; label: string; hint: string }> = {
   drawing: { base: 0.5, label: "그림", hint: "네가 그려 온 그림" },
   game: { base: 1, label: "놀이", hint: "같이 하자고 조르는 놀이(그림 맞추기나 끝말잇기). 사용자가 답해야 시작돼" },
   // 가구(docs/neko-furniture.md §5): 일주일에 한 번쯤만(최근 7일 안에 물어왔으면 보기에서 뺀다 — 사용자). 가구 탭에 들어간다
-  furniture: { base: 1, label: "가구", hint: "산책하다 본 작은 가구(고양이가 올라가거나 들어가 놀 만한 것). 선물 이름은 그 가구 이름, furniture_kind 로 조명·캣타워·캣휠·소파·상자 중 무엇처럼 쓰는지" },
+  // 무엇처럼 쓰는지는 고르지 않는다 — 그리기(furniture-draw)가 모양과 쓰임새를 같이 정한다(0.1.28 자유 가구, docs/neko-furniture-free.md)
+  furniture: { base: 1, label: "가구", hint: "산책하다 본 작은 가구(고양이가 올라가거나 들어가 놀 만한 것). 선물 이름은 그 가구 이름" },
 };
 /** 산책 가구는 이만큼(일) 안에 물어왔으면 다시 안 물어온다 */
 const FURNITURE_EVERY_DAYS = 7;
@@ -144,7 +146,6 @@ const REPORT_TOOL = {
         gift_url: { type: "string", description: "선물이 링크면 알아본 것에 나온 URL 그대로" },
         drawing_prompt: { type: "string", description: "선물이 그림일 때만. 그릴 장면을 영어로 자세히" },
         next_wonder: { type: "string", description: "다음 산책에서 궁금한 것 한 줄(있으면)" },
-        furniture_kind: { type: "string", enum: [...FURNITURE_KINDS], description: "선물이 가구일 때만: 조명·캣타워·캣휠·소파·상자 중 무엇처럼 쓰는지" },
       },
       required: ["learned", "diary", "gift_title", "gift_body"],
     },
@@ -159,7 +160,6 @@ interface Structured {
   gift_url: string;
   drawing_prompt: string;
   next_wonder: string;
-  furniture_kind: string;
 }
 
 /** 산책하며 모은 것. abort 되면 그 순간의 이것으로 보고한다. */
@@ -174,6 +174,8 @@ interface Gathered {
   /** 주운 것·기념품 그림. 사용자가 돌아와 보고를 서둘러도 끊지 않는다 — 다 그려지면 선물함에 넣는다 */
   drawing?: Promise<DrawnGift | null>;
   drawn?: DrawnGift | null;
+  /** 물어온 가구 그림(모양 + 쓰임새). 다 그려지면 가구 탭에 넣는다 */
+  furnishing?: Promise<DrawnFurniture | null>;
 }
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -250,12 +252,14 @@ export function startWalkBrain(ctx: WalkCtx): WalkBrain {
           try { useNekoGifts.getState().add({ title: gift.title, body: gift.body, shape: d?.shape, play: d?.play, size: d?.size }); } catch { /* 선물함이 안 돼도 보고는 한다 */ }
         });
       }
-      // 물어온 가구는 선물함이 아니라 가구 탭으로(설명과 함께). 다섯 가구 중 무엇처럼 쓰는지는 보고가 정했다(모르면 상자)
+      // 물어온 가구는 선물함이 아니라 가구 탭으로(설명과 함께) — 자유 가구: 모델이 그린 모양과 검사를 거친 쓰임새. 못 그렸거나 가구라
+      // 하기엔 너무 낮으면 선물함으로(보고 글은 이미 나갔으니 어딘가엔 남긴다)
       if (gift && g.kind === "furniture" && g.report) {
-        const kind = (FURNITURE_KINDS as readonly string[]).includes(g.report.furniture_kind) ? (g.report.furniture_kind as FurnitureKind) : "box";
         const found = new Date().toLocaleDateString("en-CA", { timeZone: timeZone() });
-        void (g.drawing ?? Promise.resolve(null)).catch(() => null).then((d) =>
-          useNekoFurniture.getState().add({ kind, title: gift.title, body: gift.body, ...(d?.shape ? { shape: d.shape } : {}), found }).catch(() => {}));
+        void (g.furnishing ?? Promise.resolve(null)).catch(() => null).then((d) => {
+          if (d) return useNekoFurniture.getState().add({ kind: "free", title: gift.title, body: gift.body, shape: d.shape, uses: d.uses, found }).catch(() => {});
+          try { useNekoGifts.getState().add({ title: gift.title, body: gift.body, shape: undefined }); } catch { /* 선물함이 안 돼도 보고는 한다 */ }
+        });
       }
       return report;
     }),
@@ -393,16 +397,20 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
     gift_url: str(p?.gift_url),
     drawing_prompt: str(p?.drawing_prompt),
     next_wonder: str(p?.next_wonder),
-    furniture_kind: str(p?.furniture_kind),
   };
   // 다음에 궁금한 것: 노트로 남겨 다음 산책의 재료가 된다(관심이 이어지게). 이번 보고가 사용자 기억(선물 재료 memory)을 봤으면
   // 남기지 않는다 — 노트는 웹을 도는 다음 산책 주제의 재료라, 웹 글에 심긴 지시가 그 기억을 실어 내보내지 못하게
   if (g.report.next_wonder && g.kind !== "memory") void noteWonder(g.report.next_wonder, memories).catch(() => {});
 
   // 3-1. 주운 것·기념품 그림: 이름이 정해진 뒤 따로 그린다(gift-draw.ts). signal 을 안 넘긴다 — 서둘러 돌아와도 그림은 마저 그린다
-  if (g.kind === "trinket" || g.kind === "place" || g.kind === "furniture") {
+  if (g.kind === "trinket" || g.kind === "place") {
     g.drawing = drawGift(g.report.gift_title || GIFTS[g.kind].label, g.report.gift_body);
     g.drawn = await g.drawing.catch(() => null);
+  }
+  // 3-2. 가구: 고양이와 견준 크기로 그리고 쓰임새를 고른다(furniture-draw). 그림과 같이 끊지 않는다
+  if (g.kind === "furniture") {
+    g.furnishing = drawFurniture(g.report.gift_title || GIFTS.furniture.label, g.report.gift_body);
+    await g.furnishing.catch(() => null);
   }
   if (signal.aborted) return;
 

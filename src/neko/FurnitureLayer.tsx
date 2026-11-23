@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { drawFurniture, furnitureBox } from "./engine/furniture-art";
 import { furnitureSlots, hitDecorAt } from "./engine/decor-draw";
 import { stageS } from "./engine/stage-scale";
-import { placedAt, useNekoFurniture } from "./furniture";
+import { isArtKind, placedAt, useNekoFurniture } from "./furniture";
 import { decorItems, useNekoGifts } from "./gifts";
 import { useAccent, useFurnitureHeld, useLamps } from "./furnitureHost";
 import { useSkyLight } from "./Wallpaper";
@@ -39,7 +39,7 @@ export function FurnitureLayer({ place, still = false, onMenu }: {
   // 그린 자리(칸 가운데·바닥, 칸 맞춤 크기). 누르기 판정과 '치우기' 버튼 자리에도 쓴다
   const { w, h } = size, floorY = h - 6, S = w && h ? stageS(w, floorY, place) : 1;
   const slots = furnitureSlots(place, w);
-  const placed = placedAt(items, place).flatMap((f) => {
+  const placed = placedAt(items, place).filter(isArtKind).flatMap((f) => { // 자유 가구는 몫 3 에서 그린다(isArtKind)
     const slot = slots[f.place!.slot];
     if (!slot) return [];
     const b = furnitureBox(f.kind, S, slot.w);

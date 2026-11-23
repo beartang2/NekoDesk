@@ -2,7 +2,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { LlmMessage } from "./types";
 
-const { completion, subagent, save, topic, wonder, among } = vi.hoisted(() => ({
+const { completion, subagent, save, topic, wonder, among, furnish } = vi.hoisted(() => ({
+  furnish: vi.fn(async (): Promise<unknown> => null),
   completion: vi.fn(),
   subagent: vi.fn(),
   save: vi.fn(async () => ({})),
@@ -24,6 +25,8 @@ vi.mock("./neko-mind", () => ({
   chooseAmong: (...a: unknown[]) => among(...(a as [])),
 }));
 vi.mock("./tool-registry", () => ({ getTool: () => ({ execute: vi.fn(async () => "맑음") }) }));
+// 가구 그리기(모양 + 쓰임새)는 furniture-draw·furnitureUses 가 따로 시험한다
+vi.mock("./furniture-draw", () => ({ drawFurniture: (...a: unknown[]) => furnish(...(a as [])) }));
 vi.mock("../api/tauri", () => ({
   memoryApi: { list: vi.fn(async () => []) },
   settingsApi: { get: vi.fn(async () => null), set: vi.fn(async () => {}) },
@@ -145,15 +148,23 @@ describe("산책 머리", () => {
     expect(wonder).not.toHaveBeenCalled();
   });
 
-  it("가구를 물어오면 선물함이 아니라 가구 탭으로(무엇처럼 쓰는지와 함께), 7일 안에 물어왔으면 보기에서 빠진다", async () => {
+  it("가구를 물어오면 선물함이 아니라 가구 탭으로(자유 가구: 그린 모양과 쓰임새), 7일 안에 물어왔으면 보기에서 빠진다", async () => {
     const { useNekoFurniture } = await import("../neko/furniture");
+    const rr = (x: number, y: number, w: number, h: number) => ({ t: "rrect", x, y, w, h, rad: 0, rot: 0, c: "brown" });
+    const shape = { v: 1, parts: [rr(0, -10, 24, 2), rr(-10, -4.5, 2, 9), rr(10, -4.5, 2, 9)] };
+    furnish.mockResolvedValueOnce({ shape, uses: [{ u: "perch", y: -11, x0: -11.5, x1: 11.5 }], first: shape });
     among.mockResolvedValueOnce("furniture");
     subagent.mockResolvedValueOnce("");
-    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "등나무 의자", gift_body: "공원 벤치 옆에서 봤어", furniture_kind: "sofa" }));
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "등나무 의자", gift_body: "공원 벤치 옆에서 봤어" }));
     const r = await startWalkBrain({ places: [], here: null }).result;
     expect(r.content).toContain("가구 탭에 넣어 뒀어");
+    expect(furnish).toHaveBeenCalledWith("등나무 의자", "공원 벤치 옆에서 봤어");
+    // 보고엔 '무엇처럼 쓰는지' 칸이 없다(그리기가 쓰임새를 정한다)
+    expect(JSON.stringify(completion.mock.calls[completion.mock.calls.length - 1])).not.toContain("furniture_kind");
     await new Promise((ok) => setTimeout(ok, 20));
-    expect(useNekoFurniture.getState().items.find((f) => f.title === "등나무 의자")).toMatchObject({ kind: "sofa", body: "공원 벤치 옆에서 봤어" });
+    expect(useNekoFurniture.getState().items.find((f) => f.title === "등나무 의자")).toMatchObject({
+      kind: "free", body: "공원 벤치 옆에서 봤어", uses: [{ u: "perch", y: -11, x0: -11.5, x1: 11.5 }],
+    });
     // 최근 7일 안에 물어왔다 → 다음 산책의 보기엔 가구가 없다
     const { settingsApi } = await import("../api/tauri");
     vi.mocked(settingsApi.get).mockImplementation(async (k: string) => (k === "neko_furniture" ? JSON.stringify({ v: 1, items: [{ id: "walk:a", kind: "sofa", found: new Date().toISOString().slice(0, 10), place: null }] }) : null));
@@ -163,6 +174,19 @@ describe("산책 머리", () => {
     const offered = (among.mock.calls[among.mock.calls.length - 1] as unknown[])[2] as { key: string }[];
     expect(offered.map((c) => c.key)).not.toContain("furniture");
     vi.mocked(settingsApi.get).mockImplementation(async () => null);
+  });
+
+  it("가구를 못 그렸거나 가구라기엔 너무 낮으면 선물함으로", async () => {
+    const { useNekoGifts } = await import("../neko/gifts");
+    const before = useNekoGifts.getState().gifts.length;
+    furnish.mockResolvedValueOnce(null);
+    among.mockResolvedValueOnce("furniture");
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "작은 발판", gift_body: "b" }));
+    await startWalkBrain({ places: [], here: null }).result;
+    await new Promise((ok) => setTimeout(ok, 20));
+    expect(useNekoGifts.getState().gifts.length).toBe(before + 1);
+    expect(useNekoGifts.getState().gifts.some((g) => g.title === "작은 발판")).toBe(true);
   });
 
   it("주제를 못 고르면(생각하기 실패) 지금처럼 하위 에이전트가 스스로 고른다", async () => {

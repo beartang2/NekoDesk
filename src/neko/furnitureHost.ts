@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { NekoController } from "./engine/neko-engine";
-import { orphansOnFurniture, placedAt, useNekoFurniture, type FurnitureKind } from "./furniture";
+import { isArtKind, orphansOnFurniture, placedAt, useNekoFurniture, type FurnitureKind } from "./furniture";
 import { useNekoGifts } from "./gifts";
 import { useNekoStore } from "./nekoStore";
 
@@ -70,7 +70,7 @@ export function startFurnitureHost(ctrl: NekoController) {
     const at = useNekoStore.getState().stage.placement;
     if (at !== "sidebar" && at !== "dock") { fc.setFurniture?.([]); return; }
     const a = accentHex();
-    fc.setFurniture?.(placedAt(useNekoFurniture.getState().items, at).map((f) => ({ id: f.id, kind: f.kind, at, slot: f.place!.slot, on: lampOn(f.id), accent: a })));
+    fc.setFurniture?.(placedAt(useNekoFurniture.getState().items, at).filter(isArtKind).map((f) => ({ id: f.id, kind: f.kind, at, slot: f.place!.slot, on: lampOn(f.id), accent: a })));
   };
   onAccent(send);
   useNekoFurniture.subscribe((s, prev) => { if (s.items !== prev.items) send(); });

@@ -118,6 +118,30 @@ describe("가구 저장", () => {
   });
 });
 
+describe("자유 가구(0.1.28, docs/neko-furniture-free.md §10)", () => {
+  const rr = (x: number, y: number, w: number, h: number) => ({ t: "rrect", x, y, w, h, rad: 0, rot: 0, c: "brown" });
+  const TABLE = { v: 1, parts: [rr(0, -10, 24, 2), rr(-10, -4.5, 2, 9), rr(10, -4.5, 2, 9)] };
+  it("kind free 는 모양·쓰임새를 읽을 때 다시 검사해 싣고, 가구가 아닌 모양은 뺀다. 기본 id 로는 free 를 못 쓴다", () => {
+    const raw = JSON.stringify({ v: 2, items: [
+      { id: "walk:a", kind: "free", title: "나무 걸상", shape: TABLE, uses: [{ u: "perch", y: -13, x0: -6, x1: 9, soft: true }, { u: "bat", x: 0, y: -5 }], place: { at: "dock", slot: 2 }, at: 5 },
+      { id: "walk:b", kind: "free", title: "납작", shape: { v: 1, parts: [rr(0, -1, 20, 2)] }, uses: [], place: null, at: 5 },
+      { id: "base:free", kind: "free", shape: TABLE, place: null },
+    ], gone: {} });
+    const items = parseFurniture(raw).filter((f) => f.kind === "free");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ id: "walk:a", title: "나무 걸상", place: { at: "dock", slot: 2 }, uses: [{ u: "perch", y: -11, x0: -11.5, x1: 11.5, soft: true }] });
+  });
+  it("물어온 자유 가구를 더하면 모양·쓰임새가 저장되고, 다시 읽어도 같다", async () => {
+    await s().load();
+    await s().add({ kind: "free", title: "걸상", shape: TABLE as never, uses: [{ u: "perch", y: -11, x0: -11.5, x1: 11.5 }], found: "2026-11-23" });
+    const stored = JSON.parse(db.kv.get("neko_furniture")!).items.find((f: { kind: string }) => f.kind === "free");
+    expect(stored).toMatchObject({ kind: "free", uses: [{ u: "perch", y: -11 }] });
+    const again = parseFurniture(db.kv.get("neko_furniture")!).find((f) => f.kind === "free");
+    expect(again?.uses).toEqual(stored.uses);
+    expect(await s().place(again!.id, "sidebar")).toBe(true);
+  });
+});
+
 describe("가구 윗면(탁자) 위 선물", () => {
   const T = (place: { at: "sidebar" | "dock"; slot: number } | null) => [{ id: "base:table", kind: "table" as const, place }, { id: "base:sofa", kind: "sofa" as const, place: { at: "dock" as const, slot: 0 } }];
   const on = (id: string, fid: string, at = "dock", i = 0) => ({ id, placed: { surface: "furniture", at, u: 0.4, fid, i, fu: 0.5 } });
