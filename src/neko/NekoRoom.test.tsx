@@ -12,7 +12,7 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock("./gifts", () => ({
   useNekoGifts: Object.assign((sel: (s: unknown) => unknown) => sel({ gifts: h.gifts }), { getState: () => ({ place: h.place }) }),
-  decorItems: (gs: typeof h.gifts, at: string) => gs.filter((g) => g.placed.at === at).map((g) => ({ ...g.placed, id: g.id, shape: g.shape, size: g.size, at })),
+  decorItems: (gs: typeof h.gifts, at: string) => gs.filter((g) => g.placed.at === at).map((g) => ({ ...g.placed, id: g.id, shape: g.shape, size: g.size, at, ...((g as { frame?: true }).frame ? { frame: true } : {}) })),
 }));
 vi.mock("./WeatherWindow", () => ({ WeatherWindow: () => null }));
 vi.mock("./engine/decor-draw", async (orig) => ({ ...(await orig<object>()), drawDecor: (_c: unknown, _i: unknown, o: { drag: typeof h.drag }) => { h.drag = o.drag; } })); // jsdom 엔 캔버스 그리기가 없다
@@ -149,6 +149,21 @@ describe("빈 방의 선물(RoomGifts)", () => {
     expect(h.drag).toMatchObject({ x: at.x, bottom: at.bottom });
     expect(h.drag!.fly).toBeFalsy(); // 든 모양
     fireEvent.pointerUp(cv, { clientX: at.x, clientY: at.bottom - 4, pointerId: 8, pointerType: "mouse" });
+  });
+
+  it("기운 물건은 집으면 똑바로: 누르고 떼기만 해도 각도 없는 자리로 저장한다. 똑바른 것·누운 액자는 그대로(저장 없음)", () => {
+    const g0 = h.gifts[0], cv = () => render(<RoomGifts isDark={false} />).container.querySelector("canvas:not(.neko-room__gifts--wall)")!;
+    const tap = (c: Element, id: number) => { fireEvent.pointerDown(c, { ...ON, button: 0, pointerId: id, pointerType: "mouse" }); fireEvent.pointerUp(c, { ...ON, pointerId: id, pointerType: "mouse" }); };
+    try {
+      h.gifts[0] = { ...g0, placed: { ...g0.placed, rot: 1.2 } as typeof g0.placed };
+      tap(cv(), 11);
+      expect(h.place).toHaveBeenCalledTimes(1);
+      expect(h.place.mock.calls[0][1]).toEqual({ surface: "floor", u: 0.5 });
+      cleanup(); h.place.mockClear();
+      h.gifts[0] = { ...g0, frame: true, placed: { ...g0.placed, rot: -1.57 } } as typeof g0;
+      tap(cv(), 12);
+      expect(h.place).not.toHaveBeenCalled();
+    } finally { h.gifts[0] = g0; }
   });
 
   it("구르는 중에 방이 닫혀도(사라짐) 그 자리를 저장한다", () => {

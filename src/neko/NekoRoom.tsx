@@ -186,7 +186,11 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
     setDrag(null);
     // 액자는 바닥 근처에 놓아도 벽 맨 아래에(떨어진 액자를 집어 다시 걸 때도) — 바닥에 눕는 건 네코가 떨군 것뿐
     const spot = frame && p.spot?.surface === "floor" ? { surface: "wall" as const, u: p.spot.u, v: 0 } : p.spot;
-    if (spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, spot); // 움직이지 않고 떼면 그대로
+    if (spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, spot);
+    else if (e.type === "pointerup") { // 움직이지 않고 떼면 그 자리 — 기운 물건은 집은 것이라 똑바로(사용자). 누운 액자는 그대로
+      const it = items.find((d) => d.id === p.id);
+      if (it && it.surface !== "wall" && it.rot && !(it.frame && it.surface === "floor")) useNekoGifts.getState().place(p.id, it.surface === "furniture" ? { surface: "furniture", u: it.u, fid: it.fid, i: it.i, fu: it.fu } : { surface: "floor", u: it.u });
+    }
   };
   const onContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const [x, y] = pos(e);

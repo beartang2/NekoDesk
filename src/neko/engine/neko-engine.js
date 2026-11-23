@@ -2554,8 +2554,6 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (WORLD) syncHeld();
     for (const d of decor) {
       d.wob.step(0, 160, 7, dt);
-      // 사용자가 집어 끌면 똑바로 선다(놓으면 0 으로 저장) — 선물 창·빈 방의 들어 올린 모양과 같게
-      if (decorDrag && decorDrag.moved && decorDrag.id === d.id) d.rot = (d.rot - TAU * Math.round(d.rot / TAU)) * Math.exp(-dt * 12);
       if (d.fall) { // 떨어지는 중: 바닥에 내려앉으면 그 자리를 알린다. 던진 건(roll) 내려앉은 뒤 그 빠르기로 굴러간다
         if (d.frame) d.rot += ((d.fall.vx < 0 ? -1 : 1) * (Math.PI / 2) - d.rot) * (1 - Math.exp(-dt * 7)); // 액자는 떨어지며 옆으로 돈다
         if (DD.fallStep(d.fall, dt, geomNow())) {
@@ -5530,16 +5528,20 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     } else if (hitDecor(x, y)) { // 놓아 둔 물건: 잡고 끌어 옮긴다(고양이 뒤에 있으니 고양이 다음에 본다)
       const d = decor.find((o) => o.id === hitDecor(x, y)), b = d.box;
       stopDecor(d);
+      // 기운 물건은 집는 순간 똑바로(사용자, 놓으면 0 으로 저장). 누운 액자는 끌기 시작할 때(누르기만 하면 그대로 누워 있다)
+      const rot0 = d.rot;
+      if (!(d.frame && d.surface === "floor")) d.rot = 0;
       // 네코가 갖고 놀던(쫓던) 그 물건이면 그만둔다 — 잡은 물건을 다시 쳐서 끌기 밑에서 굴리지 않게
       if (cat.act && (cat.act.key === "giftplay" || cat.act.key === "chase") && cat.act.id === d.id) endAct();
-      decorDrag = { id: d.id, pointerId: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x: b.x + b.w / 2, bottom: b.y + b.h, el };
+      decorDrag = { id: d.id, pointerId: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x: b.x + b.w / 2, bottom: b.y + b.h, el, rot0 };
       // 터치·펜으로 꾹 누르면(HOLD_MS 동안 HOLD_SLOP 안) 끌기를 접고 우클릭처럼 '정리' 메뉴. iOS 웹뷰엔 contextmenu 가
       // 안 온다. 마우스는 우클릭만 — 누른 채 잠깐 있다 끄는 손버릇을 막지 않게
       if (e.pointerType !== "mouse") {
         const hold = { x, y, t: 0 };
         hold.t = setTimeout(() => {
           if (!decorDrag || decorDrag.hold !== hold) return;
-          const g = decorDrag; decorDrag = null; // 놓지 않고 접는다 — decorMove 없이 제자리로
+          const g = decorDrag; decorDrag = null; // 놓지 않고 접는다 — decorMove 없이 제자리로(각도도 — 메뉴만 띄운 건 집은 게 아니다)
+          const o = decor.find((q) => q.id === g.id); if (o) o.rot = g.rot0;
           g.el.classList.remove("dragging"); emit("hold", false);
           decorMenuOf(decor.find((o) => o.id === g.id));
         }, HOLD_MS);
@@ -5571,7 +5573,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       const [nx, nb] = DD.clampDrag(h, geomNow(), x - decorDrag.dx, y - decorDrag.dy), now = performance.now();
       const ds = Math.max(0.008, (now - (decorDrag.mt ?? now - 16)) / 1000); // 놓을 때 던지는 속도(액자 아닌 걸 벽 쪽에 놓으면)
       decorDrag.vx = lerp(decorDrag.vx ?? 0, (nx - decorDrag.x) / ds, 0.5); decorDrag.vy = lerp(decorDrag.vy ?? 0, (nb - decorDrag.bottom) / ds, 0.5);
-      if (Math.hypot(nx - decorDrag.x, nb - decorDrag.bottom) > 2) decorDrag.moved = true; // 그냥 누르고 뗀 건 옮긴 게 아니다(누운 액자를 건드려도 그대로)
+      if (Math.hypot(nx - decorDrag.x, nb - decorDrag.bottom) > 2) { decorDrag.moved = true; if (d) d.rot = 0; } // 그냥 누르고 뗀 건 옮긴 게 아니다(누운 액자를 건드려도 그대로)
       decorDrag.mt = now; decorDrag.x = nx; decorDrag.bottom = nb;
       return;
     }

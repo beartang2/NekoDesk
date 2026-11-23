@@ -74,7 +74,7 @@ export function NekoDecorScreen() {
     /** 메인 창이 다시 보내기 전에 바로 그려 둔다(놓은 자리로·치운 건 빼고) */
     const edit = (id: string, spot: NekoDecorSpot | null) => {
       if (!f) return;
-      f = { ...f, items: spot ? f.items.map((d) => (d.id === id ? { ...d, ...spot } : d)) : f.items.filter((d) => d.id !== id) };
+      f = { ...f, items: spot ? f.items.map((d) => (d.id === id ? { ...d, rot: 0, ...spot } : d)) : f.items.filter((d) => d.id !== id) }; // 각도 없는 자리 = 똑바로
     };
     putAway.current = (id) => {
       void emitTo("main", "neko-screen-put", id).catch(() => {});
@@ -104,7 +104,9 @@ export function NekoDecorScreen() {
     };
     const onUp = () => {
       if (!drag) return;
-      const { item: { id }, spot } = drag;
+      const { item: it, item: { id }, spot: moved } = drag;
+      // 기운 물건은 집으면 똑바로(사용자) — 옮기지 않고 떼도 그 자리를 각도 없이 저장한다
+      const spot = moved ?? (it.surface === "floor" && it.rot ? { surface: "floor" as const, u: it.u } : null);
       drag = null;
       if (elsewhere) {
         void emitTo("main", "neko-screen-put-on", { id, ...elsewhere }).catch(() => {});

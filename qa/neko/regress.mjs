@@ -1776,14 +1776,14 @@ try {
 
   // 9-u2k) 놀다 멈춘 각도 저장(0.1.29, 사용자: 맥에서 던져 굴러간 물건이 폰에선 똑바로였다 — 각도가 동기화 안 됨): 던져 굴러가다 서면
   //        decorMove 에 멈춘 각도(rot, (−π, π] 0.01 단위)를 싣는다. 그 자리를 다시 받으면(setDecor — 다른 기기) 같은 각도로 그리고, 각도 없는
-  //        자리(옛 기기)는 똑바로. 누르고 떼기만 하면 그 각도 그대로, 집어 옮기면 0. 떨어져 누운 액자는 rot 부호 쪽으로 눕는다
+  //        자리(옛 기기)는 똑바로. 집으면(누르고 떼기만 해도, 사용자) 0, 꾹 눌러 메뉴만 띄우면 그대로. 떨어져 누운 액자는 rot 부호 쪽으로 눕는다
   {
     const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
     const r = await p.evaluate(async () => {
       const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), g = cv.getContext("2d"), k = cv.width / R.width, out = {};
       n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
       const moves = []; n.on("decorMove", (e) => moves.push(e));
-      const pe = (type, x, y, id) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: "mouse", bubbles: true }));
+      const pe = (type, x, y, id, pt = "mouse") => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: pt, bubbles: true }));
       const shape = { parts: [{ t: "rrect", x: 0, y: -9, w: 30, h: 14, rad: 1, rot: 0, c: "red" }, { t: "circle", x: -11, y: -14, r: 3, c: "blue" }] };
       const find = () => { n.draw(); for (let x = 0; x < n.W; x += 2) for (let y = 0; y < n.floorY; y += 2) if (n.hitDecor(x, y)) return [x, y]; return null; };
       // 칠한 색(빨강 몸통·파랑 점)의 가장자리 칸과 파랑 가운데 x(css px)
@@ -1816,10 +1816,15 @@ try {
       n.setDecor([{ id: "g", size: "medium", shape, surface: "floor", u: spot.u }]); n.step(5);
       const old = look();
       out.draw = { same: same(here, synced), oldDiffers: !same(here, old) };
-      // 누르고 떼기만: 각도 그대로
+      // 터치로 꾹(메뉴만): 집은 게 아니다 — 각도 그대로, 저장 없음
       n.setDecor([{ id: "g", size: "medium", shape, ...spot }]); n.step(5); moves.length = 0;
+      b = find(); pe("pointerdown", b[0], b[1], 5, "touch"); n.step(1); n.draw();
+      await new Promise((ok) => setTimeout(ok, 650)); pe("pointerup", b[0], b[1], 5, "touch"); n.step(5);
+      out.hold = { moves: moves.length, same: same(look(), synced) };
+      // 누르고 떼기만(집기): 그 순간 똑바로, 0 으로 저장
+      moves.length = 0;
       b = find(); pe("pointerdown", b[0], b[1], 3); n.step(2); pe("pointerup", b[0], b[1], 3); n.step(2);
-      out.tap = moves[0]?.rot;
+      out.tap = moves.at(-1)?.rot;
       // 천천히 옮겨 놓기: 0, 끄는 동안 똑바로 선다
       moves.length = 0; b = find();
       pe("pointerdown", b[0], b[1], 4); n.step(2);
@@ -1833,10 +1838,10 @@ try {
       out.lie = [lie(-1.57), lie(1.57), lie(null)];
       return out;
     });
-    check("놀다 멈춘 각도: 던져 서면 decorMove 에 각도, 다시 받으면 같은 그림(옛 자리는 똑바로), 누르고 떼면 그대로, 옮기면 0, 누운 액자는 rot 쪽",
+    check("놀다 멈춘 각도: 던져 서면 decorMove 에 각도, 다시 받으면 같은 그림(옛 자리는 똑바로), 꾹(메뉴)은 그대로, 집으면(누르고 떼기·옮기기) 0, 누운 액자는 rot 쪽",
       JSON.stringify(r),
       r.thrown.surface === "floor" && Math.abs(r.thrown.rot) > 0.05 && Math.abs(r.thrown.rot) <= Math.PI && Math.round(r.thrown.rot * 100) === r.thrown.rot * 100 &&
-        r.draw.same && r.draw.oldDiffers && r.tap === r.thrown.rot && r.dragged === 0 && r.dragUpright && r.lie.join() === "-1,1,1");
+        r.draw.same && r.draw.oldDiffers && r.hold.moves === 0 && r.hold.same && r.tap === 0 && r.dragged === 0 && r.dragUpright && r.lie.join() === "-1,1,1");
     await p.close();
   }
 
