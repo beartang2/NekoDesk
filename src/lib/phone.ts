@@ -3,6 +3,7 @@
  * 배치 규칙은 App.css 의 `html.phone`.
  */
 
+import { invoke } from "@tauri-apps/api/core";
 import { useNekoStore, type NekoPlacement } from "../neko/nekoStore";
 import { usePhonePanel } from "../neko/panel";
 
@@ -328,7 +329,8 @@ function watchStandby(root: HTMLElement): void {
   const apply = () => {
     const on = landscape.matches;
     root.classList.toggle("standby", on);
-    // 홈 막대는 숨기지 않는다: 숨기면 iOS 가 아래 끝 손짓 미루기(lib.rs ios_full_screen)를 무시해 한 번에 홈으로 나간다
+    // 가로에서만 홈 막대 첫 쓸기를 앱이 받는다(바닥이 화면 끝까지). 세로는 한 번에 홈으로. 막대는 숨기지 않는다(lib.rs phone_edge_guard)
+    void invoke("phone_edge_guard", { on }).catch(() => {});
     const stage = useNekoStore.getState().stage;
     if (on) {
       before ??= stage.placement;

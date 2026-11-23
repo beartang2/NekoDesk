@@ -307,14 +307,6 @@ fn ios_full_screen(window: &tauri::WebviewWindow) {
         let _: () = msg_send![scroll, setBounces: false];
         let _: () = msg_send![scroll, setScrollEnabled: false];
         ios_scroll::lock(scroll);
-        // 화면 아래 끝의 시스템 손짓(홈 막대 쓸어 올리기)을 한 번 미룬다: 처음 쓸면 막대만 나오고(앱이 손가락을 받는다),
-        // 한 번 더 쓸어야 홈으로 나간다. 바닥 물건·고양이를 잡다 홈으로 나가던 것. 세로·가로 모두. UIRectEdgeBottom = 4 —
-        // tao 의 뷰 컨트롤러(창의 root)가 받아 갱신(setNeedsUpdate…)까지 한다. 홈 막대 숨기기(prefersHomeIndicatorAutoHidden)를
-        // 켜면 iOS 가 이 미루기를 무시해 한 번에 홈으로 나간다 — 그래서 가로 화면에서도 막대를 숨기지 않는다(0.1.27)
-        let controller = webview.view_controller() as *mut AnyObject;
-        if !controller.is_null() {
-            let _: () = msg_send![controller, setPreferredScreenEdgesDeferringSystemGestures: 4usize];
-        }
     });
 }
 
@@ -1335,6 +1327,25 @@ mod commands {
         crate::ambient::music(&app)
     }
 
+    /// 폰: 가로 화면(네코만 보기)에서만 화면 아래 끝의 시스템 손짓(홈 막대 쓸어 올리기)을 한 번 미룬다 — 처음 쓸면 막대만
+    /// 나오고(앱이 손가락을 받는다) 한 번 더 쓸어야 홈으로 나간다. 바닥이 화면 끝까지라 물건·고양이를 잡다 홈으로 나가던 것.
+    /// 세로는 한 번에 홈으로(사용자). 회전할 때마다 화면(lib/phone.ts watchStandby)이 부른다. UIRectEdgeBottom = 4 — tao 의 뷰
+    /// 컨트롤러(창의 root)가 받아 갱신(setNeedsUpdate…)까지 한다. 홈 막대 숨기기(prefersHomeIndicatorAutoHidden)는 쓰지 않는다:
+    /// 켜면 iOS 가 이 미루기를 무시해 한 번에 홈으로 나간다(0.1.27)
+    #[cfg(target_os = "ios")]
+    #[tauri::command]
+    pub fn phone_edge_guard(window: tauri::WebviewWindow, on: bool) -> Result<(), AppError> {
+        window.with_webview(move |webview| unsafe {
+            use objc2::msg_send;
+            use objc2::runtime::AnyObject;
+            let controller = webview.view_controller() as *mut AnyObject;
+            if !controller.is_null() {
+                let _: () = msg_send![controller, setPreferredScreenEdgesDeferringSystemGestures: if on { 4usize } else { 0 }];
+            }
+        })?;
+        Ok(())
+    }
+
     /// 폰: 테마를 창에 건다(style 0 시스템·1 밝게·2 어둡게, UIWindow overrideUserInterfaceStyle) — 상태 막대 글자·키보드·
     /// 웹뷰의 prefers-color-scheme 가 따라온다. 웹뷰·창 바탕은 앱 바탕색 bg(0–1 RGB)로. iOS 가 어두운지(창에 건 값과 상관없이)를
     /// 돌려준다. 동기 커맨드라 main thread 에서 돈다.
@@ -1974,6 +1985,8 @@ pub fn run() {
             commands::phone_open_settings,
             #[cfg(target_os = "ios")]
             commands::phone_theme,
+            #[cfg(target_os = "ios")]
+            commands::phone_edge_guard,
             #[cfg(target_os = "macos")]
             commands::neko_screen_cross,
             #[cfg(target_os = "macos")]
