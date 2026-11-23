@@ -190,6 +190,8 @@ export interface NekoController {
   /** 프레임 상한(0 이면 화면 주사율). 졸 때 15·잡힐 때 60 은 엔진이 알아서 바꾼다 — 호스트는 사용자 설정값만 넘긴다 */
   setMaxFps(fps: number): void;
   resize(): void;
+  /** 그림을 잃었을 수 있다(iOS 메모리 경고): 다시 그리고 repaint 를 알린다 */
+  repaint(): void;
   pause(): void;
   resume(): void;
   destroy(): void;

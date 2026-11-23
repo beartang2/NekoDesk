@@ -310,6 +310,30 @@ fn ios_full_screen(window: &tauri::WebviewWindow) {
     });
 }
 
+/// 폰: iOS 메모리 경고(UIApplicationDidReceiveMemoryWarningNotification)를 화면에 알린다(`memory-warning`). 곧 화면 그림이
+/// 버려질 수 있어 화면은 20초 확인을 기다리지 않고 바로 다시 그린다(neko/nekoHost). main thread 에서 부른다(setup)
+#[cfg(target_os = "ios")]
+fn ios_memory_warning(app: tauri::AppHandle) {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    use tauri::Emitter;
+    unsafe {
+        let (Some(center_cls), Some(str_cls)) = (AnyClass::get(c"NSNotificationCenter"), AnyClass::get(c"NSString")) else { return };
+        let center: *mut AnyObject = msg_send![center_cls, defaultCenter];
+        let name: *mut AnyObject = msg_send![str_cls, stringWithUTF8String: c"UIApplicationDidReceiveMemoryWarningNotification".as_ptr()];
+        if center.is_null() || name.is_null() {
+            return;
+        }
+        let block = block2::RcBlock::new(move |_note: *mut AnyObject| {
+            log::warn!("iOS 메모리 경고 — 화면을 다시 그린다");
+            let _ = app.emit("memory-warning", ());
+        });
+        // 알림 센터가 블록을 복사해 들고 있다(앱이 끝날 때까지 지우지 않는다)
+        let _: *mut AnyObject = msg_send![center, addObserverForName: name, object: std::ptr::null_mut::<AnyObject>(),
+            queue: std::ptr::null_mut::<AnyObject>(), usingBlock: &*block];
+    }
+}
+
 /// 폰: 웹뷰·그 스크롤 뷰·창의 바탕을 칠한다(웹뷰는 불투명을 꺼야 바탕이 보인다). main thread 전용
 #[cfg(target_os = "ios")]
 unsafe fn ios_paint(view: *mut objc2::runtime::AnyObject, scroll: *mut objc2::runtime::AnyObject, color: *mut objc2::runtime::AnyObject) {
@@ -1802,6 +1826,8 @@ pub fn run() {
             if let Some(main) = app.get_webview_window("main") {
                 ios_full_screen(&main);
             }
+            #[cfg(target_os = "ios")]
+            ios_memory_warning(app.handle().clone());
             #[cfg(desktop)]
             {
                 app.manage(LlamaServerState(Mutex::new(LlamaProc::default())));

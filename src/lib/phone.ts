@@ -5,6 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { REPAINT } from "./useShown";
+import { setStandby } from "./standby";
 import { useNekoStore, type NekoPlacement } from "../neko/nekoStore";
 import { usePhonePanel } from "../neko/panel";
 
@@ -322,8 +323,11 @@ function watchEdgeDrags(root: HTMLElement): void {
 /**
  * 가로로 돌리면 네코만 보는 화면(아이폰의 스탠바이처럼): 제목 줄·대화를 걷고 거실이 화면을 채운다. 네코가 방에 있었으면
  * 그동안만 거실로 나온다(저장하지 않는다 — 세로로 돌리면 있던 자리로 돌아간다). 켜 둔 동안 화면이 꺼지지 않게 해 본다.
+ *
+ * 가로 동안 네코 자리는 늘 거실이어야 한다: 저장된 자리(방)를 다시 읽으면(켤 때·동기화로 설정이 올 때의 nekoStore.load) 거실
+ * 자리가 사라져 화면 전체가 비었다(흰 화면 — 돌려야 돌아왔다). 누가 바꾸든 여기서 거실로 되돌리고, 그 값은 돌아갈 자리로만 기억한다.
  */
-function watchStandby(root: HTMLElement): void {
+export function watchStandby(root: HTMLElement): void {
   const landscape = window.matchMedia("(orientation: landscape)");
   let before: NekoPlacement | null = null;
   let awake: { release(): Promise<void> } | null = null;
@@ -333,6 +337,7 @@ function watchStandby(root: HTMLElement): void {
     // 가로에서만 홈 막대 첫 쓸기를 앱이 받는다(바닥이 화면 끝까지). 세로는 한 번에 홈으로. 막대는 숨기지 않는다(lib.rs phone_edge_guard)
     void invoke("phone_edge_guard", { on }).catch(() => {});
     const stage = useNekoStore.getState().stage;
+    setStandby(on); // 가려진 화면은 그리지 않는다(lib/standby)
     if (on) {
       before ??= stage.placement;
       if (stage.placement !== "dock") useNekoStore.setState({ stage: { ...stage, placement: "dock" } });
@@ -349,6 +354,11 @@ function watchStandby(root: HTMLElement): void {
   };
   landscape.addEventListener("change", apply);
   apply();
+  useNekoStore.subscribe((s) => {
+    if (!landscape.matches || s.stage.placement === "dock") return;
+    before = s.stage.placement;
+    useNekoStore.setState({ stage: { ...s.stage, placement: "dock" } });
+  });
 }
 
 /**
