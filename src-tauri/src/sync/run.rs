@@ -15,6 +15,20 @@ use tauri::{AppHandle, Emitter, Manager, State};
 static KICK: OnceLock<mpsc::Sender<bool>> = OnceLock::new();
 /// 이번 실행에서 한 번이라도 다 맞췄나 — 오래된 대화 자동 삭제는 그 뒤에만 돈다(§2.5 규칙 1)
 static SYNCED: AtomicBool = AtomicBool::new(false);
+/// 이번 실행에서 다시 맞추기를 봤나(켤 때는 6시간 지났으면 한다)
+static RECONCILE_LOOKED: AtomicBool = AtomicBool::new(false);
+/// 주기 작업과 설정의 '다시 맞추기' 버튼이 겹쳐 같은 것을 두 번 올리지 않게
+static RUN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+const HOUR_MS: i64 = 3_600_000;
+
+/// 서버와 다시 맞출 차례인가(sync::reconcile): 하루 한 번, 이번 실행 처음엔 6시간 지났으면. 옛 서버(목록 API 없음)는
+/// 전부 다시 올리고 받아야 해 무거우니 주 1회
+fn reconcile_due(conn: &Connection, first: bool, now: i64) -> bool {
+    let last = state_i64(conn, "reconciled_at").unwrap_or(0);
+    let heavy = state(conn, "reconcile_heavy").ok().flatten().is_some();
+    now - last >= if heavy { 7 * 24 * HOUR_MS } else if first { 6 * HOUR_MS } else { 24 * HOUR_MS }
+}
 
 const PAIR_PREFIX: &str = "nekosync1:";
 /// 서버의 기기 목록에 보이는 이름(사용자 결정, 0.1.16): 맥은 컴퓨터 이름("○○의 MacBook Air"), 폰은 기기 이름.
@@ -185,7 +199,20 @@ fn tick(app: &AppHandle) {
         }
     };
     let focused = in_front(app);
-    let result = tauri::async_runtime::block_on(round(&db.0, &srv, if focused { now_ms() } else { 0 }));
+    let _run = RUN.lock().unwrap_or_else(|e| e.into_inner());
+    let first = !RECONCILE_LOOKED.swap(true, Ordering::Relaxed);
+    let mut found = Changes::default();
+    if db.0.lock().is_ok_and(|c| reconcile_due(&c, first, now_ms())) {
+        match tauri::async_runtime::block_on(super::reconcile::reconcile(&db.0, &srv)) {
+            Ok((out, ch)) => { log::info!("다시 맞추기: {out:?}"); found = ch; }
+            Err(e) => log::info!("다시 맞추기 못 함: {e}"),
+        }
+    }
+    let result = tauri::async_runtime::block_on(round(&db.0, &srv, if focused { now_ms() } else { 0 })).map(|mut ch| {
+        ch.colls.extend(found.colls);
+        ch.sessions.extend(found.sessions);
+        ch
+    });
     let Ok(c) = db.0.lock() else { return };
     match result {
         Ok(changes) => {
@@ -287,6 +314,22 @@ pub fn sync_enable(db: State<'_, DbState>, on: bool) -> Result<(), AppError> {
 #[tauri::command]
 pub fn sync_now() {
     kick();
+}
+
+/// 설정 › 동기화의 '다시 맞추기': 서버와 지금 견주고 바로 주고받는다. 받은 것·올린 것·지운 것 수를 돌려준다
+#[tauri::command(async)]
+pub fn sync_reconcile(app: AppHandle) -> Result<super::reconcile::Outcome, AppError> {
+    let db = app.state::<DbState>();
+    let srv = server(&*db.0.lock()?)?.ok_or_else(|| AppError::msg("동기화가 꺼져 있습니다."))?;
+    let _run = RUN.lock().unwrap_or_else(|e| e.into_inner());
+    let (out, mut ch) = tauri::async_runtime::block_on(super::reconcile::reconcile(&db.0, &srv))?;
+    let more = tauri::async_runtime::block_on(round(&db.0, &srv, now_ms()))?;
+    ch.colls.extend(more.colls);
+    ch.sessions.extend(more.sessions);
+    if !ch.is_empty() {
+        let _ = app.emit("sync-changed", Changed { changes: ch, first: false });
+    }
+    Ok(out)
 }
 
 /// 서버 주소를 주소 해석기로 읽어 확인하고 다듬는다: https 만(로컬 시험 `wrangler dev` 는 호스트가 정확히
@@ -713,6 +756,22 @@ pub fn gift_remove(db: State<'_, DbState>, ids: Vec<String>) -> Result<(), AppEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reconcile_runs_daily_after_six_hours_at_start_and_weekly_on_an_old_server() {
+        let c = Connection::open_in_memory().unwrap();
+        crate::db::init_schema(&c).unwrap();
+        let t = 100 * 24 * HOUR_MS;
+        assert!(reconcile_due(&c, false, t), "처음엔 한다");
+        set_state(&c, "reconciled_at", &t.to_string()).unwrap();
+        assert!(!reconcile_due(&c, true, t + 5 * HOUR_MS));
+        assert!(reconcile_due(&c, true, t + 6 * HOUR_MS), "켤 때는 6시간");
+        assert!(!reconcile_due(&c, false, t + 23 * HOUR_MS));
+        assert!(reconcile_due(&c, false, t + 24 * HOUR_MS), "하루 한 번");
+        set_state(&c, "reconcile_heavy", "1").unwrap();
+        assert!(!reconcile_due(&c, true, t + 6 * 24 * HOUR_MS));
+        assert!(reconcile_due(&c, false, t + 7 * 24 * HOUR_MS), "옛 서버는 주 1회");
+    }
 
     #[test]
     fn front_kick_skips_a_round_that_just_ran() {

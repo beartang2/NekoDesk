@@ -20,6 +20,10 @@ const COLLS = new Set(["session", "msg", "memory", "todo", "event", "gift", "set
 const PUSH_MAX = 20;
 const PULL_MAX = 200;
 const PULL_BYTES = 1_000_000;
+/** 다시 맞추기(heads): 한 번에 돌려주는 머리 수. 본문이 없어 한 줄 100바이트 남짓 */
+const HEADS_MAX = 1000;
+/** 다시 맞추기(fetch): 한 번에 묻는 번호 수(D1 묶는 값 100개 = 번호 50쌍) */
+const FETCH_MAX = 50;
 /** 암호문 1MB → base64 로 4/3 */
 const BLOB_MAX = Math.ceil((1_048_576 * 4) / 3) + 64;
 /** 기기 시계가 이만큼 앞서면 거절한다(§9 기기 시계) */
@@ -209,6 +213,45 @@ async function sync(req: Request, env: Env, device: string): Promise<Response> {
   return json({ records, seq, more, rejected, walk: await walkNow(db) });
 }
 
+// ── 다시 맞추기(docs/neko-sync.md §4.5): 기기가 가끔 서버 기록 목록과 제 사본을 견준다 ─────────────────────────
+// 보통 동기화(sync)는 순번 뒤의 것만 주고받아 한 번 빠진 기록은 다시 오가지 않았다. 표·인덱스는 그대로다(records 의 기본 키
+// (coll, id) 순으로 읽는다). 기기 인증은 sync 와 같다(route).
+
+/** 기록 머리(본문 없이)를 (coll, id) 순으로 HEADS_MAX 개씩. after = 지난 쪽의 마지막 [coll, id] */
+async function heads(req: Request, env: Env): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as { after?: unknown } | null;
+  const a = Array.isArray(body?.after) && body!.after.length === 2 && body!.after.every((x) => typeof x === "string") ? (body!.after as string[]) : ["", ""];
+  const { results } = await env.DB.prepare(
+    "SELECT coll, id, parent, ts, device, deleted, cut FROM records WHERE (coll, id) > (?1, ?2) ORDER BY coll, id LIMIT ?3",
+  ).bind(a[0], a[1], HEADS_MAX + 1).all<Omit<Rec, "blob" | "seq">>();
+  const page = results.slice(0, HEADS_MAX), last = page.at(-1);
+  return json({ heads: page, next: results.length > HEADS_MAX && last ? [last.coll, last.id] : null });
+}
+
+/** 고른 기록(본문 포함)을 받는다. 번호는 FETCH_MAX 개까지, 본문 합이 PULL_BYTES 를 넘으면 나머지 번호는 rest 로 돌려준다 */
+async function fetchRecords(req: Request, env: Env): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as { keys?: unknown } | null;
+  const keys = (Array.isArray(body?.keys) ? body!.keys : []).filter(
+    (k): k is [string, string] => Array.isArray(k) && k.length === 2 && typeof k[0] === "string" && typeof k[1] === "string",
+  );
+  if (keys.length > FETCH_MAX) return fail(413, `keys ≤ ${FETCH_MAX}`);
+  if (!keys.length) return json({ records: [], rest: [] });
+  const list = keys.map((_, i) => `(?${i * 2 + 1}, ?${i * 2 + 2})`).join(", ");
+  const { results } = await env.DB.prepare(`SELECT ${REC_COLS} FROM records WHERE (coll, id) IN (VALUES ${list})`)
+    .bind(...keys.flat()).all<Rec>();
+  const at = new Map(results.map((r) => [`${r.coll}\0${r.id}`, r]));
+  const records: Rec[] = [], rest: [string, string][] = [];
+  let bytes = 0;
+  for (const k of keys) {
+    const r = at.get(`${k[0]}\0${k[1]}`);
+    if (!r) continue; // 그새 없어졌다(지운 세션의 말)
+    if (records.length && bytes + (r.blob?.length ?? 0) > PULL_BYTES) { rest.push(k); continue; }
+    bytes += (r.blob?.length ?? 0) + 200;
+    records.push(r);
+  }
+  return json({ records, rest });
+}
+
 // ── 산책: 기기들이 같은 산책 하나를 나눠 쓴다(docs/neko-sync.md §5.4) ─────────────
 // 기기마다 따로 나가면 끼니마다 두 번 나가고 비용·선물·일지가 두 벌이 된다. 마지막 산책 하나(시작·끝·나간 기기)를
 // meta 의 'walk' 에 둔다(표를 더하지 않는다). 대화 내용은 없다 — 시각과 기기 번호뿐이다.
@@ -261,6 +304,8 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (!device) return fail(401, "token");
 
   if (method === "POST" && path === "/v1/sync") return sync(req, env, device);
+  if (method === "POST" && path === "/v1/heads") return heads(req, env);
+  if (method === "POST" && path === "/v1/fetch") return fetchRecords(req, env);
   if (method === "POST" && path === "/v1/walk/claim") return walkClaim(req, env, device);
   if (method === "POST" && path === "/v1/walk/end") return walkEnd(req, env, device);
   if (method === "POST" && path === "/v1/pair") {

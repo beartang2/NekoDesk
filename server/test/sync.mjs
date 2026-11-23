@@ -168,4 +168,27 @@ assert.equal(r.reset, true);
 r = await sync(A.token, 0);
 assert.ok(!find(r, "memory", `k-${run}`), "기록이 비었다");
 
+// 다시 맞추기: 머리(본문 없음)를 번호 순으로 나눠 받고, 고른 기록만 본문째 받는다. 기기 인증은 sync 와 같다
+{
+  assert.equal((await call("POST", "/v1/heads", {}, "nope")).status, 401);
+  assert.equal((await call("POST", "/v1/fetch", { keys: [] }, "nope")).status, 401);
+  const hs = `hs-${run}`, hm = `hm-${run}`, t = Date.now();
+  const gone = `hg-${run}`;
+  await sync(A.token, 0, [rec("session", hs, t), rec("msg", hm, t + 1, { parent: hs }), rec("session", gone, t, { deleted: 1, blob: null })]);
+  const all = [];
+  let after = null, pages = 0;
+  do { const h = await ok("POST", "/v1/heads", { after }, A.token); all.push(...h.heads); after = h.next; pages++; } while (after && pages < 100);
+  const mine = all.find((x) => x.coll === "msg" && x.id === hm);
+  assert.ok(mine && mine.parent === hs && mine.ts === t + 1 && mine.device === A.device_id && mine.deleted === 0, "머리에 번호·세션·시각·기기");
+  assert.ok(all.some((x) => x.coll === "session" && x.id === gone && x.deleted === 1), "지움 표시도 머리에");
+  assert.ok(all.every((x) => !("blob" in x)), "머리엔 본문이 없다");
+  const sorted = [...all].sort((x, y) => (x.coll < y.coll ? -1 : x.coll > y.coll ? 1 : x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+  assert.deepEqual(all.map((x) => `${x.coll}/${x.id}`), sorted.map((x) => `${x.coll}/${x.id}`), "(coll, id) 순");
+  const f = await ok("POST", "/v1/fetch", { keys: [["msg", hm], ["msg", "없는-번호"], ["session", hs]] }, A.token);
+  assert.deepEqual(f.records.map((x) => x.id).sort(), [hm, hs].sort());
+  assert.ok(f.records.every((x) => typeof x.blob === "string"), "고른 기록은 본문째");
+  assert.deepEqual(f.rest, []);
+  assert.equal((await call("POST", "/v1/fetch", { keys: Array.from({ length: 51 }, (_, i) => ["msg", `x${i}`]) }, A.token)).status, 413);
+}
+
 console.log("server sync ok");

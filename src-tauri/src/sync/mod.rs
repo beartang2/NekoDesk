@@ -18,6 +18,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Mutex;
 
 mod furniture;
+pub mod reconcile;
 pub mod run;
 
 pub type Key = [u8; 32];
