@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import { MD_PLUGINS } from "./lib/markdown";
 import { tableWheel } from "./lib/tableWheel";
+import { ScrollBottomButton } from "./components/ScrollBottomButton";
 import { Sun, Moon, Monitor, Settings, Paperclip, ArrowUp, Zap, Copy, Check, X, Gift, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { historyStep, type HistoryPos } from "./lib/input-history";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -599,13 +600,11 @@ const keptScroll = new Map<string, { top: number; from: number }>();
 function ChatMessages({
   messages,
   isRunning,
-  onScrollChange,
   onPickSuggestion,
   keepId,
 }: {
   messages: ChatMessage[];
   isRunning: boolean;
-  onScrollChange?: (show: boolean, scrollFn: () => void) => void;
   onPickSuggestion?: (text: string) => void;
   /** 다시 그릴 때 보던 자리를 되찾을 세션 */
   keepId?: string;
@@ -665,7 +664,8 @@ function ChatMessages({
     el.scrollTop = p.top + (el.scrollHeight - p.height);
   }, [start]);
   const isUserScrolledUp = useRef(false);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  // 맨 아래로 버튼 보이기(ScrollBottomButton 이 건다). 상태로 두지 않는다 — 바뀔 때 목록·앱이 다시 그려져 스크롤이 버벅였다
+  const showBtn = useRef<(show: boolean) => void>(() => {});
   // 보던 자리 지키기(keptScroll): 그릴 때 되찾고, 내려놓을 때 적는다
   const lastTop = useRef(0);
   const startRef = useRef(start);
@@ -677,7 +677,7 @@ function ChatMessages({
       el.scrollTop = k.top;
       lastTop.current = k.top;
       isUserScrolledUp.current = true;
-      setShowScrollBtn(true);
+      showBtn.current(true);
     }
     return () => {
       if (!keepId) return;
@@ -696,7 +696,7 @@ function ChatMessages({
 
   const scrollToBottom = useCallback(() => {
     isUserScrolledUp.current = false;
-    setShowScrollBtn(false);
+    showBtn.current(false);
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
@@ -714,20 +714,15 @@ function ChatMessages({
     requestAnimationFrame(() => {
       if (!containerRef.current) return;
       isUserScrolledUp.current = distanceFromBottom() > BOTTOM_SLACK;
-      setShowScrollBtn(isUserScrolledUp.current);
+      showBtn.current(isUserScrolledUp.current);
     });
   }, []);
 
   /** 버튼 표시만 담당한다. 여기서 따라가기 상태를 건드리면 위 문제가 되살아난다. */
   const handleScroll = useCallback(() => {
     if (containerRef.current) lastTop.current = containerRef.current.scrollTop;
-    setShowScrollBtn(distanceFromBottom() > BOTTOM_SLACK);
+    showBtn.current(distanceFromBottom() > BOTTOM_SLACK);
   }, []);
-
-  // 스크롤 버튼 상태를 부모에 전달
-  useEffect(() => {
-    onScrollChange?.(showScrollBtn, scrollToBottom);
-  }, [showScrollBtn, scrollToBottom, onScrollChange]);
 
   // 메시지 변경 시 따라가는 중이면 바닥으로.
   //
@@ -740,7 +735,7 @@ function ChatMessages({
     }
   }, [messages]);
 
-  return (
+  return (<>
     <div
       className="chat-messages"
       ref={containerRef}
@@ -766,7 +761,9 @@ function ChatMessages({
       ))}
       <div ref={bottomRef} />
     </div>
-  );
+    {/* 메시지 위에 떠 있어야 뒤가 비쳐 블러가 보인다(목록 밖, 같은 칸 안 absolute) */}
+    <ScrollBottomButton bind={showBtn} onClick={scrollToBottom} />
+  </>);
 }
 
 // ── Picture → gift box ────────────────────────────────────────────────────────
@@ -2111,11 +2108,6 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, [walk, saveWalk, playAction, nekoGameEmotion]);
 
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
-  // 사라지는 애니메이션을 보여주려고 퇴장이 끝날 때까지 붙여둔다.
-  const [scrollBtnMounted, setScrollBtnMounted] = useState(false);
-  if (showScrollBtn && !scrollBtnMounted) setScrollBtnMounted(true);
-  const scrollToBottomRef = useRef<() => void>(() => {});
   /**
    * 입력창(과 확인 배너)은 메시지 위에 떠서 뒤를 흐리게 비춘다. 줄바꿈·첨부로 높이가
    * 바뀌므로 재서 `--dock-h` 로 넘긴다 — 메시지 아래 여백과 스크롤 버튼 위치가 쓴다.
@@ -2126,10 +2118,6 @@ export default function App() {
     const ro = new ResizeObserver(() => main.style.setProperty("--dock-h", `${dock.offsetHeight}px`));
     ro.observe(dock);
     return () => ro.disconnect();
-  }, []);
-  const handleScrollChange = useCallback((show: boolean, scrollFn: () => void) => {
-    setShowScrollBtn(show);
-    scrollToBottomRef.current = scrollFn;
   }, []);
   const { isDark, pref: themePref, cycle: cycleTheme } = useTheme();
   // 네코 감독(설계 docs/neko-p2-director.md): 세션 상태·앱 상황 → 계획 → 스케줄러 → 엔진. 자리는 NekoSlot 두 곳 중 설정에 맞는 곳
@@ -2400,24 +2388,11 @@ export default function App() {
                 keepId={activeId}
                 messages={activeMessages}
                 isRunning={isRunning}
-                onScrollChange={handleScrollChange}
                 onPickSuggestion={(text) => handleSend(text, [])}
               />
             )}
           </ErrorBoundary>
 
-          {/* 메시지 위에 떠 있어야 뒤가 비쳐 블러가 보인다. */}
-          {scrollBtnMounted && (
-            <button
-              className="chat-scroll-btn"
-              data-leaving={showScrollBtn ? undefined : ""}
-              onAnimationEnd={() => { if (!showScrollBtn) setScrollBtnMounted(false); }}
-              onClick={() => scrollToBottomRef.current()}
-              title="맨 아래로"
-            >
-              ↓
-            </button>
-          )}
         </div>
 
         <div className="chat-dock" ref={dockRef}>
