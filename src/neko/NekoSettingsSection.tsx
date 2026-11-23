@@ -65,7 +65,7 @@ export function NekoSettingsSection() {
         <span>벽지</span>
         <Segmented value={wallpaper} onChange={setWallpaper} options={WALLPAPERS} />
       </div>
-      <p className="settings-section__desc">방과 거실의 벽지입니다. 벽색은 창밖 하늘을 따라 낮·노을·밤으로 바뀝니다.</p>
+      <p className="settings-section__desc">방과 거실의 벽지입니다. 맥과 폰이 같이 씁니다. 벽색은 창밖 하늘을 따라 낮·노을·밤으로 바뀝니다.</p>
       {placement === "screen" && (
         <>
           <SwitchRow label="항상 위에 두기" checked={onTop} onChange={(v) => setScreen({ screenOnTop: v })} />

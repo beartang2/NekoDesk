@@ -987,3 +987,29 @@ fn old_server_heavy_resync_runs_at_most_weekly_even_when_pressed_often() {
     assert!(push_all(&c, "A").is_empty());
     assert!(reconcile::heavy_fallback(&c, t + 7 * 86_400_000).unwrap() > 0, "일주일 뒤엔 다시");
 }
+
+#[test]
+fn wallpaper_and_memory_settings_reach_the_other_device_and_a_joining_device_does_not_overwrite_them() {
+    // 0.1.30(마이그레이션 15): 벽지·기억 상한·기억 정리 켜기도 맞추는 설정이다
+    let (a, b) = (db(), db());
+    settings::set(&a, "neko_wallpaper", "panel").unwrap();
+    settings::set(&a, "memory_cap", "450").unwrap();
+    settings::set(&a, "memory_tidy", "off").unwrap();
+    apply_all(&b, "B", &push_all(&a, "A"));
+    for (k, v) in [("neko_wallpaper", "panel"), ("memory_cap", "450"), ("memory_tidy", "off")] {
+        assert_eq!(settings::get(&b, k).unwrap().as_deref(), Some(v), "{k}");
+    }
+    // 나중에 바꾼 기기가 이긴다
+    settings::set(&b, "neko_wallpaper", "twotone").unwrap();
+    apply_all(&a, "A", &push_all(&b, "B"));
+    assert_eq!(settings::get(&a, "neko_wallpaper").unwrap().as_deref(), Some("twotone"));
+    // 새로 짝 맞춘 기기가 제 값을 적어 뒀어도 양보한다(yield_settings) — 쓰던 기기의 벽지를 안 덮는다
+    let c = db();
+    settings::set(&c, "neko_wallpaper", "plain").unwrap();
+    yield_settings(&c).unwrap();
+    assert!(push_all(&c, "C").iter().all(|r| r.coll != "setting"));
+    apply_all(&c, "C", &push_all(&a, "A"));
+    let all_a = { a.execute("UPDATE sync_meta SET dirty = 1 WHERE coll = 'setting'", []).unwrap(); push_all(&a, "A") };
+    apply_all(&c, "C", &all_a);
+    assert_eq!(settings::get(&c, "neko_wallpaper").unwrap().as_deref(), Some("twotone"));
+}

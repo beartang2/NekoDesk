@@ -1184,7 +1184,7 @@ export function MemoriesSection() {
       </div>
       <p className="settings-section__desc">
         기억이 이 수를 넘으면 {josa(name, "이/가")} 졸 때 오래 꺼내 쓰지 않은 기억부터 하루 5개씩 잊습니다. 잊은 기억은 목록에서
-        숨겨지고 30일 뒤에 지워집니다. 그 사이 대화에서 다시 찾아 쓰면 되살아납니다.
+        숨겨지고 30일 뒤에 지워집니다. 그 사이 대화에서 다시 찾아 쓰면 되살아납니다. 상한과 아래 정리 켜기는 맥과 폰이 같이 씁니다.
       </p>
       <SwitchRow label="쉴 때 정리하기" checked={tidy} onChange={setTidy} />
       <p className="settings-section__desc">
