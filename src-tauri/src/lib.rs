@@ -528,6 +528,31 @@ mod commands {
         crate::db::todos::complete(&conn, id)
     }
 
+    /// 내용·마감 고치기. clear_due 면 마감을 지운다.
+    #[tauri::command(async)]
+    pub fn todo_update(
+        db: State<'_, DbState>,
+        id: i64,
+        content: Option<String>,
+        due_at: Option<String>,
+        clear_due: Option<bool>,
+    ) -> Result<bool, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::todos::update(&conn, id, content.as_deref(), due_at.as_deref(), clear_due.unwrap_or(false))
+    }
+
+    #[tauri::command(async)]
+    pub fn todo_delete(db: State<'_, DbState>, ids: Vec<i64>) -> Result<usize, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::todos::delete(&conn, &ids)
+    }
+
+    #[tauri::command(async)]
+    pub fn todo_reopen(db: State<'_, DbState>, id: i64) -> Result<bool, AppError> {
+        let conn = db.0.lock()?;
+        crate::db::todos::reopen(&conn, id)
+    }
+
     #[tauri::command(async)]
     pub fn schedule_list(db: State<'_, DbState>, range: String) -> Result<Vec<ScheduleEvent>, AppError> {
         let conn = db.0.lock()?;
@@ -1809,6 +1834,9 @@ pub fn run() {
             commands::todo_list_done,
             commands::todo_add,
             commands::todo_complete,
+            commands::todo_update,
+            commands::todo_delete,
+            commands::todo_reopen,
             commands::schedule_list,
             commands::schedule_add,
             commands::schedule_delete,

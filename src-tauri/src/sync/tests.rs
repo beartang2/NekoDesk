@@ -200,6 +200,34 @@ fn device_b_gets_what_device_a_wrote_without_echo() {
 }
 
 #[test]
+fn todo_edits_reopens_and_deletes_reach_the_other_device() {
+    let (a, b) = (db(), db());
+    let t = todos::add(&a, "우유", Some("2026-12-01")).unwrap();
+    apply_all(&b, "B", &push_all(&a, "A"));
+    let id_b = todos::list_open(&b).unwrap()[0].id;
+
+    // 고친 내용·지운 마감
+    todos::update(&a, t.id, Some("두유"), None, true).unwrap();
+    apply_all(&b, "B", &push_all(&a, "A"));
+    let got = &todos::list_open(&b).unwrap()[0];
+    assert_eq!((got.content.as_str(), got.due_at.as_deref()), ("두유", None));
+
+    // 완료 → 되돌리기: 같은 기록 하나라 옛 기기도 그대로 받는다(열림, 완료 시각 없음)
+    todos::complete(&a, t.id).unwrap();
+    todos::reopen(&a, t.id).unwrap();
+    apply_all(&b, "B", &push_all(&a, "A"));
+    assert_eq!(todos::list_open(&b).unwrap()[0].completed_at, None);
+
+    // B 에서 지우면 지움 표시로 A 에서도 지워진다
+    todos::delete(&b, &[id_b]).unwrap();
+    let tomb = push_all(&b, "B");
+    assert!(tomb.iter().all(|r| r.coll == "todo" && r.deleted == 1 && r.blob.is_none()));
+    apply_all(&a, "A", &tomb);
+    assert!(todos::list_open(&a).unwrap().is_empty());
+    assert_eq!(dirty(&a), 0, "받은 지움을 다시 올리지 않는다");
+}
+
+#[test]
 fn later_write_wins_and_earlier_one_is_ignored() {
     let (a, b) = (db(), db());
     let t = todos::add(&a, "청소", None).unwrap();
