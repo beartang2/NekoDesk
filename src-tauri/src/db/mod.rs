@@ -19,9 +19,9 @@ pub mod terms;
 /// 바꾸면 이미 배포된 마이그레이션 4번은 그대로 두고, 트리거를 새 마이그레이션에서 다시 만든다.
 /// 비밀(키체인·API 키), 경로·권한·실행 관련 키(fs_write_roots 등), 모델 프로필, 예산·장부는 절대 넣지 않는다 —
 /// 연결된 다른 기기가 이 맥의 권한을 넓힐 수 있게 된다. 받을 때도 이 목록 밖은 버린다(crate::sync::apply).
-pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention", "neko_needs", "neko_walk_view", "neko_here", "cat_rpg_state", "neko_mind", "neko_presence", "neko_furniture"];
+pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention", "neko_needs", "neko_walk_view", "neko_here", "cat_rpg_state", "neko_mind", "neko_presence", "neko_furniture", "neko_heart"];
 /// 트리거용 같은 목록(SQL 글). concat! 은 상수를 못 받아 따로 적고, 테스트가 둘이 같은지 본다.
-macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention', 'neko_needs', 'neko_walk_view', 'neko_here', 'cat_rpg_state', 'neko_mind', 'neko_presence', 'neko_furniture')" } }
+macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention', 'neko_needs', 'neko_walk_view', 'neko_here', 'cat_rpg_state', 'neko_mind', 'neko_presence', 'neko_furniture', 'neko_heart')" } }
 
 /// 지금 시각(ms). SQLite 의 julianday 는 ms 까지 준다
 macro_rules! now_ms { () => { "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)" } }
@@ -271,6 +271,14 @@ pub(crate) const MIGRATIONS: &[&str] = &[
          CREATE TRIGGER sync_memory_upd AFTER UPDATE OF kind, content, used_ms, forgot_ms ON memories
          WHEN (OLD.kind IS NOT NEW.kind OR OLD.content IS NOT NEW.content OR OLD.used_ms IS NOT NEW.used_ms OR OLD.forgot_ms IS NOT NEW.forgot_ms) BEGIN
              UPDATE sync_meta SET ts = MAX(", now_ms!(), ", ts + 1), dirty = 1 WHERE coll = 'memory' AND local_key = CAST(NEW.id AS TEXT); END;",
+    ),
+    // 14 — 맞추는 설정 키에 neko_heart(네코의 성격: 좋아함·싫어함·버릇·겁냄·자기만의 규칙·비밀, 0.1.30, docs/neko-heart.md)를 더한다.
+    // 12번과 같이 설정 트리거를 지금 목록으로 다시 만든다. 이미 있는 값은 없다(새 키). 옛 버전은 모르는 키를 받으면 버린다 —
+    // neko_mind 에 두지 않은 까닭: 옛 버전이 neko_mind 를 아는 칸만으로 다시 써 성격이 사라진다
+    concat!(
+        "DROP TRIGGER IF EXISTS sync_setting_ins; DROP TRIGGER IF EXISTS sync_setting_upd; DROP TRIGGER IF EXISTS sync_setting_del;",
+        sync_named_triggers!("setting", "settings", "key", concat!("NEW.key IN ", synced_keys!()), "OLD.value IS NOT NEW.value"),
+        sync_tombstone!("setting", "settings", "OLD.key", concat!("OLD.key IN ", synced_keys!())),
     ),
 ];
 
