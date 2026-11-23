@@ -1645,6 +1645,27 @@ try {
     check("끝 칸 가구에서 내려오기: 벽 쪽이 막히면 열린 쪽으로, 아래 발판에서 바닥까지 — 공중에서 벽에 안 튕긴다", JSON.stringify(bad.length ? bad : out.map((r) => `${r.name}/${r.kind}/${r.slot}:${r.sec}s`)), bad.length === 0);
   }
 
+  // 9-u2g) 탁자 놀이(0.1.28, 사용자: 탁자 위 물건을 가끔 툭 밀어 떨어뜨린다): 밀 판이면 탁자 옆 바닥에 서서 올려다보다(stare) 앞발로
+  //        자기 쪽 끝으로 끌어 떨어뜨리고(물건 decorMove floor), 그다음 윗면에 올라가 쉰다. 맥 방 280 의 벽 끝 칸 탁자도 반대쪽 끝에서
+  for (const [q, at, slot, sc] of [["?w=760&h=170&scale=height&transparent=1", "dock", 1, 0.68], ["?w=280&h=326&scale=height&transparent=1", "sidebar", 0, 1.12]]) {
+    const p = await open(q, { width: 900, height: 400 });
+    const r = await p.evaluate(({ at, slot, sc }) => {
+      const n = window.__neko, c = n.cat;
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(sc); n.step(30);
+      n.setFurniture([{ id: "T", kind: "table", at, slot }]);
+      const moves = []; n.on("decorMove", (e) => moves.push(e.id + ":" + e.surface));
+      n.setDecor([{ id: "a", surface: "furniture", fid: "T", i: 0, fu: 0.35, u: 0.3, size: "small", shape: { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] } }]);
+      c.x = n.W * (slot ? 0.1 : 0.9); n.step(60);
+      const rnd = Math.random; Math.random = () => 0.1; n.act("table"); Math.random = rnd; // 밀 판(45%)으로
+      const seen = [];
+      for (let i = 0; i < 120 * 20; i++) { n.step(1); const st = c.act ? c.act.stage : "-"; if (seen[seen.length - 1] !== st) seen.push(st); }
+      return { seen: seen.join(">"), moves, perch: n.perch };
+    }, { at, slot, sc });
+    check(`탁자 놀이(${at}): 옆 바닥에서 올려다보다 끌어 떨어뜨리고 올라가 쉰다`, JSON.stringify(r),
+      /stare>push>watch>go>rest/.test(r.seen) && r.moves.join() === "a:floor" && r.perch === "f:T:0");
+    await p.close();
+  }
+
   // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {

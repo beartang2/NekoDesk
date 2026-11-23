@@ -67,6 +67,7 @@ export type NekoActivity =
   | "cattower"
   | "wheel"
   | "sofa"
+  | "table"
   // 창 탐험(캣타워, 화면 모드)
   | "tower"
   // 쳐다보기: 애정이 낮을 때(docs/neko-activity-mix.md §2.3)

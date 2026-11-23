@@ -67,6 +67,7 @@ export const MIX = {
   cattower: act("body move paws head tail", "move", "", solo(fill(-15, 15))),
   wheel: act("body move paws head tail", "move", "", solo(fill(-25, 5))),
   sofa: act("body move paws head tail", "move", "", solo(fill(10, 0, 0, 5))),
+  table: act("body move paws head tail", "move", "", solo(fill(5, 10))), // 탁자(0.1.28): 올라가 앉고, 가끔 위 물건을 툭 밀어 떨어뜨린다
   window: act("body head tail", "sit", "wall", solo(fill(3, 25))),
   think: act("body paws head tail", "sit", "", { fills: fill(0, 3) }),
   wait: act("body paws head tail", "sit"),

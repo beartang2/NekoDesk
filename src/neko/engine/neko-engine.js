@@ -2454,7 +2454,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         fall, // 떨어지는 중(액자 아닌 걸 벽 쪽에 놓음·탁자를 치움)이면 이어서
         // 새로 놓인 것만 '뿅'. 화면 모드는 안 한다 — 선물 창이 멈춘 그림으로 그린다(모니터를 건너가도 다 뿅 하지 않게)
         t0: o ? o.t0 : WORLD ? -1e9 : time, box: null, showTo: o ? o.showTo : 0,
-        px: keep ? o.px : off ? [fall.x, fall.bottom] : null, vx: keep ? o.vx : 0, rot: o ? o.rot : 0, wob: o ? o.wob : new Spring(0), hidden: o ? o.hidden : false, front: o ? o.front : false,
+        px: keep ? o.px : off ? [fall.x, fall.bottom] : null, vx: keep ? o.vx : 0, slide: keep ? o.slide : null, rot: o ? o.rot : 0, wob: o ? o.wob : new Spring(0), hidden: o ? o.hidden : false, front: o ? o.front : false,
         // 마지막으로 놀아 준 때(호스트가 decorPlayed 를 저장해 돌려준다). 없으면 한 번도 안 논 것
         lastPlayed: Number.isFinite(d.lastPlayed) ? d.lastPlayed : o ? o.lastPlayed : null,
       };
@@ -2552,6 +2552,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
           d.px = [d.fall.x, BASE_Y]; d.fall = null; d.wob.v += 2;
           if (roll) d.vx = roll; else settleDecor(d);
         } else d.px = [d.fall.x, d.fall.bottom];
+        continue;
+      }
+      if (d.slide) { // 탁자 위에서 밀렸다: 상판 위로 미끄러지다 끝을 넘으면 떨어지고(fall), 서면 그 자리(상판 위)를 알린다
+        const sl = d.slide, half = decorDims(d.shape, d.k).w / 2;
+        d.px[0] += sl.vx * dt; sl.vx *= Math.exp(-dt * 2.4);
+        if (d.px[0] - half * 0.2 > sl.x1 || d.px[0] + half * 0.2 < sl.x0) { d.fall = { x: d.px[0], bottom: sl.y, vx: sl.vx * 0.8, vy: 0 }; d.slide = null; }
+        else if (Math.abs(sl.vx) < 6 * S) { d.slide = null; settleDecor(d); }
         continue;
       }
       if (d.vx) { // 굴러가다 서면 그 자리를 알린다(던진 것·네코가 굴린 것)
@@ -3849,6 +3856,70 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     },
   });
 
+  /* ----- 탁자(0.1.28, 사용자: 탁자 위 물건을 가끔 앞발로 툭 밀어 떨어뜨린다 — 고양이답게, 쳐다보다 밀기도) -----
+     윗면에 올라가 앉거나 식빵. 위에 물건이 있으면 한 판에 45% 만(너무 잦지 않게) 먼저 탁자 옆 바닥에 서서 그 물건을 올려다보다가,
+     뒷발로 서서 앞발로 자기 쪽 끝으로 툭 끌어 떨어뜨린다 — 물건이 상판 위로 미끄러져(decorStep slide) 끝을 넘으면 떨어지고, 서면 그
+     자리를 알린다. 탁자 위는 고양이보다 좁아 위에서 밀면 물건 위에 겹쳐 섰다. 한 판에 한 번, 그 뒤엔 올라가 쉰다 */
+  const tableTop = () => topsOf(furnOf("table")).find((t) => t.hold) || null;
+  const onTable = (f) => decor.filter((d) => !d.hidden && d.surface === "furniture" && d.fid === f.id && !d.px && !d.fall);
+  defineActivity("table", {
+    name: "탁자에서 놀기", label: "탁자 위에서 노는 중", roam: true,
+    start(A) { A.sitAs = Math.random() < 0.5 ? "sit" : "loaf"; A.wantPush = Math.random() < 0.45; A.stage = "go"; A.st = 0; A.id = null; },
+    wander(A) {
+      const c = cat, f = furnOf("table"), top = tableTop();
+      if (!f || !top) { endAct(); return; }
+      const items = A.wantPush && A.stage === "go" ? onTable(f) : [];
+      if (items.length) {
+        // 끝에 가장 가까운 물건: 그 끝 바깥 바닥에 서서(탁자 쪽을 보고) 자기 쪽으로 끌어 떨어뜨린다
+        const edge = (d) => { const x = decorLayout(d).x; return Math.min(x - top.x0, top.x1 - x); };
+        const d = items.reduce((a, b) => (edge(a) <= edge(b) ? a : b)), L = decorLayout(d);
+        // 가까운 끝 바깥에 설 바닥이 없으면(벽 끝 칸 탁자) 반대쪽 끝에서. 둘 다 없으면 올라가서 쉰다
+        const near = L.x - top.x0 < top.x1 - L.x ? -1 : 1, standOf = (k) => (k < 0 ? top.x0 : top.x1) + k * 30 * S;
+        const e = [near, -near].find((k) => standOf(k) > walkLo() - 2 * S && standOf(k) < walkHi() + 2 * S), stand = e ? standOf(e) : 0;
+        if (e) {
+          if (c.perch) { if (!c.hopDir) hopDown(e); return; }
+          if (!approachX(stand, 4)) return;
+          if (c.face !== -e) { c.face = -e; setMode("idle"); return; }
+          A.id = d.id; A.e = e; A.stage = "stare"; A.st = 0; A.stareFor = rand(1.2, 2.4); setMode("act");
+          return;
+        }
+        A.wantPush = false;
+      }
+      if (!goOnto(A, top) || c.mode !== "idle" || c.modeT < 0.2) return;
+      A.stage = "rest"; setMode("act"); // 앉거나 식빵(소파처럼)
+    },
+    step(A, dt) {
+      if (cat.mode !== "act") return;
+      const prev = A.st; A.st += dt;
+      const d = A.id && decor.find((o) => o.id === A.id), top = tableTop();
+      if ((A.stage === "stare" || A.stage === "push") && (!d || !top || d.surface !== "furniture")) { A.stage = "go"; A.wantPush = false; setMode("idle"); return; } // 물건이 없어졌다
+      if (A.stage === "stare" && A.st > A.stareFor) { A.stage = "push"; A.st = 0; }
+      else if (A.stage === "push" && prev < 0.35 && A.st >= 0.35) { // 툭: 자기 쪽 끝으로 미끄러진다 — 끝까지 남은 길을 넉넉히 넘게
+        const L = decorLayout(d), dist = A.e > 0 ? top.x1 - L.x : L.x - top.x0;
+        d.px = [L.x, top.y]; d.slide = { vx: A.e * ((dist + L.w / 2) * 2.4 + 30 * S), x0: top.x0, x1: top.x1, y: top.y };
+        A.wantPush = false;
+      } else if (A.stage === "push" && A.st > 0.75) { A.stage = "watch"; A.st = 0; }
+      else if (A.stage === "watch" && A.st > 1.6) { A.stage = "go"; A.st = 0; setMode("idle"); } // 그다음 올라가 쉰다
+    },
+    look(A) {
+      if (A.stage !== "stare" && A.stage !== "push" && A.stage !== "watch") return null;
+      const d = A.id && decor.find((o) => o.id === A.id); if (!d || d.hidden) return null;
+      const L = decorLayout(d); return [L.x, L.bottom - L.h * 0.5];
+    },
+    pose(A, ramp) {
+      if (A.stage === "rest" || A.stage === "go") return A.sitAs === "sit" ? { sit: true, ear: 0, lid: 0.25, expr: "idle", tail: sitTail({ sway: 2, period: 5, still: 0.3 }) } : { loaf: true, ear: 0.02, lid: 0.45, expr: "idle", tail: calmTail(6) };
+      const d = A.id && decor.find((o) => o.id === A.id), L = d ? decorLayout(d) : null;
+      if (A.stage === "stare" || !L) return { sit: true, ear: -0.14, expr: "curious", lid: 0, tail: sitTail({ sway: 5, period: 1.6, still: 0, flick: [0.6, 1.4, 14, 0.3] }) }; // 올려다본다(꼬리 끝 탁탁)
+      if (A.stage === "watch") return { sit: true, ear: -0.1, expr: "curious" }; // 떨어진 걸 본다
+      // 툭: 뒷발로 서서 가까운 앞발을 올렸다가 물건 먼 쪽에 걸어 자기 쪽으로 끈다
+      const u = A.st, far = [L.x + A.e * L.w * 0.3, L.bottom - L.h * 0.45], near = [L.x - A.e * L.w * 0.6, L.bottom - L.h * 0.3], up = [ahead(26), L.bottom - L.h - 12 * S];
+      let pt, w;
+      if (u < 0.25) { pt = up; w = smooth(u / 0.25); } else if (u < 0.35) { const k = smooth((u - 0.25) / 0.1); pt = [lerp(up[0], far[0], k), lerp(up[1], far[1], k)]; w = 1; }
+      else if (u < 0.55) { const k = smooth((u - 0.35) / 0.2); pt = [lerp(far[0], near[0], k), lerp(far[1], near[1], k)]; w = 1; } else { pt = near; w = 1 - smooth((u - 0.55) / 0.2); }
+      return { tilt: -0.3 * Math.min(1, u / 0.2), ear: -0.12, expr: "curious", feetW: w, feet: { [NEAR_FRONT]: () => pt }, reach: { [NEAR_FRONT]: 1.5 } };
+    },
+  });
+
   defineActivity("sofa", { // 소파에 올라가 앉거나 식빵(졸리면 누워 잔다 — 그건 잠 쪽 sleepToSofa)
     name: "소파", label: "소파에서 쉬는 중", roam: true,
     start(A) { A.sitAs = Math.random() < 0.5 ? "sit" : "loaf"; },
@@ -5058,7 +5129,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     syncFurnHeld();
   }
   /** 활동 키 → 가구(이 장소에 놓인 것) */
-  const FURN_ACTS = new Set(["lamp", "cattower", "wheel", "sofa"]);
+  const FURN_ACTS = new Set(["lamp", "cattower", "wheel", "sofa", "table"]);
   const furnOf = (kind) => furniture.find((f) => f.kind === kind) || null;
   function hitFurniture(x, y) {
     for (let i = furniture.length - 1; i >= 0; i--) {
