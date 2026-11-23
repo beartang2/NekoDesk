@@ -55,6 +55,9 @@ export type NekoActivity =
   | "think" | "wait" | "meal" | "hungry" | "dig" | "calendar" | "erase"
   // 놓아 둔 선물 갖고 놀기(docs/neko-gifts.md §5)
   | "giftplay"
+  // 사용자와 놀기: 던진 장난감 쫓기·낚싯대(감독 놀아주기, 엔진 play 사건)
+  | "chase"
+  | "wand"
   | "lamp"
   | "cattower"
   | "wheel"
@@ -95,6 +98,8 @@ export interface NekoEvents {
   edge: "left" | "right";
   /** 놓아 둔 물건 하나와 한 판 놀았음(at = Date.now()). 호스트가 저장해 setDecor 의 lastPlayed 로 돌려주면 껐다 켜도 오래 안 논 것부터 */
   decorPlayed: { id: string; at: number };
+  /** 사용자가 무대에서 같이 논다(호스트가 감독 놀아주기로 넘긴다): 바닥 물건을 던졌다(chase, 쫓을 물건 id)·낚싯대를 잡고 흔든다(wand, 2.5초마다) */
+  play: { kind: "chase" | "wand"; id?: string };
   /** 놓아 둔 물건을 끌어 옮김 */
   decorMove: { id: string } & NekoDecorSpot;
   /** 놓아 둔 물건을 우클릭하거나 터치로 꾹 누름: (x, y) = 그 물건 오른쪽 위(무대 px). 호스트가 거기에 '정리' 버튼을 띄운다 */

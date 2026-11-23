@@ -572,7 +572,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (c.side) sideStep(dt);
     propsStep(dt);
     carryStep(dt);
-    decorStep(dt); furnitureStep(dt);
+    decorStep(dt); furnitureStep(dt); wandStep(dt);
     if (WORLD) checkEdges();
     const mainP = c.mode === "act" && c.act ? actPose() : null;
     c.actP = c.side ? sidePose(mainP) : mainP;
@@ -609,7 +609,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         }
         const dx = c.target - c.x, dir = Math.sign(dx) || c.face;
         if (dir !== c.face) { c.face = dir; c.resume = true; setMode("idle"); break; }
-        c.speed = lerp(c.speed, WALK * S, 1 - Math.exp(-dt * 5));
+        c.speed = lerp(c.speed, WALK * S * (c.act && actOf(c.act.key).run ? 2.1 : 1), 1 - Math.exp(-dt * 5)); // 쫓아가기는 달린다
         c.vx = c.face * c.speed * clamp(Math.abs(dx) / (26 * S), 0.3, 1);
         c.x += c.vx * dt;
         c.gait += (Math.abs(c.vx) * dt) / (STRIDE * S);
@@ -2433,6 +2433,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
   let decor = [];          // { id, surface, u, v, shape, t0, box }
   let decorDrag = null;    // { id, pointerId, dx, dy, x, bottom, hold? } 끄는 중(무대 px). hold = 터치 꾹 누르기 재는 중
+  let thrownId = null;     // 마지막으로 던진 물건(쫓아가기 chase 가 쫓는다)
   function setDecor(items) {
     // 갖고 노는 중인 물건(굴러가는 자리·입에 문 상태)은 다시 넣어도 이어 간다
     const prev = new Map(decor.map((d) => [d.id, d]));
@@ -2537,16 +2538,19 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (WORLD) syncHeld();
     for (const d of decor) {
       d.wob.step(0, 160, 7, dt);
-      if (d.fall) { // 떨어지는 중: 바닥에 내려앉으면 그 자리를 알린다
-        if (DD.fallStep(d.fall, dt, geomNow())) { d.px = [d.fall.x, BASE_Y]; d.fall = null; d.wob.v += 2; settleDecor(d); }
-        else d.px = [d.fall.x, d.fall.bottom];
+      if (d.fall) { // 떨어지는 중: 바닥에 내려앉으면 그 자리를 알린다. 던진 건(roll) 내려앉은 뒤 그 빠르기로 굴러간다
+        if (DD.fallStep(d.fall, dt, geomNow())) {
+          const roll = d.fall.roll && Math.abs(d.fall.vx) > 8 * S ? d.fall.vx : 0;
+          d.px = [d.fall.x, BASE_Y]; d.fall = null; d.wob.v += 2;
+          if (roll) d.vx = roll; else settleDecor(d);
+        } else d.px = [d.fall.x, d.fall.bottom];
         continue;
       }
-      if (d.vx) {
-        const h = decorDims(d.shape, d.k).h, m = decorM() + h / 2;
-        d.px[0] += d.vx * dt; d.vx *= Math.exp(-dt * 1.6); d.rot += (d.vx / (h / 2)) * dt;
-        if (d.px[0] < m) { d.px[0] = m; d.vx = Math.abs(d.vx) * 0.5; } else if (d.px[0] > W - m) { d.px[0] = W - m; d.vx = -Math.abs(d.vx) * 0.5; }
-        if (Math.abs(d.vx) < 8 * S) d.vx = 0;
+      if (d.vx) { // 굴러가다 서면 그 자리를 알린다(던진 것·네코가 굴린 것)
+        const r = { x: d.px[0], vx: d.vx, rot: d.rot };
+        const stop = DD.rollStep(r, dt, geomNow(), decorDims(d.shape, d.k).h);
+        d.px[0] = r.x; d.vx = r.vx; d.rot = r.rot;
+        if (stop) settleDecor(d);
       }
     }
   }
@@ -3393,6 +3397,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       return;
     }
     if (Math.abs(c.x - want) > 12 * S && c.modeT > 0.25) { walkTo(want); return; }
+    if (d.fall) return; // 아직 날아가는 중(던진 것): 내려앉으면 친다
     const dir = A.stage === "move" ? c.face : Math.sign(x - c.x) || c.face;
     if (A.play !== "sit_on" && A.play !== "hide" && dir !== c.face && c.modeT > 0.3) { c.face = dir; setMode("idle"); return; }
     if (c.modeT > 0.35) { A.dt = 0; A.hit = false; A.pull = A.play === "roll" && pawReach(x, 26) === "pull"; setMode("act"); }
@@ -3405,7 +3410,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (cat.mode === "act") setMode("idle");
     // 물건 둘(하나뿐이면 하나)과 놀았으면 끝(한 번짜리). 같은 물건을 연달아 건드리지 않는다
     A.rounds = (A.rounds || 0) + 1;
-    if (A.rounds >= Math.min(GIFT_ROUNDS, Math.max(1, decor.filter((o) => !o.hidden).length)) && cat.act === A) endAct();
+    if (A.rounds >= Math.min(A.maxRounds ?? GIFT_ROUNDS, Math.max(1, decor.filter((o) => !o.hidden).length)) && cat.act === A) endAct();
   }
   defineActivity("giftplay", {
     name: "선물 갖고 놀기", label: "선물 갖고 노는 중", roam: true, keepOnGrab: true,
@@ -3417,7 +3422,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       if (A.stage === "rest") { if ((A.rest -= dt) <= 0) pickGift(A); return; }
       // 놀던 선물이 목록에서 빠졌다(버리기·치우기·다른 장소로 옮김): 'act' 에선 wander 가 안 돌아 빈 자세로 멈췄다. 쉬었다 다시 고른다
       if (!d) { A.stage = "rest"; A.rest = rand(1, 2); if (c.mode === "act") setMode("idle"); return; }
-      if (A.stage === "rolling") { if (!d.vx) { A.stage = A.kicks < 2 ? "go" : "done"; if (A.stage === "done") giftDone(A); } return; }
+      if (A.stage === "rolling") { if (!d.vx) { A.stage = A.kicks < (A.kickMax ?? 2) ? "go" : "done"; if (A.stage === "done") giftDone(A); } return; }
       if (c.mode !== "act") return;
       const prev = A.dt; A.dt += dt;
       const p = giftPos(d), crossed = (t) => prev < t && A.dt >= t;
@@ -3481,13 +3486,161 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       else { pt = hit; w = 1 - smooth((u - 0.3) / 0.2); }
       return { tilt: 0.05, ear: -0.12, expr: "curious", look, feetW: w, feet: { [NEAR_FRONT]: () => pt }, reach: A.pull ? { [NEAR_FRONT]: 1.5 } : null };
     },
-    end(A) { // 그만하라면: 물고 있던 건 그 자리에 내려놓고, 굴러가던 건 선 자리로
+    end(A) { // 그만하라면: 물고 있던 건 그 자리에 내려놓는다. 굴러가던 건 서면서 알린다
       const d = giftOf(A); if (!d) return;
       d.front = false;
       const i = carrying.findIndex((o) => o.id === "decor:" + d.id);
       if (i >= 0) { carrying.splice(i, 1); d.hidden = false; d.px = [clamp(ahead(26), decorM(), W - decorM()), floorY]; }
-      if (d.px) { d.vx = 0; settleDecor(d); }
+      if (d.px && !d.vx && !d.fall) settleDecor(d); // 굴러가는(날아가는) 건 그대로 — 서면 decorStep 이 알린다
     },
+  });
+
+  /* ----- 쫓아가기(사용자와 놀기, 사용자: 바닥 물건을 흔들다 던지면 네코가 막 따라가서 때린다) -----
+     사용자가 던진 물건(thrownId)으로 달려가 앞발로 툭 쳐서 굴린다. 가끔 한 번 더. 날아가는 동안은 따라 달리기만 한다.
+     엔진이 던지기를 play 사건으로 알리면 감독이 놀아주기로 받아 시킨다(감독 흐름: 밥·에이전트 일 중이면 그쪽이 먼저).
+     한 번 더 칠 거면 칠 때 다시 알려 놀아주기를 잇는다. 던진 건 한 번만 쫓는다(thrownId 를 가져간다) — 다 놀고 끝났는데 놀아주기가
+     남아 다시 시켜도 같은 걸 또 쫓지 않고 그 자리에서 지켜본다. 쫓는 중에 또 던지면 새 물건으로 바꿔 쫓는다.
+     선물 갖고 놀기의 굴리기(roll)를 그대로 쓴다 */
+  function chaseTarget(A) {
+    const d = decor.find((o) => o.id === thrownId && !o.hidden && o.surface !== "wall");
+    thrownId = null;
+    A.id = d ? d.id : null; A.play = "roll"; A.kicks = 0; A.kickMax = Math.random() < 0.4 ? 2 : 1; A.maxRounds = 1; A.rounds = 0;
+    A.stage = d ? "go" : "watch"; A.dt = 0;
+  }
+  defineActivity("chase", {
+    name: "던진 장난감 쫓기", label: "던진 장난감 쫓는 중", roam: true, keepOnGrab: true, run: true,
+    start: chaseTarget,
+    wander(A) { if (A.id) giftWander(A); },
+    look(A) { return A.id ? actOf("giftplay").look(A) : null; },
+    step(A, dt) {
+      if (!A.id) return; // 쫓을 게 없다: 놀아주기가 끝날 때까지 지켜본다
+      const k = A.kicks;
+      actOf("giftplay").step(A, dt);
+      if (A.kicks > k && A.kicks < A.kickMax) emit("play", { kind: "chase", id: A.id }); // 한 번 더 친다: 놀아주기를 잇는다
+    },
+    pose(A, ramp) { return actOf("giftplay").pose(A, ramp); },
+    end(A) { actOf("giftplay").end(A); },
+  });
+
+  /* ----- 낚싯대 장난감(사용자와 놀기, 사용자: 막대기에 실 달려서 띠용띠용 하는 거 — 막대 잡고 흔들어 같이 놀아 주는 느낌) -----
+     방·거실 바닥 구석에 장난감 바구니. 바구니를 누르면 막대 끝이 커서·손가락을 따라오고, 끝에 달린 실(간단한 줄 물리)과
+     장난감이 출렁인다. 놓으면 막대는 바구니로 돌아간다. 잡은 동안 play 사건(wand)을 2.5초마다 알려 감독이 놀아주기로 받는다 —
+     네코는 장난감 쪽으로 다가가 웅크렸다 뛰어올라 덮치고(pounce), 가끔 물어 잠깐 놓지 않는다. 화면 모드(마당)엔 없다 */
+  const WAND_LEN = 66, WAND_N = 9; // 실 길이(S)·마디 수
+  let wand = null; // { pts: [{x,y,ox,oy}], tip, pid, held, back(0~1 돌아가는 중), from, cueT, bite(초) }
+  const basketAt = () => [W - 46 * S, BASE_Y];
+  const restTip = () => { const [bx, by] = basketAt(); return [bx - 20 * S, by - 60 * S]; };
+  const restHandle = () => { const [bx, by] = basketAt(); return [bx + 7 * S, by - 9 * S]; };
+  function wandInit() {
+    const [tx, ty] = restTip(), seg = (WAND_LEN * S) / WAND_N;
+    wand = { pts: Array.from({ length: WAND_N + 1 }, (_, i) => ({ x: tx, y: ty + i * seg, ox: tx, oy: ty + i * seg })), tip: [tx, ty], pid: null, held: false, back: 0, from: null, cueT: -9, bite: 0 };
+  }
+  const wandOn = () => !WORLD && !AWAY;
+  function hitBasket(x, y) { if (!wandOn()) return false; const [bx, by] = basketAt(); return Math.abs(x - bx) < 24 * S && y > by - 64 * S && y < by + 4 * S; }
+  /** 장난감(실 끝) 자리. 바구니에 놓여 있으면 null(쫓을 게 아니다) */
+  const wandToy = () => (wand && (wand.held || wand.back > 0) ? wand.pts[wand.pts.length - 1] : null);
+  function grabWand(e, el, x, y) {
+    if (!wand) wandInit();
+    wand.held = true; wand.pid = e.pointerId; wand.back = 0; wand.tip = [x, y]; wand.cueT = time;
+    try { el.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터 */ }
+    el.classList.add("dragging"); e.preventDefault(); emit("hold", true); emit("play", { kind: "wand" });
+  }
+  function releaseWand(el) {
+    wand.held = false; wand.pid = null; wand.back = 1e-3; wand.from = wand.tip.slice(); wand.bite = 0;
+    el?.classList.remove("dragging"); emit("hold", false);
+  }
+  function wandStep(dt) {
+    if (!wandOn()) return;
+    if (!wand) wandInit();
+    const w = wand, seg = (WAND_LEN * S) / WAND_N;
+    if (w.held && time - w.cueT > 2.5) { w.cueT = time; emit("play", { kind: "wand" }); } // 흔드는 동안 놀아주기를 잇는다
+    if (w.back > 0) { // 놓으면 바구니로: 0.45초에 걸쳐
+      w.back = Math.min(1, w.back + dt / 0.45);
+      const e = smooth(w.back), [rx, ry] = restTip();
+      w.tip = [lerp(w.from[0], rx, e), lerp(w.from[1], ry, e)];
+      if (w.back >= 1) w.back = 0;
+    } else if (!w.held) w.tip = restTip();
+    w.bite = Math.max(0, w.bite - dt);
+    // 줄: 베를레(속도 = 이번 자리 − 지난 자리, 조금 줄인다) + 중력, 마디 길이 맞추기. 첫 마디는 막대 끝, 물고 있으면 끝 마디는 입
+    const g = 900 * S * dt * dt, P = w.pts, last = P.length - 1;
+    for (let i = 1; i <= last; i++) {
+      const p = P[i], vx = (p.x - p.ox) * 0.985, vy = (p.y - p.oy) * 0.985;
+      p.ox = p.x; p.oy = p.y; p.x += vx; p.y += vy + g;
+    }
+    P[0].x = w.tip[0]; P[0].y = w.tip[1];
+    const bitePt = w.bite > 0 ? mouthPt() : null;
+    for (let k = 0; k < 6; k++) {
+      for (let i = 0; i < last; i++) {
+        const a = P[i], b = P[i + 1], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1e-6, f = (d - seg) / d;
+        if (i === 0) { b.x -= dx * f; b.y -= dy * f; } else { a.x += dx * f * 0.5; a.y += dy * f * 0.5; b.x -= dx * f * 0.5; b.y -= dy * f * 0.5; }
+      }
+      if (bitePt) { P[last].x += (bitePt[0] - P[last].x) * 0.5; P[last].y += (bitePt[1] - P[last].y) * 0.5; } // 입으로 끌려온다(순간이동 없이)
+      for (let i = 1; i <= last; i++) P[i].y = Math.min(P[i].y, BASE_Y - 2 * S); // 바닥 위
+    }
+  }
+  /** 바구니(바닥 구석)와 거기 꽂힌 막대 — 잡지 않았을 때. 고양이 뒤 바닥 겹 */
+  function drawBasket() {
+    if (!wandOn()) return;
+    const [bx, by] = basketAt(), s = S;
+    ctx.save();
+    ctx.fillStyle = theme.shadow; ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.ellipse(bx, by + 1 * s, 22 * s, 2.6 * s, 0, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
+    if (wand && !wand.held && !wand.back) drawWand();
+    ctx.fillStyle = "#c9935a"; ctx.beginPath(); // 바구니: 아래가 좁은 사다리꼴, 엮은 줄
+    ctx.moveTo(bx - 20 * s, by - 20 * s); ctx.lineTo(bx + 20 * s, by - 20 * s); ctx.lineTo(bx + 16 * s, by); ctx.lineTo(bx - 16 * s, by); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "rgba(120, 74, 36, 0.45)"; ctx.lineWidth = 1.2 * s;
+    for (const k of [0.3, 0.6]) { ctx.beginPath(); ctx.moveTo(bx - (20 - 4 * k) * s, by - 20 * s * (1 - k)); ctx.lineTo(bx + (20 - 4 * k) * s, by - 20 * s * (1 - k)); ctx.stroke(); }
+    ctx.fillStyle = "#b07b45"; roundRect(ctx, bx - 22 * s, by - 23 * s, 44 * s, 4.5 * s, 2 * s); ctx.fill(); // 테두리
+    ctx.restore();
+  }
+  /** 막대·실·장난감(깃털 셋과 방울). 잡았거나 돌아가는 동안은 맨 위에 */
+  function drawWand() {
+    const w = wand, s = S, P = w.pts, toy = P[P.length - 1];
+    // 손잡이: 잡으면 막대 끝에서 가까운 옆 아래로, 바구니에선 바구니 안. 돌아가는 동안은 막대째 옮긴다(늘어나 보이지 않게)
+    const side = w.tip[0] < W / 2 ? -1 : 1, rt = restTip(), rh = restHandle(), e = w.held ? 1 : w.back > 0 ? 1 - smooth(w.back) : 0;
+    const hx = w.tip[0] + lerp(rh[0] - rt[0], side * 30 * s, e), hy = w.tip[1] + lerp(rh[1] - rt[1], 52 * s, e);
+    ctx.save(); ctx.lineCap = "round";
+    ctx.strokeStyle = "#a8743f"; ctx.lineWidth = 3.2 * s; ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(w.tip[0], w.tip[1]); ctx.stroke(); // 막대
+    ctx.strokeStyle = "rgba(70, 60, 70, 0.75)"; ctx.lineWidth = 1 * s; ctx.beginPath(); ctx.moveTo(P[0].x, P[0].y); // 실
+    for (let i = 1; i < P.length; i++) ctx.lineTo(P[i].x, P[i].y);
+    ctx.stroke();
+    const prev = P[P.length - 2], a = Math.atan2(toy.y - prev.y, toy.x - prev.x) - Math.PI / 2;
+    ctx.translate(toy.x, toy.y); ctx.rotate(a);
+    for (const [r, col] of [[-0.45, theme.accent], [0, "#f5c542"], [0.45, theme.accent]]) { // 깃털 셋
+      ctx.save(); ctx.rotate(r); ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(0, 9 * s, 3.2 * s, 9 * s, 0, 0, TAU); ctx.fill(); ctx.restore();
+    }
+    ctx.fillStyle = "#f28fb0"; ctx.beginPath(); ctx.arc(0, 0, 3.6 * s, 0, TAU); ctx.fill(); // 방울
+    ctx.restore();
+  }
+  defineActivity("wand", {
+    name: "낚싯대 놀이", label: "낚싯대 장난감 잡는 중", roam: true, run: true,
+    start(A) { A.cool = 0.4; A.tryBite = false; },
+    wander(A) {
+      const c = cat, t = wandToy();
+      if (!t) return; // 바구니에 놓였다: 지켜본다
+      if (wand.bite > 0) { if (GROUND.has(c.mode) && c.mode !== "land") setMode("act"); return; } // 물었다
+      const dx = t.x - c.x, dir = Math.sign(dx) || c.face, ax = Math.abs(dx), want = clamp(t.x - dir * 80 * S, walkLo(), walkHi());
+      if (c.mode === "walk") {
+        if (ax < 150 * S || Math.abs(c.x - want) < 8 * S) { c.vx = 0; c.speed = 0; setMode("idle"); }
+        else if (Math.abs(want - c.target) > 20 * S) walkTo(want);
+        return;
+      }
+      if (ax > 170 * S) { if (c.modeT > 0.2) walkTo(want); return; }
+      if (dir !== c.face && c.modeT > 0.2) { c.face = dir; setMode("idle"); return; }
+      // 닿을 높이(바닥에서 170·S 안)면 웅크렸다(엉덩이 씰룩) 덮친다. 가끔(35%) 닿으면 문다
+      if (A.cool <= 0 && c.modeT > 0.3 && t.y > floorY - 170 * S) { c.pounce = { x: t.x, y: t.y }; A.cool = rand(1, 1.8); A.tryBite = Math.random() < 0.35; jump(); }
+    },
+    step(A, dt) {
+      A.cool -= dt;
+      const t = wandToy(), c = cat;
+      if (t && A.tryBite && c.mode === "air" && wand.held && Math.hypot(t.x - c.head.x, t.y - c.head.y) < 50 * S) { A.tryBite = false; wand.bite = rand(1, 1.6); }
+      if (c.mode === "act" && !(wand && wand.bite > 0)) setMode("idle");
+    },
+    look(A) { const t = wandToy(); return t ? [t.x, t.y] : null; },
+    pose(A) { // 물고 있는 동안: 고개를 흔들며 놓지 않는다
+      const sh = reduced.matches ? 0 : Math.sin(A.t * TAU * 3);
+      return { expr: "happy", ear: -0.12, tilt: 0.12, tt: 0.08 * sh, tail: { base: 214, curl: 4, hook: 10, sway: 9, period: 0.9, still: 0, flick: null, dyn: { w0: 5, zeta: 0.5, grav: 0.1, inert: 1 } } };
+    },
+    end() { if (wand) wand.bite = 0; },
   });
 
   /* ----- 상자에 쏙 ----- */
@@ -4502,6 +4655,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
 
     drawFurnitureBack();
     drawDecor();
+    drawBasket(); // 낚싯대 바구니(바닥 구석)
     drawActBack();
     if (wf) { const wc = FA.wheelCircle(S, wf.slotW); ctx.save(); ctx.beginPath(); ctx.arc(wf.x, BASE_Y + wc.dy, wc.r * (1 + 2.5 * (1 - wf.inV)), 0, TAU); ctx.clip(); }
     // 상자 안(상자 놀이): 테두리 아래는 상자 앞벽 폭(바닥까지), 그 위는 머리 둘레만 보인다 — 상자는 칸에 맞춰 크기가 정해져 몸·털이
@@ -4529,6 +4683,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (dreamC && dreamV > 0.01) DR.drawDream(ctx, c.head.x, c.head.y, S, { face: c.face, k: dreamV, t: reduced.matches ? 0 : time, dark: themeDark, W, H, edge: 3 * DPR, content: dreamC });
     drawDecor(ctx, true); // 뒤에 숨기: 고양이 앞에 오는 물건
     drawEffects();
+    if (wand && wandOn() && (wand.held || wand.back > 0)) drawWand(); // 잡은 낚싯대는 맨 위
     if (showRig) drawRigOverlay();
   }
 
@@ -5022,6 +5177,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
     // 문 물건이 먼저: 입에서 끌어내기가 쓰다듬기·목덜미 잡기로 새지 않게. 끌어내기는 호스트가 한다
     if (hitCarry(x, y)) { emit("carryPress", { x, y, pointerId: e.pointerId }); e.preventDefault(); return; }
+    if (hitBasket(x, y)) { grabWand(e, el, x, y); return; } // 낚싯대: 바구니를 누르면 막대가 손을 따라온다
     if (hitCat(x, y)) {
       // 바로 잡지 않는다: 움직이거나 잠깐 누르고 있으면 잡기, 그냥 떼면 '냥'
       press = { id: e.pointerId, x, y, t: performance.now(), grabbing: false, el };
@@ -5058,6 +5214,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (!mouseActive() && cat.mood !== "sleepy" && cat.pose === "stand" && !cat.act && cat.mode !== "grabbed" && !cat.tailEp) startTailEp("up", 2.6);
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
     if (furnHold && Math.hypot(x - furnHold.x, y - furnHold.y) > HOLD_SLOP) { clearTimeout(furnHold.t); furnHold = null; }
+    if (wand && wand.held && e.pointerId === wand.pid) { wand.tip = [clamp(x, 0, W), clamp(y, 0, BASE_Y - 4 * S)]; return; }
     if (decorDrag && e.pointerId === decorDrag.pointerId) { // 바닥 아래로는 안 내려가고 무대 위로도 안 나간다
       const hold = decorDrag.hold; // 꾹 누르기 중 손가락이 움직이면 그냥 끌기
       if (hold && Math.hypot(x - hold.x, y - hold.y) > HOLD_SLOP) { clearTimeout(hold.t); decorDrag.hold = null; }
@@ -5074,20 +5231,32 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       press.el.classList.add("dragging");
       grab(); emit("grab");
     }
-    if (!press) el.classList.toggle("can-grab", hitCat(x, y) || !!hitCarry(x, y) || !!hitDecor(x, y));
+    if (!press) el.classList.toggle("can-grab", hitCat(x, y) || !!hitCarry(x, y) || !!hitDecor(x, y) || hitBasket(x, y));
   }
   let furnHold = null; // 가구 꾹 누르기(터치): 움직이거나 떼면 접는다
   function endPress(e) {
     if (furnHold) { clearTimeout(furnHold.t); furnHold = null; }
+    if (wand && wand.held && e.pointerId === wand.pid) { releaseWand(e.currentTarget); return; } // 놓으면 바구니로
     if (decorDrag && e.pointerId === decorDrag.pointerId) { // 놓은 자리를 면·비율로 바꿔 알린다(저장은 호스트)
       if (decorDrag.hold) clearTimeout(decorDrag.hold.t);
       const d = decor.find((o) => o.id === decorDrag.id);
       if (d) {
         const spot = spotOf(decorDrag.x, decorDrag.bottom, decorDims(d.shape, d.k).h);
-        if (spot.surface === "wall" && !d.frame) {
+        // 놓기 전 잠깐(THROW_STILL) 손이 멈춰 있었으면 빠르기 0 — 빨리 끌다 멈춰 두었다 놓으면 던지지 않는다
+        const moving = performance.now() - (decorDrag.mt ?? 0) < DD.THROW_STILL;
+        const tvx = moving ? decorDrag.vx ?? 0 : 0, tvy = moving ? decorDrag.vy ?? 0 : 0, fast = Math.hypot(tvx, tvy) > DD.THROW_MIN * S;
+        if (fast && !d.frame && !WORLD) {
+          // 던지기(사용자): 놓는 순간의 빠르기로 날아가 떨어져 튕기고, 바닥에선 굴러가 선다(서면 decorMove). 네코가 쫓아간다(chase —
+          // 감독이 놀아주기로 받아 시킨다, play 사건)
+          const [vx, vy] = DD.throwVel(tvx, tvy, decorDrag.bottom, decorDims(d.shape, d.k).h, geomNow());
+          d.fall = { x: decorDrag.x, bottom: decorDrag.bottom, vx, vy, roll: true };
+          d.px = [decorDrag.x, decorDrag.bottom]; d.vx = 0; thrownId = d.id;
+          if (cat.act && cat.act.key === "chase") { if (cat.mode === "act") setMode("idle"); chaseTarget(cat.act); } // 쫓는 중에 또 던졌다
+          emit("play", { kind: "chase", id: d.id });
+        } else if (spot.surface === "wall" && !d.frame) {
           // 액자만 벽에 건다(사용자, 0.1.24): 다른 물건은 고양이를 던졌을 때처럼 떨어져 바닥에 놓인다(내려앉으면 settleDecor 가 알린다)
           const lim = 900 * S;
-          d.fall = { x: decorDrag.x, bottom: decorDrag.bottom, vx: clamp(decorDrag.vx ?? 0, -lim, lim), vy: clamp(decorDrag.vy ?? 0, -lim, lim) };
+          d.fall = { x: decorDrag.x, bottom: decorDrag.bottom, vx: clamp(tvx, -lim, lim), vy: clamp(tvy, -lim, lim) };
           d.px = [decorDrag.x, decorDrag.bottom]; d.vx = 0;
         } else {
           Object.assign(d, spot.surface === "wall" ? spot : { ...spot, v: d.v }); // 호스트가 다시 넣기 전까지도 제자리에
@@ -5374,6 +5543,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     get dreaming() { return !!dreamC; },
     /** 이 장소에 놓인 가구(docs/neko-furniture.md): [{ id, kind, at, slot, on }]. 바뀔 때만 */
     setFurniture,
+    /** 시험용: 낚싯대 장난감(실 끝) 자리와 물렸는지. 바구니에 놓였으면 null */
+    get wandToy() { const t = wandToy(); return t ? { x: t.x, y: t.y, bite: wand.bite > 0 } : null; },
+    /** 시험용: 바구니 자리(가운데·바닥) */
+    get basket() { return wandOn() ? basketAt() : null; },
     /** 벽에 건 선물만 그릴 캔버스(호스트가 정지 가구 층 밑에 둔다). null 이면 고양이 캔버스에 */
     setWallCanvas,
     /** 놓인 가구와 조명 켜짐(감독이 후보를 고를 때) */

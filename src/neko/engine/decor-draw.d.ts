@@ -45,7 +45,8 @@ export const FALL_BOUNCE: number;
 /** 던진 물건 떨어뜨리기 한 걸음(고양이와 같은 중력·튕김). f 를 고친다. 바닥에 내려앉아 멈추면 true */
 export function fallStep(f: { x: number; bottom: number; vx: number; vy: number }, dt: number, g: { W: number; floorY: number; S: number }): boolean;
 /** 사용자가 끄는 물건: 물건 가운데 x, 바닥 y(css px). 잡은 점과 칸 가운데·바닥의 차이는 창이 기억해 뺀다 */
-export interface DecorDrag { id: string; x: number; bottom: number }
+/** 끄는 물건(들어 올린 모양으로 맨 위). fly = 던져 날아가거나 굴러가는 중(들어 올린 모양 없이 rot 만큼 돈다) */
+export interface DecorDrag { id: string; x: number; bottom: number; fly?: boolean; rot?: number }
 interface DecorView { W: number; floorY: number; scale: number }
 /**
  * 엔진 없이 선물만 그린다(모니터별 선물 창). 캔버스를 W×H(css px) × dpr 로 맞추고 다 지운 뒤 그린다.
@@ -53,6 +54,14 @@ interface DecorView { W: number; floorY: number; scale: number }
  * drag: 끄는 물건을 그 자리(엔진처럼 묶음)에 들어 올린 모양으로 맨 위에.
  * only: "wall" = 벽에 건 것만(끄는 것 빼고), "rest" = 그 밖 — 벽 선물을 가구 밑 캔버스에 따로 그릴 때
  */
+/** 바닥에서 굴러간다(감쇠·끝에서 튕김·굴러간 만큼 돎). f = { x, vx, rot } 를 고친다. 서면 true */
+export function rollStep(f: { x: number; vx: number; rot?: number }, dt: number, g: { W: number; floorY: number; S: number }, h: number): boolean;
+/** 던지기: 놓는 순간 이 빠르기(px/초 ÷ S)를 넘으면 날아간다, 이보다 빠르게는 안 날린다 */
+export const THROW_MIN: number, THROW_MAX: number;
+/** 놓기 전 이만큼(ms) 손이 멈춰 있었으면 빠르기 0(던지지 않는다) */
+export const THROW_STILL: number;
+/** 던지는 속도 [vx, vy]: 최고 속도로 묶고, 위로는 물건 꼭대기가 무대 위를 안 넘을 만큼만 */
+export function throwVel(vx: number, vy: number, bottom: number, h: number, g: { W: number; floorY: number; S: number }): [number, number];
 export function drawDecor(canvas: HTMLCanvasElement, items: DecorItem[],
   o: { W: number; H: number; floorY: number; scale: number; dpr?: number; dark?: boolean; drag?: DecorDrag | null; only?: "wall" | "rest" | null }): void;
 /** 놓인 물건마다 그린 칸(css px, 그린 순서). 누르기 판정·'정리' 버튼 자리(엔진은 x + w, y) */

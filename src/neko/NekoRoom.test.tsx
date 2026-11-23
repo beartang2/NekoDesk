@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll, beforeEach } from "vitest";
 import { render, fireEvent, cleanup, act } from "@testing-library/react";
 
 /** 빈 방의 선물(RoomGifts): 엔진 없이도 끌어 옮기고, 우클릭·꾹 누르기로 '정리' 메뉴 자리를 알린다(폰은 방이 늘 이 그림) */
@@ -28,7 +28,10 @@ beforeAll(() => {
     constructor(type: string, init: PointerEventInit = {}) { super(type, init); this.pointerId = init.pointerId ?? 1; this.pointerType = init.pointerType ?? "mouse"; }
   } as unknown as typeof PointerEvent;
 });
-afterEach(() => { cleanup(); h.place.mockClear(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); h.place.mockClear(); vi.useRealTimers(); vi.restoreAllMocks(); });
+/** 시계(performance.now): 끌다 멈춰 놓기·던지기는 놓기 전에 손이 멈춰 있던 시간으로 가른다 */
+let clock = 0;
+beforeEach(() => { clock = 1000; vi.spyOn(performance, "now").mockImplementation(() => clock); });
 
 const ON = { clientX: 140, clientY: 160 };
 
@@ -42,6 +45,7 @@ describe("빈 방의 선물(RoomGifts)", () => {
     fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 1, pointerType: "mouse" });
     expect(document.documentElement.dataset.holding).toBe("1"); // 잡은 동안 폰 가장자리 손짓을 막는다(lib/phone.ts)
     fireEvent.pointerMove(cv, { clientX: 60, clientY: 160, pointerId: 1, pointerType: "mouse" });
+    clock += 200; // 옮기고 잠깐 멈췄다 놓는다(던지지 않는다)
     fireEvent.pointerUp(cv, { clientX: 60, clientY: 160, pointerId: 1, pointerType: "mouse" });
     expect(document.documentElement.dataset.holding).toBeUndefined();
     expect(h.place).toHaveBeenCalledTimes(1);
@@ -67,7 +71,7 @@ describe("빈 방의 선물(RoomGifts)", () => {
     onMenu.mockClear();
     fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 4, pointerType: "touch" });
     fireEvent.pointerMove(cv, { clientX: 200, clientY: 160, pointerId: 4, pointerType: "touch" });
-    act(() => { vi.advanceTimersByTime(600); });
+    act(() => { vi.advanceTimersByTime(600); }); clock += 600;
     fireEvent.pointerUp(cv, { clientX: 200, clientY: 160, pointerId: 4, pointerType: "touch" });
     expect(onMenu).not.toHaveBeenCalled();
     expect(h.place.mock.calls[0][1].u).toBeGreaterThan(0.5);
@@ -96,5 +100,19 @@ describe("빈 방의 선물(RoomGifts)", () => {
     act(() => { vi.advanceTimersByTime(3000); });
     expect(h.place).toHaveBeenCalledTimes(1);
     expect(h.place.mock.calls[0][1]).toMatchObject({ surface: "floor" });
+  });
+
+  it("휙 던지면 날아가 떨어져 굴러가다 선 자리를 적는다(던지기, 사용자). 놓은 자리보다 멀리 간다", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas:not(.neko-room__gifts--wall)")!;
+    fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 7, pointerType: "mouse" });
+    fireEvent.pointerMove(cv, { clientX: 170, clientY: 150, pointerId: 7, pointerType: "mouse" });
+    fireEvent.pointerMove(cv, { clientX: 200, clientY: 140, pointerId: 7, pointerType: "mouse" });
+    fireEvent.pointerUp(cv, { clientX: 200, clientY: 140, pointerId: 7, pointerType: "mouse" });
+    expect(h.place).not.toHaveBeenCalled(); // 날아가는 중
+    act(() => { vi.advanceTimersByTime(8000); });
+    expect(h.place).toHaveBeenCalledTimes(1);
+    expect(h.place.mock.calls[0][1]).toMatchObject({ surface: "floor" });
+    expect(h.place.mock.calls[0][1].u).toBeGreaterThan(0.75); // 놓은 자리(200 → 0.7 쯤)보다 오른쪽으로 굴러갔다
   });
 });

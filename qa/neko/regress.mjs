@@ -1333,6 +1333,54 @@ try {
     await p.close();
   }
 
+  // 9-u0) 사용자와 놀기(0.1.28, 사용자): 바닥 물건을 흔들다 빠르게 놓으면 날아가 떨어져 굴러가다 서고(서면 decorMove 바닥), play(chase)를
+  //       알린다 — 감독 대신 act("chase") 하면 달려가 앞발로 친다. 천천히 놓으면 그 자리. 낚싯대: 바구니를 누르면 실 끝 장난감이 손을
+  //       따라 출렁이고 play(wand) 를 알린다 — act("wand") 면 웅크렸다 덮친다. 놓으면 바구니로 돌아간다
+  {
+    const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
+      const moves = [], plays = []; n.on("decorMove", (e) => moves.push(e)); n.on("play", (e) => { plays.push(e.kind); if (n.activity !== e.kind) n.act(e.kind); });
+      const pe = (type, x, y, id) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: "mouse", bubbles: true }));
+      const shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      n.setDecor([{ id: "g", surface: "floor", u: 0.25, size: "small", shape }]); c.x = n.W * 0.8; n.step(120); n.draw();
+      let b = null; for (let x = 0; x < n.W && !b; x += 2) for (let y = 0; y < n.floorY; y += 2) if (n.hitDecor(x, y) === "g") { b = [x, y]; break; }
+      // 천천히 옮겨 놓기: 던지지 않는다
+      pe("pointerdown", b[0], b[1], 2); n.step(2);
+      for (let k = 1; k <= 5; k++) { pe("pointermove", b[0] + 2 * k, b[1], 2); await new Promise((ok) => setTimeout(ok, 60)); n.step(6); }
+      pe("pointerup", b[0] + 10, b[1], 2); n.step(10);
+      out.slow = { plays: plays.length, moves: moves.length };
+      n.step(60); n.draw(); b = null; for (let x = 0; x < n.W && !b; x += 2) for (let y = 0; y < n.floorY; y += 2) if (n.hitDecor(x, y) === "g") { b = [x, y]; break; }
+      // 휙 던지기
+      moves.length = 0;
+      pe("pointerdown", b[0], b[1], 3); n.step(2);
+      for (let k = 1; k <= 5; k++) { pe("pointermove", b[0] + 14 * k, b[1] - 12 * k, 3); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
+      pe("pointerup", b[0] + 70, b[1] - 60, 3);
+      let kicks = 0;
+      for (let i = 0; i < 120 * 14; i++) { n.step(1); const A = c.act; if (A && A.key === "chase") kicks = Math.max(kicks, A.kicks || 0); }
+      out.throw = { plays: plays.slice(), moves: moves.map((m) => m.surface), kicks, ended: n.activity === null };
+      // 낚싯대
+      plays.length = 0; c.x = n.W * 0.3; n.step(60);
+      const [bx, by] = n.basket; pe("pointerdown", bx, by - 30, 4); n.step(2);
+      let jumps = 0, pm = c.mode, swing = 0;
+      for (let i = 0; i < 120 * 10; i++) {
+        const t = i / 120, px = n.W * 0.5 + Math.sin(t * 0.8) * 60 * n.S, py = n.floorY - 100 * n.S + Math.sin(t * 2) * 25 * n.S;
+        if (i % 2 === 0) pe("pointermove", px, py, 4);
+        n.step(1); if (c.mode === "crouch" && pm !== "crouch") jumps++; pm = c.mode;
+        const w = n.wandToy; if (w) swing = Math.max(swing, Math.abs(w.x - px));
+      }
+      const held = !!n.wandToy;
+      pe("pointerup", n.W * 0.5, n.floorY - 90 * n.S, 4); n.step(90);
+      out.wand = { plays: plays.length, act: n.activity, jumps, swing: Math.round(swing), held, back: n.wandToy === null };
+      return out;
+    });
+    check("같이 놀기: 천천히 놓으면 그 자리, 휙 던지면 날아가 굴러 바닥에 서고(decorMove) 네코가 쫓아가 친다, 낚싯대는 손을 따라 출렁이고 네코가 덮치며 놓으면 바구니로", JSON.stringify(r),
+      r.slow.plays === 0 && r.slow.moves === 1 && r.throw.plays[0] === "chase" && r.throw.moves.length >= 1 && r.throw.moves.every((m) => m === "floor") && r.throw.kicks >= 1 && r.throw.ended &&
+        r.wand.plays >= 3 && r.wand.act === "wand" && r.wand.jumps >= 2 && r.wand.swing > 5 && r.wand.held && r.wand.back);
+    await p.close();
+  }
+
   // 9-u1) 벽 선물은 가구 뒤(0.1.27, 사용자: 가구 위에 액자가 걸리지 않게): 벽 층 캔버스(setWallCanvas)를 주면 벽에 건 액자는 거기에만
   //       그리고(고양이 캔버스엔 없음, 호스트가 정지 가구 층 밑에 둔다), 바닥 선물은 고양이 캔버스에. 끄는 동안은 고양이 캔버스(맨 위)로
   //       올라오고 벽 층에서 빠진다. 누르기·우클릭 정리는 그대로

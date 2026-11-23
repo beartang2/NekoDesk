@@ -12,6 +12,8 @@ import type { NekoActivity, NekoMood, NekoPose, NekoReaction, NekoTailSign } fro
 export type NekoPhase = "idle" | "thinking" | "tool" | "answering" | "waiting" | "result";
 
 /** 도구 하나를 고양이가 어떻게 흉내 내는지(표 §4) */
+/** 놀아주기: 털실·나비(놀아주기 버튼, 번갈아), 던진 장난감 쫓기·낚싯대(사용자가 무대에서 같이 논다 — 엔진 play 사건) */
+export type PlayKind = "yarn" | "butterfly" | "chase" | "wand";
 export interface ToolCue {
   name: string;
   activity: NekoActivity;
@@ -95,7 +97,7 @@ export interface DirectorInput {
   /** 밥 주기가 끝난 시각(떨기 + 행복 여운) */
   fedAt: number | null;
   /** 놀아주기 버튼 */
-  playCue: { at: number; kind: "yarn" | "butterfly" } | null;
+  playCue: { at: number; kind: PlayKind } | null;
   /** 게임 호환: 게임 훅의 onEmotionChange(감정, ms) */
   game: { emotion: CatEmotion; until: number } | null;
   /** hunger = 화면에 보이는 배고픔(컨텍스트 사용량), play = 놀이 게이지 */
