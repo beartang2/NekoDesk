@@ -18,7 +18,8 @@ const min = (n: number) => T + n * 60_000;
 /** 지금 상태(모듈 안)를 테스트마다 새로 */
 const fresh = async () => { vi.resetModules(); return { ...(await import("./selfState")), ...(await import("./nekoStore")) }; };
 
-beforeEach(() => { h.kv.clear(); h.settings.clear(); h.notes = []; });
+// 시각 글자는 앱 시간대(날씨 위치, lib/time)로 찍는다 — 테스트는 그 시간대를 서울로 박아 어느 기계(CI 는 UTC)에서나 같게
+beforeEach(() => { h.kv.clear(); h.kv.set("nekodesk_weather_tz", "Asia/Seoul"); h.settings.clear(); h.notes = []; });
 
 describe("최근 행동 기록", () => {
   it("20초 넘게 이어진 것만 시작·끝과 함께 남고, 몇 초씩 오간 쉬기·걷기는 안 남는다. 같은 것이 금방 다시 오면 한 줄", async () => {
