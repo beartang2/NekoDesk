@@ -985,6 +985,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function sitTail(o = {}) {
     const c = cat;
     if (!c.sitStyle) { c.sitStyle = c.sitNext || "wrap"; c.sitNext = c.sitStyle === "wrap" ? "drape" : "wrap"; }
+    c.sitTailT = time; // 앉은 꼬리를 쓰는 중(식빵·선 채 쓰는 활동 꼬리도 — updateTail 이 이걸 보고 모양을 지킨다)
     return { ...SIT_TAIL, wrap: c.sitStyle === "wrap" ? 1 : 0, sway: 2.5, period: 8, still: 0.4, flick: [4, 9, 14, 0.5], dyn: TAIL_CALM, ...o };
   }
 
@@ -1073,7 +1074,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
   function updateTail(dt) {
     const c = cat, B = tailBehavior(), P = c.tailS, F = c.tailFlick, moving = !reduced.matches;
-    if (c.sit.x < 0.05 && c.mode !== "sit" && !(c.actP && c.actP.sit)) c.sitStyle = null; // 일어나면 다음엔 다른 꼬리로
+    // 앉은 꼬리를 한동안 안 쓰면(일어나면) 다음엔 다른 꼬리로. 예전엔 앉기(sit)만 봐서 식빵·선 채 쓰는 앉은 꼬리는 매 프레임 지워져 감기·늘어뜨리기를
+    // 번갈아 골랐다 — 감은 정도가 0.5 언저리에서 오르내려 꼬리가 몸 앞·뒤로 프레임마다 바뀌었다(사용자: 소파에서 식빵 구우면 깜빡깜빡)
+    if (time - (c.sitTailT ?? -Infinity) > 0.25) c.sitStyle = null;
     c.tailFront = P.wrap > 0.5; // 앞으로 감은 꼬리는 몸·뒷다리 앞에
     // 자세·성질은 천천히 바꾼다(기분이 바뀌어도 꼬리가 한 번에 튀지 않게)
     const k = 1 - Math.exp(-dt * 3.2), kd = 1 - Math.exp(-dt * 6);

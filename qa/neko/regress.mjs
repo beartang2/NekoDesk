@@ -1752,6 +1752,28 @@ try {
     await p.close();
   }
 
+  // 9-u2j) 소파 식빵 깜빡임(0.1.29, 사용자: 소파에서 식빵 구우면 꼬리랑 몸통 레이어가 깜빡깜빡): 식빵·선 채 쓰는 앉은 꼬리(sitTail)의 모양을
+  //        매 프레임 다시 골라(감기↔늘어뜨리기) 꼬리가 몸 앞·뒤로 프레임마다 바뀌었다. 소파·탁자 식빵·상자 안에서 꼬리 앞뒤(tailFront)가 안 바뀐다
+  for (const [q, at, sc] of [["?w=760&h=170&scale=height&transparent=1", "dock", 0.68], ["?w=280&h=326&scale=height&transparent=1", "sidebar", 1.12]]) {
+    const p = await open(q, { width: 900, height: 400 });
+    const r = await p.evaluate(({ at, sc }) => {
+      const n = window.__neko, c = n.cat, out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(sc); n.step(30);
+      for (const [key, kind] of [["sofa", "sofa"], ["table", "table"], ["box", "box"]]) {
+        n.act(null); n.setFurniture([{ id: "F", kind, at, slot: 1 }]); c.x = n.W * 0.1; n.step(120);
+        const rnd = Math.random; Math.random = () => 0.9; n.act(key); Math.random = rnd; // 식빵(소파·탁자)
+        for (let i = 0; i < 120 * 15 && !(c.mode === "act" && c.modeT > 1.5); i++) n.step(1);
+        let flips = 0, pf = c.tailFront;
+        for (let i = 0; i < 120 * 3; i++) { n.step(1); if (c.tailFront !== pf) { flips++; pf = c.tailFront; } }
+        out[key] = { mode: c.mode, flips };
+      }
+      return out;
+    }, { at, sc });
+    check(`식빵 꼬리 깜빡임 없음(${at}): 소파·탁자 식빵·상자 안에서 꼬리가 몸 앞·뒤로 안 바뀐다`, JSON.stringify(r),
+      ["sofa", "table", "box"].every((k) => r[k].mode === "act" && r[k].flips <= 1)); // 자리 잡으며 한 번 넘는 건 깜빡임이 아니다
+    await p.close();
+  }
+
   // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {
