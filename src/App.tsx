@@ -864,7 +864,9 @@ function Composer({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    // 맥은 Enter 로 보낸다(Shift+Enter 줄바꿈). 폰은 키보드 return 이 줄바꿈만 하고 보내기는 전송 버튼으로만(사용자) — 가로채지 않으니
+    // 한글 조합 중 return 도 웹뷰가 조합을 끝내고 줄을 바꾼다. 줄이 늘면 handleInput 이 입력창을 키운다
+    if (e.key === "Enter" && !e.shiftKey && !IS_PHONE) {
       e.preventDefault();
       submit();
       return;
@@ -1029,6 +1031,7 @@ function Composer({
           value={value}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
+          enterKeyHint={IS_PHONE ? "enter" : undefined} /* 폰 키보드 return 키는 줄바꿈 모양(보내기는 버튼) */
           onPaste={(e) => {
             // Finder 에서 복사한 파일과 클립보드 이미지는 files 로 온다. 글만 있으면 그대로 붙인다.
             const pasted = Array.from(e.clipboardData.files);
