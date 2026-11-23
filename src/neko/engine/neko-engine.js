@@ -3555,7 +3555,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const [tx, ty] = restTip(), seg = (WAND_LEN * S) / WAND_N;
     wand = { pts: Array.from({ length: WAND_N + 1 }, (_, i) => ({ x: tx, y: ty + i * seg, ox: tx, oy: ty + i * seg })), tip: [tx, ty], pid: null, held: false, back: 0, from: null, cueT: -9, bite: 0 };
   }
-  const wandOn = () => !WORLD && !AWAY;
+  // 바구니는 호스트가 켤 때만(setToys) — 앱 방·거실은 켜고, 하네스·초상화 등은 고양이만 그린다(실루엣 검사가 바구니를 조각으로 셌다)
+  let toysOn = false;
+  const wandOn = () => toysOn && !WORLD && !AWAY;
   function hitBasket(x, y) { if (!wandOn()) return false; const [bx, by] = basketAt(); return Math.abs(x - bx) < 24 * S && y > by - 64 * S && y < by + 4 * S; }
   /** 장난감(실 끝) 자리. 바구니에 놓여 있으면 null(쫓을 게 아니다) */
   const wandToy = () => (wand && (wand.held || wand.back > 0) ? wand.pts[wand.pts.length - 1] : null);
@@ -5623,6 +5625,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     get dreaming() { return !!dreamC; },
     /** 이 장소에 놓인 가구(docs/neko-furniture.md): [{ id, kind, at, slot, on }]. 바뀔 때만 */
     setFurniture,
+    /** 낚싯대 장난감 바구니(방·거실 바닥 구석)를 켜고 끈다. 기본 끔 — 앱 호스트가 켠다 */
+    setToys(on) { toysOn = !!on; if (!toysOn && wand && wand.held) releaseWand(null); if (!paused) draw(); },
     /** 시험용: 낚싯대 장난감(실 끝) 자리와 물렸는지. 바구니에 놓였으면 null */
     get wandToy() { const t = wandToy(); return t ? { x: t.x, y: t.y, bite: wand.bite > 0 } : null; },
     /** 시험용: 바구니 자리(가운데·바닥) */

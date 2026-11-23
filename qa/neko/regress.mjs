@@ -1340,7 +1340,7 @@ try {
     const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
     const r = await p.evaluate(async () => {
       const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
-      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.setToys(true); n.step(30);
       const moves = [], plays = []; n.on("decorMove", (e) => moves.push(e)); n.on("play", (e) => { plays.push(e.kind); if (n.activity !== e.kind) n.act(e.kind); });
       const pe = (type, x, y, id) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: "mouse", bubbles: true }));
       const shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
