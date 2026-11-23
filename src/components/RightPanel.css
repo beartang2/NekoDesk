@@ -9,9 +9,11 @@
      넓히고 안쪽 여백으로 되돌린다 — 카드 자리는 그대로다. */
   margin: -3px 0 0 -3px;
   padding: 3px var(--gutter) var(--gutter) 3px;
-  /* 패널 자체는 스크롤하지 않는다. 자리가 모자라면 포모도로가 접히고(right-panel--tight),
-     길어지는 건 할 일 목록 안에서만 스크롤한다. */
-  overflow: hidden;
+  /* 자리가 모자라면 포모도로가 접히고(right-panel--tight), 길어지는 건 할 일 목록 안에서만 스크롤한다. 창 최소 높이
+     (lib/windowMin)가 접힌 모양을 다 담게 잡는다 — 화면이 작아 그것도 못 담을 때만 패널이 스크롤한다(잘리지 않게) */
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
   position: relative;
 }
 

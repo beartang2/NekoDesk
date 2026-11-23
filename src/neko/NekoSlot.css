@@ -7,6 +7,8 @@
 /* 창 맨 아래 한 줄(.app 의 셋째 줄)을 전체 폭으로. 높이 손잡이가 위로 3px 삐져나가
    채팅 입력창(z 3) 밑에 깔리지 않게 그보다 위에 둔다. */
 .neko-slot--dock {
+  /* 화면이 작아 위쪽 칸과 거실을 다 못 담으면 거실이 먼저 줄어든다(lib/windowMin, 저장한 높이는 그대로) */
+  max-height: var(--dock-max, none);
   grid-row: 3;
   grid-column: 1 / -1;
   z-index: 4;

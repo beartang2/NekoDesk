@@ -8,6 +8,7 @@ import { useStandby } from "./lib/standby";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import { MD_PLUGINS } from "./lib/markdown";
+import { tableWheel } from "./lib/tableWheel";
 import { Sun, Moon, Monitor, Settings, Paperclip, ArrowUp, Zap, Copy, Check, X, Gift, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { historyStep, type HistoryPos } from "./lib/input-history";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -56,6 +57,7 @@ import { startWalkBrain, type WalkBefore, type WalkBrain } from "./agent/walk";
 import { useNekoController } from "./neko/nekoHost";
 import { buildPath, EXTRA_WAIT_MS, fallbackLegs, hurryHome, lastWalkWith, walkingElsewhere, nextWalkAt, pickPlaces, routineName, positionAt, toLatLon, toMeters, walkEnd, walkStart, WALK_MS, type Pt, type SharedWalk, type Walk } from "./lib/walk";
 import { hereOnce, watchHere } from "./lib/here";
+import { watchWindowMin } from "./lib/windowMin";
 import { DEFAULT_SIDEBAR_W, useLayout } from "./hooks/useLayout";
 import { initMcpFromStorage } from "./agent/mcp-registry";
 import { isAutoApprove, loadPermissionRules, setAutoApprove } from "./agent/permissions";
@@ -440,10 +442,15 @@ function Sidebar({
 /** 처음에 그리는 말풍선 수, 그리고 위로 올릴 때마다 더 붙이는 수. */
 const MESSAGE_PAGE = 60;
 
+/** 표: 넓으면 옆으로 민다(App.css). 휠·트랙패드는 표 위에서도 세로는 대화 목록으로(lib/tableWheel — 맥 WebKit 이 손짓을 표에 묶었다) */
+function MdTable({ children }: { children?: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => (ref.current ? tableWheel(ref.current) : undefined), []);
+  return <div ref={ref} className="table-wrapper"><table>{children}</table></div>;
+}
+
 const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = {
-  table: ({ children }) => (
-    <div className="table-wrapper"><table>{children}</table></div>
-  ),
+  table: ({ children }) => <MdTable>{children}</MdTable>,
   // 칸 안을 한 겹 감싼다: 폰은 이 겹에 칸의 최소·최대 폭을 준다(표 칸 자체의 max-width 는 브라우저마다 안 먹는다, App.css)
   th: ({ node: _n, children, ...rest }) => <th {...rest}><div className="md-cell">{children}</div></th>,
   td: ({ node: _n, children, ...rest }) => <td {...rest}><div className="md-cell">{children}</div></td>,
@@ -1750,6 +1757,8 @@ export default function App() {
   useEffect(() => { initMcpFromStorage(); }, []);
   // 앱이 앞으로 올 때 위치를 묻고 다른 기기의 동네를 받는다(지도·날씨, lib/here)
   useEffect(() => watchHere(), []);
+  // 맥 창 최소 높이: 위쪽 칸이 안 잘리는 높이 + 거실(lib/windowMin). 폰은 창이 화면이다
+  useEffect(() => (IS_PHONE ? undefined : watchWindowMin()), []);
   // 네코의 큰 상태(깨어 있음·자는 중·산책·밥)를 맥·폰이 맞춘다: 가장 최근에 쓴 기기를 따른다(neko/presence)
   useEffect(() => watchPresence(), []);
   // 저장해둔 "항상 허용" 규칙을 메모리에 올린다. 이게 없으면 첫 요청은

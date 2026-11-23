@@ -323,6 +323,15 @@ html, body, #root {
   position: relative;
   min-width: 0;
 }
+/* 맥: 창 최소 높이(lib/windowMin)가 방까지 다 담게 잡는다. 화면이 작아 그것도 못 담으면 잘리지 않고 칸 안에서 스크롤(폰 서랍은 그대로) */
+html:not(.phone) .sidebar {
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+/* 접힌 그림판은 제목 줄만이라도 남긴다(펼친 그림판은 원래대로 캔버스가 줄어든다) — 위에서 스크롤하게 */
+html:not(.phone) .sidebar > .panel-card--draw:not(:has(.acc-wrap--open)) {
+  min-height: auto;
+}
 
 /* min-height 는 기본(auto) 그대로 — 그림판이 커져도 목록 두세 줄(.sidebar__list)은 남는다. */
 .sidebar__sessions {
