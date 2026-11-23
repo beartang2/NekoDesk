@@ -1358,7 +1358,7 @@ try {
       for (let k = 1; k <= 5; k++) { pe("pointermove", b[0] + 14 * k, b[1] - 12 * k, 3); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
       pe("pointerup", b[0] + 70, b[1] - 60, 3);
       let kicks = 0;
-      for (let i = 0; i < 120 * 14; i++) { n.step(1); const A = c.act; if (A && A.key === "chase") kicks = Math.max(kicks, A.kicks || 0); }
+      for (let i = 0; i < 120 * 40 && (i < 120 || n.activity === "chase"); i++) { n.step(1); const A = c.act; if (A && A.key === "chase") kicks = Math.max(kicks, A.kicks || 0); } // 1~4번 친다
       out.throw = { plays: plays.slice(), moves: moves.map((m) => m.surface), kicks, ended: n.activity === null };
       // 낚싯대
       plays.length = 0; c.x = n.W * 0.3; n.step(60);
@@ -1921,6 +1921,45 @@ try {
     });
     check("구르는 물건 잡기: 잡는 순간 굴림이 멈추고 그 자리를 저장, 든 채로는 안 움직이고 네코는 쫓기를 그만, 떼면 그 자리, 꾹 눌러 메뉴여도 선 자리 저장", JSON.stringify(r),
       r.rolled && r.rolled2 && r.mouse.wasChase && r.mouse.grabSaved && r.mouse.still < 1 && !r.mouse.chase && r.mouse.movesWhileHeld === 0 && r.mouse.stays && r.touch.menu === 1 && r.touch.stays && r.touch.saved);
+    await p.close();
+  }
+
+  // 9-u2n) 던진 장난감 여러 번 치기(0.1.29, 사용자: 굴러간 다음에 한 번만 때리잖아 — 최대 3~4번 더): 치는 횟수는 한 번 + 0~3번(기운이
+  //        낮으면 덜). 칠 때마다 굴러가면 잠깐 노려본 뒤(가끔 엉덩이 씰룩 덮치기) 따라가 또 친다. 멈출 때마다 자리를 알리고 마지막 자리가 그린 자리다.
+  //        기운 10 이면 한 번만
+  {
+    const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
+      const shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      let placed = { surface: "floor", u: 0.3 };
+      const feed = () => n.setDecor([{ id: "g", shape, size: "small", at: "dock", ...placed }]);
+      const moves = []; n.on("decorMove", ({ id: _id, ...spot }) => { moves.push(spot); placed = spot; feed(); });
+      n.on("play", (e) => { if (n.activity !== e.kind) n.act(e.kind); });
+      const pe = (type, x, y, id) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: "mouse", bubbles: true }));
+      const find = () => { n.draw(); for (let x = 0; x < n.W; x += 2) for (let y = 0; y < n.floorY; y += 2) if (n.hitDecor(x, y) === "g") return [x, y]; return null; };
+      const run = async (energy, pid) => {
+        n.act(null); n.setNeeds({ energy }); placed = { surface: "floor", u: 0.3 }; feed(); c.x = n.W * 0.85; n.step(90); moves.length = 0;
+        const b = find(), rnd = Math.random; Math.random = () => 0.99; // 치는 횟수를 최대로(기운이 허락하는 만큼)
+        pe("pointerdown", b[0], b[1], pid); n.step(2);
+        for (let k = 1; k <= 5; k++) { pe("pointermove", b[0] + 14 * k, b[1] - 12 * k, pid); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
+        pe("pointerup", b[0] + 70, b[1] - 60, pid); n.step(1); Math.random = rnd;
+        let kicks = 0, max = 0, eye = 0, pounce = 0, pm = c.mode;
+        for (let i = 0; i < 120 * 40 && (n.activity === "chase" || i < 120); i++) {
+          n.step(1); const A = c.act;
+          if (A && A.key === "chase") { kicks = Math.max(kicks, A.kicks || 0); max = A.kickMax; if (A.stage === "eye") eye++; }
+          if (c.mode === "crouch" && pm !== "crouch") pounce++; pm = c.mode;
+        }
+        n.step(240); const end = find();
+        return { kicks, max, eyeFrames: eye, pounce, moves: moves.length, ended: n.activity === null, endX: end && end[0], u: +placed.u.toFixed(3) };
+      };
+      out.fresh = await run(100, 3);
+      out.tired = await run(10, 4);
+      return out;
+    });
+    check("던진 장난감 여러 번 치기: 기운 있으면 4번까지 치고(사이에 노려보기), 칠 때마다 선 자리를 알리고 끝나면 놀기를 마친다. 기운 10 이면 한 번", JSON.stringify(r),
+      r.fresh.max === 4 && r.fresh.kicks === 4 && r.fresh.eyeFrames > 30 && r.fresh.moves >= 4 && r.fresh.ended && r.tired.max === 1 && r.tired.kicks === 1 && r.tired.ended);
     await p.close();
   }
 

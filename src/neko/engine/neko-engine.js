@@ -3448,7 +3448,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const c = cat, d = giftOf(A);
     if (A.stage === "rest") return;
     if (!d) { pickGift(A); return; }
-    if (A.stage === "rolling") return; // 굴러가는 동안은 눈으로만 쫓는다(step 이 멈추면 다시 간다)
+    if (A.stage === "rolling" || A.stage === "eye") return; // 굴러가는 동안·노려보는 동안은 눈으로만 쫓는다(step 이 멈추면 다시 간다)
     const want = A.stage === "move" ? A.dest : giftStand(A, d), { x } = giftPos(d);
     if (c.mode === "walk") {
       if (Math.abs(c.x - want) < 6 * S) { c.vx = 0; c.speed = 0; setMode("idle"); }
@@ -3484,7 +3484,22 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       if (A.stage === "rest") { if ((A.rest -= dt) <= 0) pickGift(A); return; }
       // 놀던 선물이 목록에서 빠졌다(버리기·치우기·다른 장소로 옮김): 'act' 에선 wander 가 안 돌아 빈 자세로 멈췄다. 쉬었다 다시 고른다
       if (!d) { A.stage = "rest"; A.rest = rand(1, 2); if (c.mode === "act") setMode("idle"); return; }
-      if (A.stage === "rolling") { if (!d.vx) { A.stage = A.kicks < (A.kickMax ?? 2) ? "go" : "done"; if (A.stage === "done") giftDone(A); } return; }
+      if (A.stage === "rolling") {
+        if (d.vx) return;
+        A.stage = A.kicks < (A.kickMax ?? 2) ? "go" : "done";
+        if (A.stage === "done") giftDone(A);
+        else if (A.key === "chase") { A.stage = "eye"; A.eye = rand(0.35, 0.9); } // 쫓기: 다시 치기 전에 잠깐 노려본다
+        return;
+      }
+      if (A.stage === "eye") { // 노려본 뒤 가끔 엉덩이를 씰룩이며 물건 앞으로 덮친다(가까우면 걸어간다)
+        if ((A.eye -= dt) > 0) return;
+        A.stage = "go";
+        const p = giftPos(d), ax = Math.abs(p.x - c.x);
+        if (ax > 50 * S && ax < 220 * S && Math.random() < 0.5 && (c.mode === "idle" || c.mode === "walk")) {
+          c.face = Math.sign(p.x - c.x) || c.face; c.pounce = { x: p.x - c.face * 24 * S, y: floorY - 8 * S }; jump();
+        }
+        return;
+      }
       if (A.stage === "jump") { // 떨구기: 공중에서 앞발·머리가 액자 아래쪽에 닿으면 쳐서 떨어진다(빙글 돌며). 내려앉으면 떨어진 걸 냄새 맡는다
         if (c.mode === "air" && d.surface === "wall" && !d.fall) {
           const p = giftPos(d), paw = [c.head.x + c.face * 14 * S, c.head.y];
@@ -3586,7 +3601,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function chaseTarget(A) {
     const d = decor.find((o) => o.id === thrownId && !o.hidden && o.surface === "floor");
     thrownId = null;
-    A.id = d ? d.id : null; A.play = "roll"; A.kicks = 0; A.kickMax = Math.random() < 0.4 ? 2 : 1; A.maxRounds = 1; A.rounds = 0;
+    // 치는 횟수: 한 번 + 0~3번 더(사용자: 한 번만 때리잖아, 최대 3~4번 더). 기운이 낮으면 덜 친다
+    const e = cat.needs && cat.needs.energy, more = !Number.isFinite(e) || e >= 50 ? 4 : e >= 30 ? 3 : e >= 15 ? 2 : 1;
+    A.id = d ? d.id : null; A.play = "roll"; A.kicks = 0; A.kickMax = 1 + Math.floor(Math.random() * more); A.maxRounds = 1; A.rounds = 0;
     A.stage = d ? "go" : "watch"; A.dt = 0;
   }
   defineActivity("chase", {
