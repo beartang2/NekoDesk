@@ -2451,13 +2451,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       // 가구 윗면 위에 있다가 바닥으로 내려왔는데 그 면이 없어졌다(탁자를 치움 — 호스트가 바닥으로 적는다): 그 자리에서 떨어진다
       const off = o && o.surface === "furniture" && surface === "floor" && o.box && !o.fall && !HOLD_TOPS.some((t) => t.fid === o.fid && t.i === o.fi);
       const fall = keep && o.fall ? o.fall : off ? { x: o.box.x + o.box.w / 2, bottom: o.box.y + o.box.h, vx: 0, vy: 0 } : null;
+      // 각도: 움직이는 중(굴러감·떨어짐·미끄러짐·끄는 중)이면 이어 가고, 아니면 저장된 각도(placed.rot — 다른 기기에서 굴린 것도). 벽은 똑바로
+      const live = (keep && (o.px || o.fall || o.slide)) || off || (o && decorDrag && decorDrag.id === o.id);
       return {
         id: String(d.id), surface, u, v, fid, fi, fu,
         shape, play: PLAYS.has(d.play) ? d.play : defaultPlay(shape), size: d.size, scale: d.scale, at: d.at, k: 1, frame: !!d.frame,
         fall, // 떨어지는 중(액자 아닌 걸 벽 쪽에 놓음·탁자를 치움)이면 이어서
         // 새로 놓인 것만 '뿅'. 화면 모드는 안 한다 — 선물 창이 멈춘 그림으로 그린다(모니터를 건너가도 다 뿅 하지 않게)
         t0: o ? o.t0 : WORLD ? -1e9 : time, box: null, showTo: o ? o.showTo : 0,
-        px: keep ? o.px : off ? [fall.x, fall.bottom] : null, vx: keep ? o.vx : 0, slide: keep ? o.slide : null, rot: o ? o.rot : 0, wob: o ? o.wob : new Spring(0), hidden: o ? o.hidden : false, front: o ? o.front : false,
+        px: keep ? o.px : off ? [fall.x, fall.bottom] : null, vx: keep ? o.vx : 0, slide: keep ? o.slide : null, rot: live ? o.rot : surface === "wall" ? 0 : DD.normRot(d.rot), wob: o ? o.wob : new Spring(0), hidden: o ? o.hidden : false, front: o ? o.front : false,
         // 마지막으로 놀아 준 때(호스트가 decorPlayed 를 저장해 돌려준다). 없으면 한 번도 안 논 것
         lastPlayed: Number.isFinite(d.lastPlayed) ? d.lastPlayed : o ? o.lastPlayed : null,
       };
@@ -2552,6 +2554,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (WORLD) syncHeld();
     for (const d of decor) {
       d.wob.step(0, 160, 7, dt);
+      // 사용자가 집어 끌면 똑바로 선다(놓으면 0 으로 저장) — 선물 창·빈 방의 들어 올린 모양과 같게
+      if (decorDrag && decorDrag.moved && decorDrag.id === d.id) d.rot = (d.rot - TAU * Math.round(d.rot / TAU)) * Math.exp(-dt * 12);
       if (d.fall) { // 떨어지는 중: 바닥에 내려앉으면 그 자리를 알린다. 던진 건(roll) 내려앉은 뒤 그 빠르기로 굴러간다
         if (d.frame) d.rot += ((d.fall.vx < 0 ? -1 : 1) * (Math.PI / 2) - d.rot) * (1 - Math.exp(-dt * 7)); // 액자는 떨어지며 옆으로 돈다
         if (DD.fallStep(d.fall, dt, geomNow())) {
@@ -2581,7 +2585,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (!d || !d.px) return;
     const spot = spotOf(d.px[0], d.px[1], decorDims(d.shape, d.k).h);
     takeSpot(d, spot); d.px = null; d.vx = 0;
-    emit("decorMove", { id: d.id, ...spot });
+    d.rot = spot.surface === "wall" ? 0 : DD.normRot(d.rot); // 멈춘 각도도 저장한다(동기화로 다른 기기도 같은 각도)
+    emit("decorMove", { id: d.id, ...spot, rot: d.rot });
   }
   /** 알린 자리를 물건에 바로 적는다(호스트가 다시 넣기 전까지도 제자리에). 가구 윗면 번호는 엔진에선 fi */
   function takeSpot(d, spot) {
@@ -5556,6 +5561,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       if (decorDrag.hold) clearTimeout(decorDrag.hold.t);
       const d = decor.find((o) => o.id === decorDrag.id);
       if (d) {
+        if (decorDrag.moved) d.rot = 0; // 집어 옮기면 똑바로(던지면 0 에서 굴러간다). 누르고 떼기만 했으면 그 각도 그대로
         const s0 = spotOf(decorDrag.x, decorDrag.bottom, decorDims(d.shape, d.k).h);
         // 액자는 바닥 근처에 놓아도 벽 맨 아래에 건다(떨어진 액자를 집어 다시 걸 때도) — 바닥에 눕는 건 네코가 떨군 것뿐
         const spot = d.frame && s0.surface === "floor" && !WORLD && decorDrag.moved ? { surface: "wall", u: s0.u, v: 0 } : s0;
@@ -5578,7 +5584,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         } else {
           takeSpot(d, spot); // 호스트가 다시 넣기 전까지도 제자리에
           d.px = null; d.vx = 0; // 굴러가던 걸 잡아 옮겼으면 굴러가던 자리로 돌아가지 않게
-          emit("decorMove", { id: d.id, ...spot });
+          if (spot.surface === "wall") d.rot = 0;
+          emit("decorMove", { id: d.id, ...spot, rot: DD.normRot(d.rot) });
         }
       }
       decorDrag.el.classList.remove("dragging"); decorDrag = null; emit("hold", false);

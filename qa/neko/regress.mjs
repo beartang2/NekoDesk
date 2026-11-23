@@ -1774,6 +1774,72 @@ try {
     await p.close();
   }
 
+  // 9-u2k) 놀다 멈춘 각도 저장(0.1.29, 사용자: 맥에서 던져 굴러간 물건이 폰에선 똑바로였다 — 각도가 동기화 안 됨): 던져 굴러가다 서면
+  //        decorMove 에 멈춘 각도(rot, (−π, π] 0.01 단위)를 싣는다. 그 자리를 다시 받으면(setDecor — 다른 기기) 같은 각도로 그리고, 각도 없는
+  //        자리(옛 기기)는 똑바로. 누르고 떼기만 하면 그 각도 그대로, 집어 옮기면 0. 떨어져 누운 액자는 rot 부호 쪽으로 눕는다
+  {
+    const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), g = cv.getContext("2d"), k = cv.width / R.width, out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
+      const moves = []; n.on("decorMove", (e) => moves.push(e));
+      const pe = (type, x, y, id) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: "mouse", bubbles: true }));
+      const shape = { parts: [{ t: "rrect", x: 0, y: -9, w: 30, h: 14, rad: 1, rot: 0, c: "red" }, { t: "circle", x: -11, y: -14, r: 3, c: "blue" }] };
+      const find = () => { n.draw(); for (let x = 0; x < n.W; x += 2) for (let y = 0; y < n.floorY; y += 2) if (n.hitDecor(x, y)) return [x, y]; return null; };
+      // 칠한 색(빨강 몸통·파랑 점)의 가장자리 칸과 파랑 가운데 x(css px)
+      const look = () => {
+        n.draw(); const d = g.getImageData(0, 0, cv.width, cv.height).data, near = (j, [r0, g0, b0]) => Math.abs(d[j] - r0) < 16 && Math.abs(d[j + 1] - g0) < 16 && Math.abs(d[j + 2] - b0) < 16 && d[j + 3] > 240;
+        let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1, bx = 0, bn = 0;
+        for (let j = 0; j < d.length; j += 4) {
+          const x = (j / 4) % cv.width, y = Math.floor(j / 4 / cv.width);
+          if (near(j, [228, 106, 94])) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+          if (near(j, [111, 168, 224])) { bx += x; bn++; }
+        }
+        return { box: [x0, y0, x1, y1].map((v) => Math.round(v / k)), blue: bn ? Math.round(bx / bn / k) : null };
+      };
+      const same = (a, b) => a.box.every((v, i) => Math.abs(v - b.box[i]) <= 1);
+      const away = () => { n.act(null); c.x = n.W * 0.03; n.step(60); }; // 고양이가 물건을 가리지 않게 왼쪽 끝에
+      away(); n.setDecor([{ id: "g", surface: "floor", u: 0.35, size: "medium", shape }]); n.step(120);
+      // 휙 던지기: 굴러가다 서면 그 각도
+      let b = find();
+      pe("pointerdown", b[0], b[1], 2); n.step(2);
+      for (let q = 1; q <= 5; q++) { pe("pointermove", b[0] + 16 * q, b[1] - 10 * q, 2); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
+      pe("pointerup", b[0] + 80, b[1] - 50, 2);
+      for (let i = 0; i < 120 * 10 && !moves.length; i++) n.step(1);
+      const m = moves[0]; away(); n.step(240); // 내려앉은 흔들림이 가라앉게
+      out.thrown = { surface: m?.surface, rot: m?.rot };
+      const here = look();
+      const { id: _id, ...spot } = m;
+      n.setDecor([]); n.step(2); // 다른 기기처럼 새로 받는다
+      n.setDecor([{ id: "g", size: "medium", shape, ...spot }]); n.step(120);
+      const synced = look();
+      n.setDecor([{ id: "g", size: "medium", shape, surface: "floor", u: spot.u }]); n.step(5);
+      const old = look();
+      out.draw = { same: same(here, synced), oldDiffers: !same(here, old) };
+      // 누르고 떼기만: 각도 그대로
+      n.setDecor([{ id: "g", size: "medium", shape, ...spot }]); n.step(5); moves.length = 0;
+      b = find(); pe("pointerdown", b[0], b[1], 3); n.step(2); pe("pointerup", b[0], b[1], 3); n.step(2);
+      out.tap = moves[0]?.rot;
+      // 천천히 옮겨 놓기: 0, 끄는 동안 똑바로 선다
+      moves.length = 0; b = find();
+      pe("pointerdown", b[0], b[1], 4); n.step(2);
+      for (let q = 1; q <= 5; q++) { pe("pointermove", b[0] + 4 * q, b[1], 4); await new Promise((ok) => setTimeout(ok, 60)); n.step(12); }
+      await new Promise((ok) => setTimeout(ok, 150));
+      pe("pointerup", b[0] + 20, b[1], 4); n.step(30);
+      out.dragged = moves[0]?.rot;
+      out.dragUpright = same(look(), (n.setDecor([{ id: "g", size: "medium", shape, surface: "floor", u: moves[0].u }]), n.step(5), look()));
+      // 떨어져 누운 액자: rot 부호 쪽으로 눕는다(각도 없는 옛 자리는 오른쪽)
+      const lie = (rot) => { n.setDecor([]); n.step(2); n.setDecor([{ id: "f", size: "medium", shape, frame: true, surface: "floor", u: 0.4, ...(rot != null ? { rot } : {}) }]); n.step(120); const l = look(); return Math.sign(l.blue - (l.box[0] + l.box[2]) / 2); };
+      out.lie = [lie(-1.57), lie(1.57), lie(null)];
+      return out;
+    });
+    check("놀다 멈춘 각도: 던져 서면 decorMove 에 각도, 다시 받으면 같은 그림(옛 자리는 똑바로), 누르고 떼면 그대로, 옮기면 0, 누운 액자는 rot 쪽",
+      JSON.stringify(r),
+      r.thrown.surface === "floor" && Math.abs(r.thrown.rot) > 0.05 && Math.abs(r.thrown.rot) <= Math.PI && Math.round(r.thrown.rot * 100) === r.thrown.rot * 100 &&
+        r.draw.same && r.draw.oldDiffers && r.tap === r.thrown.rot && r.dragged === 0 && r.dragUpright && r.lie.join() === "-1,1,1");
+    await p.close();
+  }
+
   // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {

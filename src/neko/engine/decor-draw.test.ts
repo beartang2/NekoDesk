@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { roomWindows } from "./room-window.js";
-import { TALL_DOCK_K, fallStep, capPx, decorAt, decorM, decorBoxes, decorDims, decorK, dragDecor, spotOf, hitDecorAt, sizeK, type DecorItem } from "./decor-draw.js";
+import { TALL_DOCK_K, fallStep, capPx, decorAt, decorM, decorBoxes, decorDims, decorK, dragDecor, drawDecor, normRot, spotOf, hitDecorAt, sizeK, type DecorItem } from "./decor-draw.js";
 
 const shape = { v: 1 as const, parts: [{ t: "circle" as const, x: 0, y: -8, r: 8, c: "red" as const }] };
 const geom = { W: 1200, floorY: 600, S: 0.8 };
@@ -134,3 +134,28 @@ describe("떨어진 액자(0.1.28)", () => {
   });
 });
 
+
+describe("놀다 멈춘 각도(placed.rot)", () => {
+  it("normRot: (−π, π] 로 접고 0.01 로 반올림, 숫자가 아니면 0", () => {
+    expect(normRot(0.123)).toBe(0.12);
+    expect(normRot(1 + 6 * Math.PI)).toBe(1);
+    expect(normRot(-1 - 2 * Math.PI)).toBe(-1);
+    expect([normRot(undefined), normRot("1"), normRot(Number.NaN), normRot(Infinity), normRot(-0.001)]).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it("선물 창·빈 방 그림도 그 각도로 그린다(벽은 똑바로, 누운 액자는 rot 쪽으로 90°)", () => {
+    const rots: number[] = [];
+    const g: object = new Proxy({}, {
+      get: (t: Record<string | symbol, unknown>, k) => (k in t ? t[k] : k === "rotate" ? (a: number) => rots.push(a) : () => g),
+      set: (t, k, v) => { t[k] = v; return true; },
+    });
+    const cv = { width: 0, height: 0, getContext: () => g } as unknown as HTMLCanvasElement;
+    const shape = { parts: [{ t: "rrect" as const, x: 0, y: -10, w: 26, h: 20, rad: 2, rot: 0, c: "blue" }] };
+    const draw = (it: Partial<DecorItem>) => { rots.length = 0; drawDecor(cv, [{ id: "a", shape, size: "medium", ...it } as DecorItem], { W: 280, H: 320, floorY: 300, scale: 1 }); return rots.filter((r) => r !== 0); };
+    expect(draw({ surface: "floor", u: 0.5, rot: 0.7 })).toEqual([0.7]);
+    expect(draw({ surface: "floor", u: 0.5 })).toEqual([]);
+    expect(draw({ surface: "wall", u: 0.5, v: 0.5, rot: 0.7 } as never)).toEqual([]);
+    expect(draw({ surface: "floor", u: 0.5, rot: -1.57, frame: true })).toEqual([-Math.PI / 2]);
+    expect(draw({ surface: "floor", u: 0.5, frame: true })).toEqual([Math.PI / 2]); // 옛 기기(각도 없음)는 오른쪽으로
+  });
+});

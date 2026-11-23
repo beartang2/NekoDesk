@@ -478,6 +478,25 @@ fn a_gift_received_just_before_the_screen_saves_is_kept() {
 }
 
 #[test]
+fn a_gift_angle_alone_syncs_and_an_old_device_move_drops_it() {
+    let (a, b) = (db(), db());
+    settings::set(&a, GIFTS, r#"[{"id":"g1","title":"솔방울","placed":{"at":"dock","surface":"floor","u":0.3}}]"#).unwrap();
+    apply_all(&b, "B", &push_all(&a, "A"));
+    // A(맥)에서 던져 굴러가다 선 각도(placed.rot)만 바뀌어도 올라가 B(폰)도 같은 각도
+    gift_patch(&a, "g1", &serde_json::json!({ "placed": { "at": "dock", "surface": "floor", "u": 0.3, "rot": 1.25 } })).unwrap();
+    let up = push_all(&a, "A");
+    assert_eq!(up.len(), 1);
+    apply_all(&b, "B", &up);
+    assert_eq!(load_gifts(&b).unwrap()[0]["placed"]["rot"].as_f64(), Some(1.25));
+    assert!(push_all(&b, "B").is_empty(), "받은 각도는 다시 안 올린다");
+    // 각도를 모르는 옛 버전이 집어 옮기면 자리를 통째로 새로 쓴다(rot 없음 = 똑바로) — 그것도 올라가 A 도 똑바로
+    gift_patch(&b, "g1", &serde_json::json!({ "placed": { "at": "dock", "surface": "floor", "u": 0.6 } })).unwrap();
+    apply_all(&a, "A", &push_all(&b, "B"));
+    let p = &load_gifts(&a).unwrap()[0]["placed"];
+    assert_eq!((p["u"].as_f64(), p.get("rot")), (Some(0.6), None));
+}
+
+#[test]
 fn big_messages_drop_image_bodies() {
     let c = db();
     let big = format!("data:image/png;base64,{}", "A".repeat(800_000));

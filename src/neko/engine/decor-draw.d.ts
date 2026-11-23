@@ -62,6 +62,8 @@ interface DecorView { W: number; floorY: number; scale: number; tops?: DecorTop[
  */
 /** 바닥에서 굴러간다(감쇠·끝에서 튕김·굴러간 만큼 돎). f = { x, vx, rot } 를 고친다. 서면 true */
 export function rollStep(f: { x: number; vx: number; rot?: number }, dt: number, g: { W: number; floorY: number; S: number }, h: number): boolean;
+/** 놀다 멈춘 각도(placed.rot): (−π, π] 로 접고 0.01 로 반올림. 숫자가 아니거나 이상하면 0 */
+export function normRot(r: unknown): number;
 /** 던지기: 놓는 순간 이 빠르기(px/초 ÷ S)를 넘으면 날아간다, 이보다 빠르게는 안 날린다 */
 export const THROW_MIN: number, THROW_MAX: number;
 /** 놓기 전 이만큼(ms) 손이 멈춰 있었으면 빠르기 0(던지지 않는다) */

@@ -20,10 +20,11 @@ export type NekoCarried =
 /** 무대에 놓은 자리(무대 크기와 무관한 비율) */
 /**
  * 놓인 자리. furniture = 가구 윗면 위(탁자): fid 가구의 i 번 면, fu = 면 위 가로 비율, u = 바로 아래 바닥 비율 —
- * 그 가구가 그 장소에 없으면(치움) 바닥 u 로 내린다. 모르는 자리를 바닥으로 읽는 옛 버전도 u 바닥에 둔다
+ * 그 가구가 그 장소에 없으면(치움) 바닥 u 로 내린다. 모르는 자리를 바닥으로 읽는 옛 버전도 u 바닥에 둔다.
+ * rot = 던지기·굴리기로 멈춘 각도(라디안, 바닥·가구 윗면만, 떨어져 누운 액자는 ±π/2). 없으면 0(똑바로) — 옛 버전은 읽지 않는다
  */
-export type NekoDecorSpot = { surface: "floor"; u: number } | { surface: "wall"; u: number; v: number }
-  | { surface: "furniture"; u: number; fid: string; i: number; fu: number };
+export type NekoDecorSpot = { surface: "floor"; u: number; rot?: number } | { surface: "wall"; u: number; v: number }
+  | { surface: "furniture"; u: number; fid: string; i: number; fu: number; rot?: number };
 
 export type NekoCoat = "black" | "cheese" | "gray" | "cream" | "white" | "custom";
 export type NekoPattern = "white" | "calico" | "tabby" | "point";

@@ -52,6 +52,7 @@ describe("빈 방의 선물(RoomGifts)", () => {
     expect(h.place.mock.calls[0][0]).toBe("g");
     expect(h.place.mock.calls[0][1]).toMatchObject({ surface: "floor" });
     expect(h.place.mock.calls[0][1].u).toBeLessThan(0.5);
+    expect(h.place.mock.calls[0][1].rot).toBeUndefined(); // 집어 옮기면 똑바로(각도 없음 = 0)
     fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 2, pointerType: "mouse" });
     fireEvent.pointerUp(cv, { ...ON, pointerId: 2, pointerType: "mouse" });
     expect(h.place).toHaveBeenCalledTimes(1);
@@ -114,5 +115,6 @@ describe("빈 방의 선물(RoomGifts)", () => {
     expect(h.place).toHaveBeenCalledTimes(1);
     expect(h.place.mock.calls[0][1]).toMatchObject({ surface: "floor" });
     expect(h.place.mock.calls[0][1].u).toBeGreaterThan(0.75); // 놓은 자리(200 → 0.7 쯤)보다 오른쪽으로 굴러갔다
+    expect(Math.abs(h.place.mock.calls[0][1].rot)).toBeGreaterThan(0.5); // 굴러간 만큼 돈 각도도 적는다
   });
 });

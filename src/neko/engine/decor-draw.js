@@ -125,6 +125,14 @@ export function rollStep(f, dt, g, h) {
   return false;
 }
 /**
+ * 놀다 멈춘 각도(라디안: 던지기·굴리기, 떨어져 누운 액자 ±π/2) — 놓인 자리(placed.rot)에 저장·동기화하는 값.
+ * (−π, π] 로 접고 0.01 로 반올림한다. 이상한 값(손으로 고친 DB·다른 버전)은 0(똑바로)
+ */
+export function normRot(r) {
+  if (typeof r !== "number" || !Number.isFinite(r)) return 0;
+  return Math.round((r - 2 * Math.PI * Math.round(r / (2 * Math.PI))) * 100) / 100 || 0;
+}
+/**
  * 던지기(사용자: 바닥 물건을 흔들다 던지면 네코가 쫓아간다): 놓는 순간 이 빠르기(무대 px/초 ÷ S)를 넘으면 그 속도로 날아간다 —
  * 날다 떨어져 튕기고(fallStep) 바닥에선 굴러가 선다(rollStep). 느리면 지금처럼 그 자리에 놓는다. 액자는 안 던진다
  */
@@ -187,15 +195,16 @@ function layoutAll(items, geom, drag) {
       return { id, shape, L: { ...dims, x, bottom, onFloor: liftedOnFloor(bottom, geom) }, lifted: !drag.fly, fly: !!drag.fly, rot: drag.rot || 0 };
     }
     const on = d.surface === "furniture" && topOf(geom, d.fid, d.i); // 가구 윗면 위(그 면이 있을 때만, 없으면 바닥)
-    // 바닥의 액자는 떨어진 것: 옆으로 눕는다(사용자가 다시 벽에 걸 때까지) — 칸 가로세로를 바꾸고 90° 돌려 그린다
+    // 바닥의 액자는 떨어진 것: 옆으로 눕는다(사용자가 다시 벽에 걸 때까지) — 칸 가로세로를 바꾸고 떨어진 쪽(rot 부호)으로 90° 돌려 그린다
     if (d.frame && !on && d.surface !== "wall") {
       const [x, bottom] = decorAt({ surface: "floor", u: clamp(d.u, 0, 1) }, dims.w, geom, dims.h);
-      return { id, shape, L: { ...dims, w: dims.h, h: dims.w, h0: dims.h, lie: true, x, bottom, onFloor: true }, wall: false, rot: Math.PI / 2 };
+      return { id, shape, L: { ...dims, w: dims.h, h: dims.w, h0: dims.h, lie: true, x, bottom, onFloor: true }, wall: false, rot: (Math.sign(normRot(d.rot)) || 1) * (Math.PI / 2) };
     }
     const spot = on ? { surface: "furniture", fid: d.fid, i: d.i, fu: d.fu, u: clamp(d.u, 0, 1) }
       : { surface: d.surface === "wall" ? "wall" : "floor", u: clamp(d.u, 0, 1), v: clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1), at: d.at };
     const [x, bottom] = decorAt(spot, dims.h, geom, dims.w);
-    return { id, shape, L: { ...dims, x, bottom, onFloor: spot.surface !== "wall", ...(on ? { shadowY: bottom } : {}) }, wall: spot.surface === "wall" };
+    // 놀다 멈춘 각도(placed.rot)로 그린다 — 엔진 무대와 같게. 벽에 건 것은 똑바로
+    return { id, shape, L: { ...dims, x, bottom, onFloor: spot.surface !== "wall", ...(on ? { shadowY: bottom } : {}) }, wall: spot.surface === "wall", rot: spot.surface === "wall" ? 0 : normRot(d.rot) };
   });
 }
 const geomOf = ({ W, floorY, scale, tops }) => ({ W, floorY, S: clamp(Number.isFinite(scale) ? scale : 1, 0.35, 1.4), tops });
