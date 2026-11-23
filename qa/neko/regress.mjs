@@ -1358,7 +1358,7 @@ try {
       for (let k = 1; k <= 5; k++) { pe("pointermove", b[0] + 14 * k, b[1] - 12 * k, 3); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
       pe("pointerup", b[0] + 70, b[1] - 60, 3);
       let kicks = 0;
-      for (let i = 0; i < 120 * 14; i++) { n.step(1); const A = c.act; if (A && A.key === "chase") kicks = Math.max(kicks, A.kicks || 0); }
+      for (let i = 0; i < 120 * 40 && (i < 120 || n.activity === "chase"); i++) { n.step(1); const A = c.act; if (A && A.key === "chase") kicks = Math.max(kicks, A.kicks || 0); } // 1~4번 친다
       out.throw = { plays: plays.slice(), moves: moves.map((m) => m.surface), kicks, ended: n.activity === null };
       // 낚싯대
       plays.length = 0; c.x = n.W * 0.3; n.step(60);
@@ -1776,14 +1776,14 @@ try {
 
   // 9-u2k) 놀다 멈춘 각도 저장(0.1.29, 사용자: 맥에서 던져 굴러간 물건이 폰에선 똑바로였다 — 각도가 동기화 안 됨): 던져 굴러가다 서면
   //        decorMove 에 멈춘 각도(rot, (−π, π] 0.01 단위)를 싣는다. 그 자리를 다시 받으면(setDecor — 다른 기기) 같은 각도로 그리고, 각도 없는
-  //        자리(옛 기기)는 똑바로. 누르고 떼기만 하면 그 각도 그대로, 집어 옮기면 0. 떨어져 누운 액자는 rot 부호 쪽으로 눕는다
+  //        자리(옛 기기)는 똑바로. 집으면(누르고 떼기만 해도, 사용자) 0, 꾹 눌러 메뉴만 띄우면 그대로. 떨어져 누운 액자는 rot 부호 쪽으로 눕는다
   {
     const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
     const r = await p.evaluate(async () => {
       const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), g = cv.getContext("2d"), k = cv.width / R.width, out = {};
       n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
       const moves = []; n.on("decorMove", (e) => moves.push(e));
-      const pe = (type, x, y, id) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: "mouse", bubbles: true }));
+      const pe = (type, x, y, id, pt = "mouse") => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: pt, bubbles: true }));
       const shape = { parts: [{ t: "rrect", x: 0, y: -9, w: 30, h: 14, rad: 1, rot: 0, c: "red" }, { t: "circle", x: -11, y: -14, r: 3, c: "blue" }] };
       const find = () => { n.draw(); for (let x = 0; x < n.W; x += 2) for (let y = 0; y < n.floorY; y += 2) if (n.hitDecor(x, y)) return [x, y]; return null; };
       // 칠한 색(빨강 몸통·파랑 점)의 가장자리 칸과 파랑 가운데 x(css px)
@@ -1800,13 +1800,18 @@ try {
       const same = (a, b) => a.box.every((v, i) => Math.abs(v - b.box[i]) <= 1);
       const away = () => { n.act(null); c.x = n.W * 0.03; n.step(60); }; // 고양이가 물건을 가리지 않게 왼쪽 끝에
       away(); n.setDecor([{ id: "g", surface: "floor", u: 0.35, size: "medium", shape }]); n.step(120);
-      // 휙 던지기: 굴러가다 서면 그 각도
-      let b = find();
-      pe("pointerdown", b[0], b[1], 2); n.step(2);
-      for (let q = 1; q <= 5; q++) { pe("pointermove", b[0] + 16 * q, b[1] - 10 * q, 2); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
-      pe("pointerup", b[0] + 80, b[1] - 50, 2);
-      for (let i = 0; i < 120 * 10 && !moves.length; i++) n.step(1);
-      const m = moves[0]; away(); n.step(240); // 내려앉은 흔들림이 가라앉게
+      // 휙 던지기: 굴러가다 서면 그 각도. 놓는 빠르기가 실제 시간이라 거의 안 구르면(각도 ~0) 다시 던진다(세 번까지)
+      let b, m;
+      for (let t = 0; t < 3 && !(m && Math.abs(m.rot) > 0.05); t++) {
+        if (t) { away(); n.setDecor([{ id: "g", surface: "floor", u: 0.35, size: "medium", shape }]); n.step(120); }
+        moves.length = 0; b = find();
+        pe("pointerdown", b[0], b[1], 2); n.step(2);
+        for (let q = 1; q <= 5; q++) { pe("pointermove", b[0] + 16 * q, b[1] - 10 * q, 2); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
+        pe("pointerup", b[0] + 80, b[1] - 50, 2);
+        for (let i = 0; i < 120 * 10 && !moves.length; i++) n.step(1);
+        m = moves[0];
+      }
+      away(); n.step(240); // 내려앉은 흔들림이 가라앉게
       out.thrown = { surface: m?.surface, rot: m?.rot };
       const here = look();
       const { id: _id, ...spot } = m;
@@ -1816,10 +1821,15 @@ try {
       n.setDecor([{ id: "g", size: "medium", shape, surface: "floor", u: spot.u }]); n.step(5);
       const old = look();
       out.draw = { same: same(here, synced), oldDiffers: !same(here, old) };
-      // 누르고 떼기만: 각도 그대로
+      // 터치로 꾹(메뉴만): 집은 게 아니다 — 각도 그대로, 저장 없음
       n.setDecor([{ id: "g", size: "medium", shape, ...spot }]); n.step(5); moves.length = 0;
+      b = find(); pe("pointerdown", b[0], b[1], 5, "touch"); n.step(1); n.draw();
+      await new Promise((ok) => setTimeout(ok, 650)); pe("pointerup", b[0], b[1], 5, "touch"); n.step(5);
+      out.hold = { moves: moves.length, same: same(look(), synced) };
+      // 누르고 떼기만(집기): 그 순간 똑바로, 0 으로 저장
+      moves.length = 0;
       b = find(); pe("pointerdown", b[0], b[1], 3); n.step(2); pe("pointerup", b[0], b[1], 3); n.step(2);
-      out.tap = moves[0]?.rot;
+      out.tap = moves.at(-1)?.rot;
       // 천천히 옮겨 놓기: 0, 끄는 동안 똑바로 선다
       moves.length = 0; b = find();
       pe("pointerdown", b[0], b[1], 4); n.step(2);
@@ -1833,10 +1843,176 @@ try {
       out.lie = [lie(-1.57), lie(1.57), lie(null)];
       return out;
     });
-    check("놀다 멈춘 각도: 던져 서면 decorMove 에 각도, 다시 받으면 같은 그림(옛 자리는 똑바로), 누르고 떼면 그대로, 옮기면 0, 누운 액자는 rot 쪽",
+    check("놀다 멈춘 각도: 던져 서면 decorMove 에 각도, 다시 받으면 같은 그림(옛 자리는 똑바로), 꾹(메뉴)은 그대로, 집으면(누르고 떼기·옮기기) 0, 누운 액자는 rot 쪽",
       JSON.stringify(r),
       r.thrown.surface === "floor" && Math.abs(r.thrown.rot) > 0.05 && Math.abs(r.thrown.rot) <= Math.PI && Math.round(r.thrown.rot * 100) === r.thrown.rot * 100 &&
-        r.draw.same && r.draw.oldDiffers && r.tap === r.thrown.rot && r.dragged === 0 && r.dragUpright && r.lie.join() === "-1,1,1");
+        r.draw.same && r.draw.oldDiffers && r.hold.moves === 0 && r.hold.same && r.tap === 0 && r.dragged === 0 && r.dragUpright && r.lie.join() === "-1,1,1");
+    await p.close();
+  }
+
+  // 9-u2l) 벽 선물 창문 비키기(0.1.29, 사용자: 창 근처에 걸면 아래로 꺼졌다 — 네 방향 중 가까운 쪽으로, 겹침 범위는 더 타이트하게): 액자를
+  //        창 옆 테두리에 조금 걸치게 끌어 놓으면 그 옆으로 비켜 테두리(커튼 봉·창턱까지 그린 칸)에 맞닿게 걸리고 높이는 그대로다. 저장한 자리
+  //        (decorMove)를 다시 받아도(다른 기기) 같은 자리. 방은 창 오른쪽(왼쪽은 무대 끝이라), 거실은 왼쪽 창의 왼쪽
+  for (const [q, at, side] of [["?w=280&h=326&scale=height&transparent=1", "sidebar", 1], ["?w=760&h=170&scale=height&transparent=1", "dock", -1]]) {
+    const p = await open(q, { width: 900, height: 400 });
+    const r = await p.evaluate(async ({ at, side }) => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect();
+      const RW = await import("/src/neko/engine/room-window.js");
+      n.pause(); n.setWander(false); n.setMood("idle"); n.step(30); c.x = n.W * 0.92; n.step(60);
+      const wb = RW.roomWindows(at, n.W, n.floorY + 6).map(RW.windowBox)[0];
+      const moves = []; n.on("decorMove", (e) => moves.push(e));
+      const pe = (type, x, y, id) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: "mouse", bubbles: true }));
+      const shape = { parts: [{ t: "rrect", x: 0, y: -12, w: 20, h: 24, rad: 1, rot: 0, c: "white" }] };
+      const box = () => { n.draw(); let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; for (let x = 0; x < n.W; x++) for (let y = 0; y < n.floorY; y++) if (n.hitDecor(x, y) === "f") { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } const pad = 3 * n.S; return { x0: x0 + pad, x1: x1 - pad, y0: y0 + pad, y1: y1 - pad }; };
+      n.setDecor([{ id: "f", shape, size: "small", frame: true, surface: "wall", u: 0.6, v: 0.5, at }]); n.step(120);
+      const b0 = box(), w = b0.x1 - b0.x0, cx0 = (b0.x0 + b0.x1) / 2, cy0 = (b0.y0 + b0.y1) / 2;
+      // 창 옆 테두리에 6px 걸치게, 창 세로 가운데로
+      const tx = side > 0 ? wb.x1 - 6 + w / 2 : wb.x0 + 6 - w / 2, ty = (wb.y0 + wb.y1) / 2;
+      pe("pointerdown", cx0, cy0, 2); n.step(2);
+      for (let k = 1; k <= 8; k++) { pe("pointermove", cx0 + ((tx - cx0) * k) / 8, cy0 + ((ty - cy0) * k) / 8, 2); await new Promise((ok) => setTimeout(ok, 30)); n.step(4); }
+      await new Promise((ok) => setTimeout(ok, 150));
+      pe("pointerup", tx, ty, 2); n.step(30);
+      const after = box(), m = moves[moves.length - 1];
+      n.setDecor([]); n.step(2); n.setDecor([{ id: "f", shape, size: "small", frame: true, at, surface: m.surface, u: m.u, v: m.v }]); n.step(120);
+      const again = box();
+      return { wb, w: Math.round(w), ty: Math.round(ty), surface: m.surface, after, again };
+    }, { at, side });
+    const edge = side > 0 ? r.after.x0 - r.wb.x1 : r.wb.x0 - r.after.x1, cy = (r.after.y0 + r.after.y1) / 2;
+    check(`벽 선물 창문 비키기(${at}): 창 ${side > 0 ? "오른쪽" : "왼쪽"} 테두리에 걸쳐 놓으면 그쪽으로 비켜 맞닿고 높이 그대로, 다시 받아도 같은 자리`, JSON.stringify(r),
+      r.surface === "wall" && Math.abs(edge) <= 1.5 && Math.abs(cy - r.ty) <= 2 && ["x0", "x1", "y0", "y1"].every((k) => Math.abs(r.again[k] - r.after[k]) <= 1));
+    await p.close();
+  }
+
+  // 9-u2m) 구르는 물건 잡기(0.1.29, 사용자: 구르던 걸 집고 있으면 버버벅거려·방에서 구른 물건이 다시 원래대로 돌아와): 던져 굴러가는
+  //        중에 잡으면 그 순간 굴림이 멈추고 지금 자리를 알린다(decorMove — 저장). 든 채 가만히 있으면 칸이 안 움직이고, 쫓던 네코는
+  //        그만둔다. 그냥 떼면 그 자리. 터치로 꾹 눌러 메뉴만 띄워도 선 자리가 저장돼 있다
+  {
+    const p = await open(`?w=280&h=326&scale=height&transparent=1`, { width: 400, height: 420 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.step(30);
+      const shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      let placed = { surface: "floor", u: 0.3 };
+      const feed = () => n.setDecor([{ id: "g", shape, size: "small", at: "sidebar", ...placed }]); // 호스트 흉내: 알린 자리를 저장해 다시 넣는다
+      const moves = []; n.on("decorMove", ({ id: _id, ...spot }) => { moves.push(spot); placed = spot.surface === "wall" ? { surface: "floor", u: spot.u } : spot; feed(); });
+      n.on("play", (e) => { if (n.activity !== e.kind) n.act(e.kind); });
+      const pe = (type, x, y, id, pt = "mouse") => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: pt, bubbles: true }));
+      const box = () => { n.draw(); let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; for (let x = 0; x < n.W; x += 1) for (let y = 0; y < n.floorY + 6; y += 1) if (n.hitDecor(x, y) === "g") { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } return x1 < 0 ? null : { cx: (x0 + x1) / 2, y0, y1 }; };
+      const m = 16 * n.S, uOf = (x) => (x - m) / (n.W - 2 * m);
+      const fling = async (id) => {
+        feed(); c.x = n.W * 0.9; n.step(90); const b = box();
+        pe("pointerdown", b.cx, b.y0 + 4, id); n.step(2);
+        for (let k = 1; k <= 5; k++) { pe("pointermove", b.cx + 12 * k, b.y0 + 4 - 6 * k, id); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
+        pe("pointerup", b.cx + 60, b.y0 - 26, id);
+        // 내려앉아 바닥에서 구르는 중일 때까지
+        for (let i = 0, prev = null; i < 120; i++) { n.step(3); const q = box(); if (prev && q.y1 >= n.floorY && Math.abs(q.cx - prev.cx) > 0.8) return true; prev = q; }
+        return false;
+      };
+      // 마우스로 구르는 중에 잡고 가만히
+      moves.length = 0; out.rolled = await fling(2);
+      c.x = n.W * 0.05; n.step(1); // 쫓던 고양이가 물건을 가리면 고양이를 잡는다 — 잠깐 비켜 둔다
+      const before = moves.length, b1 = box(), cy1 = (b1.y0 + b1.y1) / 2, wasChase = n.activity === "chase";
+      pe("pointerdown", b1.cx, cy1, 3); n.step(1);
+      const grabMove = moves.length > before ? moves[moves.length - 1] : null;
+      const xs = []; for (let i = 0; i < 12; i++) { n.step(10); xs.push(box().cx); }
+      out.mouse = { wasChase, grabSaved: !!grabMove && Math.abs(grabMove.u - uOf(b1.cx)) < 0.03, still: Math.max(...xs) - Math.min(...xs), chase: n.activity === "chase", movesWhileHeld: moves.length - before - 1 };
+      pe("pointerup", b1.cx, cy1, 3); n.step(240);
+      out.mouse.stays = Math.abs(box().cx - b1.cx) < 2 && Math.abs(placed.u - uOf(b1.cx)) < 0.03;
+      // 터치로 구르는 중에 꾹(메뉴) — 선 자리가 저장돼 있다
+      n.act(null); placed = { surface: "floor", u: 0.3 }; moves.length = 0; out.rolled2 = await fling(4);
+      n.act(null); c.x = n.W * 0.05; n.step(1);
+      const b2 = box(), cy2 = (b2.y0 + b2.y1) / 2; let menu = 0; n.on("decorMenu", () => menu++);
+      pe("pointerdown", b2.cx, cy2, 5, "touch"); n.step(1); n.draw(); // 멈춘 하네스: 한 번 그려 칸을 둔다(앱은 매 프레임 그린다)
+      await new Promise((ok) => setTimeout(ok, 650)); n.step(240);
+      pe("pointerup", b2.cx, cy2, 5, "touch"); n.step(10);
+      const b3 = box();
+      out.touch = { menu, stays: Math.abs(b3.cx - b2.cx) < 2, saved: Math.abs(placed.u - uOf(b3.cx)) < 0.03 };
+      return out;
+    });
+    check("구르는 물건 잡기: 잡는 순간 굴림이 멈추고 그 자리를 저장, 든 채로는 안 움직이고 네코는 쫓기를 그만, 떼면 그 자리, 꾹 눌러 메뉴여도 선 자리 저장", JSON.stringify(r),
+      r.rolled && r.rolled2 && r.mouse.wasChase && r.mouse.grabSaved && r.mouse.still < 1 && !r.mouse.chase && r.mouse.movesWhileHeld === 0 && r.mouse.stays && r.touch.menu === 1 && r.touch.stays && r.touch.saved);
+    await p.close();
+  }
+
+  // 9-u2n) 던진 장난감 여러 번 치기(0.1.29, 사용자: 굴러간 다음에 한 번만 때리잖아 — 최대 3~4번 더): 치는 횟수는 한 번 + 0~3번(기운이
+  //        낮으면 덜). 칠 때마다 굴러가면 잠깐 노려본 뒤(가끔 엉덩이 씰룩 덮치기) 따라가 또 친다. 멈출 때마다 자리를 알리고 마지막 자리가 그린 자리다.
+  //        기운 10 이면 한 번만
+  {
+    const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
+      const shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      let placed = { surface: "floor", u: 0.3 };
+      const feed = () => n.setDecor([{ id: "g", shape, size: "small", at: "dock", ...placed }]);
+      const moves = []; n.on("decorMove", ({ id: _id, ...spot }) => { moves.push(spot); placed = spot; feed(); });
+      n.on("play", (e) => { if (n.activity !== e.kind) n.act(e.kind); });
+      const pe = (type, x, y, id) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: "mouse", bubbles: true }));
+      const find = () => { n.draw(); for (let x = 0; x < n.W; x += 2) for (let y = 0; y < n.floorY; y += 2) if (n.hitDecor(x, y) === "g") return [x, y]; return null; };
+      const run = async (energy, pid) => {
+        n.act(null); n.setNeeds({ energy }); placed = { surface: "floor", u: 0.3 }; feed(); c.x = n.W * 0.85; n.step(90); moves.length = 0;
+        const b = find(), rnd = Math.random; Math.random = () => 0.99; // 치는 횟수를 최대로(기운이 허락하는 만큼)
+        pe("pointerdown", b[0], b[1], pid); n.step(2);
+        for (let k = 1; k <= 5; k++) { pe("pointermove", b[0] + 14 * k, b[1] - 12 * k, pid); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
+        pe("pointerup", b[0] + 70, b[1] - 60, pid); n.step(1); Math.random = rnd;
+        let kicks = 0, max = 0, eye = 0, pounce = 0, pm = c.mode;
+        for (let i = 0; i < 120 * 40 && (n.activity === "chase" || i < 120); i++) {
+          n.step(1); const A = c.act;
+          if (A && A.key === "chase") { kicks = Math.max(kicks, A.kicks || 0); max = A.kickMax; if (A.stage === "eye") eye++; }
+          if (c.mode === "crouch" && pm !== "crouch") pounce++; pm = c.mode;
+        }
+        n.step(240); const end = find();
+        return { kicks, max, eyeFrames: eye, pounce, moves: moves.length, ended: n.activity === null, endX: end && end[0], u: +placed.u.toFixed(3) };
+      };
+      out.fresh = await run(100, 3);
+      out.tired = await run(10, 4);
+      return out;
+    });
+    check("던진 장난감 여러 번 치기: 기운 있으면 4번까지 치고(사이에 노려보기), 칠 때마다 선 자리를 알리고 끝나면 놀기를 마친다. 기운 10 이면 한 번", JSON.stringify(r),
+      r.fresh.max === 4 && r.fresh.kicks === 4 && r.fresh.eyeFrames > 30 && r.fresh.moves >= 4 && r.fresh.ended && r.tired.max === 1 && r.tired.kicks === 1 && r.tired.ended);
+    await p.close();
+  }
+
+  // 9-u2o) 다른 가구 위에도 물건(0.1.29, 사용자: 다른 가구 위에도 물건 올라갈 수 있게): 소파 방석·캣타워 발판 둘·자유 가구 perch 에
+  //        끌어 놓으면 그 면 위(decorMove furniture, 가구 id·면 번호), 면 위에 그린다. 캣휠 레일 근처는 안 얹힌다. 가구를 치우고 호스트가 바닥
+  //        u 로 다시 넣으면 그 자리에서 떨어져 바닥에 선다
+  {
+    const p = await open(`?w=760&h=200&scale=height&transparent=1`, { width: 900, height: 320 });
+    const r = await p.evaluate(async () => {
+      const FA = await import("/src/neko/engine/furniture-art.js");
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
+      const rr = (x, y, w, h) => ({ t: "rrect", x, y, w, h, rad: 0, rot: 0, c: "brown" });
+      const free = { id: "F", kind: "free", at: "dock", slot: 3, shape: { v: 1, parts: [rr(0, -10, 24, 2), rr(-10, -4.5, 2, 9), rr(10, -4.5, 2, 9)] }, uses: [{ u: "perch", y: -11, x0: -11, x1: 11 }] };
+      const furn = [{ id: "S", kind: "sofa", at: "dock", slot: 0 }, { id: "C", kind: "cattower", at: "dock", slot: 1 }, { id: "W", kind: "wheel", at: "dock", slot: 2 }, free];
+      n.setFurniture(furn); c.x = n.W * 0.5; n.step(10);
+      const slotW = n.W / 4, topsOf = (f) => FA.furnitureSurfaces(f.kind, n.S, slotW, f.kind === "free" ? FA.freeSurfaces(f.uses, n.S, slotW, f.shape, n.floorY) : undefined, f.shape)
+        .map((t, i) => ({ i, x: (f.slot + 0.5) * slotW + (t.x0 + t.x1) / 2, y: n.floorY - t.y, hold: !!t.hold }));
+      const moves = []; n.on("decorMove", (e) => moves.push(e));
+      const shape = { parts: [{ t: "circle", x: 0, y: -6, r: 6, c: "red" }] };
+      const boxOf = (id) => { n.draw(); let x0 = 1e9, x1 = -1, y1 = -1; for (let x = 0; x < n.W; x++) for (let y = 0; y < n.H; y++) if (n.hitDecor(x, y) === id) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } return x1 < 0 ? null : { cx: (x0 + x1) / 2, bottom: y1 - 3 * n.S }; };
+      const pe = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 9, button: 0, pointerType: "mouse", bubbles: true }));
+      const dropOn = async (tx, ty) => {
+        n.setDecor([{ id: "b", surface: "floor", u: 0.5, size: "small", shape }]); n.step(60); c.x = -500; n.step(1);
+        const b = boxOf("b"); moves.length = 0;
+        pe("pointerdown", b.cx, b.bottom - 4); n.step(2);
+        for (let k = 1; k <= 12; k++) { pe("pointermove", b.cx + (tx - b.cx) * k / 12, b.bottom - 4 + (ty - 4 - b.bottom) * k / 12); await new Promise((ok) => setTimeout(ok, 30)); n.step(4); }
+        await new Promise((ok) => setTimeout(ok, 150));
+        pe("pointerup", tx, ty - 4); n.step(4);
+        const m = moves[moves.length - 1], bb = boxOf("b");
+        return { surface: m && m.surface, fid: m && m.fid, i: m && m.i, onTop: !!bb && Math.abs(bb.bottom - ty) < 4 };
+      };
+      for (const f of furn) for (const t of topsOf(f)) out[`${f.id}${t.i}`] = { hold: t.hold, ...(await dropOn(t.x, t.y)) };
+      // 소파 위에 둔 채 소파를 치운다 → 호스트가 바닥 u 로 → 떨어져 바닥에
+      const sofa = topsOf(furn[0])[0]; await dropOn(sofa.x, sofa.y); const m = moves[moves.length - 1];
+      moves.length = 0; n.setFurniture(furn.slice(1)); n.setDecor([{ id: "b", surface: "floor", u: m.u, size: "small", shape }]); n.step(4);
+      const mid = boxOf("b").bottom; for (let i = 0; i < 240; i++) n.step(1);
+      out.fall = { midAir: mid < n.floorY - 8, moves: moves.map((q) => q.surface), end: Math.abs(boxOf("b").bottom - n.floorY) < 4 };
+      return out;
+    });
+    check("다른 가구 위 물건: 소파 방석·캣타워 발판 둘·자유 가구 perch 에 얹히고 그 위에 그린다, 캣휠 레일은 아니다, 가구를 치우면 떨어져 바닥", JSON.stringify(r),
+      ((ok) => ok("S0", "S", 0) && ok("C0", "C", 0) && ok("C1", "C", 1) && ok("F0", "F", 0))((k, fid, i) => r[k] && r[k].hold && r[k].surface === "furniture" && r[k].fid === fid && r[k].i === i && r[k].onTop) &&
+        r.W0 && !r.W0.hold && r.W0.surface !== "furniture" && r.fall.midAir && r.fall.moves.join() === "floor" && r.fall.end);
     await p.close();
   }
 

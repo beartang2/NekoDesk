@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { giftsApi, settingsApi } from "../api/tauri";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
 import type { NekoDecorSpot, NekoGiftPlay, NekoGiftSize } from "./engine/neko-engine";
-import { clampScale, decorDims, decorK, normRot, spotOf, type DecorGeom } from "./engine/decor-draw";
+import { clampScale, decorDims, decorK, hungSpot, normRot, spotOf, type DecorGeom } from "./engine/decor-draw";
 import { stageS } from "./engine/stage-scale";
 import { cleanShownText } from "../lib/replyTags";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
@@ -49,9 +49,9 @@ export function scaleCapped(g: NekoGift, at: NekoPlacement): boolean {
  * 방·거실의 액자 아닌 것은 벽 자리가 와도 place 가 같은 가로 자리 바닥으로 내린다
  */
 export function dropSpot(g: NekoGift, at: NekoPlacement, x: number, y: number, geom: DecorGeom): NekoDecorSpot {
-  const shape = validateShape(g.shape), h = decorDims(shape, decorK(shape, g.size, g.scale, at, geom).k, geom.S).h;
+  const shape = validateShape(g.shape), { w, h } = decorDims(shape, decorK(shape, g.size, g.scale, at, geom).k, geom.S);
   const s = spotOf(x, y + h / 2, h, geom);
-  return g.frame && s.surface === "floor" ? { surface: "wall", u: s.u, v: 0 } : s;
+  return hungSpot(g.frame && s.surface === "floor" ? { surface: "wall", u: s.u, v: 0 } : s, h, geom, w, at); // 벽이면 창을 비킨 자리
 }
 
 /** 마당 판(모니터 폭·바닥 px)의 자리 계산 값. 배율은 마당 고양이 크기(엔진처럼 0.35~1.4) */

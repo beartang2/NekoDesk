@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { roomWindows } from "./room-window.js";
-import { TALL_DOCK_K, fallStep, capPx, decorAt, decorM, decorBoxes, decorDims, decorK, dragDecor, drawDecor, normRot, spotOf, hitDecorAt, sizeK, type DecorItem } from "./decor-draw.js";
+import { roomWindows, windowBox } from "./room-window.js";
+import { TALL_DOCK_K, fallStep, capPx, decorAt, decorM, decorBoxes, decorDims, decorK, dragDecor, drawDecor, hungSpot, normRot, spotOf, hitDecorAt, sizeK, type DecorItem } from "./decor-draw.js";
 
 const shape = { v: 1 as const, parts: [{ t: "circle" as const, x: 0, y: -8, r: 8, c: "red" as const }] };
 const geom = { W: 1200, floorY: 600, S: 0.8 };
@@ -75,19 +75,52 @@ describe("decor-draw", () => {
     expect(decorK(shape, "medium", 1, "sidebar", { floorY: 369, S: 1.4 }).k).toBe(1); // 방·마당은 그대로
   });
 
-  it("벽에 건 선물은 날씨 창문(커튼·창턱까지)과 겹치면 창턱 아래로", () => {
-    const g = { W: 812, floorY: 369, S: 1.4 }, h = 60, w = 60;
-    const [win] = roomWindows("dock", 812, 375);
-    // 왼쪽 창 한가운데쯤에 높이 건 것
-    const u = (win.x + win.w / 2 - decorM(g.S)) / (g.W - 2 * decorM(g.S)), spot = { surface: "wall" as const, u, v: 0.95, at: "dock" };
-    const [, bottom] = decorAt(spot, h, g, w);
-    expect(bottom - h).toBeGreaterThanOrEqual(win.y + win.h + 6);
-    expect(decorAt(spot, h, g)[1]).toBeLessThan(bottom); // 폭을 모르면 예전 자리
-    // 창과 안 겹치는 자리(두 창 사이 가운데, 좁은 것)는 그대로
-    const mid = { surface: "wall" as const, u: 0.5, v: 0.95, at: "dock" };
-    expect(decorAt(mid, 20, g, 20)).toEqual(decorAt(mid, 20, g));
-    // 마당엔 창이 없다
-    expect(decorAt({ ...spot, at: "screen" }, h, g, w)).toEqual(decorAt({ ...spot, at: "screen" }, h, g));
+  it("벽에 건 선물이 날씨 창문(그린 테두리: 커튼 봉·창턱까지)과 겹치면 네 방향 중 가장 가까운 쪽으로 비킨다", () => {
+    const g = { W: 812, floorY: 369, S: 1.4 }, m = decorM(g.S);
+    const [win] = roomWindows("dock", 812, 375), b = windowBox(win);
+    expect(b).toEqual({ x0: win.x - 6, y0: win.y - 5, x1: win.x + win.w + 6, y1: win.y + win.h + 6 });
+    const at = (x: number, bottom: number, h: number) => ({ surface: "wall" as const, u: (x - m) / (g.W - 2 * m), v: (g.floorY - bottom) / (g.floorY - h - 10 * g.S), at: "dock" });
+    const near = (p: [number, number], q: [number, number]) => { expect(p[0]).toBeCloseTo(q[0], 6); expect(p[1]).toBeCloseTo(q[1], 6); };
+    const mid = (b.y0 + b.y1) / 2 + 20;
+    // 창 왼쪽 테두리에 조금 걸침 → 왼쪽으로(오른쪽 끝이 테두리에 맞닿게)
+    near(decorAt(at(b.x0 + 5, mid, 40), 40, g, 40), [b.x0 - 20, mid]);
+    // 오른쪽 테두리에 조금 걸침 → 오른쪽으로
+    near(decorAt(at(b.x1 - 5, mid, 40), 40, g, 40), [b.x1 + 20, mid]);
+    // 위 테두리에 조금 걸친 작은 것(위에 자리 있음) → 위로
+    near(decorAt(at(win.x + win.w / 2, b.y0 + 4, 20), 20, g, 20), [win.x + win.w / 2, b.y0]);
+    // 창턱에 조금 걸침 → 아래로(창턱에 맞닿게, 예전 3·S 여유 없음)
+    near(decorAt(at(win.x + win.w / 2, b.y1 + 30, 40), 40, g, 40), [win.x + win.w / 2, b.y1 + 40]);
+    // 테두리에 맞닿은 건 겹침이 아니다(바짝 붙여 건다)
+    near(decorAt(at(b.x0 - 20, mid, 40), 40, g, 40), [b.x0 - 20, mid]);
+    // 폭을 모르면 비키지 않는다
+    expect(decorAt(at(b.x0 + 5, mid, 40), 40, g)[0]).toBeCloseTo(b.x0 + 5, 6);
+    // 끌어 놓은 자리 저장(hungSpot): 비킨 자리의 비율 — 다시 그려도 그 자리(더 안 비킨다)
+    const s = hungSpot(at(b.x0 + 5, mid, 40), 40, g, 40, "dock");
+    near(decorAt({ ...s, at: "dock" }, 40, g, 40), [b.x0 - 20, mid]);
+    expect(hungSpot({ surface: "floor", u: 0.3 }, 40, g, 40, "dock")).toEqual({ surface: "floor", u: 0.3 });
+    // 창과 안 겹치는 자리(두 창 사이 가운데, 좁은 것)는 그대로. 마당엔 창이 없다
+    const free = { surface: "wall" as const, u: 0.5, v: 0.95, at: "dock" };
+    expect(decorAt(free, 20, g, 20)).toEqual(decorAt(free, 20, g));
+    expect(decorAt({ ...at(b.x0 + 5, mid, 40), at: "screen" }, 40, g, 40)).toEqual(decorAt({ ...at(b.x0 + 5, mid, 40), at: "screen" }, 40, g));
+  });
+
+  it("창 비키기: 가까운 쪽이 벽 밖(무대 옆 끝·천장)이면 다음으로 가까운 쪽, 다 안 되면 창턱 아래", () => {
+    const g = { W: 280, floorY: 320, S: 320 / 240 }, m = decorM(g.S);
+    const [win] = roomWindows("sidebar", 280, 326), b = windowBox(win);
+    const at = (x: number, bottom: number, h: number) => ({ surface: "wall" as const, u: (x - m) / (g.W - 2 * m), v: (g.floorY - bottom) / (g.floorY - h - 10 * g.S), at: "sidebar" });
+    // 방 창은 왼쪽 끝 가까이: 왼쪽으로 밀면 무대 밖 → 위·아래·오른쪽 중 가까운 쪽(여기선 아래, 창 아래쪽에 걸친 것)
+    const low = b.y1 + 2, [x1, y1] = decorAt(at(b.x0 + 8, low, 30), 30, g, 30);
+    expect(8 + 15).toBeLessThan(b.y1 + 30 - low); // 왼쪽이 가장 가깝지만
+    expect(b.x0 - 15 - 15).toBeLessThan(0); // 왼쪽 자리는 무대 밖
+    expect(x1).toBeCloseTo(b.x0 + 8, 6);
+    expect(y1).toBeCloseTo(b.y1 + 30, 6);
+    // 위로 밀면 천장(무대 위 10·S) 넘는 큰 것: 위 테두리 근처여도 위로 안 간다
+    const [, y2] = decorAt(at(win.x + win.w / 2, b.y0 + 6, 60), 60, g, 60);
+    expect(y2).not.toBeCloseTo(b.y0, 3);
+    // 넷 다 안 되는 아주 큰 것: 창턱 아래(바닥선까지)
+    const [x3, y3] = decorAt(at(win.x + win.w / 2, (b.y0 + b.y1) / 2, 280), 280, g, 250);
+    expect(x3).toBeCloseTo(win.x + win.w / 2, 6);
+    expect(y3).toBe(g.floorY);
   });
 
   it("떨어뜨리기(fallStep): 고양이와 같은 중력으로 바닥까지, 튕기고 멈춘다. 무대 밖으로 안 나간다", () => {
@@ -157,5 +190,31 @@ describe("놀다 멈춘 각도(placed.rot)", () => {
     expect(draw({ surface: "wall", u: 0.5, v: 0.5, rot: 0.7 } as never)).toEqual([]);
     expect(draw({ surface: "floor", u: 0.5, rot: -1.57, frame: true })).toEqual([-Math.PI / 2]);
     expect(draw({ surface: "floor", u: 0.5, frame: true })).toEqual([Math.PI / 2]); // 옛 기기(각도 없음)는 오른쪽으로
+  });
+});
+
+describe("들어 올린 물건의 압정", () => {
+  it("벽 높이로 들면 걸리는 것(액자, 마당은 다)만 압정을 그린다 — 방·거실의 다른 물건은 놓으면 떨어지니 없다", () => {
+    let arcs = 0;
+    const g: object = new Proxy({}, {
+      get: (t: Record<string | symbol, unknown>, k) => (k in t ? t[k] : k === "arc" ? () => { arcs++; } : () => g),
+      set: (t, k, v) => { t[k] = v; return true; },
+    });
+    const cv = { width: 0, height: 0, getContext: () => g } as unknown as HTMLCanvasElement;
+    const shape = { parts: [{ t: "rrect" as const, x: 0, y: -10, w: 20, h: 20, rad: 0, rot: 0, c: "blue" }] };
+    const pins = (it: Partial<DecorItem>, high = true) => {
+      arcs = 0;
+      drawDecor(cv, [{ id: "a", shape, size: "medium", surface: "floor", u: 0.5, ...it } as DecorItem], { W: 280, H: 320, floorY: 300, scale: 1, drag: { id: "a", x: 140, bottom: high ? 150 : 300 } });
+      return arcs;
+    };
+    expect(pins({ at: "sidebar" })).toBe(0);
+    expect(pins({ at: "dock" })).toBe(0);
+    expect(pins({ at: "sidebar", frame: true })).toBe(2); // 압정 = 동그라미 둘(머리·반짝임)
+    expect(pins({ at: "screen" })).toBe(2);
+    expect(pins({ at: "sidebar", frame: true }, false)).toBe(0); // 바닥 가까이면 압정 없음
+    // 벽에 걸린 것(들지 않음)은 그대로 압정
+    arcs = 0;
+    drawDecor(cv, [{ id: "a", shape, size: "medium", surface: "wall", u: 0.5, v: 0.5, frame: true, at: "sidebar" } as DecorItem], { W: 280, H: 320, floorY: 300, scale: 1 });
+    expect(arcs).toBe(2);
   });
 });

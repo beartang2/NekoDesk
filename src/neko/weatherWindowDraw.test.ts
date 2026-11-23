@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { skyAt, weatherKind } from "./weatherWindowDraw";
-import { roomWindow, roomWindows } from "./engine/room-window";
+import { roomWindows } from "./engine/room-window";
 import { PHONE_K, setStageK } from "./engine/stage-scale";
 
 describe("날씨 창문", () => {
@@ -22,7 +22,7 @@ describe("날씨 창문", () => {
   });
 
   it("방은 왼쪽 1/4 에 세로 창, 거실은 가로로 긴 창 둘, 마당은 없다", () => {
-    const room = roomWindow("sidebar", 280, 200)!;
+    const [room] = roomWindows("sidebar", 280, 200);
     expect(room.h).toBeGreaterThan(room.w);
     expect(Math.abs(room.x + room.w / 2 - 70)).toBeLessThanOrEqual(1);
     expect(room.y + room.h).toBeLessThan(200 - 6 - 18 * 0.8); // 벽 안(바닥 이음매 위)
@@ -30,8 +30,6 @@ describe("날씨 창문", () => {
     const dock = roomWindows("dock", 900, 170);
     expect(dock.map((r, i) => Math.abs(r.x + r.w / 2 - [225, 675][i]) <= 1)).toEqual([true, true]);
     expect(dock[0].w).toBeGreaterThan(dock[0].h * 2);
-    expect(roomWindow("dock", 900, 170)).toEqual(dock[0]);
-    expect(roomWindow("screen", 900, 170)).toBeNull();
     expect(roomWindows("screen", 900, 170)).toEqual([]);
     // 높은 거실(폰 가로 화면): 창이 거실과 같이 커지고, 여전히 왼쪽·오른쪽 1/4 지점에 벽 안에 있다. 높이 240 까지는 전과 같다
     const tall = roomWindows("dock", 812, 375);
@@ -47,6 +45,6 @@ describe("날씨 창문", () => {
     expect(roomWindows("dock", 1000, 240)[0]).toMatchObject({ h: 68, w: 177 }); // 맥 가장 큰 거실 = 기본 높이 170 의 창
     expect(roomWindows("dock", 1000, 170)[0]).toMatchObject({ h: 68, w: 177 });
     expect(roomWindows("dock", 375, 120)[0]).toMatchObject({ h: 48 });
-    expect(roomWindow("sidebar", 0, 0)).toBeNull();
+    expect(roomWindows("sidebar", 0, 0)).toEqual([]);
   });
 });

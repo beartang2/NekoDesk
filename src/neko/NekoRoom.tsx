@@ -27,7 +27,7 @@ export function stageMetrics(W: number, H: number) {
   return { floorY, S: stageS(W, floorY) };
 }
 
-/** 벽과 바닥이 만나는 줄: 발 위. 이보다 높이 띄운 물건은 엔진이 벽에 건다(WALL_GAP 18) */
+/** 벽과 바닥이 만나는 줄: 발 위(WALL_GAP 18). 이보다 높이 놓은 액자는 벽에 걸리고, 다른 물건은 떨어진다 */
 const seamOf = (floorY: number, S: number) => floorY - 18 * S;
 
 function useSize<T extends Element>() {
@@ -91,7 +91,20 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
   const [drag, setDrag] = useState<DecorDrag | null>(null);
   const press = useRef<{ id: string; pid: number; dx: number; dy: number; x0: number; y0: number; hold: number; spot: NekoDecorSpot | null; vx: number; vy: number; mt: number; x: number; bottom: number } | null>(null);
   const fallRaf = useRef(0);
-  useEffect(() => () => { clearTimeout(press.current?.hold); cancelAnimationFrame(fallRaf.current); if (press.current) setHolding(false); }, []);
+  // 날아가거나 굴러가는 중인 것(던지기·벽 쪽에 놓아 떨어짐): 지금 그린 자리(가운데 x, 바닥)·칸·각도. 다 서야 저장된다
+  const fly = useRef<{ id: string; x: number; bottom: number; w: number; h: number; rot: number; geom: { W: number; floorY: number; S: number } } | null>(null);
+  /**
+   * 날던 것을 지금 자리에 세워 저장한다(바닥 그 가로 자리, 굴러 돈 각도) — 사용자가 물건을 다시 집거나 방이 닫힐 때.
+   * 안 그러면 굴림이 끊긴 채 저장이 안 돼 원래 자리로 돌아갔다(사용자: 방에서 구른 물건이 다시 원래대로 돌아와)
+   */
+  const settleFly = () => {
+    const f = fly.current;
+    if (!f) return null;
+    cancelAnimationFrame(fallRaf.current); fly.current = null;
+    useNekoGifts.getState().place(f.id, { surface: "floor", u: spotOf(f.x, f.geom.floorY, f.h, f.geom).u, rot: f.rot });
+    return f;
+  };
+  useEffect(() => () => { clearTimeout(press.current?.hold); settleFly(); if (press.current) setHolding(false); }, []);
   useEffect(() => {
     const cv = ref.current, wall = wallRef.current;
     if (!cv || !wall || !w || !h) return;
@@ -105,8 +118,14 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
   const menu = (id: string | null) => { const b = boxOf(id); if (b) onMenu?.({ id: b.id, x: b.x + b.w, y: b.y }); return !!b; };
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
-    const [x, y] = pos(e), b = boxOf(hitDecorAt(items, view, x, y));
+    // 날던 것은 지금 그린 자리로 누르고(저장된 자리는 아직 굴리기 전 자리), 그 밖의 것은 저장된 자리로
+    const [x, y] = pos(e), f = fly.current, pad = 3 * view.scale;
+    const onFly = !!f && Math.abs(x - f.x) <= f.w / 2 + pad && y >= f.bottom - f.h - pad && y <= f.bottom + pad;
+    const hit = onFly ? null : hitDecorAt(items, view, x, y);
+    const b = onFly ? { id: f.id, x: f.x - f.w / 2, y: f.bottom - f.h, w: f.w, h: f.h } : hit !== null && hit !== f?.id ? boxOf(hit) : undefined;
     if (!b) return;
+    // 잡으면 굴림을 멈춘다 — 굴림과 끌기가 같이 자리를 바꿔 버벅였다(사용자). 다른 걸 잡아도 날던 건 그 자리에 선다(그림 자리가 하나다)
+    settleFly();
     e.preventDefault();
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터 */ }
     const p = { id: b.id, pid: e.pointerId, dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h), x0: x, y0: y, hold: 0, spot: null, vx: 0, vy: 0, mt: performance.now(), x: b.x + b.w / 2, bottom: b.y + b.h };
@@ -134,19 +153,24 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
     const it = items.find((d) => d.id === p.id);
     if (!it) return;
     const shape = validateShape(it.shape), geom = { W: view.W, floorY: view.floorY, S: view.scale };
-    const h = decorDims(shape, decorK(shape, it.size, it.scale, "sidebar", geom).k, geom.S).h, lim = 900 * geom.S;
+    const { w, h } = decorDims(shape, decorK(shape, it.size, it.scale, "sidebar", geom).k, geom.S), lim = 900 * geom.S;
     const [vx, vy] = roll ? throwVel(p.vx, p.vy, p.bottom, h, geom) : [Math.max(-lim, Math.min(lim, p.vx)), Math.max(-lim, Math.min(lim, p.vy))];
     const f = { x: p.x, bottom: p.bottom, vx, vy };
     let rolling: { x: number; vx: number; rot: number } | null = null, last = performance.now();
+    const now0 = { id: p.id, x: f.x, bottom: f.bottom, w, h, rot: 0, geom };
+    fly.current = now0;
     const tick = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000); last = now;
       if (rolling) {
-        if (rollStep(rolling, dt, geom, h)) { setDrag(null); useNekoGifts.getState().place(p.id, { surface: "floor", u: spotOf(rolling.x, geom.floorY, h, geom).u, rot: rolling.rot }); return; } // 멈춘 각도도
+        const stop = rollStep(rolling, dt, geom, h);
+        Object.assign(now0, { x: rolling.x, bottom: geom.floorY, rot: rolling.rot });
+        if (stop) { setDrag(null); settleFly(); return; } // 선 자리·각도를 저장
         setDrag({ id: p.id, x: rolling.x, bottom: geom.floorY, fly: true, rot: rolling.rot });
       } else if (fallStep(f, dt, geom)) {
-        if (!roll || Math.abs(f.vx) <= 8 * geom.S) { setDrag(null); useNekoGifts.getState().place(p.id, spotOf(f.x, f.bottom, h, geom)); return; }
+        Object.assign(now0, { x: f.x, bottom: f.bottom });
+        if (!roll || Math.abs(f.vx) <= 8 * geom.S) { setDrag(null); settleFly(); return; }
         rolling = { x: f.x, vx: f.vx, rot: 0 };
-      } else setDrag({ id: p.id, x: f.x, bottom: f.bottom, fly: roll });
+      } else { Object.assign(now0, { x: f.x, bottom: f.bottom }); setDrag({ id: p.id, x: f.x, bottom: f.bottom, fly: roll }); }
       fallRaf.current = requestAnimationFrame(tick);
     };
     fallRaf.current = requestAnimationFrame(tick);
@@ -162,7 +186,11 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
     setDrag(null);
     // 액자는 바닥 근처에 놓아도 벽 맨 아래에(떨어진 액자를 집어 다시 걸 때도) — 바닥에 눕는 건 네코가 떨군 것뿐
     const spot = frame && p.spot?.surface === "floor" ? { surface: "wall" as const, u: p.spot.u, v: 0 } : p.spot;
-    if (spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, spot); // 움직이지 않고 떼면 그대로
+    if (spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, spot);
+    else if (e.type === "pointerup") { // 움직이지 않고 떼면 그 자리 — 기운 물건은 집은 것이라 똑바로(사용자). 누운 액자는 그대로
+      const it = items.find((d) => d.id === p.id);
+      if (it && it.surface !== "wall" && it.rot && !(it.frame && it.surface === "floor")) useNekoGifts.getState().place(p.id, it.surface === "furniture" ? { surface: "furniture", u: it.u, fid: it.fid, i: it.i, fu: it.fu } : { surface: "floor", u: it.u });
+    }
   };
   const onContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const [x, y] = pos(e);

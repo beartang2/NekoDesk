@@ -10,6 +10,11 @@ import { sizeH, stageK, stageS } from "./stage-scale.js";
 /** 창 칸 바깥으로 그리는 여백: 커튼 봉·커튼이 옆과 위로(PAD), 창턱이 아래로(SILL) 나온다. 벽에 건 선물이 피할 때도 쓴다 */
 export const WINDOW_PAD = 7;
 export const WINDOW_SILL = 6;
+/**
+ * 그린 창의 바깥 테두리(무대 px): 커튼 봉(옆으로 PAD−1, 위로 PAD−2)·창턱(아래로 SILL)까지 — weatherWindowDraw drawWindow 와 같다.
+ * 벽에 건 선물이 이 칸을 피한다(딱 맞춰 바짝 붙여 걸 수 있게)
+ */
+export const windowBox = (r) => ({ x0: r.x - WINDOW_PAD + 1, y0: r.y - WINDOW_PAD + 2, x1: r.x + r.w + WINDOW_PAD - 1, y1: r.y + r.h + WINDOW_SILL });
 
 export function roomWindows(place, W, H) {
   if (!(W > 0 && H > 0) || (place !== "sidebar" && place !== "dock")) return [];
@@ -30,7 +35,3 @@ export function roomWindows(place, W, H) {
   return [0.25, 0.75].map((k) => ({ x: Math.round(W * k - w / 2), y, w, h }));
 }
 
-/** 창문 하나(거실이면 왼쪽 것). 없으면 null — 엔진의 '창밖 구경'이 이 앞으로 간다 */
-export function roomWindow(place, W, H) {
-  return roomWindows(place, W, H)[0] ?? null;
-}

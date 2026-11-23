@@ -41,7 +41,9 @@ export function decorAt(d: { surface: "floor" | "wall" | "furniture"; u: number;
 export const TALL_DOCK_Y: number;
 export const TALL_DOCK_K: number;
 export function spotOf(x: number, bottom: number, h: number, g: DecorGeom): NekoDecorSpot;
-export function paintDecor(g: CanvasRenderingContext2D, shape: GiftShape, L: DecorBox & { x: number; bottom: number; onFloor: boolean }, geom: DecorGeom,
+/** 끌어 놓은 벽 자리를 그려질 자리(날씨 창문을 비킨 자리)의 비율로. 벽이 아니면 그대로. w·h = 그릴 칸, at = 장소 */
+export function hungSpot(spot: NekoDecorSpot, h: number, g: DecorGeom, w: number, at?: "sidebar" | "dock" | "screen"): NekoDecorSpot;
+export function paintDecor(g: CanvasRenderingContext2D, shape: GiftShape, L: DecorBox & { x: number; bottom: number; onFloor: boolean; pin?: boolean }, geom: DecorGeom,
   o?: { shadow?: string; sc?: [number, number]; rot?: number; wob?: number; edge?: number }): void;
 /** 끄는 중인 물건(높이 h)을 무대 안에 묶는다(엔진 끌기와 같다). [x, bottom] */
 export function clampDrag(h: number, g: DecorGeom, x: number, bottom: number): [number, number];
