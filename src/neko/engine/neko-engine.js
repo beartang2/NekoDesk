@@ -412,6 +412,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     setMode("land");
     for (const L of c.legs) { L.off0 = L.off; L.lift0 = 0; }
     if (!c.perch && c.pendingAct) { const k = c.pendingAct; c.pendingAct = null; startAct(k); } // 창에서 내려와 하려던 것
+    else if (c.perch && c.pendingAct && !c.hopDir) hopDown(c.x < (c.perch.x0 + c.perch.x1) / 2 ? -1 : 1); // 아래 발판(캣타워 1층)에 내렸다: 바닥까지 마저
   }
   function grab() {
     const c = cat;
@@ -4960,11 +4961,24 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (c.act) endAct();
     if (GROUND.has(c.mode)) { c.vx = vx; c.vy = 0; c.afterGrab = true; c.dropH = 0; setMode("fall"); }
   }
-  /** 이 쪽(dir) 끝으로 걸어가 뛰어내린다 */
+  /**
+   * 그쪽(d) 끝에서 뛰어내리면 닫힌 벽 여백(walls 의 92·S) 안에 떨어지는가. 뛰어내리기(hopStep: 옆 180·S, 위 160·S)는 2층 높이에서
+   * 끝에서 약 70·S 밖에 닿는다
+   */
+  const hopBlocked = (d) => {
+    const x = (d > 0 ? walkHi() : walkLo()) + d * 70 * S, m = 92 * S;
+    return d > 0 ? !EDGES.right && x > W - m : !EDGES.left && x < m;
+  };
+  /**
+   * 이 쪽(dir) 끝으로 걸어가 뛰어내린다. 그쪽이 벽에 막혔으면 열린 쪽으로 — 끝 칸 가구(캣타워·소파·그 밖의 올라앉는 면)에서 벽
+   * 쪽으로 뛰면 벽에 튕겨 발판에 다시 앉고, 또 벽 쪽으로 뛰기만 했다(사용자: 폰 거실 왼쪽 끝 캣타워에서 내려오려다 계속 벽에 부딪힘)
+   */
   function hopDown(dir) {
     const c = cat;
     if (!c.perch) return;
-    c.hopDir = dir > 0 ? 1 : -1;
+    let d = dir > 0 ? 1 : -1;
+    if (hopBlocked(d) && !hopBlocked(-d)) d = -d;
+    c.hopDir = d;
     if (c.mode === "walk" || c.mode === "idle") walkTo(c.hopDir > 0 ? walkHi() : walkLo());
   }
   function hopStep() { // idle 에서: 끝에 왔으면 바깥으로 폴짝

@@ -1594,6 +1594,57 @@ try {
     await p.close();
   }
 
+  // 9-u2f) 끝 칸 가구에서 내려오기(0.1.28, 사용자: 폰 거실 왼쪽 끝 캣타워에서 내려오려고 왼쪽으로 뛰면 벽에 막혀 계속 부딪힘): 벽 쪽 끝에서
+  //        내려오려 하면 열린 쪽(무대 안쪽)으로 뛰고, 아래 발판(캣타워 1층)에 내렸으면 바닥까지 마저 내려온다. 맥 방·맥 거실·폰 세로 거실·
+  //        폰 가로의 왼쪽·오른쪽 끝 칸, 캣타워 2층·소파. 캣타워 놀이를 그대로 돌려도 공중에서 벽에 튕기지 않는다
+  {
+    const out = [];
+    for (const [name, w, h, S, at, slots] of [["맥 방", 280, 200, 0.81, "sidebar", [0, 1]], ["맥 거실", 760, 170, 0.68, "dock", [0, 3]],
+      ["폰 세로 거실", 375, 120, 0.35, "dock", [0, 3]], ["폰 가로", 812, 375, 0.98, "dock", [0, 3]]]) {
+      const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: w + 100, height: h + 100 });
+      for (const kind of ["cattower", "sofa"]) for (const slot of slots) {
+        const r = await p.evaluate(({ S, at, slot, kind }) => {
+          const n = window.__neko, c = n.cat;
+          // 벽에 부딪힘 = 공중에서 가로 속도가 뒤집힘(walls 가 벽 여백에서 튕겨 낸다). 끝 칸 가구 자체가 벽 여백 안에 있을 수 있어 자리로는 못 본다
+          let sv = 0;
+          const bounced = () => { if (c.mode !== "air") { sv = 0; return false; } const s = Math.sign(Math.round(c.vx)); const hit = sv && s && s !== sv; if (s) sv = s; return hit; };
+          n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(S); n.act(null); n.step(30);
+          n.setFurniture([{ id: "F", kind, at, slot }]);
+          c.x = n.W / 2; n.step(60); n.act(kind);
+          const want = kind === "cattower" ? ":1" : ":0";
+          let up = false;
+          for (let i = 0; i < 120 * 25 && !up; i++) { n.step(1); up = !!(c.perch && c.perch.id.endsWith(want)); }
+          if (!up) return { up };
+          for (let i = 0; i < 120 * 3 && (c.mode === "air" || c.mode === "land"); i++) n.step(1); // 올라앉아 자리 잡을 때까지
+          // 벽 쪽 끝 가까이에 세우고 바닥 놀이를 시킨다(가까운 쪽 = 벽 쪽으로 내려가려 한다)
+          const left = slot === 0, span = c.perch.x1 - c.perch.x0;
+          c.x = left ? c.perch.x0 + 0.3 * span : c.perch.x1 - 0.3 * span; n.step(2);
+          n.act("yarn");
+          let t = 0, wall = 0;
+          for (; t < 120 * 8 && (c.perch || c.mode === "air" || c.mode === "fall"); t++) { // 바닥에 닿을 때까지만(그 뒤 털실 놀이의 뜀은 안 센다)
+            n.step(1); if (bounced()) wall++;
+          }
+          const down = !c.perch && t < 120 * 8;
+          // 캣타워 놀이를 그대로 40초: 공중에서 벽 여백에 닿지 않는다
+          let towerWall = 0, floors = 0, pp = !!c.perch;
+          if (kind === "cattower") {
+            n.act("cattower");
+            for (let i = 0; i < 120 * 40; i++) {
+              n.step(1);
+              if (bounced()) towerWall++;
+              if (pp && !c.perch) floors++; pp = !!c.perch;
+            }
+          }
+          return { up, down, sec: +(t / 120).toFixed(1), wall, towerWall, floors };
+        }, { S, at, slot, kind });
+        out.push({ name, kind, slot, ...r });
+      }
+      await p.close();
+    }
+    const bad = out.filter((r) => !r.up || !r.down || r.wall || r.towerWall);
+    check("끝 칸 가구에서 내려오기: 벽 쪽이 막히면 열린 쪽으로, 아래 발판에서 바닥까지 — 공중에서 벽에 안 튕긴다", JSON.stringify(bad.length ? bad : out.map((r) => `${r.name}/${r.kind}/${r.slot}:${r.sec}s`)), bad.length === 0);
+  }
+
   // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {
