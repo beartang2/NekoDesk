@@ -1800,13 +1800,18 @@ try {
       const same = (a, b) => a.box.every((v, i) => Math.abs(v - b.box[i]) <= 1);
       const away = () => { n.act(null); c.x = n.W * 0.03; n.step(60); }; // 고양이가 물건을 가리지 않게 왼쪽 끝에
       away(); n.setDecor([{ id: "g", surface: "floor", u: 0.35, size: "medium", shape }]); n.step(120);
-      // 휙 던지기: 굴러가다 서면 그 각도
-      let b = find();
-      pe("pointerdown", b[0], b[1], 2); n.step(2);
-      for (let q = 1; q <= 5; q++) { pe("pointermove", b[0] + 16 * q, b[1] - 10 * q, 2); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
-      pe("pointerup", b[0] + 80, b[1] - 50, 2);
-      for (let i = 0; i < 120 * 10 && !moves.length; i++) n.step(1);
-      const m = moves[0]; away(); n.step(240); // 내려앉은 흔들림이 가라앉게
+      // 휙 던지기: 굴러가다 서면 그 각도. 놓는 빠르기가 실제 시간이라 거의 안 구르면(각도 ~0) 다시 던진다(세 번까지)
+      let b, m;
+      for (let t = 0; t < 3 && !(m && Math.abs(m.rot) > 0.05); t++) {
+        if (t) { away(); n.setDecor([{ id: "g", surface: "floor", u: 0.35, size: "medium", shape }]); n.step(120); }
+        moves.length = 0; b = find();
+        pe("pointerdown", b[0], b[1], 2); n.step(2);
+        for (let q = 1; q <= 5; q++) { pe("pointermove", b[0] + 16 * q, b[1] - 10 * q, 2); await new Promise((ok) => setTimeout(ok, 16)); n.step(2); }
+        pe("pointerup", b[0] + 80, b[1] - 50, 2);
+        for (let i = 0; i < 120 * 10 && !moves.length; i++) n.step(1);
+        m = moves[0];
+      }
+      away(); n.step(240); // 내려앉은 흔들림이 가라앉게
       out.thrown = { surface: m?.surface, rot: m?.rot };
       const here = look();
       const { id: _id, ...spot } = m;
