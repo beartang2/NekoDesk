@@ -12,6 +12,8 @@ import { AnimatePresence, Reorder, motion, useDragControls } from "motion/react"
 import type { Memory } from "../agent/types";
 import { loadTidyLog, type TidyRecord } from "../agent/memory-tidy";
 import { forgetNote, loadMind, type MindNote, type NoteKind } from "../agent/neko-mind";
+import { heartNow, removeTrait, TRAIT_KINDS, TRAIT_NAME, type NekoHeart, type Trait } from "../agent/neko-heart";
+import { foldLog, type FoldRecord } from "../agent/heart-fold";
 import { Collapse, EASE, IconButton, SavedLabel, Segmented, Select, SwitchRow, Switch, listItem } from "./ui";
 import {
   getMcpTools,
@@ -1222,26 +1224,65 @@ const MIND_KIND: Record<NoteKind, string> = { wonder: "궁금", want: "하고 �
 const MIND_AT = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric" });
 
 /**
- * 네코의 속마음(agent/neko-mind, docs/neko-mind.md): 네코가 고르며 남긴 짧은 노트. 맥·폰이 같이 본다(동기화 설정 neko_mind).
- * 최근 것이 위, 5개씩 넘긴다. 하나씩 지울 수 있다
+ * 네코의 속마음(agent/neko-mind·neko-heart, docs/neko-mind.md·neko-heart.md). 위는 성격(좋아함·싫어함·버릇·겁냄·자기만의 규칙) —
+ * 쉴 때 하루 한 번 노트(사건)가 굳은 것, 하나씩 지울 수 있다(사용자 결정: 고치지는 않고 지우기만). 비밀은 접힌 칸, 눌러야 보인다
+ * (사용자 결정). 아래는 노트 — 성격으로 굳은 것은 흐리게. 맥·폰이 같이 본다(neko_heart·neko_mind)
  */
 export function MindNotesSection() {
   const name = useSettingsStore(nekoNameOf);
   const [notes, setNotes] = useState<MindNote[]>([]);
-  const refresh = useCallback(() => { void loadMind().then((m) => setNotes([...m.notes].reverse())); }, []);
+  const [heart, setHeart] = useState<NekoHeart>(heartNow());
+  const [log, setLog] = useState<FoldRecord[]>([]);
+  // loadMind 가 성격도 같이 읽는다(heartNow)
+  const refresh = useCallback(() => { void loadMind().then((m) => { setNotes([...m.notes].reverse()); setHeart(heartNow()); setLog(foldLog()); }); }, []);
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("setting")) refresh(); }), [refresh]);
   const page = usePage(notes);
+  const logPage = usePage(log);
   async function remove(n: MindNote) {
     const m = await forgetNote(n);
     setNotes([...m.notes].reverse());
   }
+  async function drop(t: Trait) {
+    setHeart(await removeTrait(t.id));
+  }
+  const folded = heart.folded ? Date.parse(heart.folded) : -Infinity;
+  const byKind = TRAIT_KINDS.filter((k) => k !== "secret").map((k) => [k, heart.traits.filter((t) => t.kind === k)] as const).filter(([, ts]) => ts.length);
+  const secrets = heart.traits.filter((t) => t.kind === "secret");
+  const untold = secrets.filter((t) => !t.told).length;
+  const traitRow = (t: Trait, kind: string) => (
+    <div className="rule-row" key={t.id}>
+      <span className="memory-row__kind">{kind}</span>
+      <span className="memory-row__text"><span className="rule-row__key">{t.text}</span></span>
+      <span className="mind-row__at">{t.n}번 · {MIND_AT.format(new Date(t.since))}부터</span>
+      <IconButton label="지우기" danger onClick={() => void drop(t)}><Trash2 size={12} /></IconButton>
+    </div>
+  );
   return (
     <section className="settings-section">
       <h3 className="settings-section__title">{name}의 속마음</h3>
       <p className="settings-section__desc">
-        {josa(name, "이/가")} 산책 주제를 고르며 남긴 짧은 노트입니다. 궁금한 것, 하고 싶은 것, 고른 까닭이 다음 선택의 재료가 됩니다.
-        맥과 폰이 같이 씁니다.
+        {josa(name, "이/가")} 어떤 고양이인지입니다. 졸 때 하루 한 번 최근 노트를 보고 좋아하는 것, 싫어하는 것, 버릇, 겁내는 것,
+        자기만의 규칙을 정리합니다. 이 성격이 산책·첫마디·놀이 고르기의 재료가 됩니다. 맥과 폰이 같이 씁니다.
+      </p>
+      {byKind.length === 0 && secrets.length === 0 ? (
+        <div className="settings-empty">아직 굳은 성격이 없습니다.</div>
+      ) : (
+        <div className="rule-list">
+          {byKind.flatMap(([k, ts]) => ts.map((t) => traitRow(t, TRAIT_NAME[k])))}
+        </div>
+      )}
+      {secrets.length > 0 && (
+        <details className="memory-tidy-log">
+          <summary>비밀 {secrets.length}개{untold ? ` — 아직 말 안 함 ${untold}개` : ""}, 눌러서 보기</summary>
+          <div className="rule-list">
+            {secrets.map((t) => traitRow(t, t.told ? "털어놓음" : "비밀"))}
+          </div>
+        </details>
+      )}
+      <p className="settings-section__desc">
+        아래는 {josa(name, "이/가")} 고르며 남긴 짧은 노트입니다. 궁금한 것, 하고 싶은 것, 고른 까닭이 다음 선택의 재료가 되고,
+        성격으로 굳은 노트는 흐리게 보입니다.
       </p>
       {notes.length === 0 ? (
         <div className="settings-empty">아직 남긴 노트가 없습니다.</div>
@@ -1249,14 +1290,14 @@ export function MindNotesSection() {
         <div className="rule-list">
           {page.shown.map((n) => {
             // 기억 목록처럼 눌러서 펼친다(쪽을 넘기면 접힌다)
-            const id = `${n.at}${n.text}`, isOpen = page.open.has(id);
+            const id = `${n.at}${n.text}`, isOpen = page.open.has(id), done = Date.parse(n.at) <= folded;
             return (
-              <div className={`rule-row${isOpen ? " memory-row--open" : ""}`} key={id}>
+              <div className={`rule-row${isOpen ? " memory-row--open" : ""}${done ? " mind-row--folded" : ""}`} key={id}>
                 <span className="memory-row__kind">{MIND_KIND[n.kind]}</span>
                 <button type="button" className="memory-row__text" aria-expanded={isOpen} onClick={() => page.toggle(id)}>
                   <span className="rule-row__key">{n.text}{n.why ? ` — ${n.why}` : ""}</span>
                 </button>
-                <span className="mind-row__at">{MIND_AT.format(new Date(n.at))}</span>
+                <span className="mind-row__at">{done ? "성격으로 굳음 · " : ""}{MIND_AT.format(new Date(n.at))}</span>
                 <IconButton label="지우기" danger onClick={() => void remove(n)}><Trash2 size={12} /></IconButton>
               </div>
             );
@@ -1264,6 +1305,26 @@ export function MindNotesSection() {
         </div>
       )}
       <Pager {...page} />
+      {log.length > 0 && (
+        <details className="memory-tidy-log">
+          <summary>최근 성격 정리 {log.length}번</summary>
+          {logPage.shown.map((r) => (
+            <div key={r.at} className="memory-tidy-log__day">
+              <div className="memory-tidy-log__at">{TIDY_AT.format(new Date(r.at))}</div>
+              {r.add.map((x, i) => <div key={`a${i}`} className="memory-tidy-log__merge"><span className="memory-tidy-log__to">+ {x}</span></div>)}
+              {r.revise.map((x, i) => (
+                <div key={`r${i}`} className="memory-tidy-log__merge">
+                  <span className="memory-tidy-log__from">{x.from}</span>
+                  <span className="memory-tidy-log__to">→ {x.to}</span>
+                </div>
+              ))}
+              {r.drop.map((x, i) => <div key={`d${i}`} className="memory-tidy-log__merge"><span className="memory-tidy-log__from">− {x}</span></div>)}
+              {r.keep > 0 && <div className="memory-tidy-log__merge"><span className="memory-tidy-log__from">다시 확인 {r.keep}개</span></div>}
+            </div>
+          ))}
+          <Pager {...logPage} />
+        </details>
+      )}
     </section>
   );
 }

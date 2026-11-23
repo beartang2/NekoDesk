@@ -11,6 +11,7 @@ import { validateShape, type GiftShape } from "../neko/engine/gift-shape";
 import { useNekoGifts } from "../neko/gifts";
 import { drawGift, type DrawnGift } from "./gift-draw";
 import { drawFurniture, type DrawnFurniture } from "./furniture-draw";
+import { heartLines, heartNow, loadHeart } from "./neko-heart";
 import { chooseAmong, chooseWalkTopic, noteWonder, touchMemories } from "./neko-mind";
 import { FURNITURE_KEY, parseFurniture, useNekoFurniture } from "../neko/furniture";
 
@@ -362,7 +363,9 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
     .catch(() => {});
   if (signal.aborted) return;
 
-  // 3. 정리 — 알게 된 것·일지·선물 글을 툴 인자 한 덩이로.
+  // 3. 정리 — 알게 된 것·일지·선물 글을 툴 인자 한 덩이로. 성격(사건 수 많은 순 8개, 털어놓은 비밀까지)을 재료로 — 일지 말투가 그
+  //    고양이답게(docs/neko-heart.md §5, 사용자 OK). 웹을 도는 하위 에이전트(1번)엔 안 간다
+  const heart = await loadHeart().catch(() => heartNow());
   const turn = await fetchCompletionMessage(
     [
       {
@@ -374,6 +377,7 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
         role: "user",
         content: [
           section("알아본 것", g.findings || "(이번엔 알아본 게 없어)"),
+          section("나는 이런 고양이", heartLines(heart, { secrets: "told", max: 8 })),
           mood, // 일지가 나가기 전 상태에서 이어지게("노래 들으면서 걷다가…")
           section("지나온 곳", places),
           `가져온 선물: ${GIFTS[g.kind].label} — ${GIFTS[g.kind].hint}`,

@@ -154,6 +154,39 @@ describe("2단계", () => {
   });
 });
 
+describe("성격(docs/neko-heart.md)", () => {
+  const trait = (id: string, kind: string, text: string, extra = {}) => ({ id, kind, text, since: "2026-11-20", at: "2026-11-22", n: 2, ...extra });
+  it("생각하기 재료에 '나는 이런 고양이'가 붙고, 성격으로 굳은 노트는 빠진다", async () => {
+    h.kv.set("neko_mind", JSON.stringify({ v: 1, notes: [
+      { at: "2026-11-21T09:00:00Z", kind: "wonder", text: "굳은 노트" }, { at: "2026-11-23T09:00:00Z", kind: "wonder", text: "새 노트" },
+    ], topics: [] }));
+    h.kv.set("neko_heart", JSON.stringify({ traits: [trait("a", "like", "창가 햇볕"), trait("s", "secret", "몰래 하는 것")], folded: "2026-11-22T00:00:00Z" }));
+    const text = mindMaterial(await loadMind(), MEMS, { facts: false }).join("\n");
+    expect(text).toContain("## 나는 이런 고양이");
+    expect(text).toContain("창가 햇볕");
+    expect(text).toContain("몰래 하는 것"); // 자기 마음엔 비밀도 보인다
+    expect(text).toContain("새 노트");
+    expect(text).not.toContain("굳은 노트");
+  });
+  it("첫마디를 생각할 때만 아직 말 안 한 비밀을 번호와 함께 주고, 털어놓으면(tell) 털어놓은 날이 붙는다", async () => {
+    h.kv.set("neko_heart", JSON.stringify({ traits: [trait("s", "secret", "몰래 하는 것"), trait("a", "like", "햇볕")] }));
+    h.reply = { pick: "사실은 몰래 하는 게 있어", why: "요즘 가까워져서", like: [], tired: [], tell: "s" };
+    await restThink({ greet: true });
+    expect(h.sent).toContain("아직 사용자에게 말하지 않은 비밀");
+    expect(h.sent).toContain("- s 몰래 하는 것");
+    const heart = JSON.parse(h.kv.get("neko_heart")!);
+    expect(heart.traits.find((x: { id: string }) => x.id === "s").told).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(await takeGreeting()).toBe("사실은 몰래 하는 게 있어");
+    // 기울기만 생각할 땐(첫마디 아님) 비밀 칸·tell 이 없다
+    h.kv.set("neko_greeting", JSON.stringify({ text: "", at: 0, askedAt: 0 }));
+    h.kv.set("neko_heart", JSON.stringify({ traits: [trait("k", "secret", "또 다른 것")] }));
+    h.reply = { pick: "그냥", why: "", like: ["yarn"], tired: [], tell: "k" };
+    await restThink({ greet: false });
+    expect(h.sent).not.toContain("아직 사용자에게 말하지 않은 비밀");
+    expect(JSON.parse(h.kv.get("neko_heart")!).traits[0].told).toBeUndefined();
+  });
+});
+
 describe("3단계: 기울기", () => {
   it("쉴 때 생각하기가 좋아하는 것·질린 것(보기 안의 것만)을 정하고 감독이 하루 동안 읽는다", async () => {
     h.reply = { pick: "털실이 재밌어", why: "어제 털실이 잘 굴러서", like: ["yarn", "window", "nope", "yarn"], tired: ["box", "yarn", "giftplay", "dig"] };

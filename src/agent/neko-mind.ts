@@ -8,6 +8,7 @@ import { timeZone } from "../lib/time";
 import { useNekoNeeds } from "../neko/director/needsStore";
 import { SOLO_KEYS } from "../neko/director/needs";
 import { recentDoings } from "../neko/selfState";
+import { heartLines, heartNow, loadHeart, markTold, unfolded, untoldSecrets } from "./neko-heart";
 import type { NekoActivity } from "../neko/engine/neko-engine";
 import type { Memory, OpenAiToolSchema } from "./types";
 
@@ -89,6 +90,7 @@ export function currentLean(now = Date.now()): MindLean | null {
 export async function loadMind(): Promise<NekoMind> {
   const m = parseMind(await settingsApi.get(MIND_KEY).catch(() => null));
   leanCache = m.lean;
+  await loadHeart().catch(() => null); // 성격도 같이(재료 mindMaterial 이 heartNow 로 읽는다 — docs/neko-heart.md)
   return m;
 }
 
@@ -175,7 +177,8 @@ export function mindMaterial(mind: NekoMind, memories: Memory[], o: { facts?: bo
     w ? `날씨: ${w.label} ${Math.round(w.temp)}°` : "",
     `기운 ${Math.round(n.energy)} · 호기심 ${Math.round(n.curiosity)} · 청결 ${Math.round(n.clean)} · 애정 ${Math.round(n.affection)} (0–100)`,
   ].filter(Boolean).join("\n");
-  const notes = mind.notes.slice(-20).map((x) =>
+  // 성격으로 굳힌 노트는 뺀다(docs/neko-heart.md §2 — 지우지 않고 folded 시각으로 가른다)
+  const notes = unfolded(mind.notes).slice(-20).map((x) =>
     `- ${md(x.at)} ${KIND_NAME[x.kind]}${x.what ? `(${WHAT_NAME[x.what] ?? x.what})` : ""}: ${x.text}${x.why ? ` — ${x.why}` : ""}`).join("\n");
   const topics = [
     ...mind.topics.map((t) => `- ${t.topic}${t.field ? ` [${t.field}]` : ""} — ${t.at.length}번: ${t.at.map((d) => md(d)).join(", ")}`),
@@ -189,6 +192,8 @@ export function mindMaterial(mind: NekoMind, memories: Memory[], o: { facts?: bo
   const user = userMems.map((m) => `- (${md(m.created_at)}) ${m.content}`).join("\n");
   return [
     section("지금", nowText),
+    // 성격(자기 마음이라 아직 말 안 한 비밀도 보인다). 사용자 사실은 굳힐 때 이미 걸렀다(heart-fold leaksFact)
+    section("나는 이런 고양이", heartLines(heartNow(), { secrets: "all" })),
     section("내 노트", notes),
     section("내가 알아본 주제", topics),
     section("산책에서 알게 된 것", walked),
@@ -428,7 +433,7 @@ export function noteActivity(key: string | null): void {
     actSaveT = setTimeout(() => void settingsApi.set(ACT_DAYS_KEY, JSON.stringify(d)).catch(() => {}), 60_000);
   });
 }
-async function activityText(): Promise<string> {
+export async function activityText(): Promise<string> {
   const d = await readActDays(), sum: Record<string, number> = {};
   for (const day of Object.values(d)) for (const [k, n] of Object.entries(day)) sum[k] = (sum[k] ?? 0) + n;
   return Object.entries(sum).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${ACT_LABEL[k] ?? k}(${k}) ${n}번`).join(", ");
@@ -451,12 +456,23 @@ export async function restThink(o: { greet: boolean }, signal?: AbortSignal): Pr
   const options = SOLO_KEYS.map((k) => `${k}(${ACT_LABEL[k] ?? k})`).join(", ");
   const ask = (o.greet ? "pick 엔 사용자가 돌아오면 먼저 건넬 말 한 줄(네 말투로, 짧게)" : "pick 엔 요즘 네 기분 한 줄")
     + `. like 엔 요즘 하고 싶은 혼자 놀기 1–3개, tired 엔 좀 질린 것 0–2개를 보기에서(영어 이름으로): ${options}. why 엔 그 까닭`;
-  const t = await think(ask, [...mindMaterial(mind, memories, { facts: o.greet }), played ? `## 최근 이틀 한 혼자 놀기\n${played}` : "", doings ? `## 최근 몇 시간 내가 한 일\n${doings}` : ""].filter(Boolean), signal, THINK_MS, {
+  // 비밀 털어놓기(docs/neko-heart.md §4): 첫마디를 생각할 때만 아직 말 안 한 비밀을 번호와 함께 보인다. 털어놓을지는 네코가 정한다
+  // (규칙 없음 — 애정 게이지는 '지금' 재료에 있다). 털어놓으면 첫마디(말풍선)가 그 얘기가 되고 told 가 붙는다
+  const secrets = o.greet ? untoldSecrets(heartNow()) : [];
+  const t = await think(ask, [
+    ...mindMaterial(mind, memories, { facts: o.greet }),
+    played ? `## 최근 이틀 한 혼자 놀기\n${played}` : "",
+    doings ? `## 최근 몇 시간 내가 한 일\n${doings}` : "",
+    secrets.length ? `## 아직 사용자에게 말하지 않은 비밀\n${secrets.map((x) => `- ${x.id} ${x.text}`).join("\n")}` : "",
+  ].filter(Boolean), signal, THINK_MS, {
     like: { type: "array", items: { type: "string", enum: SOLO_KEYS }, description: "요즘 하고 싶은 혼자 놀기 1–3개" },
     tired: { type: "array", items: { type: "string", enum: SOLO_KEYS }, description: "좀 질린 것 0–2개(없으면 빈 배열)" },
+    ...(secrets.length ? { tell: { type: "string", enum: secrets.map((x) => x.id), description: "첫마디에서 털어놓을 비밀 번호. 털어놓을 때만(아니면 빼)" } } : {}),
   });
   if (!t) return;
   if (o.greet) await settingsApi.set(GREET_KEY, JSON.stringify({ text: t.pick, at: Date.now(), askedAt: Date.now() })).catch(() => {});
+  const tell = typeof t.extra?.tell === "string" ? secrets.find((x) => x.id === t.extra!.tell) : undefined;
+  if (tell) await markTold(tell.id, ymd(new Date())).catch(() => null);
   const like = acts(t.extra?.like, 3), tired = acts(t.extra?.tired, 2, like);
   if (!like.length && !tired.length) return;
   const why = t.why && !leaksFact(t.why, memories) ? t.why : "";

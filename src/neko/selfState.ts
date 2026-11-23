@@ -1,4 +1,5 @@
 import { settingsApi } from "../api/tauri";
+import { heartLines, heartNow, loadHeart, untoldSecrets } from "../agent/neko-heart";
 import { timeZone } from "../lib/time";
 import { walkEnd, walkStart, type Walk } from "../lib/walk";
 import { useNekoNeeds } from "./director/needsStore";
@@ -105,6 +106,8 @@ export async function selfStateText(now = Date.now()): Promise<string> {
   const app = useNekoApp.getState();
   const doing = cur?.label ?? "알 수 없음";
   const recent = await recentDoings(now);
+  const heart = await loadHeart().catch(() => heartNow());
+  const untold = untoldSecrets(heart).length;
   return [
     `모습: ${summarizeAppearance(a)} · ${EAR[a.ear]} · ${TAIL[a.tail]} · ${LEGS[a.legs]} · 말랑함 ${Math.round(a.soft * 100)}/100`,
     `털 색: ${coatSwatch(a)}`,
@@ -113,5 +116,8 @@ export async function selfStateText(now = Date.now()): Promise<string> {
     `상태: ${BIG[bigState()]}`,
     `게이지(0–100): 배고픔 ${Math.round(shown.hunger)}(낮을수록 배고픔) · 놀이 ${Math.round(shown.play)}(낮을수록 심심함) · 기운 ${Math.round(n.energy)} · 호기심 ${Math.round(n.curiosity)} · 청결 ${Math.round(n.clean)} · 애정 ${Math.round(n.affection)}`,
     `최근 ${SELF_LOG_MS / 3_600_000}시간 한 일:\n${recent || "- 기록 없음"}`,
+    // 성격(docs/neko-heart.md §5): 사건 수 많은 순 12개, 털어놓은 비밀까지. 아직 말 안 한 비밀은 수만 — 내용은 첫마디로 털어놓을 때까지 모른다
+    `내 성격:\n${heartLines(heart, { secrets: "told", max: 12 }) || "- 아직 굳은 것 없음"}`,
+    ...(untold ? [`아직 말하지 않은 비밀: ${untold}개(내용은 지금 떠오르지 않는다)`] : []),
   ].join("\n");
 }

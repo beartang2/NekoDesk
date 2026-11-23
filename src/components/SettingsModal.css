@@ -1228,6 +1228,8 @@ code.rule-row__key {
 }
 /* 네코의 속마음 노트: 글은 기억 목록처럼(한 줄, 누르면 펼침 — .memory-row__text), 날짜는 작게 */
 .mind-row__at { font-size: 11px; line-height: 16px; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 성격으로 굳은 노트(docs/neko-heart.md §9) */
+.mind-row--folded { opacity: 0.55; }
 .memory-row--open .mind-row__at { margin-top: 4px; }
 
 .memory-pager {

@@ -64,4 +64,15 @@ describe("neko.self 결과", () => {
     expect(text).toContain("배고픔 42(낮을수록 배고픔) · 놀이 15(낮을수록 심심함)");
     expect(text).toContain("- 14:00– 캣휠 달리는 중(지금)");
   });
+
+  it("성격은 털어놓은 것까지만 내용이 보이고, 아직 말 안 한 비밀은 수만(docs/neko-heart.md §4)", async () => {
+    const { selfStateText } = await fresh();
+    const tr = (id: string, kind: string, text: string, extra = {}) => ({ id, kind, text, since: "2026-11-20", at: "2026-11-22", n: 2, ...extra });
+    h.settings.set("neko_heart", JSON.stringify({ traits: [tr("a", "like", "창가 햇볕"), tr("s", "secret", "몰래 하는 것"), tr("k", "secret", "털어놓은 것", { told: "2026-11-23" })] }));
+    const text = await selfStateText(min(1));
+    expect(text).toContain("창가 햇볕");
+    expect(text).toContain("털어놓은 것");
+    expect(text).not.toContain("몰래 하는 것");
+    expect(text).toContain("아직 말하지 않은 비밀: 1개");
+  });
 });

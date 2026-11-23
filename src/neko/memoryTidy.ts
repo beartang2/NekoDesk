@@ -1,5 +1,6 @@
 import { memoryApi, settingsApi } from "../api/tauri";
 import { tidyMemories } from "../agent/memory-tidy";
+import { foldHeart } from "../agent/heart-fold";
 import { appEvents } from "../lib/events";
 import { walkEnd, type Walk } from "../lib/walk";
 import { budgetBlockReason } from "../stores/claudeBudget";
@@ -43,6 +44,8 @@ async function run(): Promise<void> {
   void memoryApi.forget(useSettingsStore.getState().memoryCap).then((o) => {
     if (o.forgot || o.purged) appEvents.emit("syncChanged", { colls: ["memory"] });
   }).catch(() => {});
+  // 성격 굳히기(docs/neko-heart.md §3): 하루 한 번(맥·폰 같이 센다), 다른 기기가 앞이면 그쪽이. 막는 까닭은 foldHeart 안에서 본다
+  void foldHeart().then((r) => { if (r) appEvents.emit("syncChanged", { colls: ["setting"] }); }).catch(() => {});
   if (running || (await tidyBlock().catch(() => "확인 실패"))) return;
   running = true;
   // 실패해도 오늘은 다시 안 한다(같은 실패로 매번 비용을 쓰지 않게)
