@@ -3587,17 +3587,22 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   });
 
   /* ----- 낚싯대 장난감(사용자와 놀기, 사용자: 막대기에 실 달려서 띠용띠용 하는 거 — 막대 잡고 흔들어 같이 놀아 주는 느낌) -----
-     방·거실 바닥 구석에 장난감 바구니. 바구니를 누르면 막대 끝이 커서·손가락을 따라오고, 끝에 달린 실(간단한 줄 물리)과
-     장난감이 출렁인다. 놓으면 막대는 바구니로 돌아간다. 잡은 동안 play 사건(wand)을 2.5초마다 알려 감독이 놀아주기로 받는다 —
+     방·거실 바닥 구석에 장난감 바구니. 바구니를 누르면 커서·손가락이 막대 손잡이 끝을 쥔다 — 막대는 거기서 위·무대 안쪽으로 뻗고
+     (사용자: 집은 자리에 막대 가운데가 있어 손가락에 가려 안 보였다), 끝에 달린 실(간단한 줄 물리)과 장난감이 출렁인다. 놓으면 막대는
+     바구니로 돌아간다. 잡은 동안 play 사건(wand)을 2.5초마다 알려 감독이 놀아주기로 받는다 —
      네코는 장난감 쪽으로 다가가 웅크렸다 뛰어올라 덮치고(pounce), 가끔 물어 잠깐 놓지 않는다. 화면 모드(마당)엔 없다 */
-  const WAND_LEN = 66, WAND_N = 9; // 실 길이(S)·마디 수
-  let wand = null; // { pts: [{x,y,ox,oy}], tip, pid, held, back(0~1 돌아가는 중), from, cueT, bite(초) }
+  const WAND_LEN = 66, WAND_N = 9, WAND_ROD = 60, WAND_TILT = 0.6; // 실 길이(S)·마디 수, 막대 길이(S)·기본 기울기(라디안, 위에서 무대 안쪽으로)
+  // { pts: [{x,y,ox,oy}], hand(손이 쥔 손잡이 끝 — 커서·손가락), handAt(그린 손잡이), tip(막대 끝), ang(막대 각, 0 = 위·+ = 오른쪽으로 기움),
+  //   side(기우는 쪽 ±1), pid, held, grabT(바구니에서 꺼내는 0~1), back(돌아가는 0~1), from, cueT, bite(초) }
+  let wand = null;
   const basketAt = () => [W - 46 * S, BASE_Y];
   const restTip = () => { const [bx, by] = basketAt(); return [bx - 20 * S, by - 60 * S]; };
   const restHandle = () => { const [bx, by] = basketAt(); return [bx + 7 * S, by - 9 * S]; };
+  const restAng = () => { const t = restTip(), h = restHandle(); return Math.atan2(t[0] - h[0], h[1] - t[1]); };
   function wandInit() {
     const [tx, ty] = restTip(), seg = (WAND_LEN * S) / WAND_N;
-    wand = { pts: Array.from({ length: WAND_N + 1 }, (_, i) => ({ x: tx, y: ty + i * seg, ox: tx, oy: ty + i * seg })), tip: [tx, ty], pid: null, held: false, back: 0, from: null, cueT: -9, bite: 0 };
+    wand = { pts: Array.from({ length: WAND_N + 1 }, (_, i) => ({ x: tx, y: ty + i * seg, ox: tx, oy: ty + i * seg })), tip: [tx, ty], hand: restHandle(), handAt: restHandle(), ang: restAng(), side: -1,
+      pid: null, held: false, grabT: 1, back: 0, from: null, cueT: -9, bite: 0 };
   }
   // 바구니는 호스트가 켤 때만(setToys) — 앱 방·거실은 켜고, 하네스·초상화 등은 고양이만 그린다(실루엣 검사가 바구니를 조각으로 셌다)
   let toysOn = false;
@@ -3607,12 +3612,14 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   const wandToy = () => (wand && (wand.held || wand.back > 0) ? wand.pts[wand.pts.length - 1] : null);
   function grabWand(e, el, x, y) {
     if (!wand) wandInit();
-    wand.held = true; wand.pid = e.pointerId; wand.back = 0; wand.tip = [x, y]; wand.cueT = time;
+    // 손잡이 끝을 쥔다: 바구니에 있던 막대가 0.25초에 걸쳐 손으로 온다(grabT). 각은 바구니에 꽂힌 각에서 이어 돈다
+    wand.held = true; wand.pid = e.pointerId; wand.back = 0; wand.hand = [x, y]; wand.grabT = 0; wand.from = { hand: wand.handAt.slice(), tip: wand.tip.slice() }; wand.cueT = time;
+    wand.side = x < W / 2 ? 1 : -1;
     try { el.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터 */ }
     el.classList.add("dragging"); e.preventDefault(); emit("hold", true); emit("play", { kind: "wand" });
   }
   function releaseWand(el) {
-    wand.held = false; wand.pid = null; wand.back = 1e-3; wand.from = wand.tip.slice(); wand.bite = 0;
+    wand.held = false; wand.pid = null; wand.back = 1e-3; wand.from = { hand: wand.handAt.slice(), tip: wand.tip.slice(), ang: wand.ang }; wand.bite = 0;
     el?.classList.remove("dragging"); emit("hold", false);
   }
   function wandStep(dt) {
@@ -3620,12 +3627,28 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (!wand) wandInit();
     const w = wand, seg = (WAND_LEN * S) / WAND_N;
     if (w.held && time - w.cueT > 2.5) { w.cueT = time; emit("play", { kind: "wand" }); } // 흔드는 동안 놀아주기를 잇는다
-    if (w.back > 0) { // 놓으면 바구니로: 0.45초에 걸쳐
+    if (w.held) {
+      // 막대 방향: 위로, 무대 안쪽으로 기운다(손이 가운데를 40·S 넘게 넘어가야 쪽을 바꾼다 — 가운데서 막대가 흔들리지 않게).
+      // 끝이 무대 위로 나가면 더 눕히고(손이 위에 있을 땐 옆으로까지), 옆으로 나가면 덜 기울인다
+      const L = WAND_ROD * S, [hx, hy] = w.hand, top = 8 * S;
+      if (hx < W / 2 - 40 * S) w.side = 1; else if (hx > W / 2 + 40 * S) w.side = -1;
+      let a = WAND_TILT;
+      if (hy - L * Math.cos(a) < top) a = Math.acos(clamp((hy - top) / L, -0.5, 1));
+      const room = w.side > 0 ? W - 8 * S - hx : hx - 8 * S;
+      if (L * Math.sin(a) > room && room > 0) a = Math.min(a, Math.asin(clamp(room / L, 0, 1)));
+      w.ang = lerp(w.ang, w.side * a, 1 - Math.exp(-dt * 12));
+      const tip = [hx + Math.sin(w.ang) * L, hy - Math.cos(w.ang) * L];
+      w.grabT = Math.min(1, w.grabT + dt / 0.25);
+      const e = smooth(w.grabT); // 바구니에서 꺼내는 동안은 꽂힌 자리에서 손으로 막대째 옮긴다
+      w.handAt = [lerp(w.from ? w.from.hand[0] : hx, hx, e), lerp(w.from ? w.from.hand[1] : hy, hy, e)];
+      w.tip = [lerp(w.from ? w.from.tip[0] : tip[0], tip[0], e), lerp(w.from ? w.from.tip[1] : tip[1], tip[1], e)];
+    } else if (w.back > 0) { // 놓으면 바구니로: 0.45초에 걸쳐 손잡이·끝을 같이(막대째)
       w.back = Math.min(1, w.back + dt / 0.45);
-      const e = smooth(w.back), [rx, ry] = restTip();
-      w.tip = [lerp(w.from[0], rx, e), lerp(w.from[1], ry, e)];
-      if (w.back >= 1) w.back = 0;
-    } else if (!w.held) w.tip = restTip();
+      const e = smooth(w.back), rt = restTip(), rh = restHandle();
+      w.handAt = [lerp(w.from.hand[0], rh[0], e), lerp(w.from.hand[1], rh[1], e)];
+      w.tip = [lerp(w.from.tip[0], rt[0], e), lerp(w.from.tip[1], rt[1], e)];
+      if (w.back >= 1) { w.back = 0; w.ang = restAng(); }
+    } else { w.tip = restTip(); w.handAt = restHandle(); w.ang = restAng(); }
     w.bite = Math.max(0, w.bite - dt);
     // 줄: 베를레(속도 = 이번 자리 − 지난 자리, 조금 줄인다) + 중력, 마디 길이 맞추기. 첫 마디는 막대 끝, 물고 있으면 끝 마디는 입
     const g = 900 * S * dt * dt, P = w.pts, last = P.length - 1;
@@ -3661,9 +3684,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /** 막대·실·장난감(깃털 셋과 방울). 잡았거나 돌아가는 동안은 맨 위에 */
   function drawWand() {
     const w = wand, s = S, P = w.pts, toy = P[P.length - 1];
-    // 손잡이: 잡으면 막대 끝에서 가까운 옆 아래로, 바구니에선 바구니 안. 돌아가는 동안은 막대째 옮긴다(늘어나 보이지 않게)
-    const side = w.tip[0] < W / 2 ? -1 : 1, rt = restTip(), rh = restHandle(), e = w.held ? 1 : w.back > 0 ? 1 - smooth(w.back) : 0;
-    const hx = w.tip[0] + lerp(rh[0] - rt[0], side * 30 * s, e), hy = w.tip[1] + lerp(rh[1] - rt[1], 52 * s, e);
+    const [hx, hy] = w.handAt; // 손잡이 끝(잡았으면 손이 쥔 자리)
     ctx.save(); ctx.lineCap = "round";
     ctx.strokeStyle = "#a8743f"; ctx.lineWidth = 3.2 * s; ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(w.tip[0], w.tip[1]); ctx.stroke(); // 막대
     ctx.strokeStyle = "rgba(70, 60, 70, 0.75)"; ctx.lineWidth = 1 * s; ctx.beginPath(); ctx.moveTo(P[0].x, P[0].y); // 실
@@ -5502,7 +5523,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (!mouseActive() && cat.mood !== "sleepy" && cat.pose === "stand" && !cat.act && cat.mode !== "grabbed" && !cat.tailEp) startTailEp("up", 2.6);
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
     if (furnHold && Math.hypot(x - furnHold.x, y - furnHold.y) > HOLD_SLOP) { clearTimeout(furnHold.t); furnHold = null; }
-    if (wand && wand.held && e.pointerId === wand.pid) { wand.tip = [clamp(x, 0, W), clamp(y, 0, BASE_Y - 4 * S)]; return; }
+    if (wand && wand.held && e.pointerId === wand.pid) { wand.hand = [clamp(x, 0, W), clamp(y, 0, BASE_Y - 4 * S)]; return; } // 손잡이 끝이 손을 따라온다
     if (decorDrag && e.pointerId === decorDrag.pointerId) { // 바닥 아래로는 안 내려가고 무대 위로도 안 나간다
       const hold = decorDrag.hold; // 꾹 누르기 중 손가락이 움직이면 그냥 끌기
       if (hold && Math.hypot(x - hold.x, y - hold.y) > HOLD_SLOP) { clearTimeout(hold.t); decorDrag.hold = null; }
@@ -5837,7 +5858,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     /** 낚싯대 장난감 바구니(방·거실 바닥 구석)를 켜고 끈다. 기본 끔 — 앱 호스트가 켠다 */
     setToys(on) { toysOn = !!on; if (!toysOn && wand && wand.held) releaseWand(null); if (!paused) draw(); },
     /** 시험용: 낚싯대 장난감(실 끝) 자리와 물렸는지. 바구니에 놓였으면 null */
-    get wandToy() { const t = wandToy(); return t ? { x: t.x, y: t.y, bite: wand.bite > 0 } : null; },
+    get wandToy() { const t = wandToy(); return t ? { x: t.x, y: t.y, bite: wand.bite > 0, tip: wand.tip.slice(), hand: wand.handAt.slice() } : null; },
     /** 시험용: 바구니 자리(가운데·바닥) */
     get basket() { return wandOn() ? basketAt() : null; },
     /** 벽에 건 선물만 그릴 캔버스(호스트가 정지 가구 층 밑에 둔다). null 이면 고양이 캔버스에 */

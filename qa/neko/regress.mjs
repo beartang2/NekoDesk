@@ -1381,6 +1381,29 @@ try {
     await p.close();
   }
 
+  // 9-u0b) 낚싯대 손잡이(0.1.29, 사용자: 폰에서 집은 자리에 막대 가운데가 있어 손가락에 가려 안 보였다): 손이 쥔 점이 손잡이 끝이고 막대는 거기서
+  //        막대 길이만큼 위·무대 안쪽으로 뻗는다. 왼쪽·오른쪽 끝, 위쪽에서도 막대 끝이 무대 안에 있다. 바구니에서 꺼내는 첫 프레임은 꽂힌 자리
+  for (const [q, sc] of [["?w=760&h=170&scale=height&transparent=1", 0.68], ["?w=390&h=240&scale=height&transparent=1", 0.68], ["?w=844&h=390&scale=height&transparent=1", 1.12]]) {
+    const p = await open(q, { width: 1000, height: 500 });
+    const r = await p.evaluate((sc) => {
+      const n = window.__neko, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
+      n.pause(); n.setWander(false); n.setScale(sc); n.setToys(true); n.cat.x = n.W * 0.15; n.step(60);
+      const pe = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 4, button: 0, pointerType: "touch", bubbles: true }));
+      const [bx, by] = n.basket, rest = n.wandToy; pe("pointerdown", bx, by - 30); n.step(1);
+      const first = n.wandToy; out.grabStarts = Math.hypot(first.hand[0] - bx, first.hand[1] - (by - 30)) > 10 * n.S; // 첫 프레임은 아직 바구니 쪽
+      for (const [k, x, y] of [["center", n.W * 0.5, n.floorY - 40 * n.S], ["left", 4, n.floorY - 30 * n.S], ["right", n.W - 4, n.floorY - 50 * n.S], ["top", n.W * 0.4, 4]]) {
+        for (let i = 0; i < 60; i++) { pe("pointermove", x, y); n.step(2); }
+        const w = n.wandToy, rod = Math.hypot(w.tip[0] - x, w.tip[1] - y) / n.S;
+        out[k] = { hand: Math.round(Math.hypot(w.hand[0] - x, w.hand[1] - y)), rod: Math.round(rod), inStage: w.tip[0] >= 0 && w.tip[0] <= n.W && w.tip[1] >= 0 };
+      }
+      pe("pointerup", n.W * 0.4, 4);
+      return out;
+    }, sc);
+    check(`낚싯대 손잡이(${q.slice(3, 15)}): 손이 쥔 점이 손잡이 끝, 막대 끝은 막대 길이만큼 떨어져 무대 안`, JSON.stringify(r),
+      r.grabStarts && ["center", "left", "right", "top"].every((k) => r[k].hand <= 1 && r[k].rod >= 55 && r[k].rod <= 61 && r[k].inStage));
+    await p.close();
+  }
+
   // 9-u1) 벽 선물은 가구 뒤(0.1.27, 사용자: 가구 위에 액자가 걸리지 않게): 벽 층 캔버스(setWallCanvas)를 주면 벽에 건 액자는 거기에만
   //       그리고(고양이 캔버스엔 없음, 호스트가 정지 가구 층 밑에 둔다), 바닥 선물은 고양이 캔버스에. 끄는 동안은 고양이 캔버스(맨 위)로
   //       올라오고 벽 층에서 빠진다. 누르기·우클릭 정리는 그대로
