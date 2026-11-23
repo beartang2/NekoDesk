@@ -1376,11 +1376,11 @@ function SyncSection() {
   const [err, setErr] = useState("");
   const [ask, setAsk] = useState<SyncAsk | null>(null);
   const [matched, setMatched] = useState("");
-  const reconcile = () => run(async () => {
+  // 지금 동기화 = 서버와 견주고 바로 주고받기(sync_reconcile 이 주고받기까지 한다 — 예전 '지금 동기화'·'다시 맞추기' 두 버튼을 하나로)
+  const syncNow = () => run(async () => {
     const r = await syncApi.reconcile();
-    setMatched(r.heavy
-      ? "서버가 이전 버전이라 기록을 전부 다시 맞추는 중입니다. 조금 걸립니다."
-      : `다시 맞췄습니다. 받은 것 ${r.fetched}개, 올린 것 ${r.pushed}개, 지운 것 ${r.deleted}개.`);
+    const n = r.fetched + r.pushed + r.deleted;
+    setMatched(r.heavy ? "옛 서버라 전부 다시 맞추는 중입니다." : n ? `받음 ${r.fetched} · 올림 ${r.pushed} · 지움 ${r.deleted}` : "이미 맞습니다.");
   });
   const refresh = useCallback(() => { syncApi.status().then(setSt).catch(() => {}); }, []);
   useEffect(() => {
@@ -1428,15 +1428,9 @@ function SyncSection() {
             {st.last_error ? ` · 동기화 실패: ${syncError(st.last_error)}` : ""}
           </p>
           <div className="settings-row">
-            <button className="settings-btn settings-btn--ghost" disabled={busy || !st.enabled} onClick={() => void run(() => syncApi.now())}>
-              지금 동기화
-            </button>
-            <button className="settings-btn settings-btn--ghost" disabled={busy || !st.enabled} onClick={() => void reconcile()}
-              title="서버에 있는 기록과 이 기기를 견줘 빠진 것을 받고 올립니다. 하루 한 번은 저절로 합니다">
-              다시 맞추기
-            </button>
+            <button className="settings-btn settings-btn--ghost" disabled={busy || !st.enabled} onClick={() => void syncNow()}>지금 동기화</button>
             <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void run(async () => setPairing(await syncApi.pairMake(hasClaude && withClaude)))}>
-              기기 연결 코드 만들기
+              연결 코드 만들기
             </button>
             <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void loadDevices()}>연결된 기기</button>
           </div>

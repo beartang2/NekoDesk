@@ -125,6 +125,7 @@
   color: var(--text-muted);
   text-wrap: pretty;
   word-break: keep-all;
+  overflow-wrap: break-word; /* 주소·경로·기기 이름처럼 띄어쓰기 없는 긴 글은 칸 끝에서 끊는다(가로로 넘치지 않게) */
 }
 
 .settings-section__desc--error {
@@ -147,12 +148,16 @@
   background: var(--layer-hover);
 }
 
-/* ── Rows / fields ── */
+/* ── Rows / fields ──
+   버튼·입력칸이 늘어도 칸 안에 든다(사용자: 버튼이 늘었다고 가로 스크롤·페이지 밖으로 밀리지 않게): 넘치면 다음 줄로 내리고,
+   입력칸은 다음 줄로 밀리기 전까지 글자 9개 폭은 지킨다. 버튼 하나가 칸보다 길면 낱말 단위로 줄을 바꾼다(.settings-btn) */
 .settings-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
+.settings-row > .settings-input { min-width: 9em; }
 
 .settings-row--right {
   justify-content: flex-end;
@@ -251,7 +256,9 @@
   font-family: inherit;
   font-size: 12px;
   font-weight: 500;
-  white-space: nowrap;
+  max-width: 100%; /* 칸보다 긴 버튼은 칸 안에서 낱말 단위로 줄을 바꾼다(평소엔 한 줄) */
+  text-align: center;
+  word-break: keep-all;
   cursor: pointer;
   -webkit-app-region: no-drag;
   transition:
@@ -1262,3 +1269,4 @@ code.rule-row__key {
 /* 연결된 기기 목록: 점 없이, 위의 설명·버튼과 같은 왼쪽 선에서 시작한다. '끊기'는 그 줄 오른쪽 끝 */
 .sync-devices { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .sync-devices li { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+.sync-devices li > span { min-width: 0; }
