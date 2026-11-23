@@ -5,6 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { REPAINT } from "./useShown";
+import { setStandby } from "./standby";
 import { useNekoStore, type NekoPlacement } from "../neko/nekoStore";
 import { usePhonePanel } from "../neko/panel";
 
@@ -333,6 +334,7 @@ function watchStandby(root: HTMLElement): void {
     // 가로에서만 홈 막대 첫 쓸기를 앱이 받는다(바닥이 화면 끝까지). 세로는 한 번에 홈으로. 막대는 숨기지 않는다(lib.rs phone_edge_guard)
     void invoke("phone_edge_guard", { on }).catch(() => {});
     const stage = useNekoStore.getState().stage;
+    setStandby(on); // 가려진 화면은 그리지 않는다(lib/standby)
     if (on) {
       before ??= stage.placement;
       if (stage.placement !== "dock") useNekoStore.setState({ stage: { ...stage, placement: "dock" } });

@@ -4,6 +4,7 @@ import { AlertDialog } from "radix-ui";
 import { PairLinkPrompt } from "./components/PairLink";
 import { bindPanels, dismissKeyboard, drawer, type Panels } from "./lib/phone";
 import { IS_PHONE } from "./lib/platform";
+import { useStandby } from "./lib/standby";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -157,13 +158,17 @@ function useTheme() {
 
   // 폰: 고른 테마를 창에 건다 — 상태 막대 글자·키보드 색이 따라오고, 웹뷰·창 바탕을 앱 바탕색으로 칠해 바뀌는 사이
   // 흰 바탕이 비치지 않게 한다. 시스템이면 창은 iOS 를 따른다. 답은 iOS 자체 값(창에 건 값과 상관없음) — 시스템으로 돌아갈 때 맞는 값이 있게 늘 받는다
+  // 가로 화면은 거실 벽 색으로 칠한다 — iOS 가 화면 그림을 버린 순간 보이는 바탕이 하얗게 튀지 않게(벽과 같은 색)
+  const standby = useStandby();
   useEffect(() => {
     if (!IS_PHONE) return;
     const style = pref === "system" ? 0 : pref === "dark" ? 2 : 1;
-    invoke<boolean>("phone_theme", { style, bg: cssRgb(getComputedStyle(document.documentElement).getPropertyValue("--bg-base")) })
+    const wall = standby ? document.querySelector(".neko-slot--dock .neko-room__wall") : null;
+    const bg = wall ? getComputedStyle(wall).fill : getComputedStyle(document.documentElement).getPropertyValue("--bg-base");
+    invoke<boolean>("phone_theme", { style, bg: cssRgb(bg) })
       .then(setSystemDark)
       .catch(() => {});
-  }, [pref, isDark]);
+  }, [pref, isDark, standby]);
 
   return { isDark, pref, cycle: () => setPref(THEME_NEXT[pref]) };
 }
@@ -351,6 +356,7 @@ function Sidebar({
   gameSpeech?: string | null;
   gameMode?: import("./hooks/useDrawingGame").DrawingGameState & import("./hooks/useDrawingGame").DrawingGameActions | null;
 }) {
+  const standby = useStandby();
   // 세션 목록·활성·선택은 sessionStore 를 직접 구독(prop-drilling 제거).
   const sessions = useSessionStore((s) => s.sessions);
   const activeId = useSessionStore((s) => s.activeId);
@@ -403,7 +409,8 @@ function Sidebar({
         {/* 네코 방: 배경(벽·바닥·날씨 창문) 위에 네코 자리. 네코가 다른 자리로 가도 빈 방으로 남는다 */}
         <div className="cat-room">
           <RoomBackdrop />
-          <NekoSlot placement="sidebar" onRubPet={rpg.onPet} away={away} walk={walk} isDark={isDark} />
+          {/* 폰 가로 화면 동안 방(고양이는 거실에 나와 있다)은 그리지 않는다(lib/standby) */}
+          {!standby && <NekoSlot placement="sidebar" onRubPet={rpg.onPet} away={away} walk={walk} isDark={isDark} />}
         </div>
         {/* 방 아래 얇은 띠: DAY·컨텍스트, 밥·놀이 게이지(누르면 밥 주기·놀아주기) */}
         <CatStatusPanel
@@ -577,16 +584,25 @@ const MessageItem = React.memo(function MessageItem({
   );
 });
 
+/**
+ * 폰 가로 화면 동안 메시지 목록을 내려놓았다(lib/standby) 다시 그릴 때 보던 자리. 위로 올려 읽던 세션만(바닥이면 바닥으로 간다).
+ * 가로 동안엔 목록이 가려져(display:none) 내려놓는 순간 위치를 못 읽으니, 굴릴 때마다 적어 둔 값을 쓴다
+ */
+const keptScroll = new Map<string, { top: number; from: number }>();
+
 function ChatMessages({
   messages,
   isRunning,
   onScrollChange,
   onPickSuggestion,
+  keepId,
 }: {
   messages: ChatMessage[];
   isRunning: boolean;
   onScrollChange?: (show: boolean, scrollFn: () => void) => void;
   onPickSuggestion?: (text: string) => void;
+  /** 다시 그릴 때 보던 자리를 되찾을 세션 */
+  keepId?: string;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   // 긴 선택문을 줄여 보인 말풍선 중 원문을 펼친 것.
@@ -602,7 +618,7 @@ function ChatMessages({
 
   // 긴 대화는 최근 것만 그리고, 맨 위에 닿으면 앞을 더 붙인다. 수백 개를 한 번에 그리면
   // 세션을 열 때 마크다운 해석만으로 멈칫한다. `from` 이 null 이면 "끝에서 PAGE 개" 를 따라간다.
-  const [from, setFrom] = useState<number | null>(null);
+  const [from, setFrom] = useState<number | null>(() => (keepId && keptScroll.get(keepId)?.from) || null);
   const start = from === null || from > messages.length ? Math.max(0, messages.length - MESSAGE_PAGE) : from;
   const shown = start > 0 ? messages.slice(start) : messages;
   // 잘라 그려도 앞 답과 비교해야 하니 전체에서 찾는다.
@@ -644,6 +660,25 @@ function ChatMessages({
   }, [start]);
   const isUserScrolledUp = useRef(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  // 보던 자리 지키기(keptScroll): 그릴 때 되찾고, 내려놓을 때 적는다
+  const lastTop = useRef(0);
+  const startRef = useRef(start);
+  startRef.current = start;
+  useLayoutEffect(() => {
+    const k = keepId && keptScroll.get(keepId);
+    const el = containerRef.current;
+    if (k && el) {
+      el.scrollTop = k.top;
+      lastTop.current = k.top;
+      isUserScrolledUp.current = true;
+      setShowScrollBtn(true);
+    }
+    return () => {
+      if (!keepId) return;
+      if (isUserScrolledUp.current) keptScroll.set(keepId, { top: lastTop.current, from: startRef.current });
+      else keptScroll.delete(keepId);
+    };
+  }, [keepId]);
 
   /** 바닥에서 이만큼 이상 떨어져 있으면 "따라가지 않는 중" 으로 본다. */
   const BOTTOM_SLACK = 80;
@@ -679,6 +714,7 @@ function ChatMessages({
 
   /** 버튼 표시만 담당한다. 여기서 따라가기 상태를 건드리면 위 문제가 되살아난다. */
   const handleScroll = useCallback(() => {
+    if (containerRef.current) lastTop.current = containerRef.current.scrollTop;
     setShowScrollBtn(distanceFromBottom() > BOTTOM_SLACK);
   }, []);
 
@@ -1223,6 +1259,7 @@ function CompactSummaryBar({
 // ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const standby = useStandby(); // 폰 가로 화면: 가려진 무거운 화면은 그리지 않는다
   // ── Session list ──────────────────────────────────────────────────────────
   // 세션 상태는 sessionStore 소유. 이름은 그대로라 아래 44개 사용처는 무변경.
   const sessions = useSessionStore((s) => s.sessions);
@@ -2348,13 +2385,17 @@ export default function App() {
           )}
 
           <ErrorBoundary label="채팅">
-            <ChatMessages
-              key={activeId}
-              messages={activeMessages}
-              isRunning={isRunning}
-              onScrollChange={handleScrollChange}
-              onPickSuggestion={(text) => handleSend(text, [])}
-            />
+            {/* 폰 가로 화면 동안은 내려놓는다(lib/standby) — 그림이 든 말풍선까지 쥐고 있지 않게. 돌아오면 보던 자리로 */}
+            {!standby && (
+              <ChatMessages
+                key={activeId}
+                keepId={activeId}
+                messages={activeMessages}
+                isRunning={isRunning}
+                onScrollChange={handleScrollChange}
+                onPickSuggestion={(text) => handleSend(text, [])}
+              />
+            )}
           </ErrorBoundary>
 
           {/* 메시지 위에 떠 있어야 뒤가 비쳐 블러가 보인다. */}
@@ -2393,12 +2434,15 @@ export default function App() {
         </div>
       </main>
 
-      <ErrorBoundary label="패널">
-        <RightPanel
-          onResizeStart={rightPanelVisible ? (e) => startDrag("right", e) : undefined}
-          isResizing={isDragging === "right"}
-        />
-      </ErrorBoundary>
+      {/* 폰은 오른쪽 패널(할 일·일정·뽀모도로·메모·보관함)을 보이지 않는다 — 가려 둔 채 그리지도 않는다 */}
+      {!IS_PHONE && (
+        <ErrorBoundary label="패널">
+          <RightPanel
+            onResizeStart={rightPanelVisible ? (e) => startDrag("right", e) : undefined}
+            isResizing={isDragging === "right"}
+          />
+        </ErrorBoundary>
+      )}
 
       {/* '채팅 바 아래' 네코 자리: 창 맨 아래 한 줄, 사이드바부터 오른쪽 패널 끝까지(.app 셋째 줄).
           채팅 칸 안(.chat-dock)에 두면 대화 폭만큼만 생겼다. --dock-h 는 이제 입력창만 잰다. */}

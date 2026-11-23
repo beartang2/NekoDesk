@@ -5838,6 +5838,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     /** 프레임 상한(0 이면 화면 주사율). 졸 때 15·잡힐 때 60 은 엔진이 알아서 */
     setMaxFps(fps) { maxFps = Number.isFinite(fps) && fps > 0 ? fps : 0; kick(); },
     resize,
+    /** 그림을 잃었을 수 있다(iOS 메모리 경고): 털 무늬가 비었으면 다시 만들고 다시 그리고 repaint 를 알린다 */
+    repaint: () => revive(true),
     pause() { paused = true; cancelAnimationFrame(raf); clearTimeout(timer); raf = 0; timer = 0; },
     resume() { if (paused) { paused = false; last = performance.now(); schedule(); } },
     destroy() {
