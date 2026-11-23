@@ -8,6 +8,7 @@ import { decorItems, useNekoGifts } from "./gifts";
 import { WeatherWindow } from "./WeatherWindow";
 import { FloorBand, SkyTint, WallPattern } from "./Wallpaper";
 import { setHolding } from "./holding";
+import { useShown } from "../lib/useShown";
 import "./NekoRoom.css";
 
 /**
@@ -79,6 +80,7 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
   // 낙서 그림(shape.img)을 다 읽으면 다시 그린다(처음엔 매트만 보인다)
   const [loaded, setLoaded] = useState(0);
   useEffect(() => onShapeImage(() => setLoaded((n) => n + 1)), []);
+  const shown = useShown(); // 다시 보이면 다시 그린다 — iOS 가 뒤에 있는 동안 캔버스를 비울 수 있다
   const items = useMemo(() => decorItems(gifts, "sidebar"), [gifts]);
   const view = useMemo(() => { const { floorY, S } = stageMetrics(w, h); return { W: w, H: h, floorY, scale: S }; }, [w, h]);
   // 끄는 중인 물건(물건 가운데 x, 바닥 y). 그리기가 무대 안으로 묶고 들어 올린 모양으로 맨 위에 그린다
@@ -92,7 +94,7 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
     const o = { ...view, dpr: Math.min(window.devicePixelRatio || 1, 2), dark: isDark, drag };
     drawDecor(wall, items, { ...o, only: "wall" });
     drawDecor(cv, items, { ...o, only: "rest" });
-  }, [items, view, isDark, drag, loaded, ref, w, h]);
+  }, [items, view, isDark, drag, loaded, shown, ref, w, h]);
 
   const pos = (e: React.MouseEvent) => { const r = e.currentTarget.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top] as const; };
   const boxOf = (id: string | null) => (id === null ? undefined : decorBoxes(items, view).find((b) => b.id === id));

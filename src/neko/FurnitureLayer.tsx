@@ -6,6 +6,7 @@ import { placedAt, useNekoFurniture } from "./furniture";
 import { decorItems, useNekoGifts } from "./gifts";
 import { useAccent, useFurnitureHeld, useLamps } from "./furnitureHost";
 import { useSkyLight } from "./Wallpaper";
+import { useShown } from "../lib/useShown";
 
 /** 꾹 누르기('치우기' 메뉴): 이만큼(ms) 이 거리(px) 안에서 누르고 있으면. 선물 '정리'와 같다 */
 const HOLD_MS = 500, HOLD_SLOP = 8;
@@ -27,6 +28,7 @@ export function FurnitureLayer({ place, still = false, onMenu }: {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const items = useNekoFurniture((s) => s.items);
   const held = useFurnitureHeld(), lamps = useLamps(), sky = useSkyLight(), accent = useAccent();
+  useShown(); // 다시 보이면 다시 그린다(아래 그리기는 그릴 때마다 돈다) — iOS 가 뒤에 있는 동안 캔버스를 비울 수 있다
   useEffect(() => { void useNekoFurniture.getState().load(); }, []);
   useEffect(() => {
     const el = ref.current;

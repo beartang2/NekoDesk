@@ -1658,6 +1658,35 @@ try {
     await p.close();
   }
 
+  // 12) 오래 뒤에 있다 오기(폰): iOS 가 캔버스 내용을 버려도 다시 보이면 고양이·산책 팻말이 다시 그려진다
+  {
+    const p = await open("?transparent=1");
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, cv = document.getElementById("stage"), sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+      const opaque = () => { const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data; let k = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) k++; return k; };
+      const show = (hidden) => {
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+        document.dispatchEvent(new Event("visibilitychange"));
+      };
+      n.draw();
+      const before = opaque();
+      show(true);
+      for (const k of ["body", "head"]) { const c = n.cat.coatTex[k].canvas; c.width = c.width; } // 털 무늬 캔버스가 비었다
+      show(false); await sleep(300);
+      n.draw();
+      const after = opaque();
+      n.setAway(true); await sleep(2000);
+      const sign = opaque();
+      show(true); cv.width = cv.width; show(false); await sleep(300); // 다 그린 팻말이 지워졌다
+      const signAfter = opaque();
+      delete document.hidden;
+      return { before, after, sign, signAfter };
+    });
+    check("뒤에 있다 오기: 비워진 털 무늬·팻말을 다시 그림", `고양이 ${r.before}→${r.after}px · 팻말 ${r.sign}→${r.signAfter}px`,
+      r.after > r.before * 0.95 && r.sign > 0 && r.signAfter > r.sign * 0.95);
+    await p.close();
+  }
+
   check("실행 오류", errors.length ? errors.slice(0, 3).join(" | ") : 0, errors.length === 0);
 } finally {
   await browser.close();
