@@ -1380,7 +1380,8 @@ function SyncSection() {
   const syncNow = () => run(async () => {
     const r = await syncApi.reconcile();
     const n = r.fetched + r.pushed + r.deleted;
-    setMatched(r.heavy ? "옛 서버라 전부 다시 맞추는 중입니다." : n ? `받음 ${r.fetched} · 올림 ${r.pushed} · 지움 ${r.deleted}` : "이미 맞습니다.");
+    // 옛 서버는 전부 다시 올리는 무거운 길을 주 1회만(그 사이엔 올림 0 — 보통 주고받기만, 우체부)
+    setMatched(r.heavy ? (r.pushed ? "옛 서버라 전부 다시 맞추는 중입니다." : "옛 서버라 가볍게 맞췄습니다.") : n ? `받음 ${r.fetched} · 올림 ${r.pushed} · 지움 ${r.deleted}` : "이미 맞습니다.");
   });
   const refresh = useCallback(() => { syncApi.status().then(setSt).catch(() => {}); }, []);
   useEffect(() => {
