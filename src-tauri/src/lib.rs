@@ -809,7 +809,8 @@ mod commands {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     #[tauri::command]
     pub async fn location_current(app: tauri::AppHandle) -> Result<String, AppError> {
-        crate::location::current(&app).await
+        // 실패 까닭만 로그에(성공 글엔 좌표가 있어 적지 않는다)
+        crate::location::current(&app).await.inspect_err(|e| log::warn!("위치 찾기 실패: {e}"))
     }
 
     #[tauri::command]
