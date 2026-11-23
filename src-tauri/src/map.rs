@@ -45,13 +45,15 @@ type Reply<T> = Result<T, String>;
 /// 지도 서버가 이만큼 답이 없으면 그만 기다린다.
 const WAIT: Duration = Duration::from_secs(15);
 
+// 실패는 까닭만 로그에 남긴다(배포판은 warn 부터, NekoDesk.log). 좌표는 적지 않는다 — 사용자 자리라서.
+
 #[tauri::command]
 pub async fn map_snapshot(app: tauri::AppHandle, lat: f64, lon: f64, span_m: f64, width: f64, height: f64, dark: bool) -> Result<MapSnapshot, AppError> {
     // 세로 거리는 span_m * height / width 라, 길쭉한 그림이면 그쪽도 본다.
     if !(width >= 1.0 && height >= 1.0 && on_map(lat, lon, span_m * (height / width).max(1.0))) {
         return Err(BAD_INPUT.into());
     }
-    ask(&app, move |tx| snapshot(lat, lon, span_m, width, height, dark, tx)).await
+    ask(&app, move |tx| snapshot(lat, lon, span_m, width, height, dark, tx)).await.inspect_err(|e| log::warn!("산책 지도 그림 실패: {e}"))
 }
 
 #[tauri::command]
@@ -59,12 +61,16 @@ pub async fn map_places(app: tauri::AppHandle, lat: f64, lon: f64, radius_m: f64
     if !on_map(lat, lon, radius_m * 2.0) {
         return Err(BAD_INPUT.into());
     }
-    ask(&app, move |tx| places(lat, lon, radius_m, tx)).await
+    let found = ask(&app, move |tx| places(lat, lon, radius_m, tx)).await.inspect_err(|e| log::warn!("산책 장소 찾기 실패: {e}"))?;
+    if found.is_empty() {
+        log::warn!("산책 장소가 근처에 하나도 없어 — 지도 없이 대체 경로로 걷는다");
+    }
+    Ok(found)
 }
 
 #[tauri::command]
 pub async fn map_walk_route(app: tauri::AppHandle, from: [f64; 2], to: [f64; 2]) -> Result<Vec<[f64; 2]>, AppError> {
-    ask(&app, move |tx| walk_route(from, to, tx)).await
+    ask(&app, move |tx| walk_route(from, to, tx)).await.inspect_err(|e| log::warn!("산책 길 찾기 실패: {e}"))
 }
 
 const BAD_INPUT: &str = "지도 요청 값이 이상해.";
@@ -207,8 +213,40 @@ fn png(shot: &MKMapSnapshot, width: f64, height: f64) -> Reply<String> {
     NSGraphicsContext::setCurrentContext(Some(&ctx));
     image.drawInRect(NSRect::new(NSPoint::new(0.0, 0.0), size));
     NSGraphicsContext::restoreGraphicsState_class();
+    let (w, h) = (rep.pixelsWide().max(0) as usize, rep.pixelsHigh().max(0) as usize);
+    let bitmap = rep.bitmapData();
+    if !bitmap.is_null() && tiles_missing(unsafe { std::slice::from_raw_parts(bitmap, rep.bytesPerRow() as usize * h) }, w, h, rep.bytesPerRow() as usize) {
+        return Err(NO_TILES.into());
+    }
     let data = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }.ok_or("지도 그림을 PNG 로 못 바꿨어.")?;
     Ok(general_purpose::STANDARD.encode(data.to_vec()))
+}
+
+/// 지도 조각을 못 받은 그림(macOS 27.3 베타에서 시스템 지도 서비스가 지도 자원을 못 찾을 때, 2026-11-23). MapKit 은 이걸 성공으로
+/// 준다 — 길·글자 없이 모눈 바탕만 있는 그림이다. 실패로 돌려 화면이 대체 그림(동심원·산책 중)을 쓰게 한다
+#[cfg(target_os = "macos")]
+const NO_TILES: &str = "지도 조각을 못 받아 모눈 바탕만 왔어(시스템 지도 서비스 문제 — 지도 앱도 같은지 확인)";
+/// 모눈 바탕은 4비트로 묶어 밝게 18색·어둡게 6색이다. 진짜 지도는 길·글자·장소 아이콘·공원 가장자리로 이보다 훨씬 많다.
+/// ponytail: 색 수만 본다 — 바다뿐인 지도처럼 정말 밋밋한 지도도 빈 그림으로 칠 수 있다(그러면 동심원이 보이고 로그에 남는다).
+/// 그런 일이 보이면 모눈 줄(한 줄 전체가 같은 색)까지 보게 고친다
+#[cfg(target_os = "macos")]
+const FEW_COLORS: usize = 24;
+
+/// RGBA 비트맵이 모눈 바탕뿐인가: 4비트로 묶은 색이 FEW_COLORS 보다 적다
+#[cfg(target_os = "macos")]
+fn tiles_missing(px: &[u8], w: usize, h: usize, stride: usize) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * stride + x * 4;
+            let Some(p) = px.get(i..i + 3) else { return false };
+            seen.insert(((p[0] >> 4) as u16) << 8 | ((p[1] >> 4) as u16) << 4 | (p[2] >> 4) as u16);
+            if seen.len() >= FEW_COLORS {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// 근처 장소 검색어. MKLocalPointsOfInterestRequest 는 한국에선 거의 비어 온다(시청 앞 2km 에 0곳,
@@ -335,6 +373,16 @@ fn walk_route(from: [f64; 2], to: [f64; 2], tx: Sender<Reply<Vec<[f64; 2]>>>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_bare_grid_counts_as_no_map() {
+        // 바탕 + 모눈 두 색(지도 조각 없음) → 빈 그림, 색이 고루 섞인 그림 → 지도
+        let (w, h) = (64, 64);
+        let grid: Vec<u8> = (0..w * h).flat_map(|i| match (i % w % 16, i / w % 16) { (0, _) | (_, 0) => [120, 120, 120, 255], (8, _) | (_, 8) => [220, 215, 210, 255], _ => [246, 243, 238, 255] }).collect();
+        assert!(super::tiles_missing(&grid, w, h, w * 4));
+        let map: Vec<u8> = (0..w * h).flat_map(|i| [(i * 7 % 256) as u8, (i * 13 % 256) as u8, (i * 29 % 256) as u8, 255]).collect();
+        assert!(!super::tiles_missing(&map, w, h, w * 4));
+    }
+
     #[test]
     fn distance_is_meters() {
         // 위도 0.01° ≈ 1112m, 서울 위도에서 경도 0.01° ≈ 882m.
