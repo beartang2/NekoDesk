@@ -113,6 +113,15 @@ export function wheelCircle(S, slotW) {
   return { dy: WHEEL_CY * u, r: WHEEL_RIM[1] * u, rIn: WHEEL_RIM[0] * u };
 }
 
+/**
+ * 상자 입구(px, 가운데·바닥 기준): 앞벽 왼쪽·오른쪽 끝 x0·x1, 앞벽 테두리 높이 rim(위가 음수). 안에 든 고양이를 테두리 아래에선
+ * 이 폭 밖을 잘라 몸·털이 상자 옆으로 안 비치게(사용자). 테두리 위(머리·귀·걸친 앞발)는 그대로
+ */
+export function boxOpening(S, slotW) {
+  const { u } = furnitureBox("box", S, slotW);
+  return { x0: -11 * u, x1: 11 * u, rim: -12 * u };
+}
+
 /** 올라앉는 면(px, 가운데 x·바닥 y 기준): 엔진이 캣타워·소파 위에 앉을 때. 칸 맞춤으로 줄면 면도 같이 */
 export function furnitureSurfaces(kind, S, slotW) {
   const { fit } = furnitureBox(kind, S, slotW), k = CAT * S * fit;

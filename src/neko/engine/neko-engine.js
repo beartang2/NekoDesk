@@ -3554,7 +3554,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         head: (anc) => [anc[0] - c.face * 10 * S * inn + c.face * 3 * S * look, lerp(anc[1], rim + A.hy * S, inn)], // 머리는 상자 안쪽으로
         feetW: A.pw * inn, feet: { [NEAR_FRONT]: paw(true), [FAR_FRONT]: paw(false) },
         pawFront: A.pw > 0.3 ? [FAR_FRONT, NEAR_FRONT] : null, pawBeans: false, // 내민 얼굴보다 앞에 보이게
-        tail: { base: 245, curl: 3, hook: 14, sway: 7, period: 3.5, still: 0.2, flick: [2, 4, 12, 0.4], dyn: TAIL_CALM },
+        // 상자 가구는 칸에 맞춰 작아 엉덩이가 상자 끝 가까이라, 세운 꼬리는 상자 밖으로 솟는다 — 몸에 붙여 눕혀 상자 안에(앞벽이 가린다)
+        tail: A.fbox ? calmTail(3, [4, 9, 0, 0.5]) : { base: 245, curl: 3, hook: 14, sway: 7, period: 3.5, still: 0.2, flick: [2, 4, 12, 0.4], dyn: TAIL_CALM },
       };
     },
   });
@@ -4503,13 +4504,27 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     drawDecor();
     drawActBack();
     if (wf) { const wc = FA.wheelCircle(S, wf.slotW); ctx.save(); ctx.beginPath(); ctx.arc(wf.x, BASE_Y + wc.dy, wc.r * (1 + 2.5 * (1 - wf.inV)), 0, TAU); ctx.clip(); }
+    // 상자 안(상자 놀이): 테두리 아래는 상자 앞벽 폭(바닥까지), 그 위는 머리 둘레만 보인다 — 상자는 칸에 맞춰 크기가 정해져 몸·털이
+    // 옆·바닥 밑으로 비쳤다(사용자: 몸통이 밖으로 빠져나옴). 상자 밖에서 솟은 꼬리·등도 안 보인다(테두리·상자 끝에서 잘린 꼬리가 떠 보였다).
+    // 머리·귀·수염·걸친 앞발은 상자보다 넓어도 그대로. 들고 날 땐 inV 로 자르는 자리를 넓혔다 좁힌다
+    const bf = !wf && furniture.find((f) => f.kind === "box" && f.inV > 0);
+    if (bf) {
+      // 테두리 선은 2·S 위로: 상자 밖 등 윗선이 테두리 높이에서 가는 줄로 비쳤다(상자 안은 앞벽 위로 보여도 상자 안이다)
+      const o = FA.boxOpening(S, bf.slotW), m = (1 - bf.inV) * W, rim = BASE_Y + o.rim - 2 * S, hr = 62 * S + m;
+      ctx.save(); ctx.beginPath();
+      ctx.rect(bf.x + o.x0 - m, rim - m, o.x1 - o.x0 + 2 * m, BASE_Y + S - rim + 2 * m); // 테두리 아래: 상자 폭, 바닥까지
+      const dy = rim + m - c.head.y; // 테두리 위: 머리 둘레 원의 테두리 위쪽(활꼴) — 원이 테두리 아래로 내려가 상자 옆 몸까지 보이지 않게
+      if (dy >= hr) { ctx.moveTo(c.head.x + hr, c.head.y); ctx.arc(c.head.x, c.head.y, hr, 0, TAU); }
+      else if (dy > -hr) { const a = Math.asin(dy / hr); ctx.moveTo(c.head.x - Math.cos(a) * hr, c.head.y + dy); ctx.arc(c.head.x, c.head.y, hr, Math.PI - a, TAU + a); ctx.closePath(); }
+      ctx.clip();
+    }
     composeCat();
 
     drawFace();
     // 입에 문 물건은 고양이와 같은 겹: 상자 앞벽·가구 앞 겹·캣휠 테·내민 앞발·앞에 숨기 물건이 고양이처럼 가린다
     // (맨 앞에 그리면 상자에 들어가 뒤질 때 문 물건만 상자 밖으로 보였다 — 사용자)
     drawCarry();
-    if (wf) ctx.restore();
+    if (wf || bf) ctx.restore();
     drawActFront();
     if (dreamC && dreamV > 0.01) DR.drawDream(ctx, c.head.x, c.head.y, S, { face: c.face, k: dreamV, t: reduced.matches ? 0 : time, dark: themeDark, W, H, edge: 3 * DPR, content: dreamC });
     drawDecor(ctx, true); // 뒤에 숨기: 고양이 앞에 오는 물건

@@ -1482,6 +1482,36 @@ try {
     await p.close();
   }
 
+  // 9-u2d) 상자 가구 안(0.1.28, 사용자: 상자에 들어가면 몸통이 밖으로 빠져나옴): 맥 방 폭 280(S 1.12, 상자가 칸에 맞춰 작다)·통통·긴 털도
+  //        들어가 있는 동안 테두리 아래로는 상자 앞벽 폭 밖에 고양이가 한 점도 안 보인다(머리는 테두리 위로 보인다)
+  {
+    const p = await open(`?w=280&h=326&scale=height&transparent=1`, { width: 400, height: 400 });
+    const r = await p.evaluate(async () => {
+      const FA = await import("/src/neko/engine/furniture-art.js");
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), g = cv.getContext("2d"), k = cv.width / n.W;
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(1.12); n.setAppearance({ build: "chubby", fur: "long" }); n.step(60);
+      n.setFurniture([{ id: "B", kind: "box", at: "sidebar", slot: 1 }]);
+      c.x = n.W * 0.3; n.step(60); const base = n.floorY, fx = n.W * 0.75, o = FA.boxOpening(n.S, n.W / 2);
+      n.act("box");
+      let frames = 0, out = 0, head = 0;
+      for (let i = 0; i < 120 * 14; i++) {
+        n.step(1);
+        const A = c.act; if (!(c.mode === "act" && A && A.t - A.ta > 1)) continue;
+        if (i % 12) continue;
+        n.draw(); frames++;
+        const y0 = Math.round((base + o.rim + 3 * n.S) * k), y1 = Math.round((base - 9 * n.S) * k), d = g.getImageData(0, y0, cv.width, y1 - y0).data;
+        for (let y = 0; y < y1 - y0; y++) for (let x = 0; x < cv.width; x++) {
+          const X = x / k; if (X > fx + o.x0 - 2 && X < fx + o.x1 + 2) continue;
+          if (d[(y * cv.width + x) * 4 + 3] > 40) out++;
+        }
+        head = Math.max(head, base + o.rim - c.head.y);
+      }
+      return { frames, out, headAbove: Math.round(head) };
+    });
+    check("상자 가구 안: 테두리 아래 상자 앞벽 폭 밖엔 고양이가 안 보인다(좁은 방·통통·긴 털), 머리는 테두리 위로", JSON.stringify(r), r.frames > 20 && r.out === 0 && r.headAbove > 0);
+    await p.close();
+  }
+
   // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {
