@@ -8,6 +8,7 @@ import { setHolding } from "./holding";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { stageS } from "./engine/stage-scale";
 import { startFurnitureHost } from "./furnitureHost";
+import { useNekoApp } from "./director/stores";
 
 /**
  * 네코는 앱에 하나다: 캔버스 하나 + 엔진 하나를 모듈에 두고, 자리(NekoSlot)가 바뀌면 캔버스만 옮긴다.
@@ -68,6 +69,8 @@ export function ensureNeko(): NekoController {
     ctrl.on("decorMove", ({ id, ...spot }) => useNekoGifts.getState().place(id, spot));
     ctrl.on("decorPlayed", ({ id, at }) => useNekoGifts.getState().played(id, at));
     ctrl.on("hold", setHolding); // 잡은 동안 폰 가장자리 손짓을 막는다
+    // 무대에서 같이 놀기(던진 장난감·낚싯대): 감독 놀아주기로 넘긴다 — 놀 수 있으면 감독이 chase·wand 를 시킨다
+    ctrl.on("play", ({ kind }) => useNekoApp.getState().play(kind));
     useNekoGifts.subscribe((s, prev) => { if (s.gifts !== prev.gifts) decor(); });
     void useNekoGifts.getState().load().then(decor);
     // 방·거실 벽의 날씨 창문: '창밖 구경'이 그 아래로 간다. 날씨가 없으면 커튼이 닫혀 있다(WeatherWindow)

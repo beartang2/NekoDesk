@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { onShapeImage } from "./engine/gift-shape";
-import { decorBoxes, decorDims, decorK, dragDecor, drawDecor, fallStep, hitDecorAt, spotOf } from "./engine/decor-draw";
+import { decorBoxes, decorDims, decorK, dragDecor, drawDecor, fallStep, hitDecorAt, rollStep, spotOf, throwVel, THROW_MIN, THROW_STILL } from "./engine/decor-draw";
 import { validateShape } from "./engine/gift-shape";
 import { stageS } from "./engine/stage-scale";
 import type { NekoDecorSpot } from "./engine/neko-engine";
+import type { DecorDrag } from "./engine/decor-draw";
 import { decorItems, useNekoGifts } from "./gifts";
 import { WeatherWindow } from "./WeatherWindow";
 import { FloorBand, SkyTint, WallPattern } from "./Wallpaper";
@@ -82,7 +83,7 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
   const items = useMemo(() => decorItems(gifts, "sidebar"), [gifts]);
   const view = useMemo(() => { const { floorY, S } = stageMetrics(w, h); return { W: w, H: h, floorY, scale: S }; }, [w, h]);
   // 끄는 중인 물건(물건 가운데 x, 바닥 y). 그리기가 무대 안으로 묶고 들어 올린 모양으로 맨 위에 그린다
-  const [drag, setDrag] = useState<{ id: string; x: number; bottom: number } | null>(null);
+  const [drag, setDrag] = useState<DecorDrag | null>(null);
   const press = useRef<{ id: string; pid: number; dx: number; dy: number; x0: number; y0: number; hold: number; spot: NekoDecorSpot | null; vx: number; vy: number; mt: number; x: number; bottom: number } | null>(null);
   const fallRaf = useRef(0);
   useEffect(() => () => { clearTimeout(press.current?.hold); cancelAnimationFrame(fallRaf.current); if (press.current) setHolding(false); }, []);
@@ -120,18 +121,27 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
     p.vx = (p.vx + (r.x - p.x) / ds) / 2; p.vy = (p.vy + (r.bottom - p.bottom) / ds) / 2; p.mt = now; p.x = r.x; p.bottom = r.bottom;
     p.spot = r.spot; setDrag({ id: p.id, x: r.x, bottom: r.bottom });
   };
-  /** 액자 아닌 물건을 벽 쪽에 놓았다: 엔진과 같은 중력·튕김으로 떨어뜨리고(fallStep) 내려앉은 바닥 자리를 적는다(사용자, 0.1.24) */
-  const dropToFloor = (p: NonNullable<typeof press.current>) => {
+  /**
+   * 액자 아닌 물건을 벽 쪽에 놓았다: 엔진과 같은 중력·튕김으로 떨어뜨리고(fallStep) 내려앉은 바닥 자리를 적는다(사용자, 0.1.24).
+   * roll(던지기, 사용자): 놓는 순간의 빠르기로 날아가 떨어지고 바닥에선 굴러가다(rollStep) 선 자리를 적는다. 네코가 없으니 쫓지는 않는다
+   */
+  const dropToFloor = (p: NonNullable<typeof press.current>, roll = false) => {
     const it = items.find((d) => d.id === p.id);
     if (!it) return;
     const shape = validateShape(it.shape), geom = { W: view.W, floorY: view.floorY, S: view.scale };
     const h = decorDims(shape, decorK(shape, it.size, it.scale, "sidebar", geom).k, geom.S).h, lim = 900 * geom.S;
-    const f = { x: p.x, bottom: p.bottom, vx: Math.max(-lim, Math.min(lim, p.vx)), vy: Math.max(-lim, Math.min(lim, p.vy)) };
-    let last = performance.now();
+    const [vx, vy] = roll ? throwVel(p.vx, p.vy, p.bottom, h, geom) : [Math.max(-lim, Math.min(lim, p.vx)), Math.max(-lim, Math.min(lim, p.vy))];
+    const f = { x: p.x, bottom: p.bottom, vx, vy };
+    let rolling: { x: number; vx: number; rot: number } | null = null, last = performance.now();
     const tick = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000); last = now;
-      if (fallStep(f, dt, geom)) { setDrag(null); useNekoGifts.getState().place(p.id, spotOf(f.x, f.bottom, h, geom)); return; }
-      setDrag({ id: p.id, x: f.x, bottom: f.bottom });
+      if (rolling) {
+        if (rollStep(rolling, dt, geom, h)) { setDrag(null); useNekoGifts.getState().place(p.id, spotOf(rolling.x, geom.floorY, h, geom)); return; }
+        setDrag({ id: p.id, x: rolling.x, bottom: geom.floorY, fly: true, rot: rolling.rot });
+      } else if (fallStep(f, dt, geom)) {
+        if (!roll || Math.abs(f.vx) <= 8 * geom.S) { setDrag(null); useNekoGifts.getState().place(p.id, spotOf(f.x, f.bottom, h, geom)); return; }
+        rolling = { x: f.x, vx: f.vx, rot: 0 };
+      } else setDrag({ id: p.id, x: f.x, bottom: f.bottom, fly: roll });
       fallRaf.current = requestAnimationFrame(tick);
     };
     fallRaf.current = requestAnimationFrame(tick);
@@ -140,7 +150,9 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
     const p = press.current;
     if (!p || e.pointerId !== p.pid) return;
     clearTimeout(p.hold); press.current = null; setHolding(false);
+    if (performance.now() - p.mt >= THROW_STILL) { p.vx = 0; p.vy = 0; } // 멈춰 있다 놓았다: 던지지 않는다
     const frame = items.find((d) => d.id === p.id)?.frame;
+    if (!frame && e.type === "pointerup" && p.spot && Math.hypot(p.vx, p.vy) > THROW_MIN * view.scale) { dropToFloor(p, true); return; } // 던지기
     if (p.spot?.surface === "wall" && !frame && e.type === "pointerup") { dropToFloor(p); return; } // 액자만 벽에 건다
     setDrag(null);
     if (p.spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, p.spot); // 움직이지 않고 떼면 그대로

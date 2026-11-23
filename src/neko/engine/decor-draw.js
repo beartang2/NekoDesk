@@ -102,6 +102,27 @@ export function fallStep(f, dt, g) {
   }
   return false;
 }
+/**
+ * 바닥에서 굴러간다(굴리기·던지기): 감쇠 1.6, 무대 끝에서 반만큼 튕기고 굴러간 만큼 돈다. 엔진과 빈 방 그림이 같이 쓴다.
+ * f = { x(물건 가운데), vx, rot } 를 고친다. h = 물건 높이(굴림 반지름 h/2). 서면 true
+ */
+export function rollStep(f, dt, g, h) {
+  const m = decorM(g.S) + h / 2;
+  f.x += f.vx * dt; f.vx *= Math.exp(-dt * 1.6); f.rot = (f.rot || 0) + (f.vx / (h / 2)) * dt;
+  if (f.x < m) { f.x = m; f.vx = Math.abs(f.vx) * 0.5; } else if (f.x > g.W - m) { f.x = g.W - m; f.vx = -Math.abs(f.vx) * 0.5; }
+  if (Math.abs(f.vx) < 8 * g.S) { f.vx = 0; return true; }
+  return false;
+}
+/**
+ * 던지기(사용자: 바닥 물건을 흔들다 던지면 네코가 쫓아간다): 놓는 순간 이 빠르기(무대 px/초 ÷ S)를 넘으면 그 속도로 날아간다 —
+ * 날다 떨어져 튕기고(fallStep) 바닥에선 굴러가 선다(rollStep). 느리면 지금처럼 그 자리에 놓는다. 액자는 안 던진다
+ */
+export const THROW_MIN = 520, THROW_MAX = 1400, THROW_STILL = 90; // THROW_STILL: 놓기 전 이만큼(ms) 손이 멈춰 있었으면 던지지 않는다
+/** 던지는 속도: THROW_MAX 로 묶고, 위로는 물건 꼭대기가 무대 위(10·S)를 안 넘을 만큼만 — 무대 밖으로 사라졌다 떨어지지 않게 */
+export function throwVel(vx, vy, bottom, h, g) {
+  const lim = THROW_MAX * g.S, up = Math.sqrt(2 * FALL_G * g.S * Math.max(0, bottom - h - 10 * g.S));
+  return [clamp(vx, -lim, lim), clamp(vy, -Math.min(lim, up), lim)];
+}
 export const clampDrag = (h, g, x, bottom) => [clamp(x, decorM(g.S), g.W - decorM(g.S)), clamp(bottom, h + 10 * g.S, g.floorY)];
 /** 끌어 들어 올린 모양: 조금 크고 가장자리 그림자가 더 흐리다. 바닥 가까이면 바닥 그림자 */
 const LIFT = 1.08;
@@ -146,7 +167,8 @@ function layoutAll(items, geom, drag) {
     const shape = validateShape(d.shape), dims = decorDims(shape, decorK(shape, d.size, d.scale, d.at, geom).k, geom.S), id = String(d.id);
     if (drag && String(drag.id) === id) {
       const [x, bottom] = clampDrag(dims.h, geom, drag.x, drag.bottom);
-      return { id, shape, L: { ...dims, x, bottom, onFloor: liftedOnFloor(bottom, geom) }, lifted: true };
+      // 던져 날아가거나 굴러가는 중(fly)은 들어 올린 모양 없이 돈다(rot)
+      return { id, shape, L: { ...dims, x, bottom, onFloor: liftedOnFloor(bottom, geom) }, lifted: !drag.fly, fly: !!drag.fly, rot: drag.rot || 0 };
     }
     const spot = { surface: d.surface === "wall" ? "wall" : "floor", u: clamp(d.u, 0, 1), v: clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1), at: d.at };
     const [x, bottom] = decorAt(spot, dims.h, geom, dims.w);
@@ -168,9 +190,9 @@ export function drawDecor(canvas, items, { W, H, floorY, scale, dpr = 1, dark = 
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, bw, bh);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const shadow = dark ? "rgba(0, 0, 0, 0.32)" : "rgba(20, 14, 24, 0.18)";
-  const all = layoutAll(items, geom, drag).filter((o) => !only || (!!o.wall && !o.lifted) === (only === "wall"));
-  for (const it of [...all.filter((o) => !o.lifted), ...all.filter((o) => o.lifted)]) {
-    paintDecor(g, it.shape, it.L, geom, it.lifted ? { shadow, sc: [LIFT, LIFT], edge: 7 * dpr } : { shadow, edge: 4 * dpr });
+  const all = layoutAll(items, geom, drag).filter((o) => !only || (!!o.wall && !o.lifted && !o.fly) === (only === "wall"));
+  for (const it of [...all.filter((o) => !o.lifted && !o.fly), ...all.filter((o) => o.lifted || o.fly)]) {
+    paintDecor(g, it.shape, it.L, geom, it.lifted ? { shadow, sc: [LIFT, LIFT], edge: 7 * dpr } : { shadow, edge: 4 * dpr, rot: it.rot });
   }
 }
 

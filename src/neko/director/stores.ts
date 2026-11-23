@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { CatEmotion } from "../../agent/types";
 import { IDLE_SESSION, reduceSession } from "./session";
-import type { NekoSessionState, NekoSignal, OutsideState, Reaction } from "./types";
+import type { NekoSessionState, NekoSignal, OutsideState, PlayKind, Reaction } from "./types";
 
 /**
  * 감독 입력을 담는 스토어 두 개(설계 docs/neko-p2-director.md §2).
@@ -39,15 +39,15 @@ export function onNekoSignal(fn: ReactionListener): () => void {
 interface NekoAppStore {
   feeding: { since: number } | null;
   fedAt: number | null;
-  playCue: { at: number; kind: "yarn" | "butterfly" } | null;
+  playCue: { at: number; kind: PlayKind } | null;
   game: { emotion: CatEmotion; until: number } | null;
   lastActiveAt: number;
   /** 쓰다듬은 횟수(상자에서 나오기 셈) */
   pets: number;
   /** wake=false 면 깨우지 않는다(졸 때 도는 기억 정리 — 앱을 쓰는 중으로 치지 않는다) */
   setFeeding: (on: boolean, wake?: boolean) => void;
-  /** 놀아주기: 털실·나비를 번갈아 */
-  play: () => void;
+  /** 놀아주기: 종류가 없으면 털실·나비를 번갈아(놀아주기 버튼). 던진 장난감 쫓기·낚싯대는 무대에서 엔진이 알린다 */
+  play: (kind?: PlayKind) => void;
   /** 게임 호환: 게임 훅의 onEmotionChange(감정, ms) 를 그대로 받는다 */
   setGameEmotion: (emotion: CatEmotion, ms?: number) => void;
   markActive: () => void;
@@ -89,10 +89,10 @@ export const useNekoApp = create<NekoAppStore>((set, get) => ({
     if (on && !cur) set(wake ? { feeding: { since: now }, lastActiveAt: now } : { feeding: { since: now } });
     else if (!on && cur) set({ feeding: null, fedAt: now });
   },
-  play: () => {
+  play: (kind) => {
     const now = performance.now();
     const prev = get().playCue?.kind;
-    set({ playCue: { at: now, kind: prev === "yarn" ? "butterfly" : "yarn" }, lastActiveAt: now });
+    set({ playCue: { at: now, kind: kind ?? (prev === "yarn" ? "butterfly" : "yarn") }, lastActiveAt: now });
   },
   setGameEmotion: (emotion, ms = 2500) => {
     const now = performance.now();
