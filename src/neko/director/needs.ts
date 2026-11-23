@@ -98,7 +98,7 @@ export interface SoloWhere {
   furniture?: string[]; lampWant?: boolean;
 }
 /** 놓인 가구가 있어야 하는 혼자 놀기(상자 놀이도 상자 가구로 옮겼다 — 사용자) */
-const NEEDS_FURNITURE: Partial<Record<string, string>> = { lamp: "lamp", cattower: "cattower", wheel: "wheel", sofa: "sofa", box: "box" };
+const NEEDS_FURNITURE: Partial<Record<string, string>> = { lamp: "lamp", cattower: "cattower", wheel: "wheel", sofa: "sofa", box: "box", table: "table" };
 /** 기울기 손잡이(docs/neko-mind.md §6.3) */
 export const LIKE_K = 1.6, TIRED_K = 0.5;
 
