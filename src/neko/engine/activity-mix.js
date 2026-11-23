@@ -68,6 +68,11 @@ export const MIX = {
   wheel: act("body move paws head tail", "move", "", solo(fill(-25, 5))),
   sofa: act("body move paws head tail", "move", "", solo(fill(10, 0, 0, 5))),
   table: act("body move paws head tail", "move", "", solo(fill(5, 10))), // 탁자(0.1.28): 올라가 앉고, 가끔 위 물건을 툭 밀어 떨어뜨린다
+  // 자유 가구 쓰임새 넷(docs/neko-furniture-free.md §4·§8): 그 장소의 자유 가구가 그 쓰임새를 내줄 때만 감독 후보(집사)
+  fperch: act("body move paws head tail", "move", "", solo(fill(10, 0, 0, 5))),
+  fhide: act("body paws head tail", "move", "", solo(fill(5, 10))),
+  fscratch: act("body move paws head tail", "move", "", solo(fill(-10, 0, 5))),
+  fbat: act("body move paws head tail", "move", "", solo(fill(-10, 10))),
   window: act("body head tail", "sit", "wall", solo(fill(3, 25))),
   think: act("body paws head tail", "sit", "", { fills: fill(0, 3) }),
   wait: act("body paws head tail", "sit"),

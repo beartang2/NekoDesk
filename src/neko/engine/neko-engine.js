@@ -3966,6 +3966,119 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     },
   });
 
+  /* ----- 자유 가구 쓰임새 넷(docs/neko-furniture-free.md §8): 올라앉기·들어가 숨기·발톱 긁기·매달린 것 치기 -----
+     산책에서 물어온 가구(kind "free")가 그 무대에서 내주는 쓰임새(usesOn, §7 다시 보기)를 쓴다. 고를 가구는 그 쓰임새를 내주는 놓인 것 중
+     가장 오래 안 논 것. 기본 가구 활동(소파·상자·캣타워)은 그대로. 좌표는 칸 단위 × u(한 칸 px, 칸 맞춤 반영) */
+  const freeU = (f) => FA.furnitureBox("free", S, f.slotW, f.shape).u;
+  function freeFor(use, A) {
+    const list = furniture.filter((f) => f.kind === "free" && f.usesOn?.some((x) => x.u === use));
+    if (!list.length) return null;
+    const cur = A.fid && list.find((f) => f.id === A.fid);
+    if (cur) return cur;
+    const f = list.reduce((a, b) => ((a.played ?? -1) <= (b.played ?? -1) ? a : b));
+    f.played = time; A.fid = f.id;
+    return f;
+  }
+  /** 숨기 입구(px, 가구 가운데·바닥 기준): boxOpening 과 같은 모양 */
+  function freeOpening(f) {
+    const io = f.usesOn?.find((x) => x.u === "inside"), u = freeU(f);
+    return io ? { x0: io.x0 * u, x1: io.x1 * u, rim: io.rim * u } : { x0: 0, x1: 0, rim: 0 };
+  }
+  /** 소파가 없을 때 잘 자리: 자유 가구 면 중 누운 고양이(키 1.1배)가 들어가는 것, 푹신한 것 먼저 */
+  function freeSleepTop() {
+    const tops = TOPS.filter((t) => furniture.some((f) => f.id === t.fid && f.kind === "free") && t.x1 - t.x0 >= 110 * S);
+    return tops.find((t) => t.soft) || tops[0] || null;
+  }
+  const isFree = (fid) => furniture.some((f) => f.id === fid && f.kind === "free");
+  function freeStand(A, x, dir) { // 바닥에서 x 에 dir 쪽을 보고 선다(가구 위면 먼저 내려온다). 섰으면 true
+    const c = cat;
+    if (c.perch) { if (!c.hopDir) hopDown(c.x < (c.perch.x0 + c.perch.x1) / 2 ? -1 : 1); return false; }
+    if (!approachX(x, 4)) return false;
+    if (c.face !== dir) { c.face = dir; setMode("idle"); return false; }
+    return true;
+  }
+  defineActivity("fperch", { // 위로 한 면씩(캣타워처럼) 꼭대기까지, 거기서 앉거나 식빵 — 푹신한 면이면 먼저 꾹꾹이. 끝나면 내려온다
+    name: "가구 위에 올라앉기", label: "가구 위에 올라앉는 중", roam: true, perchOk: true,
+    start(A) { A.sitAs = Math.random() < 0.5 ? "sit" : "loaf"; A.stage = "up"; A.st = 0; A.kneaded = false; },
+    wander(A) {
+      const c = cat, f = freeFor("perch", A), tiers = topsOf(f).sort((a, b) => b.y - a.y); // 아래 면부터
+      if (!f || !tiers.length) { endAct(); return; }
+      const on = c.perch && c.perch.fid === f.id ? tiers.findIndex((t) => t.id === c.perch.id) : -1, next = tiers[on + 1];
+      if (next) { goOnto(A, next); return; }
+      if (c.mode === "idle" && c.modeT > 0.2) { A.stage = c.perch && c.perch.soft && !A.kneaded ? "knead" : "rest"; A.kneaded = true; A.st = 0; setMode("act"); }
+    },
+    step(A, dt) { if (cat.mode !== "act") return; A.st += dt; if (A.stage === "knead" && A.st > 2.6) { A.stage = "rest"; A.st = 0; } },
+    pose(A, ramp) {
+      if (A.stage === "knead") { // 앞발을 번갈아 꾹꾹(담요 없이 면 위에서)
+        const c = cat, top = floorY - 1 * S, ph = A.st * TAU * 1.5, lift = (k) => Math.max(0, Math.sin(ph + k * Math.PI)) * 6 * S, x = ahead(26);
+        return { tilt: -0.05, dy: 2 * ramp, ear: 0.18, expr: "happy", feetW: ramp, feet: { [NEAR_FRONT]: () => [x + c.face * 6 * S, top - lift(0)], [FAR_FRONT]: () => [x - c.face * 2 * S, top - 2 * S - lift(1)] }, tail: calmTail(4) };
+      }
+      return A.sitAs === "sit" ? { sit: true, ear: 0, lid: 0.25, expr: "idle", tail: sitTail({ sway: 2, period: 5, still: 0.3 }) } : { loaf: true, ear: 0.02, lid: 0.45, expr: "idle", tail: calmTail(6) };
+    },
+    end() { if (cat.perch && isFree(cat.perch.fid)) hopDown(cat.x < W / 2 ? 1 : -1); },
+  });
+  defineActivity("fhide", { // 입구로 쏙 들어가 상자 놀이처럼 머리만 내민다(앞 겹·자르기는 상자와 같은 길)
+    name: "가구 안에 숨기", label: "가구 안에 숨는 중", roam: true,
+    start(A) { A.ph = "peek"; A.pt = 0; A.dur = 1.6; A.hy = 6; A.hv = 0; A.pw = 0; A.ta = 1e9; },
+    wander(A) {
+      const c = cat, f = freeFor("inside", A);
+      if (!f || !f.usesOn.some((x) => x.u === "inside")) { endAct(); return; }
+      const o = freeOpening(f);
+      A.box = { x: f.x + (o.x0 + o.x1) / 2, w: o.x1 - o.x0, h: -o.rim }; A.fbox = f; // 상자 놀이 자세가 쓰는 칸(fbox 면 꼬리를 눕힌다)
+      if (c.perch) { if (!c.hopDir) hopDown(c.x < (c.perch.x0 + c.perch.x1) / 2 ? -1 : 1); return; }
+      if (approachX(A.box.x - c.face * 7 * S, 3)) { A.ta = A.t; setMode("act"); }
+    },
+    step(A, dt) { actOf("box").step(A, dt); },
+    pose(A, ramp) { return actOf("box").pose(A, ramp); },
+  });
+  defineActivity("fscratch", { // 그 옆면 앞 바닥에 서서 뒷발로 서고, 앞발을 번갈아 옆면에 대고 내린다. 한 판 긁고 잠깐 앉았다 다시
+    name: "가구에 발톱 긁기", label: "가구에 발톱 긁는 중", roam: true,
+    start(A) { A.stage = "go"; A.st = 0; A.side = null; },
+    wander(A) {
+      const f = freeFor("scratch", A), list = f ? f.usesOn.filter((x) => x.u === "scratch") : [];
+      if (!list.length) { endAct(); return; }
+      const sc = list.find((x) => x.side === A.side) || list[Math.floor(Math.random() * list.length)], u = freeU(f), sx = f.x + sc.x * u, dir = sc.side === "left" ? 1 : -1;
+      A.side = sc.side; A.sx = sx; A.top = BASE_Y + sc.top * u; A.dir = dir;
+      if (freeStand(A, clamp(sx - dir * 22 * S, walkLo(), walkHi()), dir)) { A.stage = "scratch"; A.st = 0; setMode("act"); }
+    },
+    step(A, dt) {
+      if (cat.mode !== "act") return;
+      A.st += dt;
+      if (A.stage === "scratch" && A.st > 3.2) { A.stage = "rest"; A.st = 0; }
+      else if (A.stage === "rest" && A.st > rand(2, 3.5)) { A.stage = "go"; setMode("idle"); }
+    },
+    look(A) { return A.sx ? [A.sx, (A.top + BASE_Y) / 2] : null; },
+    pose(A, ramp) {
+      if (A.stage !== "scratch") return { sit: true, ear: 0.05, lid: 0.3, expr: "idle", tail: sitTail({ sway: 2, period: 5, still: 0.3 }) };
+      const ph = A.st * TAU * 1.56, hi = Math.max(A.top + 6 * S, BASE_Y - 72 * S), paw = (o) => [A.sx - A.dir * 1 * S, lerp(BASE_Y - 30 * S, hi, 0.5 + 0.5 * Math.sin(ph + o))];
+      return { tilt: -0.32 * ramp, ear: 0.12, expr: "curious", lid: 0.1, feetW: ramp, feet: { [NEAR_FRONT]: () => paw(0), [FAR_FRONT]: () => paw(Math.PI) }, reach: { [NEAR_FRONT]: 1.3, [FAR_FRONT]: 1.3 } };
+    },
+  });
+  defineActivity("fbat", { // 매달린 점 아래에 서서 고개를 들고 앞발로 톡톡(그림은 안 흔든다 — 멈춘 층이다). 한 판 치고 잠깐 앉았다 다시
+    name: "매달린 것 치기", label: "매달린 것 치는 중", roam: true,
+    start(A) { A.stage = "go"; A.st = 0; },
+    wander(A) {
+      const c = cat, f = freeFor("bat", A), b = f && f.usesOn.find((x) => x.u === "bat");
+      if (!b) { endAct(); return; }
+      const u = freeU(f), bx = f.x + b.x * u, by = BASE_Y + b.y * u, dir = Math.sign(bx - c.x) || c.face;
+      A.bx = bx; A.by = by;
+      if (freeStand(A, clamp(bx - dir * 20 * S, walkLo(), walkHi()), dir)) { A.stage = "bat"; A.st = 0; setMode("act"); }
+    },
+    step(A, dt) {
+      if (cat.mode !== "act") return;
+      A.st += dt;
+      if (A.stage === "bat" && A.st > 3) { A.stage = "rest"; A.st = 0; }
+      else if (A.stage === "rest" && A.st > rand(2, 3.5)) { A.stage = "go"; setMode("idle"); }
+    },
+    look(A) { return A.bx ? [A.bx, A.by] : null; },
+    pose(A, ramp) {
+      if (A.stage !== "bat") return { sit: true, ear: 0.05, lid: 0.3, expr: "idle", look: [A.bx, A.by], tail: sitTail({ sway: 4, period: 2, still: 0.2 }) };
+      const u = A.st % 0.6, near = u < 0.3, k = smooth(near ? u / 0.3 : 1 - (u - 0.3) / 0.3), rest = [ahead(24), BASE_Y - 40 * S], hit = [A.bx, A.by + 3 * S];
+      const pt = [lerp(rest[0], hit[0], k), lerp(rest[1], hit[1], k)];
+      return { tilt: -0.3 * ramp, ear: -0.1, expr: "curious", look: [A.bx, A.by], feetW: ramp, feet: { [NEAR_FRONT]: () => pt }, reach: { [NEAR_FRONT]: 1.45 } };
+    },
+  });
+
   defineActivity("sofa", { // 소파에 올라가 앉거나 식빵(졸리면 누워 잔다 — 그건 잠 쪽 sleepToSofa)
     name: "소파", label: "소파에서 쉬는 중", roam: true,
     start(A) { A.sitAs = Math.random() < 0.5 ? "sit" : "loaf"; },
@@ -3984,7 +4097,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   /** 졸려 앉거나 누우려 할 때 소파가 있으면 먼저 소파 위로(사용자: 소파가 있으면 졸릴 때 소파에서 잔다). 가는 중이면 true */
   const sleepGo = {};
   function sleepToSofa() {
-    const c = cat, top = topsOf(furnOf("sofa"))[0];
+    const c = cat, top = topsOf(furnOf("sofa"))[0] || freeSleepTop();
     if (!top || c.mood !== "sleepy" || c.act || fileAt) return false;
     if (c.perch && c.perch.id === top.id) return false;
     goOnto(sleepGo, top);
@@ -4791,10 +4904,10 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     // 상자 안(상자 놀이): 테두리 아래는 상자 앞벽 폭(바닥까지), 그 위는 머리 둘레만 보인다 — 상자는 칸에 맞춰 크기가 정해져 몸·털이
     // 옆·바닥 밑으로 비쳤다(사용자: 몸통이 밖으로 빠져나옴). 상자 밖에서 솟은 꼬리·등도 안 보인다(테두리·상자 끝에서 잘린 꼬리가 떠 보였다).
     // 머리·귀·수염·걸친 앞발은 상자보다 넓어도 그대로. 들고 날 땐 inV 로 자르는 자리를 넓혔다 좁힌다
-    const bf = !wf && furniture.find((f) => f.kind === "box" && f.inV > 0);
+    const bf = !wf && furniture.find((f) => (f.kind === "box" || f.kind === "free") && f.inV > 0);
     if (bf) {
-      // 테두리 선은 2·S 위로: 상자 밖 등 윗선이 테두리 높이에서 가는 줄로 비쳤다(상자 안은 앞벽 위로 보여도 상자 안이다)
-      const o = FA.boxOpening(S, bf.slotW), m = (1 - bf.inV) * W, rim = BASE_Y + o.rim - 2 * S, hr = 62 * S + m;
+      // 테두리 선은 2·S 위로: 상자 밖 등 윗선이 테두리 높이에서 가는 줄로 비쳤다(상자 안은 앞벽 위로 보여도 상자 안이다). 자유 가구는 숨기 입구로
+      const o = bf.kind === "box" ? FA.boxOpening(S, bf.slotW) : freeOpening(bf), m = (1 - bf.inV) * W, rim = BASE_Y + o.rim - 2 * S, hr = 62 * S + m;
       ctx.save(); ctx.beginPath();
       ctx.rect(bf.x + o.x0 - m, rim - m, o.x1 - o.x0 + 2 * m, BASE_Y + S - rim + 2 * m); // 테두리 아래: 상자 폭, 바닥까지
       const dy = rim + m - c.head.y; // 테두리 위: 머리 둘레 원의 테두리 위쪽(활꼴) — 원이 테두리 아래로 내려가 상자 옆 몸까지 보이지 않게
@@ -5197,6 +5310,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     layoutFurniture();
     const bs = actOf("box"); if (bs) bs.roam = !!furnOf("box"); // 상자 가구가 있으면 상자 놀이는 그리로 걸어간다
     if (cat.act && FURN_ACTS.has(cat.act.key) && !furnOf(cat.act.key)) endAct(); // 그 가구를 치웠다
+    const FREE_USE = { fperch: "perch", fhide: "inside", fscratch: "scratch", fbat: "bat" };
+    if (cat.act && FREE_USE[cat.act.key] && !furniture.some((f) => f.kind === "free" && f.usesOn?.some((x) => x.u === FREE_USE[cat.act.key]))) endAct(); // 자유 가구를 치웠다
     syncFurnHeld();
   }
   /** 활동 키 → 가구(이 장소에 놓인 것) */
@@ -5237,6 +5352,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const c = cat;
     if (f.kind === "wheel") return !!c.perch && c.perch.fid === f.id;
     if (f.kind === "box") return !!c.act && c.act.key === "box" && !!c.act.fbox && c.act.fbox.id === f.id && c.mode === "act";
+    if (f.kind === "free") return !!c.act && c.act.key === "fhide" && c.act.fid === f.id && c.mode === "act" && c.act.t - c.act.ta > 0;
     return false;
   }
   /** 들고 날 때 앞 겹이 튀지 않게 이만큼(초) 서서히(f.inV 0~1) */

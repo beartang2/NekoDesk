@@ -68,6 +68,8 @@ export type NekoActivity =
   | "wheel"
   | "sofa"
   | "table"
+  // 자유 가구 쓰임새(docs/neko-furniture-free.md §8): 올라앉기·들어가 숨기·발톱 긁기·매달린 것 치기
+  | "fperch" | "fhide" | "fscratch" | "fbat"
   // 창 탐험(캣타워, 화면 모드)
   | "tower"
   // 쳐다보기: 애정이 낮을 때(docs/neko-activity-mix.md §2.3)

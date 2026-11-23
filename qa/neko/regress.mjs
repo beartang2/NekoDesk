@@ -1700,6 +1700,35 @@ try {
     await p.close();
   }
 
+  // 9-u2i) 자유 가구(0.1.28, docs/neko-furniture-free.md): 쓰임새 넷짜리 모양(checkFurniture)을 그리고 furniture 값에 켜진 쓰임새를 싣는다.
+  //        fperch 는 면 위에 올라가(푹신하면 꾹꾹이) 쉬고, fhide 는 입구 안에서 앞 겹이 가린다(inV), fscratch·fbat 는 그 앞에 서서 한 판씩
+  {
+    const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
+    const r = await p.evaluate(async () => {
+      const FU = await import("/src/neko/furnitureUses.ts");
+      const n = window.__neko, c = n.cat, out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
+      const raw = { v: 1, parts: [
+        { t: "rrect", x: 0, y: -6.5, w: 20, h: 13, rad: 1, rot: 0, c: "brown" }, { t: "rrect", x: 0, y: -5, w: 12, h: 8, rad: 3, rot: 0, c: "brown.dark" },
+        { t: "rrect", x: 0, y: -2.5, w: 16, h: 5, rad: 0.8, rot: 0, c: "brown.light" }, { t: "rrect", x: 0, y: -13.6, w: 22, h: 1.6, rad: 0.7, rot: 0, c: "red" },
+        { t: "line", pts: [[10, -13], [14.5, -13], [14.5, -10]], w: 0.4, c: "brown.dark" }, { t: "circle", x: 14.5, y: -9.2, r: 1, c: "yellow" }] };
+      const chk = FU.checkFurniture(raw, [{ u: "perch", y: -14.4, x0: -10, x1: 10, soft: true }, { u: "inside", x0: -6, x1: 6, rim: -5, front: [2] }, { u: "scratch", side: "left", x: -10, top: -12 }, { u: "bat", x: 14.5, y: -9.2 }]);
+      n.setFurniture([{ id: "F", kind: "free", at: "dock", slot: 1, shape: chk.shape, uses: chk.uses }]);
+      out.uses = n.furniture[0].uses.join();
+      for (const key of ["fperch", "fhide", "fscratch", "fbat"]) {
+        n.act(null); for (let i = 0; i < 120 * 3 && n.perch; i++) n.step(1); c.x = n.W * 0.1; n.step(60);
+        n.act(key); const seen = new Set(); let inV = 0;
+        for (let i = 0; i < 120 * 14; i++) { n.step(1); const A = c.act; if (A) seen.add(A.stage || A.ph); inV = Math.max(inV, n.furniture[0].inV); }
+        out[key] = { seen: [...seen].join(), perch: n.perch, act: n.activity, inV: +inV.toFixed(2) };
+      }
+      return out;
+    });
+    check("자유 가구: 쓰임새 넷이 켜지고, 올라앉기(꾹꾹이)·숨기(앞 겹)·긁기·치기가 그 자리에서", JSON.stringify(r),
+      r.uses === "perch,inside,scratch,bat" && r.fperch.perch === "f:F:0" && /knead/.test(r.fperch.seen) && r.fhide.act === "fhide" && r.fhide.inV === 1 &&
+        /scratch/.test(r.fscratch.seen) && /bat/.test(r.fbat.seen));
+    await p.close();
+  }
+
   // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {
