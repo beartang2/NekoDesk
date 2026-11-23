@@ -1358,6 +1358,13 @@ function SyncSection() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [ask, setAsk] = useState<SyncAsk | null>(null);
+  const [matched, setMatched] = useState("");
+  const reconcile = () => run(async () => {
+    const r = await syncApi.reconcile();
+    setMatched(r.heavy
+      ? "서버가 이전 버전이라 기록을 전부 다시 맞추는 중입니다. 조금 걸립니다."
+      : `다시 맞췄습니다. 받은 것 ${r.fetched}개, 올린 것 ${r.pushed}개, 지운 것 ${r.deleted}개.`);
+  });
   const refresh = useCallback(() => { syncApi.status().then(setSt).catch(() => {}); }, []);
   useEffect(() => {
     refresh();
@@ -1407,11 +1414,16 @@ function SyncSection() {
             <button className="settings-btn settings-btn--ghost" disabled={busy || !st.enabled} onClick={() => void run(() => syncApi.now())}>
               지금 동기화
             </button>
+            <button className="settings-btn settings-btn--ghost" disabled={busy || !st.enabled} onClick={() => void reconcile()}
+              title="서버에 있는 기록과 이 기기를 견줘 빠진 것을 받고 올립니다. 하루 한 번은 저절로 합니다">
+              다시 맞추기
+            </button>
             <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void run(async () => setPairing(await syncApi.pairMake(hasClaude && withClaude)))}>
               기기 연결 코드 만들기
             </button>
             <button className="settings-btn settings-btn--ghost" disabled={busy} onClick={() => void loadDevices()}>연결된 기기</button>
           </div>
+          {matched && <p className="settings-section__desc">{matched}</p>}
           {hasClaude && (
             <label className="settings-section__desc">
               <input type="checkbox" checked={withClaude} onChange={(e) => setWithClaude(e.target.checked)} />

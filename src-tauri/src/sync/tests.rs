@@ -770,3 +770,125 @@ fn resent_old_messages_do_not_revive_a_session_another_device_auto_deleted() {
     apply_all(&a, "A", &push_all(&b, "B"));
     assert!(session_ids(&a).is_empty(), "다시 올리던 옛 말로는 되살리지 않는다");
 }
+
+/// 서버 흉내(다시 맞추기용): 받아들인 기록을 (coll, id) 별로 쥔다. 같은 번호는 (ts, 기기) 가 큰 것, 사용자가 지운 세션은 늘 이긴다
+#[derive(Default)]
+struct Store(std::collections::BTreeMap<(String, String), Record>);
+impl Store {
+    fn take(&mut self, recs: Vec<Record>) {
+        for r in recs {
+            let k = (r.coll.clone(), r.id.clone());
+            let keep = match self.0.get(&k) {
+                Some(o) if o.coll == "session" && o.deleted == 1 && o.cut.is_none() => false,
+                Some(o) if r.coll == "msg" => o.ts < 0,
+                Some(o) => (r.ts, r.device.as_str()) > (o.ts, o.device.as_str()) || (r.coll == "session" && r.deleted == 1 && r.cut.is_none()),
+                None => true,
+            };
+            if keep {
+                self.0.insert(k, r);
+            }
+        }
+    }
+    fn heads(&self) -> Vec<reconcile::Head> {
+        self.0.values().map(|r| reconcile::Head { coll: r.coll.clone(), id: r.id.clone(), parent: r.parent.clone(), ts: r.ts, device: r.device.clone(), deleted: r.deleted, cut: r.cut }).collect()
+    }
+    /// 다시 맞추기(reconcile::reconcile 에서 네트워크만 뺀 것): 머리를 견주고, 지움 표시를 적용하고, 고른 기록을 받는다
+    fn reconcile(&self, c: &Connection, me: &str) -> reconcile::Plan {
+        let plan = reconcile::plan(c, me, &self.heads()).unwrap();
+        let mut ch = Changes::default();
+        for t in &plan.tombs {
+            apply(c, me, &KEY, t, &mut ch).unwrap();
+        }
+        for k in &plan.fetch {
+            apply(c, me, &KEY, &self.0[k], &mut ch).unwrap();
+        }
+        plan
+    }
+}
+
+/// 기기 이름을 붙여 올린다(서버가 하듯)
+fn upload(c: &Connection, me: &str, s: &mut Store) {
+    let recs: Vec<Record> = push_all(c, me).into_iter().map(|mut r| { r.device = me.into(); r }).collect();
+    s.take(recs);
+}
+
+#[test]
+fn records_lost_on_one_side_come_back_after_reconcile() {
+    let (a, b, mut s) = (db(), db(), Store::default());
+    session_put(&a, "s", "같이 보는 대화", 1).unwrap();
+    conversations::save(&a, "s", "user", "안녕", None, None).unwrap();
+    session_put(&a, "bye", "지울 대화", 2).unwrap();
+    upload(&a, "A", &mut s);
+    apply_all(&b, "B", &s.0.values().cloned().collect::<Vec<_>>());
+    // 맥(a)에서 이미지 대화를 썼는데 서버에 조용히 안 갔다(올린 것으로 찍혔지만 서버엔 없다)
+    session_put(&a, "img", "이미지 대화", 3).unwrap();
+    conversations::save(&a, "img", "user", "그림 봐", None, None).unwrap();
+    push_all(&a, "A");
+    // 폰(b)에서 지운 것을 맥은 못 받았다(시각이 겹치지 않게 조금 뒤에)
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    session_delete(&b, "bye").unwrap();
+    upload(&b, "B", &mut s);
+    assert_ne!(session_ids(&a), session_ids(&b), "갈라졌다");
+
+    // 맥이 다시 맞춘다: 지운 세션을 지우고, 서버에 없는 이미지 대화를 올릴 거리로 찍는다
+    let plan = s.reconcile(&a, "A");
+    assert_eq!((plan.tombs.len(), plan.pushed), (1, 2), "지움 하나, 올릴 것 둘(세션·말)");
+    upload(&a, "A", &mut s);
+    // 폰이 다시 맞춘다: 서버에만 있는 이미지 대화를 받는다
+    let plan = s.reconcile(&b, "B");
+    assert_eq!(plan.fetch.len(), 2);
+    assert_eq!(session_ids(&a), session_ids(&b));
+    assert_eq!(session_ids(&a), ["img", "s"]);
+    assert_eq!(conversations::load(&b, "img").unwrap().len(), 1);
+    // 지운 세션에 늦게 적힌 말(서버는 안 받는다)은 매번 다시 올릴 거리가 되지 않는다
+    conversations::save(&a, "bye", "assistant", "늦은 답", None, None).unwrap();
+    push_all(&a, "A");
+    // 다 맞은 뒤엔 할 일이 없다(받은 지움을 적용하며 내 표시 시각이 새로 찍혀도)
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    for c in [&a, &b] {
+        let p = s.reconcile(c, if std::ptr::eq(c, &a) { "A" } else { "B" });
+        assert!(p.fetch.is_empty() && p.tombs.is_empty() && p.pushed == 0, "{p:?}");
+    }
+}
+
+/// wrangler dev 에 대고 다시 맞추기(/v1/heads·/v1/fetch): 한쪽이 잃은 말을 다시 받고, 조용히 안 올라간 말을 다시 올린다.
+/// 손으로: cd server && npm run dev, 그리고 cargo test --lib sync::tests::live_reconcile -- --ignored
+#[test]
+#[ignore]
+fn live_reconcile() {
+    tauri::async_runtime::block_on(async {
+        let setup = std::env::var("SETUP_TOKEN").unwrap_or_else(|_| "dev-setup-token".into());
+        let sa = device(serde_json::json!({ "name": "A", "setup_token": setup })).await;
+        #[derive(Deserialize)]
+        struct Code { code: String }
+        let code: Code = call(reqwest::Method::POST, &sa.url, "/v1/pair", Some(&sa.token), &serde_json::json!({})).await.unwrap();
+        let sb = device(serde_json::json!({ "name": "B", "pair_code": code.code })).await;
+        let (a, b) = (Mutex::new(db()), Mutex::new(db()));
+        let s = format!("rec-{:x}", now_ms());
+        {
+            let c = a.lock().unwrap();
+            session_put(&c, &s, "다시 맞출 대화", now_ms()).unwrap();
+            conversations::save(&c, &s, "user", "첫 말", None, None).unwrap();
+        }
+        round(&a, &sa, 0).await.unwrap();
+        round(&b, &sb, 0).await.unwrap();
+        // B 가 그 말을 잃었다(사본이 사라짐). A 의 새 말은 올린 것으로 찍혔지만 서버엔 없다
+        b.lock().unwrap().execute("DELETE FROM conversation_messages WHERE session_id = ?1", [&s]).unwrap();
+        {
+            let c = a.lock().unwrap();
+            conversations::save(&c, &s, "user", "둘째 말", None, None).unwrap();
+            c.execute("UPDATE sync_meta SET dirty = 0 WHERE coll = 'msg'", []).unwrap();
+        }
+        let (out, _) = reconcile::reconcile(&a, &sa).await.unwrap();
+        assert_eq!((out.pushed, out.heavy), (1, false), "{out:?}");
+        round(&a, &sa, 0).await.unwrap();
+        let (out, ch) = reconcile::reconcile(&b, &sb).await.unwrap();
+        assert!(out.fetched >= 2, "{out:?}"); // 같은 서버에서 도는 다른 시험의 기록도 받을 수 있다
+        assert!(ch.sessions.contains(&s));
+        let got: Vec<_> = conversations::load(&b.lock().unwrap(), &s).unwrap().into_iter().map(|m| m.content).collect();
+        assert_eq!(got, ["첫 말", "둘째 말"]);
+        // 다 맞은 뒤엔 올릴 것이 없다
+        let (out, _) = reconcile::reconcile(&b, &sb).await.unwrap();
+        assert_eq!(out.pushed, 0, "{out:?}");
+    });
+}

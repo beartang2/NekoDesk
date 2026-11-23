@@ -1874,6 +1874,7 @@ pub fn run() {
             sync::run::sync_status,
             sync::run::sync_enable,
             sync::run::sync_now,
+            sync::run::sync_reconcile,
             sync::run::sync_setup,
             sync::run::sync_pair_make,
             sync::run::sync_pair_join,

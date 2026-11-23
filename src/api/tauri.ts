@@ -293,10 +293,14 @@ export interface SyncStatus {
 /** 백엔드가 다 맞춘 뒤 보내는 이벤트. 바뀐 종류와 메시지가 바뀐 세션 */
 export const SYNC_CHANGED = "sync-changed";
 export interface SyncChanged { colls: string[]; sessions: string[]; first: boolean }
+/** 서버와 다시 맞춘 결과. heavy: 옛 서버라 전부 다시 올리고 받는 중(개수는 모른다) */
+export interface SyncReconcile { fetched: number; pushed: number; deleted: number; heavy: boolean }
 export const syncApi = {
   status: () => invoke<SyncStatus>("sync_status"),
   enable: (on: boolean) => invoke<void>("sync_enable", { on }),
   now: () => invoke<void>("sync_now"),
+  /** 서버에 있는 기록 목록과 이 기기 사본을 견줘 빠진 것을 받고 올리고 지운다(하루 한 번 저절로도 한다) */
+  reconcile: () => invoke<SyncReconcile>("sync_reconcile"),
   /** 첫 기기: 배포 때 정한 SETUP_TOKEN 으로 등록 */
   setup: (url: string, setupToken: string) => invoke<void>("sync_setup", { url, setupToken }),
   /** 다른 기기에 붙여넣을 짝 문자열(10분) */
