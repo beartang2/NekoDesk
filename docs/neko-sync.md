@@ -136,6 +136,11 @@
 
 - `neko_appearance`(외형), `neko_name`(이름), `neko_persona`(성격과 말투), `user_profile`(사용자 프로필), `session_retention`(오래된 대화 지우기).
 - 이름·성격·프로필·지우기 설정은 지금 localStorage 에 있다. 2단계에서 settings DB 로 옮기고, 화면은 nekoStore 처럼 localStorage 를 먼저 읽고 DB 값으로 덮는다.
+- 0.1.30(마이그레이션 15, 사용자: 벽지가 맥이랑 다르다): `neko_wallpaper`(벽지), `memory_cap`(기억 상한), `memory_tidy`(쉴 때 기억 정리 켜기 — "on"/"off").
+  - 화면 localStorage 에만 있던 값이다. 켤 때(`hydrateSyncedSettings`) DB 에 아직 없으면 그 기기에서 사용자가 고른 값만 올린다. 고른 적 없는 기본값은 안 올려 다른 기기 값을 안 덮는다.
+  - 두 기기가 다르게 골라 뒀으면 나중에 올린 쪽이 이긴다. 새로 짝 맞춘 기기는 양보한다(`yield_settings`).
+  - 받은 값은 이 앱이 아는 값으로 맞춰 화면에 바로 쓴다(모르는 벽지는 무늬 없음, 상한은 50–2000). 다른 창(맥 선물함)은 localStorage 알림으로 다시 읽는다.
+  - 옛 버전은 모르는 키라 버리고 제 localStorage 값을 그대로 쓴다.
 
 맞추지 않는 것
 

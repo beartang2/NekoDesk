@@ -77,21 +77,27 @@ const SYNCED = {
   systemPrompt: "neko_persona",
   userProfile: "user_profile",
   sessionRetention: "session_retention",
+  // 0.1.30(사용자: 벽지가 맥이랑 다르다) — 벽지·기억 상한·쉴 때 기억 정리 켜기도 맥·폰 같이(마이그레이션 15)
+  nekoWallpaper: "neko_wallpaper",
+  memoryCap: "memory_cap",
+  memoryTidy: "memory_tidy",
 } as const;
 type SyncedField = keyof typeof SYNCED;
 const mirror = (field: SyncedField, value: string | null) => void settingsApi.set(SYNCED[field], value ?? "").catch(() => {});
 
 /** 오래된 대화를 지우는 기준(일). 0 이면 끔 */
 export type SessionRetention = 0 | 30 | 90;
-/** 방·거실 벽지(neko/Wallpaper.tsx). 이 기기에만 */
+/** 방·거실 벽지(neko/Wallpaper.tsx). 맥·폰 같이(SYNCED, 0.1.30) */
 export type NekoWallpaper = "plain" | "panel" | "twotone" | "wainscot";
 const WALLPAPERS: readonly NekoWallpaper[] = ["plain", "panel", "twotone", "wainscot"];
 /** 벽지: 없어진 '아치'(0.1.24 에 몰딩 판넬로 바꿈, 사용자)는 몰딩 판넬로 읽고 그 값으로 다시 적는다 */
 function loadWallpaper(): NekoWallpaper {
   const raw = localStorage.getItem(K.nekoWallpaper);
   if (raw === "arch") { try { localStorage.setItem(K.nekoWallpaper, "wainscot"); } catch { /* 못 적어도 이번엔 몰딩 판넬 */ } return "wainscot"; }
-  return WALLPAPERS.find((v) => v === raw) ?? "plain";
+  return wallpaperOf(raw);
 }
+/** 받은 값(다른 기기·옛 값) → 벽지. 모르면 무늬 없음, 없어진 아치는 몰딩 판넬 */
+const wallpaperOf = (raw: string | null): NekoWallpaper => (raw === "arch" ? "wainscot" : WALLPAPERS.find((v) => v === raw) ?? "plain");
 const toRetention = (raw: string | null): SessionRetention => (raw === "0" ? 0 : raw === "90" ? 90 : 30);
 function loadSessionRetention(): SessionRetention {
   return toRetention(localStorage.getItem(K.sessionRetention));
@@ -252,6 +258,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setNekoWallpaper: (v) => {
     localStorage.setItem(K.nekoWallpaper, v);
     set({ nekoWallpaper: v });
+    mirror("nekoWallpaper", v);
   },
   setClaudeContext: (model, tokens) => {
     const claudeContext = { ...get().claudeContext, [model]: tokens };
@@ -270,14 +277,41 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   setMemoryTidy: (on) => {
     localStorage.setItem(K.memoryTidy, on ? "on" : "off");
     set({ memoryTidy: on });
+    mirror("memoryTidy", on ? "on" : "off");
   },
   setMemoryCap: (n) => {
     const v = memoryCapOf(String(n));
     localStorage.setItem(K.memoryCap, String(v));
     set({ memoryCap: v });
+    mirror("memoryCap", String(v));
   },
   setNativeToolsDegraded: (v) => set({ nativeToolsDegraded: v }),
 }));
+
+/** 벽지·기억 상한·기억 정리: 받은 글 → 이 기기 localStorage 글(알 수 없는 값은 기본으로) */
+const SYNCED_LOCAL = {
+  nekoWallpaper: (v: string) => wallpaperOf(v),
+  memoryCap: (v: string) => String(memoryCapOf(v)),
+  memoryTidy: (v: string) => (v === "off" ? "off" : "on"),
+} as const;
+/** localStorage 글 → 스토어 값 */
+function fromLocal(field: keyof typeof SYNCED_LOCAL, raw: string | null): Partial<SettingsStore> {
+  if (field === "nekoWallpaper") return { nekoWallpaper: wallpaperOf(raw) };
+  if (field === "memoryCap") return { memoryCap: memoryCapOf(raw) };
+  return { memoryTidy: raw !== "off" };
+}
+
+/**
+ * 다른 창(맥 선물함 등)은 스토어를 따로 가진다. 메인 창이 벽지·기억 상한·정리를 바꾸거나 다른 기기 값을 받으면 localStorage 가
+ * 바뀌니(같은 앱이라 창끼리 같이 쓴다) 그 알림(storage)으로 다시 읽는다. 알림이 안 오는 웹뷰면 그 창을 다시 열 때 맞는다
+ */
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    for (const field of Object.keys(SYNCED_LOCAL) as (keyof typeof SYNCED_LOCAL)[]) {
+      if (e.key === K[field]) useSettingsStore.setState(fromLocal(field, e.newValue));
+    }
+  });
+}
 
 /**
  * 같이 쓰는 설정을 DB 값으로 덮는다(DB 에 다시 적지 않는다). DB 에 없으면(처음) 사용자가 정해 둔 localStorage 값을
@@ -295,6 +329,11 @@ export async function hydrateSyncedSettings(): Promise<void> {
     if (field === "sessionRetention") {
       localStorage.setItem(K[field], String(toRetention(v)));
       useSettingsStore.setState({ sessionRetention: toRetention(v) });
+    } else if (field === "nekoWallpaper" || field === "memoryCap" || field === "memoryTidy") {
+      // 받은 값은 이 앱이 아는 값으로 맞춰 둔다(다른 기기의 새 벽지·범위 밖 상한 — 그래도 DB 에 다시 적지는 않는다)
+      const local = SYNCED_LOCAL[field](v);
+      localStorage.setItem(K[field], local);
+      useSettingsStore.setState(fromLocal(field, local));
     } else if (field === "nekoName") {
       localStorage.setItem(K[field], v);
       useSettingsStore.setState({ nekoName: v });
