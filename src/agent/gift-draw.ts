@@ -117,7 +117,7 @@ async function refineShape(title: string, shape: GiftShape, signal?: AbortSignal
   if (!url) return null;
   const turn = await fetchCompletionMessage(
     [
-      { role: "system", content: "너는 작은 물건을 도형 몇 개로 그리는 화가야. gift_shape_fix 툴로 답해." },
+      { role: "system", content: "너는 물건을 도형 몇 개로 그리는 화가야. gift_shape_fix 툴로 답해." },
       {
         role: "user",
         content: [
@@ -144,7 +144,7 @@ async function refineShape(title: string, shape: GiftShape, signal?: AbortSignal
 export async function drawGift(title: string, about = "", signal?: AbortSignal): Promise<DrawnGift | null> {
   const turn = await fetchCompletionMessage(
     [
-      { role: "system", content: "너는 작은 물건을 도형 몇 개로 그리는 화가야. gift_draw 툴로 답해." },
+      { role: "system", content: "너는 물건을 도형 몇 개로 그리는 화가야. gift_draw 툴로 답해." },
       {
         role: "user",
         content: [`그릴 물건: ${title}`, about && `설명: ${about}`, HOW]
