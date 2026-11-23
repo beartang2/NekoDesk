@@ -325,7 +325,7 @@ export async function chooseWalkTopic(memories: Memory[], signal?: AbortSignal, 
   if (signal?.aborted) return null;
   const t = await think(`이번 산책에서 알아볼 주제 하나(${TOPIC_MAX}자 안). field 엔 그 주제의 갈래 한두 낱말`,
     mindMaterial(mind, memories, { facts: false, places, interests }), signal, THINK_MS,
-    { field: { type: "string", description: "이 주제의 갈래 한두 낱말(예: 동물, 날씨, 음식, 동네, 역사, 과학, 음악)" } });
+    { field: { type: "string", description: "이 주제의 갈래 한두 낱말" } });
   if (!t || signal?.aborted) return null;
   const topic = t.pick.slice(0, TOPIC_MAX);
   const field = line(t.extra?.field, 12);
