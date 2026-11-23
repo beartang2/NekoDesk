@@ -6,6 +6,7 @@ import { stageS } from "./engine/stage-scale";
 import type { NekoDecorSpot } from "./engine/neko-engine";
 import type { DecorDrag } from "./engine/decor-draw";
 import { decorItems, useNekoGifts } from "./gifts";
+import { holdTops, useNekoFurniture } from "./furniture";
 import { WeatherWindow } from "./WeatherWindow";
 import { FloorBand, SkyTint, WallPattern } from "./Wallpaper";
 import { setHolding } from "./holding";
@@ -83,7 +84,9 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
   useEffect(() => onShapeImage(() => setLoaded((n) => n + 1)), []);
   const shown = useShown(); // 다시 보이면 다시 그린다 — iOS 가 뒤에 있는 동안 캔버스를 비울 수 있다
   const items = useMemo(() => decorItems(gifts, "sidebar"), [gifts]);
-  const view = useMemo(() => { const { floorY, S } = stageMetrics(w, h); return { W: w, H: h, floorY, scale: S }; }, [w, h]);
+  // 탁자 위 선물(가구 윗면): 놓인 가구의 물건 얹는 면을 엔진과 같은 자리로
+  const furn = useNekoFurniture((s) => s.items);
+  const view = useMemo(() => { const { floorY, S } = stageMetrics(w, h); return { W: w, H: h, floorY, scale: S, tops: holdTops(furn, "sidebar", w, floorY, S) }; }, [w, h, furn]);
   // 끄는 중인 물건(물건 가운데 x, 바닥 y). 그리기가 무대 안으로 묶고 들어 올린 모양으로 맨 위에 그린다
   const [drag, setDrag] = useState<DecorDrag | null>(null);
   const press = useRef<{ id: string; pid: number; dx: number; dy: number; x0: number; y0: number; hold: number; spot: NekoDecorSpot | null; vx: number; vy: number; mt: number; x: number; bottom: number } | null>(null);
@@ -157,7 +160,9 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
     if (!frame && e.type === "pointerup" && p.spot && Math.hypot(p.vx, p.vy) > THROW_MIN * view.scale) { dropToFloor(p, true); return; } // 던지기
     if (p.spot?.surface === "wall" && !frame && e.type === "pointerup") { dropToFloor(p); return; } // 액자만 벽에 건다
     setDrag(null);
-    if (p.spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, p.spot); // 움직이지 않고 떼면 그대로
+    // 액자는 바닥 근처에 놓아도 벽 맨 아래에(떨어진 액자를 집어 다시 걸 때도) — 바닥에 눕는 건 네코가 떨군 것뿐
+    const spot = frame && p.spot?.surface === "floor" ? { surface: "wall" as const, u: p.spot.u, v: 0 } : p.spot;
+    if (spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, spot); // 움직이지 않고 떼면 그대로
   };
   const onContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const [x, y] = pos(e);

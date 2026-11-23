@@ -1340,7 +1340,7 @@ try {
     const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
     const r = await p.evaluate(async () => {
       const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
-      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.setToys(true); n.step(30);
       const moves = [], plays = []; n.on("decorMove", (e) => moves.push(e)); n.on("play", (e) => { plays.push(e.kind); if (n.activity !== e.kind) n.act(e.kind); });
       const pe = (type, x, y, id) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: id, button: 0, pointerType: "mouse", bubbles: true }));
       const shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
@@ -1557,6 +1557,146 @@ try {
       return { frames, out, headAbove: Math.round(head) };
     });
     check("상자 가구 안: 테두리 아래 상자 앞벽 폭 밖엔 고양이가 안 보인다(좁은 방·통통·긴 털), 머리는 테두리 위로", JSON.stringify(r), r.frames > 20 && r.out === 0 && r.headAbove > 0);
+    await p.close();
+  }
+
+  // 9-u2e) 탁자 위 물건(0.1.28, 사용자: 탁자 위에 물건을 둔다): 자리 furniture(fid·i·fu·u)면 상판 위에 그리고, 바닥 물건을 끌어 상판 근처에
+  //        놓으면 그 위(decorMove furniture), 탁자를 치우고 호스트가 바닥 u 로 다시 넣으면 상판 자리에서 떨어져 바닥에 선다(decorMove floor)
+  {
+    const p = await open(`?w=760&h=170&scale=height&transparent=1`, { width: 900, height: 300 });
+    const r = await p.evaluate(async () => {
+      const FA = await import("/src/neko/engine/furniture-art.js");
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(0.68); n.step(30);
+      const slotW = n.W / 4, tx = 1.5 * slotW, top = FA.furnitureSurfaces("table", n.S, slotW)[0], topY = n.floorY - top.y;
+      n.setFurniture([{ id: "T", kind: "table", at: "dock", slot: 1 }]);
+      const moves = []; n.on("decorMove", (e) => moves.push(e));
+      const shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      n.setDecor([{ id: "a", surface: "furniture", fid: "T", i: 0, fu: 0.3, u: 0.3, size: "small", shape }, { id: "b", surface: "floor", u: 0.9, size: "small", shape }]);
+      c.x = n.W * 0.1; n.step(60); n.draw();
+      const boxOf = (id) => { let x0 = 1e9, x1 = -1, y1 = -1; for (let x = 0; x < n.W; x++) for (let y = 0; y < n.H; y++) if (n.hitDecor(x, y) === id) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } return { cx: (x0 + x1) / 2, bottom: y1 }; };
+      const a = boxOf("a"); out.onTop = Math.abs(a.bottom - topY) < 5 && a.cx > tx + top.x0 && a.cx < tx + top.x1;
+      const b = boxOf("b"), pe = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 9, button: 0, pointerType: "mouse", bubbles: true }));
+      pe("pointerdown", b.cx, b.bottom - 4); n.step(2);
+      for (let k = 1; k <= 12; k++) { pe("pointermove", b.cx + (tx + 10 * n.S - b.cx) * k / 12, b.bottom - 4 + (topY - 6 - b.bottom) * k / 12); await new Promise((ok) => setTimeout(ok, 30)); n.step(4); }
+      await new Promise((ok) => setTimeout(ok, 150));
+      pe("pointerup", tx + 10 * n.S, topY - 6); n.step(4);
+      out.drop = moves.length ? moves[moves.length - 1].surface : null;
+      moves.length = 0; n.setFurniture([]);
+      n.setDecor([{ id: "a", surface: "floor", u: 0.3, size: "small", shape }]);
+      n.step(4); const mid = boxOf("a").bottom;
+      for (let i = 0; i < 120 * 2; i++) n.step(1);
+      out.fall = { midAir: mid < n.floorY - 8, moves: moves.map((m) => m.surface) };
+      return out;
+    });
+    check("탁자 위 물건: 상판 위에 그린다, 끌어 상판에 놓으면 그 위, 탁자를 치우면 그 자리에서 떨어져 바닥", JSON.stringify(r),
+      r.onTop && r.drop === "furniture" && r.fall.midAir && r.fall.moves.join() === "floor");
+    await p.close();
+  }
+
+  // 9-u2f) 끝 칸 가구에서 내려오기(0.1.28, 사용자: 폰 거실 왼쪽 끝 캣타워에서 내려오려고 왼쪽으로 뛰면 벽에 막혀 계속 부딪힘): 벽 쪽 끝에서
+  //        내려오려 하면 열린 쪽(무대 안쪽)으로 뛰고, 아래 발판(캣타워 1층)에 내렸으면 바닥까지 마저 내려온다. 맥 방·맥 거실·폰 세로 거실·
+  //        폰 가로의 왼쪽·오른쪽 끝 칸, 캣타워 2층·소파. 캣타워 놀이를 그대로 돌려도 공중에서 벽에 튕기지 않는다
+  {
+    const out = [];
+    for (const [name, w, h, S, at, slots] of [["맥 방", 280, 200, 0.81, "sidebar", [0, 1]], ["맥 거실", 760, 170, 0.68, "dock", [0, 3]],
+      ["폰 세로 거실", 375, 120, 0.35, "dock", [0, 3]], ["폰 가로", 812, 375, 0.98, "dock", [0, 3]]]) {
+      const p = await open(`?w=${w}&h=${h}&scale=height&transparent=1`, { width: w + 100, height: h + 100 });
+      for (const kind of ["cattower", "sofa"]) for (const slot of slots) {
+        const r = await p.evaluate(({ S, at, slot, kind }) => {
+          const n = window.__neko, c = n.cat;
+          // 벽에 부딪힘 = 공중에서 가로 속도가 뒤집힘(walls 가 벽 여백에서 튕겨 낸다). 끝 칸 가구 자체가 벽 여백 안에 있을 수 있어 자리로는 못 본다
+          let sv = 0;
+          const bounced = () => { if (c.mode !== "air") { sv = 0; return false; } const s = Math.sign(Math.round(c.vx)); const hit = sv && s && s !== sv; if (s) sv = s; return hit; };
+          n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(S); n.act(null); n.step(30);
+          n.setFurniture([{ id: "F", kind, at, slot }]);
+          c.x = n.W / 2; n.step(60); n.act(kind);
+          const want = kind === "cattower" ? ":1" : ":0";
+          let up = false;
+          for (let i = 0; i < 120 * 25 && !up; i++) { n.step(1); up = !!(c.perch && c.perch.id.endsWith(want)); }
+          if (!up) return { up };
+          for (let i = 0; i < 120 * 3 && (c.mode === "air" || c.mode === "land"); i++) n.step(1); // 올라앉아 자리 잡을 때까지
+          // 벽 쪽 끝 가까이에 세우고 바닥 놀이를 시킨다(가까운 쪽 = 벽 쪽으로 내려가려 한다)
+          const left = slot === 0, span = c.perch.x1 - c.perch.x0;
+          c.x = left ? c.perch.x0 + 0.3 * span : c.perch.x1 - 0.3 * span; n.step(2);
+          n.act("yarn");
+          let t = 0, wall = 0;
+          for (; t < 120 * 8 && (c.perch || c.mode === "air" || c.mode === "fall"); t++) { // 바닥에 닿을 때까지만(그 뒤 털실 놀이의 뜀은 안 센다)
+            n.step(1); if (bounced()) wall++;
+          }
+          const down = !c.perch && t < 120 * 8;
+          // 캣타워 놀이를 그대로 40초: 공중에서 벽 여백에 닿지 않는다
+          let towerWall = 0, floors = 0, pp = !!c.perch;
+          if (kind === "cattower") {
+            n.act("cattower");
+            for (let i = 0; i < 120 * 40; i++) {
+              n.step(1);
+              if (bounced()) towerWall++;
+              if (pp && !c.perch) floors++; pp = !!c.perch;
+            }
+          }
+          return { up, down, sec: +(t / 120).toFixed(1), wall, towerWall, floors };
+        }, { S, at, slot, kind });
+        out.push({ name, kind, slot, ...r });
+      }
+      await p.close();
+    }
+    const bad = out.filter((r) => !r.up || !r.down || r.wall || r.towerWall);
+    check("끝 칸 가구에서 내려오기: 벽 쪽이 막히면 열린 쪽으로, 아래 발판에서 바닥까지 — 공중에서 벽에 안 튕긴다", JSON.stringify(bad.length ? bad : out.map((r) => `${r.name}/${r.kind}/${r.slot}:${r.sec}s`)), bad.length === 0);
+  }
+
+  // 9-u2g) 탁자 놀이(0.1.28, 사용자: 탁자 위 물건을 가끔 툭 밀어 떨어뜨린다): 밀 판이면 탁자 옆 바닥에 서서 올려다보다(stare) 앞발로
+  //        자기 쪽 끝으로 끌어 떨어뜨리고(물건 decorMove floor), 그다음 윗면에 올라가 쉰다. 맥 방 280 의 벽 끝 칸 탁자도 반대쪽 끝에서
+  for (const [q, at, slot, sc] of [["?w=760&h=170&scale=height&transparent=1", "dock", 1, 0.68], ["?w=280&h=326&scale=height&transparent=1", "sidebar", 0, 1.12]]) {
+    const p = await open(q, { width: 900, height: 400 });
+    const r = await p.evaluate(({ at, slot, sc }) => {
+      const n = window.__neko, c = n.cat;
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(sc); n.step(30);
+      n.setFurniture([{ id: "T", kind: "table", at, slot }]);
+      const moves = []; n.on("decorMove", (e) => moves.push(e.id + ":" + e.surface));
+      n.setDecor([{ id: "a", surface: "furniture", fid: "T", i: 0, fu: 0.35, u: 0.3, size: "small", shape: { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] } }]);
+      c.x = n.W * (slot ? 0.1 : 0.9); n.step(60);
+      const rnd = Math.random; Math.random = () => 0.1; n.act("table"); Math.random = rnd; // 밀 판(45%)으로
+      const seen = [];
+      for (let i = 0; i < 120 * 20; i++) { n.step(1); const st = c.act ? c.act.stage : "-"; if (seen[seen.length - 1] !== st) seen.push(st); }
+      return { seen: seen.join(">"), moves, perch: n.perch };
+    }, { at, slot, sc });
+    check(`탁자 놀이(${at}): 옆 바닥에서 올려다보다 끌어 떨어뜨리고 올라가 쉰다`, JSON.stringify(r),
+      /stare>push>watch>go>rest/.test(r.seen) && r.moves.join() === "a:floor" && r.perch === "f:T:0");
+    await p.close();
+  }
+
+  // 9-u2h) 액자 반응(0.1.28, 사용자: 꼬리 살랑·앞발 들기·점프해서 떨구기): 벽 액자 놀이로 tail·reach·knock 를 고르고, 떨구기는 뛰어올라
+  //        쳐서 액자가 떨어져 바닥에 눕는다(decorMove floor, 칸 가로세로 바뀜). 누운 액자를 그냥 누르고 떼면 그대로, 끌어 놓으면 벽(맨 아래)에 건다.
+  //        너무 높은 액자는 떨구기를 고르지 않는다(맥 방 280×326 — 거실 170 은 낮아 맨 위 액자도 뛰면 닿는다)
+  {
+    const p = await open(`?w=280&h=326&scale=height&transparent=1`, { width: 500, height: 450 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(1.12); n.step(30);
+      const moves = []; n.on("decorMove", (e) => moves.push(e.surface));
+      const shape = { parts: [{ t: "rrect", x: 0, y: -10, w: 26, h: 20, rad: 2, rot: 0, c: "blue" }] };
+      const pick = (v, rr) => { n.act(null); n.setDecor([{ id: "f", surface: "wall", u: 0.5, v, size: "medium", shape, frame: true }]); c.x = n.W * 0.2; n.step(60);
+        const rnd = Math.random; Math.random = () => rr; n.act("giftplay"); Math.random = rnd; return c.act && c.act.play; };
+      out.chose = { tail: pick(0.15, 0.3), reach: pick(0.15, 0.6), knock: pick(0.15, 0.05), high: pick(1, 0.05) };
+      pick(0.15, 0.05); moves.length = 0;
+      for (let i = 0; i < 120 * 10 && n.activity; i++) n.step(1);
+      for (let i = 0; i < 240; i++) n.step(1);
+      out.fell = moves.slice();
+      n.act(null); c.x = n.W * 0.1; n.setDecor([{ id: "f", surface: "floor", u: 0.7, size: "medium", shape, frame: true }]); n.step(60); n.draw(); // 고양이는 비켜 둔다(누르기가 고양이에 먼저 걸리지 않게)
+      let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; for (let x = 0; x < n.W; x++) for (let y = 0; y < n.H; y++) if (n.hitDecor(x, y) === "f") { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      out.lies = (y1 - y0) > (x1 - x0); // 가로 26·세로 20 액자가 옆으로 누워 세로가 길다
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, pe = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 5, button: 0, pointerType: "mouse", bubbles: true }));
+      moves.length = 0; pe("pointerdown", cx, cy); n.step(2); pe("pointerup", cx, cy); n.step(2);
+      out.tap = moves.slice();
+      moves.length = 0; pe("pointerdown", cx, cy); n.step(2);
+      for (let k = 1; k <= 6; k++) { pe("pointermove", cx + 4 * k, cy); await new Promise((ok) => setTimeout(ok, 30)); n.step(4); }
+      await new Promise((ok) => setTimeout(ok, 150)); pe("pointerup", cx + 24, cy); n.step(2);
+      out.drag = moves.slice();
+      return out;
+    });
+    check("액자 반응: 꼬리 살랑·앞발 들기·떨구기를 고르고(높으면 떨구기 없음), 떨구면 바닥에 눕는다, 누운 액자 누르기는 그대로·끌어 놓으면 벽에 건다", JSON.stringify(r),
+      r.chose.tail === "tail" && r.chose.reach === "reach" && r.chose.knock === "knock" && r.chose.high !== "knock" && r.fell.join() === "floor" && r.lies && r.tap.join() === "floor" && r.drag.join() === "wall");
     await p.close();
   }
 

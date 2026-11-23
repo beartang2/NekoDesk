@@ -100,3 +100,37 @@ describe("decor-draw", () => {
     expect(f.x).toBeGreaterThanOrEqual(16 * 0.8);
   });
 });
+
+describe("가구 윗면(탁자) 위 자리", () => {
+  const g = { W: 760, floorY: 164, S: 0.68, tops: [{ fid: "base:table", i: 0, x0: 250, x1: 320, y: 115 }] };
+  it("물건 바닥이 윗면 근처면 그 위(면 위 비율 fu, 바로 아래 바닥 u), 멀면 바닥·벽", () => {
+    const s = spotOf(285, 118, 20, g);
+    expect(s).toMatchObject({ surface: "furniture", fid: "base:table", i: 0 });
+    expect((s as { fu: number }).fu).toBeCloseTo(0.5, 2);
+    expect(s.u).toBeCloseTo(spotOf(285, 164, 20, g).u, 6); // 옛 버전은 u 바닥에 둔다
+    expect(spotOf(285, 164, 20, g).surface).toBe("floor");
+    expect(spotOf(400, 118, 20, g).surface).toBe("wall"); // 탁자 밖 같은 높이는 벽
+  });
+  it("그 면이 있으면 면 위(면 안으로 묶음), 없으면 u 바닥", () => {
+    const d = { surface: "furniture" as const, fid: "base:table", i: 0, fu: 1, u: 0.3 };
+    const [x, y] = decorAt(d, 20, g, 30);
+    expect(y).toBe(115);
+    expect(x).toBeCloseTo(320 - 15, 6);
+    expect(decorAt(d, 20, { ...g, tops: [] }, 30)).toEqual(decorAt({ surface: "floor", u: 0.3 }, 20, g, 30));
+  });
+});
+
+describe("떨어진 액자(0.1.28)", () => {
+  it("바닥의 액자는 옆으로 눕는다(칸 가로세로 바뀜, 바닥에 붙음), 끌어 들면 세운 모양", () => {
+    const shape = { parts: [{ t: "rrect" as const, x: 0, y: -10, w: 26, h: 20, rad: 2, rot: 0, c: "blue" }] };
+    const view = { W: 280, floorY: 320, scale: 1.12 };
+    const [up] = decorBoxes([{ id: "a", surface: "floor", u: 0.5, size: "medium", shape }], view);
+    const [lying] = decorBoxes([{ id: "a", surface: "floor", u: 0.5, size: "medium", shape, frame: true }], view);
+    expect(lying.w).toBeCloseTo(up.h, 6);
+    expect(lying.h).toBeCloseTo(up.w, 6);
+    expect(lying.y + lying.h).toBeCloseTo(320, 6);
+    const lifted = dragDecor([{ id: "a", surface: "floor", u: 0.5, size: "medium", shape, frame: true }], view, "a", 140, 200);
+    expect(lifted?.spot.surface).toBe("wall"); // 들어 벽 높이에 놓으면 벽 자리
+  });
+});
+

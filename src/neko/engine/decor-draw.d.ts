@@ -2,9 +2,15 @@
 import type { GiftShape } from "./gift-shape";
 import type { NekoDecorSpot, NekoGiftSize } from "./neko-engine";
 
-export interface DecorGeom { W: number; floorY: number; S: number }
+/** 물건을 얹는 가구 윗면(무대 px): 가구 id·면 번호·가로·면 높이 y */
+export interface DecorTop { fid: string; i: number; x0: number; x1: number; y: number }
+/** tops = 물건을 얹는 가구 윗면(탁자). 없으면 바닥·벽만 */
+export interface DecorGeom { W: number; floorY: number; S: number; tops?: DecorTop[] }
+/** 끌어 놓을 때 물건 바닥이 윗면에서 이만큼(S) 안이면 그 위에 얹는다 */
+export const ON_TOP_SNAP: number;
 /** setDecor 와 같은 모양(엔진 없이 그릴 때도 같은 걸 넘긴다) */
-export type DecorItem = { id: string; shape: unknown; size?: NekoGiftSize; play?: unknown; lastPlayed?: number; scale?: number; at?: "sidebar" | "dock" | "screen" } & NekoDecorSpot;
+/** frame = 네코가 그린 그림 액자(벽에만 건다, 바닥 자리면 떨어져 누운 것) */
+export type DecorItem = { id: string; shape: unknown; size?: NekoGiftSize; play?: unknown; lastPlayed?: number; scale?: number; at?: "sidebar" | "dock" | "screen"; frame?: boolean } & NekoDecorSpot;
 export interface DecorBox { bd: { x0: number; x1: number; y0: number; y1: number; w: number; h: number }; u: number; w: number; h: number }
 
 export const DECOR_SIZE: number;
@@ -30,7 +36,7 @@ export const FURNITURE_SLOTS: { sidebar: number; dock: number };
 export function furnitureSlots(at: string, W: number): { x: number; w: number }[];
 export function wallSpan(h: number, g: DecorGeom): number;
 /** 벽에 건 것(at 이 방·거실, 폭 w 를 줄 때)은 날씨 창문과 겹치면 창턱 아래로 내려 그린다 */
-export function decorAt(d: { surface: "floor" | "wall"; u: number; v?: number; at?: string }, h: number, g: DecorGeom, w?: number): [number, number];
+export function decorAt(d: { surface: "floor" | "wall" | "furniture"; u: number; v?: number; at?: string; fid?: string; i?: number; fu?: number }, h: number, g: DecorGeom, w?: number): [number, number];
 /** 고양이보다 높은 거실(폰 가로 화면)의 기준 바닥 높이와 그때 선물 배율(고양이 대비 70%) */
 export const TALL_DOCK_Y: number;
 export const TALL_DOCK_K: number;
@@ -47,7 +53,7 @@ export function fallStep(f: { x: number; bottom: number; vx: number; vy: number 
 /** 사용자가 끄는 물건: 물건 가운데 x, 바닥 y(css px). 잡은 점과 칸 가운데·바닥의 차이는 창이 기억해 뺀다 */
 /** 끄는 물건(들어 올린 모양으로 맨 위). fly = 던져 날아가거나 굴러가는 중(들어 올린 모양 없이 rot 만큼 돈다) */
 export interface DecorDrag { id: string; x: number; bottom: number; fly?: boolean; rot?: number }
-interface DecorView { W: number; floorY: number; scale: number }
+interface DecorView { W: number; floorY: number; scale: number; tops?: DecorTop[] }
 /**
  * 엔진 없이 선물만 그린다(모니터별 선물 창). 캔버스를 W×H(css px) × dpr 로 맞추고 다 지운 뒤 그린다.
  * 멈춘 모양이다 — 바뀔 때만 부르면 된다. scale 은 엔진 setScale 과 같은 값(0.35~1.4 로 묶임).
@@ -63,7 +69,7 @@ export const THROW_STILL: number;
 /** 던지는 속도 [vx, vy]: 최고 속도로 묶고, 위로는 물건 꼭대기가 무대 위를 안 넘을 만큼만 */
 export function throwVel(vx: number, vy: number, bottom: number, h: number, g: { W: number; floorY: number; S: number }): [number, number];
 export function drawDecor(canvas: HTMLCanvasElement, items: DecorItem[],
-  o: { W: number; H: number; floorY: number; scale: number; dpr?: number; dark?: boolean; drag?: DecorDrag | null; only?: "wall" | "rest" | null }): void;
+  o: { W: number; H: number; floorY: number; scale: number; tops?: DecorTop[]; dpr?: number; dark?: boolean; drag?: DecorDrag | null; only?: "wall" | "rest" | null }): void;
 /** 놓인 물건마다 그린 칸(css px, 그린 순서). 누르기 판정·'정리' 버튼 자리(엔진은 x + w, y) */
 export function decorBoxes(items: DecorItem[], o: DecorView): { id: string; x: number; y: number; w: number; h: number }[];
 /** 이 점(css px)이 놓인 물건 위면 그 id(위에 그린 것부터). drawDecor 와 같은 자리 */
