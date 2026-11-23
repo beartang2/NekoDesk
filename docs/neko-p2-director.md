@@ -162,6 +162,8 @@ type ResultKind = "wrote" | "used" | "plain" | "failed" | "cancelled" | "error" 
 | `todo.list`, `todo.list_done` | 신문 읽기 `reading` | | |
 | `todo.add` | 타이핑 `typing` | | |
 | `todo.complete` | 발도장 `stamp` | ✓ | |
+| `todo.edit` | 타이핑 `typing` | | |
+| `todo.delete`, `todo.reopen` | 지우기 `erase` | ✓ | 되돌리기는 완료 표시를 지운다 |
 | `schedule.list` | 신문 읽기 | | 달력 보기 `calendar` |
 | `schedule.add` | 발도장 | ✓ | |
 | `schedule.delete` | 발도장 | ✓ | 지우기 변형 |

@@ -88,6 +88,9 @@ User input
 - todo.list(): 할 일 목록
 - todo.add(content, due_at?): 할 일 추가
 - todo.complete(id): 할 일 완료
+- todo.edit(id, content?, due_at?, clear_due?): 할 일 고치기(마감 지우기 포함)
+- todo.delete(ids): 할 일 지우기(다른 기기에서도 지워진다)
+- todo.reopen(id): 완료 되돌리기
 - schedule.list(range?): 일정 조회
 - schedule.add(title, start_at, end_at?): 일정 추가
 - github.overview(): GitHub 현황
