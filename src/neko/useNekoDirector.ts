@@ -123,12 +123,13 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
           const c = ctrl as { decorCount?: number; towerOk?: boolean };
           const lean = currentLean(); // 네코가 정한 요즘 기울기(하루 안 것만, docs/neko-mind.md §6.3)
           // 놓인 가구(docs/neko-furniture.md §3): 그 가구가 있을 때만 그 놀이. 조명은 밖이 어두운데 꺼져 있거나 밝은데 켜져 있을 때만
-          const furn = (ctrl as { furniture?: { kind: string; on: boolean }[] }).furniture ?? [];
+          const furn = (ctrl as { furniture?: { kind: string; on: boolean; uses?: string[] }[] }).furniture ?? [];
           const lamp = furn.find((f) => f.kind === "lamp"), w = weatherNowSnapshot();
           const dark = w ? skyAt(Date.now() / 1000, w.sunrise, w.sunset, w.is_day).light < 0.6 : false;
           const kind = pickByNeeds(useNekoNeeds.getState().needs, {
             last: lastSolo, recent: olderSolo ? [olderSolo] : [], hasGifts: !!c.decorCount, towerOk: c.towerOk === true, play: needsRef.current.play,
             like: lean?.like, tired: lean?.tired, furniture: furn.map((f) => f.kind), lampWant: !!lamp && dark !== lamp.on,
+            furnitureUses: furn.flatMap((f) => f.uses ?? []), // 자유 가구 쓰임새(엔진이 그 자리에서 켠 것)
           });
           olderSolo = lastSolo; lastSolo = kind;
           box = { since: performance.now(), kind };
