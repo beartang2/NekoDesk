@@ -142,6 +142,27 @@ describe("자유 가구(0.1.28, docs/neko-furniture-free.md §10)", () => {
   });
 });
 
+describe("이미 물어온 가구(0.1.27 까지 — 결정 A)", () => {
+  const rr = (x: number, y: number, w: number, h: number) => ({ t: "rrect", x, y, w, h, rad: 0, rot: 0, c: "brown" });
+  // 32칸에 꽉 찬 옛 소파 그림
+  const OLD = { v: 1, parts: [rr(0, -12, 30, 8), rr(0, -5, 30, 6), rr(-14, -1, 2, 2), rr(14, -1, 2, 2)] };
+  const raw = JSON.stringify({ v: 2, items: [{ id: "walk:o", kind: "sofa", title: "등나무 의자", shape: OLD, place: { at: "dock", slot: 0 }, at: 7 }], gone: {} });
+  it("읽을 땐 자유 가구로 보인다 — 제 그림(고양이 키 12칸 축척으로 옮김)과 가장 넓은 면 하나만 올라앉기, 전용 동작 없음", () => {
+    const f = parseFurniture(raw).find((x) => x.id === "walk:o")!;
+    expect(f).toMatchObject({ kind: "free", title: "등나무 의자", place: { at: "dock", slot: 0 }, legacy: { kind: "sofa" } });
+    expect(f.uses?.map((u) => u.u)).toEqual(["perch"]);
+    expect(f.shape).not.toEqual(OLD);
+  });
+  it("저장은 원래 kind·모양 그대로(쓰임새 없이) — 옛 기기 값과 같은 때로 두 모양이 엇갈리지 않게", async () => {
+    db.kv.set("neko_furniture", raw);
+    await s().load();
+    await s().place("base:lamp", "dock");
+    const stored = JSON.parse(db.kv.get("neko_furniture")!).items.find((x: { id: string }) => x.id === "walk:o");
+    expect(stored).toEqual({ id: "walk:o", kind: "sofa", title: "등나무 의자", shape: OLD, place: { at: "dock", slot: 0 }, at: 7 });
+    expect(s().items.find((x) => x.id === "walk:o")?.kind).toBe("free");
+  });
+});
+
 describe("가구 윗면(탁자) 위 선물", () => {
   const T = (place: { at: "sidebar" | "dock"; slot: number } | null) => [{ id: "base:table", kind: "table" as const, place }, { id: "base:sofa", kind: "sofa" as const, place: { at: "dock" as const, slot: 0 } }];
   const on = (id: string, fid: string, at = "dock", i = 0) => ({ id, placed: { surface: "furniture", at, u: 0.4, fid, i, fu: 0.5 } });
