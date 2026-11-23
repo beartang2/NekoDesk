@@ -158,7 +158,9 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
     if (!frame && e.type === "pointerup" && p.spot && Math.hypot(p.vx, p.vy) > THROW_MIN * view.scale) { dropToFloor(p, true); return; } // 던지기
     if (p.spot?.surface === "wall" && !frame && e.type === "pointerup") { dropToFloor(p); return; } // 액자만 벽에 건다
     setDrag(null);
-    if (p.spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, p.spot); // 움직이지 않고 떼면 그대로
+    // 액자는 바닥 근처에 놓아도 벽 맨 아래에(떨어진 액자를 집어 다시 걸 때도) — 바닥에 눕는 건 네코가 떨군 것뿐
+    const spot = frame && p.spot?.surface === "floor" ? { surface: "wall" as const, u: p.spot.u, v: 0 } : p.spot;
+    if (spot && e.type === "pointerup") useNekoGifts.getState().place(p.id, spot); // 움직이지 않고 떼면 그대로
   };
   const onContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const [x, y] = pos(e);

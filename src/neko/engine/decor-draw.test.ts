@@ -120,3 +120,17 @@ describe("가구 윗면(탁자) 위 자리", () => {
   });
 });
 
+describe("떨어진 액자(0.1.28)", () => {
+  it("바닥의 액자는 옆으로 눕는다(칸 가로세로 바뀜, 바닥에 붙음), 끌어 들면 세운 모양", () => {
+    const shape = { parts: [{ t: "rrect" as const, x: 0, y: -10, w: 26, h: 20, rad: 2, rot: 0, c: "blue" }] };
+    const view = { W: 280, floorY: 320, scale: 1.12 };
+    const [up] = decorBoxes([{ id: "a", surface: "floor", u: 0.5, size: "medium", shape }], view);
+    const [lying] = decorBoxes([{ id: "a", surface: "floor", u: 0.5, size: "medium", shape, frame: true }], view);
+    expect(lying.w).toBeCloseTo(up.h, 6);
+    expect(lying.h).toBeCloseTo(up.w, 6);
+    expect(lying.y + lying.h).toBeCloseTo(320, 6);
+    const lifted = dragDecor([{ id: "a", surface: "floor", u: 0.5, size: "medium", shape, frame: true }], view, "a", 140, 200);
+    expect(lifted?.spot.surface).toBe("wall"); // 들어 벽 높이에 놓으면 벽 자리
+  });
+});
+

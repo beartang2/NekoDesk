@@ -9,7 +9,8 @@ export interface DecorGeom { W: number; floorY: number; S: number; tops?: DecorT
 /** 끌어 놓을 때 물건 바닥이 윗면에서 이만큼(S) 안이면 그 위에 얹는다 */
 export const ON_TOP_SNAP: number;
 /** setDecor 와 같은 모양(엔진 없이 그릴 때도 같은 걸 넘긴다) */
-export type DecorItem = { id: string; shape: unknown; size?: NekoGiftSize; play?: unknown; lastPlayed?: number; scale?: number; at?: "sidebar" | "dock" | "screen" } & NekoDecorSpot;
+/** frame = 네코가 그린 그림 액자(벽에만 건다, 바닥 자리면 떨어져 누운 것) */
+export type DecorItem = { id: string; shape: unknown; size?: NekoGiftSize; play?: unknown; lastPlayed?: number; scale?: number; at?: "sidebar" | "dock" | "screen"; frame?: boolean } & NekoDecorSpot;
 export interface DecorBox { bd: { x0: number; x1: number; y0: number; y1: number; w: number; h: number }; u: number; w: number; h: number }
 
 export const DECOR_SIZE: number;

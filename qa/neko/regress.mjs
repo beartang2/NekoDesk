@@ -1666,6 +1666,40 @@ try {
     await p.close();
   }
 
+  // 9-u2h) 액자 반응(0.1.28, 사용자: 꼬리 살랑·앞발 들기·점프해서 떨구기): 벽 액자 놀이로 tail·reach·knock 를 고르고, 떨구기는 뛰어올라
+  //        쳐서 액자가 떨어져 바닥에 눕는다(decorMove floor, 칸 가로세로 바뀜). 누운 액자를 그냥 누르고 떼면 그대로, 끌어 놓으면 벽(맨 아래)에 건다.
+  //        너무 높은 액자는 떨구기를 고르지 않는다(맥 방 280×326 — 거실 170 은 낮아 맨 위 액자도 뛰면 닿는다)
+  {
+    const p = await open(`?w=280&h=326&scale=height&transparent=1`, { width: 500, height: 450 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, c = n.cat, cv = document.getElementById("stage"), R = cv.getBoundingClientRect(), out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.setScale(1.12); n.step(30);
+      const moves = []; n.on("decorMove", (e) => moves.push(e.surface));
+      const shape = { parts: [{ t: "rrect", x: 0, y: -10, w: 26, h: 20, rad: 2, rot: 0, c: "blue" }] };
+      const pick = (v, rr) => { n.act(null); n.setDecor([{ id: "f", surface: "wall", u: 0.5, v, size: "medium", shape, frame: true }]); c.x = n.W * 0.2; n.step(60);
+        const rnd = Math.random; Math.random = () => rr; n.act("giftplay"); Math.random = rnd; return c.act && c.act.play; };
+      out.chose = { tail: pick(0.15, 0.3), reach: pick(0.15, 0.6), knock: pick(0.15, 0.05), high: pick(1, 0.05) };
+      pick(0.15, 0.05); moves.length = 0;
+      for (let i = 0; i < 120 * 10 && n.activity; i++) n.step(1);
+      for (let i = 0; i < 240; i++) n.step(1);
+      out.fell = moves.slice();
+      n.act(null); c.x = n.W * 0.1; n.setDecor([{ id: "f", surface: "floor", u: 0.7, size: "medium", shape, frame: true }]); n.step(60); n.draw(); // 고양이는 비켜 둔다(누르기가 고양이에 먼저 걸리지 않게)
+      let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; for (let x = 0; x < n.W; x++) for (let y = 0; y < n.H; y++) if (n.hitDecor(x, y) === "f") { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      out.lies = (y1 - y0) > (x1 - x0); // 가로 26·세로 20 액자가 옆으로 누워 세로가 길다
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, pe = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { clientX: R.left + x, clientY: R.top + y, pointerId: 5, button: 0, pointerType: "mouse", bubbles: true }));
+      moves.length = 0; pe("pointerdown", cx, cy); n.step(2); pe("pointerup", cx, cy); n.step(2);
+      out.tap = moves.slice();
+      moves.length = 0; pe("pointerdown", cx, cy); n.step(2);
+      for (let k = 1; k <= 6; k++) { pe("pointermove", cx + 4 * k, cy); await new Promise((ok) => setTimeout(ok, 30)); n.step(4); }
+      await new Promise((ok) => setTimeout(ok, 150)); pe("pointerup", cx + 24, cy); n.step(2);
+      out.drag = moves.slice();
+      return out;
+    });
+    check("액자 반응: 꼬리 살랑·앞발 들기·떨구기를 고르고(높으면 떨구기 없음), 떨구면 바닥에 눕는다, 누운 액자 누르기는 그대로·끌어 놓으면 벽에 건다", JSON.stringify(r),
+      r.chose.tail === "tail" && r.chose.reach === "reach" && r.chose.knock === "knock" && r.chose.high !== "knock" && r.fell.join() === "floor" && r.lies && r.tap.join() === "floor" && r.drag.join() === "wall");
+    await p.close();
+  }
+
   // 9-u3)물고 있는 채로 상자 뒤지기(사용자: Finder 를 켜면 상자를 뒤지는데 입에 문 게 상자 밖으로 튀어나와 보였다). 문 물건은 고양이와 같은 겹 —
   //       다 들어간 뒤(0.8초~)엔 상자 앞면 아래 절반에 문 물건(자홍 칸)이 한 점도 안 보인다. 뿅 상자·상자 가구 둘 다. 상자 위로 내민 땐 보인다
   for (const furn of [false, true]) {

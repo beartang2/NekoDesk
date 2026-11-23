@@ -165,7 +165,8 @@ export function paintDecor(g, shape, L, geom, o = {}) {
   g.save();
   g.translate(x, bottom - h / 2); g.rotate(o.rot || 0); g.translate(-x, -(bottom - h / 2));
   g.translate(x, bottom); g.rotate(o.wob || 0); g.translate(-x, -bottom);
-  drawShape(g, shape, x - ((bd.x0 + bd.x1) / 2) * u, bottom, u, o.edge ?? 4);
+  // 바닥에 누운 액자(lie): 칸(L.w·L.h)은 가로세로가 바뀐 것 — 그림은 칸 가운데에 두고 돌린다(o.rot ±90°)
+  drawShape(g, shape, x - ((bd.x0 + bd.x1) / 2) * u, L.lie ? bottom - h / 2 + L.h0 / 2 : bottom, u, o.edge ?? 4);
   g.restore();
   if (!onFloor) { // 벽에 건 것: 그린 모양의 맨 위 가장자리에 작은 압정. h(칸)는 회전한 네모·타원을 넉넉히 잡아 실제보다 높다
     const top = bottom + shapeTop(shape) * u;
@@ -186,6 +187,11 @@ function layoutAll(items, geom, drag) {
       return { id, shape, L: { ...dims, x, bottom, onFloor: liftedOnFloor(bottom, geom) }, lifted: !drag.fly, fly: !!drag.fly, rot: drag.rot || 0 };
     }
     const on = d.surface === "furniture" && topOf(geom, d.fid, d.i); // 가구 윗면 위(그 면이 있을 때만, 없으면 바닥)
+    // 바닥의 액자는 떨어진 것: 옆으로 눕는다(사용자가 다시 벽에 걸 때까지) — 칸 가로세로를 바꾸고 90° 돌려 그린다
+    if (d.frame && !on && d.surface !== "wall") {
+      const [x, bottom] = decorAt({ surface: "floor", u: clamp(d.u, 0, 1) }, dims.w, geom, dims.h);
+      return { id, shape, L: { ...dims, w: dims.h, h: dims.w, h0: dims.h, lie: true, x, bottom, onFloor: true }, wall: false, rot: Math.PI / 2 };
+    }
     const spot = on ? { surface: "furniture", fid: d.fid, i: d.i, fu: d.fu, u: clamp(d.u, 0, 1) }
       : { surface: d.surface === "wall" ? "wall" : "floor", u: clamp(d.u, 0, 1), v: clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1), at: d.at };
     const [x, bottom] = decorAt(spot, dims.h, geom, dims.w);
@@ -233,7 +239,7 @@ export function hitDecorAt(items, view, x, y) {
  * 놓을 때 spot 을 gifts place 로 넘기면 엔진 끌기와 같은 자리가 된다. 없는 id 면 null
  */
 export function dragDecor(items, view, id, x, bottom) {
-  const geom = geomOf(view), it = layoutAll(items, geom).find((o) => o.id === String(id));
+  const geom = geomOf(view), it = layoutAll(items, geom, { id: String(id), x, bottom }).find((o) => o.id === String(id)); // 든 모양(누운 액자도 세운 칸)
   if (!it) return null;
   const [cx, cb] = clampDrag(it.L.h, geom, x, bottom);
   return { x: cx, bottom: cb, spot: spotOf(cx, cb, it.L.h, geom) };
