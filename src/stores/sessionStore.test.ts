@@ -15,7 +15,7 @@ vi.mock("../api/tauri", () => ({
   },
 }));
 
-import { hydrateSessions, pruneOldSessions, relistSessions, useSessionStore } from "./sessionStore";
+import { hydrateSessions, pruneOldSessions, relistSessions, removeSession, useSessionStore } from "./sessionStore";
 
 const DAY = 86_400_000;
 
@@ -76,6 +76,18 @@ describe("세션 목록 DB", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(ids()).toEqual(["fresh", "old", "open"]);
     expect(useSessionStore.getState().activeId).toBe("fresh");
+  });
+
+  it("지운 세션은 지우기보다 먼저 읽힌 목록(다시 읽기·동기화)에 있어도 다시 보이지 않는다", async () => {
+    localStorage.setItem("nekodesk_sessions_in_db", "1");
+    useSessionStore.setState({ sessions: [{ id: "open", title: "a", date: "" }, { id: "gone", title: "b", date: "" }] });
+    await removeSession("gone");
+    expect(db.deleted).toEqual(["gone"]);
+    db.rows = [{ id: "open", title: "a", created_at: 2, summary: null }, { id: "gone", title: "b", created_at: 1, summary: null }]; // 낡은 목록
+    relistSessions();
+    await vi.waitFor(() => expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["open"]));
+    await hydrateSessions();
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["open"]);
   });
 
   it("setSessions 는 새 세션·바뀐 제목만 적고, 목록에서 빠졌다고 DB 에서 지우지 않는다", () => {

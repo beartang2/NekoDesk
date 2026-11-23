@@ -82,8 +82,14 @@ function persistDiff(prev: Session[], next: Session[]) {
 /** 읽은 때는 DB 에만(앱을 다시 켜도 점이 남게). 실패하면 다음에 열 때 다시 적힌다 */
 const markRead = (id: string) => void sessionApi.read(id).catch(() => {});
 
+/** 이번 실행에서 사용자가 지운 세션. 지우기(DB)보다 먼저 읽힌 목록(답이 끝나 다시 읽기·동기화)이 되살려 보이지 않게 거른다 */
+const removed = new Set<string>();
+
 /** 사용자가 지운 세션: 메시지·요약과 함께 DB 에서 지운다(다른 기기에서도 지워진다). 목록에서 빼는 건 부른 쪽이 */
-export const removeSession = (id: string) => sessionApi.delete(id);
+export const removeSession = (id: string) => {
+  removed.add(id);
+  return sessionApi.delete(id);
+};
 
 const initial = restore();
 
@@ -123,7 +129,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 const dateOf = (ms: number) => new Date(ms).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" });
 
 /** DB 목록으로 화면을 맞춘다(DB 에 바로 다시 적지 않는다). 지금 열린 세션이 사라졌으면 맨 위로, 다 없으면 새 대화 */
-function applyRows(rows: SessionRow[]) {
+function applyRows(all: SessionRow[]) {
+  const rows = all.filter((r) => !removed.has(r.id));
   const { sessions: prev, activeId } = useSessionStore.getState();
   const old = new Map(prev.map((s) => [s.id, s]));
   let sessions: Session[] = rows.map((r) => ({

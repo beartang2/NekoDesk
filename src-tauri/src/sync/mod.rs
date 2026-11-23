@@ -55,6 +55,8 @@ const GIFTS: &str = "neko_gifts";
 pub const PUSH_MAX: usize = 20;
 /// 이보다 큰 메시지는 첨부·그림 본문(dataUrl)을 빼고 올린다(§4.2, 서버 한 건 1MB)
 const SHRINK_AT: usize = 700_000;
+/// 한 번 올리기 요청에 싣는 암호문 합(받기 PULL_BYTES 와 같게). 그림이 든 기록 20개를 한꺼번에 실으면 요청이 수십 MB 가 됐다
+const PUSH_BYTES: usize = 1_000_000;
 /// D1 무료 쓰기 한도(하루 10만 행)를 처음 올리기가 다 먹지 않게(§4.4)
 const DAY_PUSH_MAX: i64 = 20_000;
 /// 한 번 주고받기에서 서버에 거는 요청 상한. 처음 올리기는 여러 번에 나뉜다
@@ -340,14 +342,35 @@ fn shrink(plain: &str) -> String {
             _ => {}
         }
     }
+    /// 긴 글(첨부 파일의 본문 글·도구 결과 등)을 앞부분만 남긴다
+    fn clip_long(v: &mut Value) {
+        match v {
+            Value::String(s) if s.chars().count() > CLIP => *s = s.chars().take(CLIP).collect::<String>() + "…",
+            Value::Array(a) => a.iter_mut().for_each(clip_long),
+            Value::Object(o) => o.values_mut().for_each(clip_long),
+            _ => {}
+        }
+    }
+    const CLIP: usize = 2000;
     let Ok(mut v) = serde_json::from_str::<Value>(plain) else { return plain.to_owned() };
-    for f in ["attachments", "meta"] {
-        if let Some(Value::String(s)) = v.get(f) {
-            if let Ok(mut inner) = serde_json::from_str::<Value>(s) {
-                drop_data(&mut inner);
-                v[f] = Value::String(inner.to_string());
+    // 1) 그림 본문(dataUrl), 2) 그래도 크면 첨부·meta 의 긴 글, 3) 그래도 크면 말 자체를 줄인다 — 서버 한 건(1MB)을 넘으면
+    // 조용히 거절돼(too_big) 그 말이 다른 기기에 영영 안 갔다
+    for pass in [drop_data as fn(&mut Value), clip_long] {
+        for f in ["attachments", "meta"] {
+            if let Some(Value::String(s)) = v.get(f) {
+                if let Ok(mut inner) = serde_json::from_str::<Value>(s) {
+                    pass(&mut inner);
+                    v[f] = Value::String(inner.to_string());
+                }
             }
         }
+        if v.to_string().len() <= SHRINK_AT {
+            return v.to_string();
+        }
+    }
+    if let Some(Value::String(c)) = v.get("content") {
+        let keep = c.chars().take(SHRINK_AT / 4).collect::<String>() + "…";
+        v["content"] = Value::String(keep);
     }
     v.to_string()
 }
@@ -363,7 +386,11 @@ pub fn collect(conn: &Connection, me: &str, key: &Key) -> AppResult<Vec<Record>>
         .query_map([PUSH_MAX as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
         .collect::<Result<_, _>>()?;
     let mut out = Vec::new();
+    let mut bytes = 0;
     for (coll, uid, local_key, ts, deleted, cut, sig) in rows {
+        if bytes >= PUSH_BYTES {
+            break; // 나머지는 다음 요청에
+        }
         let mut r = Record {
             coll: coll.clone(), id: uid.clone(), parent: None, ts, device: me.to_owned(), deleted,
             cut: if coll == "session" { cut } else { None }, blob: None,
@@ -388,6 +415,7 @@ pub fn collect(conn: &Connection, me: &str, key: &Key) -> AppResult<Vec<Record>>
             }
             r.blob = Some(seal(key, &r, plain.as_bytes())?);
         }
+        bytes += r.blob.as_ref().map_or(0, String::len) + 200;
         out.push(r);
     }
     Ok(out)
@@ -556,11 +584,12 @@ fn merge_memory(conn: &Connection, r: &Record, plain: &str, mine: Option<&str>) 
 fn apply_delete(conn: &Connection, r: &Record, local_key: Option<&str>, ch: &mut Changes) -> AppResult<()> {
     match r.coll.as_str() {
         "session" => {
-            // 자동 삭제인데 아직 못 올린 새 메시지가 있으면 세션을 되살려 올린다(§2.5 규칙 3)
+            // 자동 삭제인데 아직 못 올린 새 메시지(기준 시각 cut 보다 늦은 것 — 서버가 자동 삭제를 거절하는 것과 같다)가 있으면
+            // 세션을 되살려 올린다(§2.5 규칙 3). 다시 올리는 옛 말(resend_once)로는 되살리지 않는다
             let unsent: bool = conn.query_row(
                 "SELECT EXISTS (SELECT 1 FROM conversation_messages c JOIN sync_meta s
-                     ON s.coll = 'msg' AND s.local_key = CAST(c.id AS TEXT) WHERE c.session_id = ?1 AND s.dirty = 1)",
-                [&r.id],
+                     ON s.coll = 'msg' AND s.local_key = CAST(c.id AS TEXT) WHERE c.session_id = ?1 AND s.dirty = 1 AND s.ts > ?2)",
+                params![r.id, r.cut.unwrap_or(i64::MAX)],
                 |x| x.get(0),
             )?;
             if r.cut.is_some() && unsent {
@@ -704,6 +733,13 @@ fn settle(conn: &Connection, srv: &Server, push: &[Record], resp: &SyncResp, ch:
             other => {
                 if let Some(reason) = other {
                     log::warn!("동기화: {} {} 거절 ({reason})", r.coll, r.id);
+                    // 졌음(lost)·지운 세션의 말(gone)은 늘 있는 일이다. 그 밖(too_big·clock …)은 그 기록이 다른 기기에 안 간다 —
+                    // 조용히 넘기면 왜 안 보이는지 알 길이 없어 설정 › 동기화에 알린다
+                    if !matches!(*reason, "lost" | "gone") {
+                        let n = state_i64(conn, "rejected")? + 1;
+                        set_state(conn, "rejected", &format!("{n}"))?;
+                        set_state(conn, "rejected_why", reason)?;
+                    }
                 }
                 conn.execute(
                     "UPDATE sync_meta SET dirty = 0, device = ?3 WHERE coll = ?1 AND uid = ?2 AND ts = ?4",
@@ -749,6 +785,7 @@ fn settle(conn: &Connection, srv: &Server, push: &[Record], resp: &SyncResp, ch:
 /// 서버와 한 번 맞춘다: 안 올린 것이 없고 더 받을 것이 없을 때까지(요청 ROUND_REQUESTS 번까지).
 pub async fn round(db: &Mutex<Connection>, srv: &Server, active_at: i64) -> AppResult<Changes> {
     let mut ch = Changes::default();
+    resend_once(&*db.lock()?)?;
     for _ in 0..ROUND_REQUESTS {
         let (push, since) = {
             let conn = db.lock()?;
@@ -765,11 +802,26 @@ pub async fn round(db: &Mutex<Connection>, srv: &Server, active_at: i64) -> AppR
             tx.commit()?;
             again
         };
-        if !resp.more && !again && push.len() < PUSH_MAX {
+        // 크기로 잘라 덜 실었으면(PUSH_BYTES) 바로 이어 올린다
+        let left = !push.is_empty() && db.lock()?.query_row("SELECT EXISTS (SELECT 1 FROM sync_meta WHERE dirty = 1)", [], |r| r.get::<_, bool>(0))?;
+        if !resp.more && !again && push.len() < PUSH_MAX && !left {
             break;
         }
     }
     Ok(ch)
+}
+
+/// 0.1.29 에서 한 번: 대화(세션·말)를 처음부터 다시 맞춘다. 서버에 못 간 기록(조용히 거절된 큰 말, 막힌 사이 쓴 것)을 다시 올리고
+/// 처음부터 다시 받는다 — 사용자가 지운 세션은 지움 표시도 다시 올라가 다른 기기에서도 지워지고(지운 쪽이 이긴다), 한쪽에만 있던
+/// 세션은 다른 쪽에 생긴다. 자동 삭제(cut 있는 지움)는 다시 올리지 않는다(그새 다른 기기가 되살렸을 수 있다).
+/// 서버는 이미 있는 말을 그대로 두고(덧붙기만), 같은 시각의 세션은 받아들이니 두 번 쌓이지 않는다
+fn resend_once(conn: &Connection) -> AppResult<()> {
+    if state(conn, "resent_v1")?.is_some() {
+        return Ok(());
+    }
+    conn.execute("UPDATE sync_meta SET dirty = 1 WHERE coll IN ('session', 'msg') AND NOT (deleted = 1 AND cut IS NOT NULL)", [])?;
+    set_state(conn, "since", "0")?;
+    set_state(conn, "resent_v1", &now_ms().to_string())
 }
 
 // ── 화면이 쓰는 세션 목록(localStorage 에서 옮겨 옴) ─────────────────────────
@@ -810,7 +862,20 @@ pub fn session_read(conn: &Connection, id: &str, at: i64) -> AppResult<()> {
 }
 
 /// 없으면 만들고, 있으면 제목만 바꾼다(요약은 session_compact 로)
+/// 사용자가 지운 세션(cut 없는 지움 표시)이다. 이 기기·다른 기기에서 지운 세션을 화면의 낡은 목록(제목 바꿈·요약·옮기기)이
+/// 다시 만들면 지움 표시가 풀려 올라갔다 — 서버가 다시 지우지만 그사이 목록이 튀었다. 세션 id 는 다시 쓰지 않으니 거절한다
+fn user_deleted(conn: &Connection, id: &str) -> AppResult<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM sync_meta WHERE coll = 'session' AND uid = ?1 AND deleted = 1 AND cut IS NULL)",
+        [id],
+        |r| r.get(0),
+    )?)
+}
+
 pub fn session_put(conn: &Connection, id: &str, title: &str, created_at: i64) -> AppResult<()> {
+    if user_deleted(conn, id)? {
+        return Ok(());
+    }
     conn.execute(
         "INSERT INTO sessions (id, title, created_at) VALUES (?1, ?2, ?3) ON CONFLICT (id) DO UPDATE SET title = excluded.title",
         params![id, title, created_at],
@@ -821,6 +886,9 @@ pub fn session_put(conn: &Connection, id: &str, title: &str, created_at: i64) ->
 /// 처음 한 번 localStorage 의 목록·요약을 옮긴다. 이미 있는 세션은 건드리지 않는다.
 pub fn session_import(conn: &Connection, rows: &[SessionRow]) -> AppResult<()> {
     for s in rows {
+        if user_deleted(conn, &s.id)? {
+            continue;
+        }
         conn.execute(
             // 이 기기에 있던 대화라 다 읽은 것으로
             "INSERT INTO sessions (id, title, created_at, summary, read_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (id) DO NOTHING",
@@ -839,6 +907,9 @@ pub fn session_delete(conn: &Connection, id: &str) -> AppResult<()> {
 
 /// 수동 요약: 요약을 적고 그 세션 메시지를 다 지운다. cut = 지금(그 세션 마지막 메시지보다 늦게)
 pub fn session_compact(conn: &Connection, id: &str, summary: &str) -> AppResult<()> {
+    if user_deleted(conn, id)? {
+        return Ok(());
+    }
     let cut: i64 = conn.query_row(
         "SELECT MAX(?2, COALESCE(MAX(s.ts), 0)) FROM conversation_messages c
          JOIN sync_meta s ON s.coll = 'msg' AND s.local_key = CAST(c.id AS TEXT) WHERE c.session_id = ?1",
