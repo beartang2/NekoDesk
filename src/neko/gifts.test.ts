@@ -60,6 +60,23 @@ describe("선물함", () => {
     expect(f.placed).toEqual({ surface: "floor", u: 0.35, at: "dock" }); // 벽 물건 자리는 비어 있는 셈
   });
 
+  it("놀다 멈춘 각도(rot)를 바닥·탁자 자리와 함께 저장한다. 0·벽·이상한 값은 칸을 안 둔다", () => {
+    const s = useNekoGifts.getState();
+    s.add({ id: "r", title: "도토리", body: "", shape: dot });
+    const at = () => useNekoGifts.getState().gifts[0].placed;
+    s.place("r", { surface: "floor", u: 0.4, rot: 2.345 + 4 * Math.PI }, "dock"); // 던져 굴러가다 섬(여러 바퀴)
+    expect(at()).toEqual({ surface: "floor", u: 0.4, rot: 2.35, at: "dock" });
+    expect(dbGifts()[0].placed).toEqual(at()); // 저장(동기화로 다른 기기도)
+    s.place("r", { surface: "furniture", u: 0.5, fid: "t", i: 0, fu: 0.3, rot: -1 });
+    expect(at()).toEqual({ surface: "furniture", u: 0.5, fid: "t", i: 0, fu: 0.3, rot: -1, at: "dock" });
+    s.place("r", { surface: "floor", u: 0.6 }); // 사용자가 집어 옮김: 똑바로
+    expect(at()).toEqual({ surface: "floor", u: 0.6, at: "dock" });
+    s.place("r", { surface: "floor", u: 0.6, rot: Number.NaN });
+    expect(at()).toEqual({ surface: "floor", u: 0.6, at: "dock" });
+    s.place("r", { surface: "wall", u: 0.6, v: 0.5, rot: 1 } as never, "screen"); // 벽은 늘 똑바로
+    expect(at()).toEqual({ surface: "wall", u: 0.6, v: 0.5, at: "screen" });
+  });
+
   it("크기는 small·medium·large 만 남긴다(없으면 엔진이 medium)", () => {
     const s = useNekoGifts.getState();
     s.add({ id: "s", title: "s", body: "", shape: null, size: "large" });

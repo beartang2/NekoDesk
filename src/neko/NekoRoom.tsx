@@ -141,7 +141,7 @@ export function RoomGifts({ isDark, onMenu, children }: { isDark: boolean; onMen
     const tick = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000); last = now;
       if (rolling) {
-        if (rollStep(rolling, dt, geom, h)) { setDrag(null); useNekoGifts.getState().place(p.id, spotOf(rolling.x, geom.floorY, h, geom)); return; }
+        if (rollStep(rolling, dt, geom, h)) { setDrag(null); useNekoGifts.getState().place(p.id, { surface: "floor", u: spotOf(rolling.x, geom.floorY, h, geom).u, rot: rolling.rot }); return; } // 멈춘 각도도
         setDrag({ id: p.id, x: rolling.x, bottom: geom.floorY, fly: true, rot: rolling.rot });
       } else if (fallStep(f, dt, geom)) {
         if (!roll || Math.abs(f.vx) <= 8 * geom.S) { setDrag(null); useNekoGifts.getState().place(p.id, spotOf(f.x, f.bottom, h, geom)); return; }

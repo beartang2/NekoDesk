@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { giftsApi, settingsApi } from "../api/tauri";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
 import type { NekoDecorSpot, NekoGiftPlay, NekoGiftSize } from "./engine/neko-engine";
-import { clampScale, decorDims, decorK, spotOf, type DecorGeom } from "./engine/decor-draw";
+import { clampScale, decorDims, decorK, normRot, spotOf, type DecorGeom } from "./engine/decor-draw";
 import { stageS } from "./engine/stage-scale";
 import { cleanShownText } from "../lib/replyTags";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
@@ -256,8 +256,10 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
       const s: NekoDecorSpot = spot !== "auto" ? spot : gift.frame ? { surface: "wall", u: freeSpot(us), v: FRAME_V[where] } : { surface: "floor", u: freeSpot(us) };
       // 액자만 벽에(마당 빼고). 벽 자리가 와도 액자가 아니면 같은 가로 자리의 바닥으로. 가구 윗면(탁자) 위는 방·거실만
       const hang = s.surface === "wall" && (gift.frame || where === "screen");
-      placed = s.surface === "furniture" && where !== "screen" ? { surface: "furniture", u: s.u, fid: s.fid, i: s.i, fu: s.fu, at: where }
-        : hang && s.surface === "wall" ? { surface: "wall", u: s.u, v: s.v, at: where } : { surface: "floor", u: s.u, at: where };
+      // 놀다 멈춘 각도(던지기·굴리기, 누운 액자): 바닥·가구 윗면만, 0 이면 칸을 안 둔다(옛 선물과 같은 꼴 — 안 바뀐 건 다시 안 올라간다)
+      const r = s.surface === "wall" ? 0 : normRot(s.rot), rot = r ? { rot: r } : {};
+      placed = s.surface === "furniture" && where !== "screen" ? { surface: "furniture", u: s.u, fid: s.fid, i: s.i, fu: s.fu, ...rot, at: where }
+        : hang && s.surface === "wall" ? { surface: "wall", u: s.u, v: s.v, at: where } : { surface: "floor", u: s.u, ...rot, at: where };
       if (scr) placed.screen = scr;
     }
     const gifts = get().gifts.map((g) => {
