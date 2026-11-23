@@ -134,17 +134,84 @@ const BOOT_GRACE: std::time::Duration = std::time::Duration::from_secs(8);
 #[cfg(desktop)]
 static BOOT_SETTLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// 부팅이 끝났다(다 키웠든, 못 키웠든, 시간이 지났든): 메인 창에 최소 크기를 건다. 작으면 tao 가 최소 크기까지
-/// 키우고, recenter 면 그 화면 가운데로 다시 둔다(작은 창이 오른쪽 위로만 커져 화면 밖으로 나가지 않게).
+/// 화면이 잰 메인 창 최소 높이(f64 비트): 위쪽 칸(대화 목록·방·채팅·오른쪽 패널)이 안 잘리는 높이 + 제목 막대 + 거실.
+/// 0 이면 아직 안 왔다 — MAIN_MIN 만 건다
+#[cfg(desktop)]
+static MAIN_MIN_H: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 부팅이 끝났다(다 키웠든, 못 키웠든, 시간이 지났든): 메인 창에 최소 크기를 건다(apply_main_min). recenter 면 그 화면
+/// 가운데로 다시 둔다(작은 창이 오른쪽 위로만 커져 화면 밖으로 나가지 않게).
 /// 창 크기를 읽지 않는다 — 읽기는 메인 스레드를 기다려, 메인이 막혔을 때 여기서도 멈춘다.
 #[cfg(desktop)]
 fn settle_main_window(win: &tauri::WebviewWindow, recenter: bool) {
     BOOT_SETTLED.store(true, std::sync::atomic::Ordering::SeqCst);
-    if let Err(e) = win.set_min_size(Some(tauri::LogicalSize::new(MAIN_MIN.0, MAIN_MIN.1))) {
-        log::warn!("메인 창 최소 크기를 못 걸었어: {e}");
-    }
+    apply_main_min(win);
     if recenter {
         crate::place::center(win, crate::place::Screen::Of(win), false);
+    }
+}
+
+/// 메인 창 최소 크기 = MAIN_MIN 과 화면이 잰 높이 중 큰 쪽. 맥은 그 화면 작업 영역 높이까지만 걸고(넘으면 거실이 줄어든다 —
+/// src/lib/windowMin.ts), 창이 그보다 작으면 위는 그대로 두고 아래로 키운 뒤 아래가 작업 영역 밖이면 올린다.
+/// 메인 스레드에 맡기고 기다리지 않는다.
+#[cfg(desktop)]
+fn apply_main_min(win: &tauri::WebviewWindow) {
+    let want = MAIN_MIN.1.max(f64::from_bits(MAIN_MIN_H.load(std::sync::atomic::Ordering::SeqCst)));
+    #[cfg(target_os = "macos")]
+    if let Ok(ns) = win.ns_window() {
+        let ns = ns as usize;
+        let _ = win.run_on_main_thread(move || unsafe { fit_main_window(ns as *mut objc2::runtime::AnyObject, MAIN_MIN.0, want) });
+        return;
+    }
+    if let Err(e) = win.set_min_size(Some(tauri::LogicalSize::new(MAIN_MIN.0, want))) {
+        log::warn!("메인 창 최소 크기를 못 걸었어: {e}");
+    }
+}
+
+/// 최소 크기와 맞춘 창 자리. 모두 AppKit 좌표(왼쪽 아래 원점, x·y·w·h). frame·content: 지금 창 틀과 그 안 내용,
+/// visible: 그 화면의 작업 영역(메뉴 막대·Dock 뺌). 반환: (최소 틀 크기 w·h, 새 틀)
+#[cfg(desktop)]
+fn fit_min_frame(frame: [f64; 4], content: [f64; 4], visible: [f64; 4], min_w: f64, want_h: f64) -> ([f64; 2], [f64; 4]) {
+    let (bar_w, bar_h) = (frame[2] - content[2], frame[3] - content[3]);
+    let h = want_h.min(visible[3] - bar_h);
+    let mut f = frame;
+    if content[2] < min_w {
+        f[2] += min_w - content[2];
+    }
+    if content[3] < h {
+        // 위는 그대로, 아래로 늘인다
+        f[1] -= h - content[3];
+        f[3] += h - content[3];
+    }
+    if f[1] < visible[1] {
+        f[1] = visible[1];
+    }
+    if f[0] + f[2] > visible[0] + visible[2] {
+        f[0] = (visible[0] + visible[2] - f[2]).max(visible[0]);
+    }
+    ([min_w + bar_w, h + bar_h], f)
+}
+
+/// 메인 스레드 전용
+#[cfg(target_os = "macos")]
+unsafe fn fit_main_window(window: *mut objc2::runtime::AnyObject, min_w: f64, want_h: f64) {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject, Bool};
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    let r4 = |r: NSRect| [r.origin.x, r.origin.y, r.size.width, r.size.height];
+    let frame: NSRect = msg_send![window, frame];
+    let content: NSRect = msg_send![window, contentRectForFrameRect: frame];
+    let mut screen: *mut AnyObject = msg_send![window, screen];
+    if screen.is_null() {
+        if let Some(cls) = AnyClass::get(c"NSScreen") {
+            screen = msg_send![cls, mainScreen];
+        }
+    }
+    let visible: NSRect = if screen.is_null() { frame } else { msg_send![screen, visibleFrame] };
+    let (min, f) = fit_min_frame(r4(frame), r4(content), r4(visible), min_w, want_h);
+    let _: () = msg_send![window, setMinSize: NSSize::new(min[0], min[1])];
+    if f != r4(frame) {
+        let _: () = msg_send![window, setFrame: NSRect::new(NSPoint::new(f[0], f[1]), NSSize::new(f[2], f[3])), display: Bool::YES];
     }
 }
 
@@ -1005,6 +1072,23 @@ mod commands {
             .visible(false)
             .build()?;
         bring_popup(&app, &win)
+    }
+
+    /// 메인 창: 위쪽 칸이 안 잘리는 최소 높이(제목 막대 + 위쪽 칸 + 거실, src/lib/windowMin.ts 가 잰다). 부팅 중이면
+    /// 기억만 하고 부팅이 끝날 때 건다.
+    #[cfg(desktop)]
+    #[tauri::command]
+    pub fn main_min_height(app: tauri::AppHandle, h: f64) -> Result<(), AppError> {
+        if !(h.is_finite() && (0.0..=10_000.0).contains(&h)) {
+            return Err("창 높이 값이 이상해.".into());
+        }
+        MAIN_MIN_H.store(h.to_bits(), std::sync::atomic::Ordering::SeqCst);
+        if BOOT_SETTLED.load(std::sync::atomic::Ordering::SeqCst) {
+            if let Some(win) = app.get_webview_window("main") {
+                apply_main_min(&win);
+            }
+        }
+        Ok(())
     }
 
     /// 팝업을 메인 창이 있는 모니터에 보인다. 이미 그 모니터에 있으면 사용자가 둔 자리 그대로,
@@ -1977,6 +2061,8 @@ pub fn run() {
             #[cfg(desktop)]
             commands::panel_open,
             #[cfg(desktop)]
+            commands::main_min_height,
+            #[cfg(desktop)]
             commands::viewer_item,
             #[cfg(desktop)]
             commands::save_download,
@@ -2166,5 +2252,29 @@ mod download_tests {
         assert_eq!(unique_download_path(&dir, "../../etc/passwd"), dir.join("passwd"));
         assert_eq!(unique_download_path(&dir, ".."), dir.join("nekodesk"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(all(test, desktop))]
+mod window_min_tests {
+    use super::fit_min_frame;
+
+    #[test]
+    fn a_short_window_grows_down_and_stays_on_screen() {
+        // 작업 영역 1470×870(아래 Dock 62), 제목 막대가 웹뷰 위에 겹쳐 틀 = 내용
+        let visible = [0.0, 62.0, 1470.0, 870.0];
+        // 높이 520 창을 760 으로: 위(y + h = 800)는 그대로 두고 아래로 늘인다
+        let win = [100.0, 280.0, 1100.0, 520.0];
+        let (min, f) = fit_min_frame(win, win, visible, 720.0, 760.0);
+        assert_eq!(min, [720.0, 760.0]);
+        // 아래로 240 늘이면 바닥(y 40)이 Dock 밑이라 작업 영역 바닥(62)까지 올린다
+        assert_eq!(f, [100.0, 62.0, 1100.0, 760.0]);
+        // 이미 크면 그대로
+        let big = [100.0, 62.0, 1100.0, 800.0];
+        assert_eq!(fit_min_frame(big, big, visible, 720.0, 760.0).1, big);
+        // 화면보다 크게 원하면 작업 영역 높이까지만(그 아래는 거실이 줄어든다)
+        let (min, f) = fit_min_frame(win, win, visible, 720.0, 2000.0);
+        assert_eq!(min[1], 870.0);
+        assert_eq!((f[1], f[3]), (62.0, 870.0));
     }
 }
