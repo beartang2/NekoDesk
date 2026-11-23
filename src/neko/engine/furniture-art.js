@@ -108,7 +108,32 @@ export const FURNITURE_ART = {
 const EXTENT = { lamp: [14, 32], cattower: [22, 32], wheel: [31, 32], sofa: [34, 14], box: [27.6, 18.5], table: [26, 12] };
 
 /** 한 칸의 px 와 그린 크기(px). slotW 를 주면 폭이 칸의 90% 를 넘지 않게 줄인다(키·폭을 같이, 고양이 대비보다 칸이 먼저) */
-export function furnitureBox(kind, S, slotW) {
+/**
+ * 자유 가구(kind "free", docs/neko-furniture-free.md): 모델이 그린 모양(shape)을 고양이 키 FREE_U 칸 축척으로 — 한 칸 px = 100·S/12
+ * (neko/furnitureUses CAT_U 와 같다). 가운데 x 0·바닥 y 0. 폭은 가운데에서 먼 쪽의 두 배로 잰다(쓰임새 좌표가 가운데 기준이라 옮기지 않는다)
+ */
+export const FREE_U = 12;
+/** 자유 가구 모양의 실제 칠한 칸(가로 x0·x1, 맨 위 top). shapeBounds 는 돌린 네모·타원을 둘레 원으로 넉넉히 잡아 가구 칸이 실제보다 컸다 */
+function freeExtent(shape) {
+  let x0 = 0, x1 = 0, top = 0;
+  for (const p of shape.parts) {
+    let b;
+    if (p.t === "ellipse") { const s = Math.sin(p.rot || 0), c = Math.cos(p.rot || 0), ex = Math.hypot(p.rx * c, p.ry * s), ey = Math.hypot(p.rx * s, p.ry * c); b = [p.x - ex, p.y - ey, p.x + ex]; }
+    else if (p.t === "rrect") { const s = Math.abs(Math.sin(p.rot || 0)), c = Math.abs(Math.cos(p.rot || 0)), ex = (p.w / 2) * c + (p.h / 2) * s, ey = (p.w / 2) * s + (p.h / 2) * c; b = [p.x - ex, p.y - ey, p.x + ex]; }
+    else if (p.t === "circle" || p.t === "dot") b = [p.x - p.r, p.y - p.r, p.x + p.r];
+    else if (Array.isArray(p.pts) && p.pts.length) { const e = p.t === "line" ? (p.w || 0) / 2 : 0, xs = p.pts.map((q) => q[0]), ys = p.pts.map((q) => q[1]); b = [Math.min(...xs) - e, Math.min(...ys) - e, Math.max(...xs) + e]; }
+    else continue;
+    x0 = Math.min(x0, b[0]); top = Math.min(top, b[1]); x1 = Math.max(x1, b[2]);
+  }
+  return { x0, x1, h: Math.max(1, -top) };
+}
+export function furnitureBox(kind, S, slotW, shape) {
+  if (kind === "free") {
+    if (!shape || !Array.isArray(shape.parts) || !shape.parts.length) return { u: 0, w: 0, h: 0, fit: 1 };
+    const b = freeExtent(shape), ew = 2 * Math.max(Math.abs(b.x0), Math.abs(b.x1), 0.5), eh = b.h, u0 = (CAT * S) / FREE_U;
+    const u = slotW > 0 && ew * u0 > 0.9 * slotW ? (0.9 * slotW) / ew : u0;
+    return { u, w: ew * u, h: eh * u, fit: u / u0 };
+  }
   const a = FURNITURE_ART[kind], [ew, eh] = EXTENT[kind];
   let u = (a.size * CAT * S) / a.span;
   if (slotW > 0 && ew * u > 0.9 * slotW) u = (0.9 * slotW) / ew;
@@ -134,9 +159,9 @@ export function boxOpening(S, slotW) {
 }
 
 /** 올라앉는 면(px, 가운데 x·바닥 y 기준): 엔진이 캣타워·소파 위에 앉을 때. 칸 맞춤으로 줄면 면도 같이 */
-export function furnitureSurfaces(kind, S, slotW, list) {
+export function furnitureSurfaces(kind, S, slotW, list, shape) {
   // 면 목록은 가구 항목이 주면 그것(자유 가구 uses 의 perch 등, docs/neko-furniture-free.md §8), 없으면 종류 표
-  const { fit } = furnitureBox(kind, S, slotW), k = CAT * S * fit, src = Array.isArray(list) ? list : FURNITURE_ART[kind].surfaces;
+  const { fit } = furnitureBox(kind, S, slotW, shape), k = CAT * S * fit, src = Array.isArray(list) ? list : FURNITURE_ART[kind]?.surfaces || [];
   return src.map((s) => ({ y: s.y * k, x0: s.x0 * k, x1: s.x1 * k, ...(s.hold ? { hold: true } : {}) }));
 }
 
@@ -174,12 +199,18 @@ const toneOf = (accent, k, dflt) => accentTone(accent, TONE[k][0], TONE[k][1]) |
  *    slotW(칸 폭, 칸 맞춤) · shadow(바닥 그림자 색)
  */
 export function drawFurniture(g, kind, x, bottom, S, o = {}) {
-  if (!FURNITURE_ART[kind]) return;
-  const { u, w } = furnitureBox(kind, S, o.slotW), layer = o.layer || "all", edge = o.edge ?? 4;
+  if (!FURNITURE_ART[kind] && kind !== "free") return;
+  const { u, w } = furnitureBox(kind, S, o.slotW, o.shape), layer = o.layer || "all", edge = o.edge ?? 4;
+  if (kind === "free" && !u) return;
   const back = layer !== "front", front = layer !== "back";
   if (back && o.shadow !== null) { // 고양이와 같은 바닥 그림자
     g.save(); g.globalAlpha = 0.5; g.fillStyle = o.shadow || "rgba(20, 14, 24, 0.18)";
     g.beginPath(); g.ellipse(x, bottom + S, w * 0.48, 2.6 * S, 0, 0, Math.PI * 2); g.fill(); g.restore();
+  }
+  if (kind === "free") { // 자유 가구: 그림 전체가 뒤 겹, 앞 겹은 숨기 입구 앞에 다시 그릴 도형(o.front 번호)만
+    if (back) drawShape(g, o.shape, x, bottom, u, edge);
+    if (front && layer === "front" && Array.isArray(o.front) && o.front.length) drawShape(g, { ...o.shape, parts: o.shape.parts.filter((_, i) => o.front.includes(i)) }, x, bottom, u, edge);
+    return;
   }
   if (kind === "box") {
     if (back) drawShape(g, { v: 1, parts: BOX_BACK }, x, bottom, u, edge);

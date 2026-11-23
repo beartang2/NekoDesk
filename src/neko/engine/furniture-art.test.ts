@@ -57,3 +57,23 @@ describe("포인트 색 계열(사용자: 강조 색과 같은 계열로 자연�
     expect(accentTone("#808080", 0.5, 0.6)).toBe("#999999"); // 회색은 회색
   });
 });
+
+describe("자유 가구(kind free, docs/neko-furniture-free.md §7·§8)", () => {
+  const shape = { v: 1, parts: [{ t: "rrect", x: 0, y: -6, w: 20, h: 12, rad: 1, rot: 0, c: "brown" }, { t: "rrect", x: 0, y: -12.8, w: 22, h: 1.6, rad: 0.7, rot: 0, c: "red" }] };
+  it("고양이 키 12칸 축척, 칠한 칸으로 잰다(돌린 도형 둘레 원 아님), 칸 폭 90% 로 줄인다", () => {
+    const b = furnitureBox("free", 1, undefined, shape);
+    expect(b.h).toBeCloseTo((13.6 * 100) / 12, 4);
+    expect(b.w).toBeCloseTo((22 * 100) / 12, 4);
+    const f = furnitureBox("free", 1, 140, shape);
+    expect(f.w).toBeCloseTo(126, 4);
+    expect(f.fit).toBeLessThan(1);
+    expect(furnitureBox("free", 1).w).toBe(0); // 모양이 없으면 그리지 않는다
+  });
+  it("올라앉는 면은 항목 목록(고양이 키 단위)을 칸 맞춤과 같이 줄인다", () => {
+    const list = [{ y: 13.6 / 12, x0: -10 / 12, x1: 10 / 12 }];
+    const s1 = furnitureSurfaces("free", 1, undefined, list, shape)[0], s2 = furnitureSurfaces("free", 1, 140, list, shape)[0];
+    expect(s1.y).toBeCloseTo(furnitureBox("free", 1, undefined, shape).h, 4);
+    expect(s2.y / s1.y).toBeCloseTo(furnitureBox("free", 1, 140, shape).fit, 6);
+  });
+});
+

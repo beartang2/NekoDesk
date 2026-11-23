@@ -97,7 +97,7 @@ function FurnitureSlots({ f, at, done }: { f: FurnitureItem; at: Room; done: () 
     g.clearRect(0, 0, W, H);
     slots.forEach((s, i) => {
       const o = owner(i);
-      if (o && isArtKind(o)) drawFurniture(g, o.kind, s.x, floorY, S, { slotW: s.w, accent, on: !!lamps[o.id], edge: 3 * dpr, layer: "all" });
+      if (o) drawFurniture(g, o.kind, s.x, floorY, S, { slotW: s.w, accent, on: !!lamps[o.id], edge: 3 * dpr, layer: "all", shape: o.shape }); // 자유 가구는 제 모양
     });
   });
   const pick = (i: number) => { void useNekoFurniture.getState().place(f.id, at, i); done(); };

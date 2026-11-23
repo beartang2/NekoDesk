@@ -5143,18 +5143,42 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      캣타워 발판·소파 쿠션은 올라앉는 면(TOPS)이 된다 — 화면 모드의 창 윗변과 같은 길이라 잡았다 놓아도 그 위에 내린다. */
   let furniture = []; // [{ id, kind, at, slot, on, x, slotW, box: { x, y, w, h } }]
   let HOLD_TOPS = []; // 물건을 얹는 가구 윗면(탁자): [{ fid, i, x0, x1, y }] — 선물 자리 furniture(decor-draw tops)
-  const FURN_KINDS = new Set(["lamp", "cattower", "wheel", "sofa", "box", "table"]);
+  const FURN_KINDS = new Set(["lamp", "cattower", "wheel", "sofa", "box", "table", "free"]);
+  /**
+   * 자유 가구(kind "free", docs/neko-furniture-free.md §8): 모양(shape)·쓰임새(uses, 호스트가 검사를 거친 칸 단위 — 고양이 키 FA.FREE_U 칸).
+   * 올라앉는 면은 perch 쓰임새에서(고양이 키 단위로 — 기본 가구 면 표와 같은 길). 무대 크기에서 다시 보고(§7) 안 맞는 쓰임새는 그 자리에서 끈다
+   */
+  function freeUses(raw) {
+    const n = (v) => Number.isFinite(v);
+    return (Array.isArray(raw) ? raw : []).filter((x) => x && typeof x === "object" && (
+      (x.u === "perch" && n(x.y) && n(x.x0) && n(x.x1) && x.x1 > x.x0) || (x.u === "inside" && n(x.x0) && n(x.x1) && n(x.rim) && x.x1 > x.x0) ||
+      (x.u === "scratch" && (x.side === "left" || x.side === "right") && n(x.x) && n(x.top)) || (x.u === "bat" && n(x.x) && n(x.y))));
+  }
+  /** 감독에 알릴 쓰임새 이름: 켜진 것, perch 는 물건이 안 얹힌 면이 하나라도 있을 때만 */
+  function freeUsesNow(f) {
+    const perchFree = (f.surfaces || []).some((_, i) => !decor.some((d) => d.surface === "furniture" && d.fid === f.id && d.fi === i));
+    return [...new Set((f.usesOn || []).filter((x) => x.u !== "perch" || perchFree).map((x) => x.u))];
+  }
+  /** 이 무대에서 켜진 쓰임새(§7): perch 면은 앉은 고양이(키 0.8)가 무대 위로 안 나가면, inside 는 입구가 고양이 키 0.5 이상, bat 은 높이 0.4 이상 */
+  function freeOn(f) {
+    const u = FA.furnitureBox("free", S, f.slotW, f.shape).u, cat1 = 100 * S;
+    return f.uses.filter((x) => x.u === "perch" ? -x.y * u + 0.8 * cat1 + 4 <= BASE_Y : x.u === "inside" ? (x.x1 - x.x0) * u >= 0.5 * cat1 : x.u === "bat" ? -x.y * u >= 0.4 * cat1 : true);
+  }
   function layoutFurniture() {
     if (WORLD) return;
     for (const f of furniture) {
       const s = DD.furnitureSlots(f.at, W)[f.slot];
       f.x = s ? s.x : -1e6; f.slotW = s ? s.w : 0;
-      const b = FA.furnitureBox(f.kind, S, f.slotW);
+      const b = FA.furnitureBox(f.kind, S, f.slotW, f.shape);
       f.box = { x: f.x - b.w / 2, y: BASE_Y - b.h, w: b.w, h: b.h };
+      if (f.kind === "free") { // 이 무대에서 켜진 쓰임새와 올라앉는 면(perch → 고양이 키 단위)
+        f.usesOn = freeOn(f);
+        f.surfaces = f.usesOn.filter((x) => x.u === "perch").map((x) => ({ y: -x.y / FA.FREE_U, x0: x.x0 / FA.FREE_U, x1: x.x1 / FA.FREE_U, ...(x.soft ? { soft: true } : {}) }));
+      }
     }
     // 올라앉는 면(그림 furniture-art 한 곳): 캣타워 발판·소파 쿠션·캣휠 안 레일
-    TOPS = furniture.flatMap((f) => FA.furnitureSurfaces(f.kind, S, f.slotW, f.surfaces)
-      .map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, i, wheel: f.kind === "wheel", hold: !!sf.hold, x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y })));
+    TOPS = furniture.flatMap((f) => FA.furnitureSurfaces(f.kind, S, f.slotW, f.surfaces, f.shape)
+      .map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, i, wheel: f.kind === "wheel", hold: !!sf.hold, soft: !!f.surfaces?.[i]?.soft, x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y })));
     HOLD_TOPS = TOPS.filter((t) => t.hold).map((t) => ({ fid: t.fid, i: t.i, x0: t.x0, x1: t.x1, y: t.y }));
     const c = cat, was = c.perch;
     if (!was) return;
@@ -5168,6 +5192,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const prev = new Map(furniture.map((f) => [f.id, f]));
     furniture = (Array.isArray(items) ? items : []).filter((f) => f && f.id != null && FURN_KINDS.has(f.kind) && (f.at === "sidebar" || f.at === "dock") && Number.isInteger(f.slot))
       .map((f) => ({ id: String(f.id), kind: f.kind, at: f.at, slot: f.slot, on: prev.get(String(f.id))?.on ?? !!f.on, accent: typeof f.accent === "string" ? f.accent : "",
+        ...(f.kind === "free" ? { shape: validateShape(f.shape), uses: freeUses(f.uses) } : {}),
         surfaces: Array.isArray(f.surfaces) ? f.surfaces.filter((s) => s && [s.y, s.x0, s.x1].every(Number.isFinite) && s.x1 > s.x0) : undefined, inV: prev.get(String(f.id))?.inV ?? 0, spin: prev.get(String(f.id))?.spin ?? 0, spinV: prev.get(String(f.id))?.spinV ?? 0, x: 0, slotW: 0, box: null }));
     layoutFurniture();
     const bs = actOf("box"); if (bs) bs.roam = !!furnOf("box"); // 상자 가구가 있으면 상자 놀이는 그리로 걸어간다
@@ -5200,7 +5225,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     for (const f of furniture) if (furnHeld(f)) {
       ctx.save();
       if (f.tapT > 0) { ctx.translate(f.x, BASE_Y); ctx.rotate(Math.sin(f.tapT * 18) * 0.05 * f.tapT); ctx.translate(-f.x, -BASE_Y); }
-      FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { on: f.on, spin: f.spin || 0, slotW: f.slotW, accent: f.accent || theme.accent, layer: "all" });
+      FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { on: f.on, spin: f.spin || 0, slotW: f.slotW, accent: f.accent || theme.accent, layer: "all", shape: f.shape });
       ctx.restore();
     }
   }
@@ -5220,7 +5245,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     // 들어가 있는 상자·캣휠만 앞 겹을 고양이 위에(들어가 있으면 안에 있는 것처럼). 캣휠 이음 자국은 도는 각도로
     for (const f of furniture) if (f.inV > 0) {
       ctx.save(); ctx.globalAlpha = f.inV;
-      FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { slotW: f.slotW, accent: f.accent || theme.accent, spin: f.spin || 0, layer: "front", shadow: null });
+      FA.drawFurniture(ctx, f.kind, f.x, BASE_Y, S, { slotW: f.slotW, accent: f.accent || theme.accent, spin: f.spin || 0, layer: "front", shadow: null, shape: f.shape, front: f.usesOn?.find((x) => x.u === "inside")?.front });
       ctx.restore();
     }
   }
@@ -5682,7 +5707,11 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     setWallCanvas,
     /** 놓인 가구와 조명 켜짐(감독이 후보를 고를 때) */
     // itemsOn = 그 가구 윗면에 얹힌 물건 수(자유 가구 올라앉기 후보에서 물건 찬 면을 뺄 때, 집사)
-    get furniture() { return furniture.map((f) => ({ id: f.id, kind: f.kind, on: !!f.on, spin: f.spin || 0, spinV: f.spinV || 0, inV: f.inV || 0, itemsOn: decor.filter((d) => d.surface === "furniture" && d.fid === f.id).length })); },
+    // uses = 자유 가구가 이 무대에서 내주는 쓰임새(§7 다시 보기를 거친 것, 물건이 얹힌 perch 면은 뺀다 — 감독 fperch·fhide·fscratch·fbat 후보)
+    get furniture() {
+      return furniture.map((f) => ({ id: f.id, kind: f.kind, on: !!f.on, spin: f.spin || 0, spinV: f.spinV || 0, inV: f.inV || 0, itemsOn: decor.filter((d) => d.surface === "furniture" && d.fid === f.id).length,
+        ...(f.kind === "free" ? { uses: freeUsesNow(f) } : {}) }));
+    },
     hitFurniture,
     /** 입 원(무대 px): 가운데와 받는 반지름 50 × 배율 */
     get mouth() { const m = mouthPt(); return { x: m[0], y: m[1], r: MOUTH_R * S }; },
