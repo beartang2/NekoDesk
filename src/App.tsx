@@ -25,7 +25,7 @@ import { RoomBackdrop } from "./neko/NekoRoom";
 import { splitMarkdownBlocks } from "./lib/markdownBlocks";
 import { addPictureGift } from "./neko/pictureGift";
 import { useNekoDirector } from "./neko/useNekoDirector";
-import { useNekoApp } from "./neko/director/stores";
+import { nekoWrites, useNekoApp } from "./neko/director/stores";
 import { watchWalkIdle } from "./neko/walkWatch";
 import { restThink, takeGreeting } from "./agent/neko-mind";
 import { reportBigState, watchPresence } from "./neko/presence";
@@ -1431,6 +1431,7 @@ export default function App() {
           const cur = prev[activeId] ?? [];
           return { ...prev, [activeId]: [briefingMsg, ...cur] };
         });
+        void nekoWrites();
         localStorage.setItem("nekodesk_briefing_date", today);
       } catch {}
     }
@@ -1893,7 +1894,7 @@ export default function App() {
       // 네코의 마음(docs/neko-mind.md §6.2·6.3): 졸기 시작하면 돌아올 사용자에게 건넬 말과 요즘 기울기를 생각해 두고(2시간에 한 번),
       // 깨면 말풍선으로
       if (on) void restThink({ greet: true }).catch(() => {});
-      else void takeGreeting().then((t) => { if (t) appEvents.emit("nekoSays", t); }).catch(() => {});
+      else void takeGreeting().then((t) => { if (t) { appEvents.emit("nekoSays", t); void nekoWrites(); } }).catch(() => {});
       setIdle(on);
     },
     onCall: () => hurryHomeRef.current(),
@@ -2046,7 +2047,7 @@ export default function App() {
       void restThink({ greet: false }).catch(() => {}); // 다녀와서 요즘 기울기(2시간에 한 번, docs/neko-mind.md §6.3)
       const brain = brainRef.current ?? startWalkBrain({ places: w.places, here: w.home });
       brainRef.current = null;
-      const report = await brain.result;
+      const report = await nekoWrites(brain.result); // 일지를 쓰는 동안 타이핑(0.1.28)
       const sid = useSessionStore.getState().activeId;
       const prompt = report.prompt || undefined;
       useMessageStore.getState().patch(sid, (prev) => [

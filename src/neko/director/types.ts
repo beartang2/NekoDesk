@@ -34,7 +34,8 @@ export interface NekoSessionState {
   wait: { kind: "confirm" | "clarify"; danger: boolean } | null;
   /** 이번 실행 요약(결과 판정용) */
   run: { startedAt: number; tools: number; wrote: boolean; errors: number; lastFailed: boolean; cancelled: boolean } | null;
-  result: { kind: ResultKind; petState: CatEmotion | null; at: number } | null;
+  /** typed: 답을 쓰다(answering) 끝났다 — 결과 표정은 타이핑 마무리 뒤에(derive WRITE_FINISH_MS) */
+  result: { kind: ResultKind; petState: CatEmotion | null; at: number; typed?: boolean } | null;
 }
 
 /** 루프 이벤트에서 고양이에게 필요한 것만 담은 신호(§3.1) */
@@ -62,7 +63,7 @@ export type Reaction =
 /** 계획을 정한 층(§5.2). 디버그·테스트용이고, 스케줄러는 sleep → 다른 층(깨어남)만 본다 */
 export type NekoLayer =
   | "waiting" | "meal" | "tool" | "think" | "answer" | "result" | "fed"
-  | "play" | "game" | "outside" | "weak" | "hungry" | "bored" | "box" | "ambient" | "sleep" | "base" | "hidden";
+  | "play" | "game" | "weak" | "hungry" | "bored" | "box" | "ambient" | "sleep" | "base" | "hidden";
 
 export interface NekoPlan {
   layer: NekoLayer;
@@ -83,8 +84,6 @@ export interface NekoPlan {
   wander: boolean;
   /** 곁들임(docs/neko-activity-mix.md §1.13): 주 활동(없으면 기본 상태) 위에 얹을 활동. 1단계는 음악이 나올 때 music 만 */
   side: NekoActivity | null;
-  /** 같은 활동을 손을 쉰 채 이어 간다(엔진 setRest). 다른 앱에서 키를 멈춘 뒤 TYPE_REST_MS 동안 타이핑 */
-  rest: boolean;
 }
 
 /** deriveNeko 의 입력(§5.1) */
@@ -104,10 +103,12 @@ export interface DirectorInput {
   /** 사용자가 마지막으로 앱을 쓴 시각 */
   lastActiveAt: number;
   /**
-   * 다른 앱 따라 하기(neko/ambient.ts). typing: 지금 다른 앱에서 키를 치는 중, at: 마지막으로 친 시각(졸림 시계는
-   * 이것도 본다 — 다른 앱에서 일하는 동안은 안 존다), activity: 맨 앞 앱·음악으로 고른 활동
+   * 다른 앱 따라 하기(neko/ambient.ts). at: 사용자가 글 입력 칸에 마지막으로 친 시각(졸림 시계는 이것도 본다 — 일하는
+   * 동안은 안 존다. 따라 치지는 않는다), activity: 맨 앞 앱으로 고른 활동, music: 곁들임
    */
   outside: OutsideState;
+  /** 네코가 채팅에 글을 남기는 중(산책 일지·브리핑·첫마디 — stores nekoWrites). 답 쓰기처럼 타이핑한다 */
+  writing?: boolean;
   /** 신나서 혼자 노는 중(상자에 쏙·털실·나비) */
   /** 혼자 놀기(신남). kind 는 엔진 활동(없으면 상자) */
   box: { since: number; kind?: NekoActivity } | null;
@@ -119,7 +120,6 @@ export interface DirectorInput {
 }
 
 export interface OutsideState {
-  typing: boolean;
   at: number;
   /** 맨 앞 앱으로 고른 활동(음악은 여기 안 넣는다 — music 으로 곁들인다) */
   activity: NekoActivity | null;

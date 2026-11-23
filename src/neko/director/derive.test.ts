@@ -2,14 +2,14 @@
 // 도구 표가 tool-registry(→ settingsStore 가 localStorage 를 읽는다)를 불러온다
 
 import { describe, expect, it } from "vitest";
-import { DEEP_SLEEP_MS, deriveNeko, FED_MS, PLAY_MS, SLEEPY_MS, THINK_DELAY_MS, THINK_GRACE_MS, TYPE_REST_MS } from "./derive";
+import { DEEP_SLEEP_MS, deriveNeko, FED_MS, PLAY_MS, SLEEPY_MS, THINK_DELAY_MS, THINK_GRACE_MS, WRITE_FINISH_MS } from "./derive";
 import type { NekoActivity } from "../engine/neko-engine";
 import { IDLE_SESSION, reduceSession } from "./session";
 import type { DirectorInput, NekoSessionState, NekoSignal } from "./types";
 
 const input = (p: Partial<DirectorInput> = {}): DirectorInput => ({
   session: IDLE_SESSION, feeding: null, fedAt: null, playCue: null, game: null,
-  needs: { hunger: 100, play: 60 }, lastActiveAt: 0, outside: { typing: false, at: -Infinity, activity: null, music: false }, box: null, ...p,
+  needs: { hunger: 100, play: 60 }, lastActiveAt: 0, outside: { at: -Infinity, activity: null, music: false }, box: null, ...p,
 });
 const sess = (...sigs: Array<[number, NekoSignal]>): NekoSessionState =>
   sigs.reduce((s, [t, sig]) => reduceSession(s, sig, t).state, IDLE_SESSION);
@@ -128,38 +128,27 @@ describe("마당 고양이 숨기기", () => {
 
 describe("다른 앱 따라 하기", () => {
   const away = { lastActiveAt: 0 };
-  it("다른 앱에서 키를 치면 졸다가도 같이 타이핑하고, 친 동안은 졸림 시계가 다시 간다", () => {
-    const typing = { typing: true, at: 0, activity: null, music: false };
-    expect(deriveNeko(input({ ...away, outside: typing }), SLEEPY_MS * 3).plan).toMatchObject({ layer: "outside", activity: "typing", dwell: true });
-    const stopped = { typing: false, at: SLEEPY_MS * 3, activity: null, music: false };
-    expect(layer(input({ ...away, outside: stopped }), SLEEPY_MS * 3 + 1000)).toBe("outside"); // 15초는 손만 쉰다
-    expect(layer(input({ ...away, outside: stopped }), SLEEPY_MS * 3 + TYPE_REST_MS)).toBe("base");
-    expect(layer(input({ ...away, outside: stopped }), SLEEPY_MS * 4 + 1000)).toBe("sleep");
-  });
-
-  it("키를 멈추면 15초는 타이핑 그대로 손만 쉬고, 지나면 맨 앞 앱 활동", () => {
-    const stopped = { typing: false, at: 1000, activity: "window" as const, music: false };
-    const a = deriveNeko(input({ outside: stopped }), 5000);
-    expect(a.plan).toMatchObject({ layer: "outside", activity: "typing", rest: true, instance: "outside:typing" });
-    expect(a.recheckAt).toBe(1000 + TYPE_REST_MS);
-    expect(deriveNeko(input({ outside: stopped }), 1000 + TYPE_REST_MS).plan).toMatchObject({ layer: "ambient", activity: "window", rest: false });
-    expect(deriveNeko(input({ outside: { ...stopped, typing: true } }), 5000).plan.rest).toBe(false);
+  it("다른 앱에서 키를 쳐도 따라 치지 않는다 — 친 동안은 졸림 시계만 다시 간다(0.1.28)", () => {
+    const typed = { at: SLEEPY_MS * 3, activity: null, music: false };
+    expect(deriveNeko(input({ ...away, outside: typed }), SLEEPY_MS * 3 + 1000).plan).toMatchObject({ layer: "base", activity: null });
+    expect(deriveNeko(input({ ...away, outside: { ...typed, activity: "think" as const } }), SLEEPY_MS * 3 + 1000).plan).toMatchObject({ layer: "ambient", activity: "think" });
+    expect(layer(input({ ...away, outside: typed }), SLEEPY_MS * 4 + 1000)).toBe("sleep");
   });
 
   it("맨 앞 앱 활동은 혼자 놀기보다 아래, 기본 산책보다 위, 졸 때는 안 한다", () => {
-    const browse = { typing: false, at: -Infinity, activity: "window" as const, music: false };
+    const browse = { at: -Infinity, activity: "window" as const, music: false };
     expect(deriveNeko(input({ outside: browse }), 1000).plan).toMatchObject({ layer: "ambient", activity: "window", dwell: true, wander: false });
     expect(layer(input({ outside: browse, box: { since: 0, kind: "yarn" } }), 1000)).toBe("box");
     expect(layer(input({ outside: browse }), SLEEPY_MS + 1000)).toBe("sleep");
   });
 
   it("음악이 나오면 하던 것 위에 곁들인다 — 주 활동이 되지 않고, 얹을 수 없는 것엔 안 얹는다", () => {
-    const m = (o: Partial<DirectorInput["outside"]> = {}) => ({ typing: false, at: -Infinity, activity: null, music: true, ...o });
+    const m = (o: Partial<DirectorInput["outside"]> = {}) => ({ at: -Infinity, activity: null, music: true, ...o });
     const side = (i: DirectorInput, now = 1000) => deriveNeko(i, now).plan;
     // 음악만: 기본 산책 위에 헤드폰
     expect(side(input({ outside: m() }))).toMatchObject({ layer: "base", activity: null, side: "music" });
-    // 다른 앱 타이핑 + 음악
-    expect(side(input({ outside: m({ typing: true, at: 0 }) }))).toMatchObject({ layer: "outside", activity: "typing", side: "music" });
+    // 채팅에 글을 남기는 타이핑 + 음악
+    expect(side(input({ outside: m(), writing: true }))).toMatchObject({ layer: "answer", activity: "typing", side: "music" });
     // 에이전트 신문 읽기 + 음악
     const s = sess([0, { type: "run_start" }], [10, { type: "tool_start", tool: "web.scrape" }]);
     expect(side(input({ session: s, outside: m() }))).toMatchObject({ activity: "reading", side: "music" });
@@ -171,5 +160,25 @@ describe("다른 앱 따라 하기", () => {
     expect(side(input({ outside: m(), hidden: true }))).toMatchObject({ layer: "hidden", side: null });
     // 음악이 안 나오면 없음
     expect(side(input())).toMatchObject({ side: null });
+  });
+});
+
+describe("네코가 채팅에 글을 남길 때만 타이핑(0.1.28)", () => {
+  it("산책 일지·브리핑·첫마디를 쓰는 동안은 답 쓰기와 같은 타이핑 — 졸고 있었어도, 혼자 놀기보다 먼저", () => {
+    expect(deriveNeko(input({ writing: true, lastActiveAt: 0 }), DEEP_SLEEP_MS * 2).plan).toMatchObject({ layer: "answer", activity: "typing", dwell: true, instance: "answer" });
+    expect(layer(input({ writing: true, box: { since: 0, kind: "yarn" } }))).toBe("answer");
+    // 기다림·밥·에이전트 일은 그 위
+    const s = sess([0, { type: "run_start" }], [10, { type: "tool_start", tool: "web.search" }]);
+    expect(layer(input({ writing: true, session: s }))).toBe("tool");
+  });
+
+  it("답을 쓰다 끝났으면 결과 표정은 타이핑 마무리(WRITE_FINISH_MS) 뒤에도 남는다", () => {
+    const s = sess([0, { type: "run_start" }], [10, { type: "answering" }], [2000, { type: "done", petState: "happy" }]);
+    expect(s.result?.typed).toBe(true);
+    expect(layer(input({ session: s }), 2000 + WRITE_FINISH_MS + 2000)).toBe("result");
+    expect(layer(input({ session: s }), 2000 + WRITE_FINISH_MS + 3200)).toBe("base");
+    const t = sess([0, { type: "run_start" }], [10, { type: "tool_start", tool: "web.search" }], [2000, { type: "done", petState: "happy" }]);
+    expect(t.result?.typed).toBeUndefined();
+    expect(layer(input({ session: t }), 2000 + 3200)).toBe("base");
   });
 });

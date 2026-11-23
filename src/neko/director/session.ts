@@ -88,7 +88,7 @@ export function reduceSession(s: NekoSessionState, sig: NekoSignal, now: number)
       const kind = judgeResult(s.run, "done");
       const petState = PET_OK.has(kind) ? sig.petState : null;
       return {
-        state: { ...s, phase: "result", since: now, tool: null, lastTool: s.tool ? { cue: s.tool, startedAt: s.since, endedAt: now } : s.lastTool, wait: null, result: { kind, petState, at: now } },
+        state: { ...s, phase: "result", since: now, tool: null, lastTool: s.tool ? { cue: s.tool, startedAt: s.since, endedAt: now } : s.lastTool, wait: null, result: { kind, petState, at: now, ...(s.phase === "answering" ? { typed: true } : {}) } },
         reactions: resultReactions(kind, petState),
       };
     }

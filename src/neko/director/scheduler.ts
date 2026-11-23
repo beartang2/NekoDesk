@@ -1,6 +1,6 @@
 import type { NekoActivity, NekoMood, NekoPose, NekoReaction, NekoTailSign } from "../engine/neko-engine";
 import { baseOf, MIX, mixable } from "../engine/activity-mix";
-import { RESULT_LINGER_MS, type DeriveOut } from "./derive";
+import { RESULT_LINGER_MS, WRITE_FINISH_MS, WRITE_TYPE_MS, type DeriveOut } from "./derive";
 import type { NekoLayer, NekoPlan, Reaction } from "./types";
 
 /**
@@ -56,7 +56,7 @@ export interface SchedulerCtrl {
   setWander(on: boolean): void;
   /** 곁들임. 지금 도는 것과 안 맞으면 엔진이 거절한다(false) */
   mix(key: NekoActivity | null): boolean;
-  /** 하던 활동의 손을 쉰다(지금은 typing 만). 활동이 바뀌면 엔진이 저절로 푼다 */
+  /** 하던 활동의 손을 쉰다(지금은 typing 만 — 글을 다 쓴 뒤 마무리). 활동이 바뀌면 엔진이 저절로 푼다 */
   setRest(on: boolean): void;
   on(ev: "activity" | "side", fn: (a: NekoActivity | null) => void): () => void;
   on(ev: "grab" | "drop", fn: () => void): () => void;
@@ -166,7 +166,7 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
 
   const running = () => !!cur && cur.endedAt === null && ctrl.activity === cur.activity;
   const dwellMsOf = (p: NekoPlan) =>
-    p.layer === "ambient" ? AMBIENT_DWELL_MS : p.layer === "tool" || p.layer === "answer" || p.layer === "outside" ? WORK_DWELL_MS : DWELL_MS;
+    p.layer === "ambient" ? AMBIENT_DWELL_MS : p.layer === "tool" || p.layer === "answer" ? WORK_DWELL_MS : DWELL_MS;
 
   function start(p: NekoPlan, now: number) {
     if (p.activity === null) return;
@@ -266,10 +266,11 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
     else if (running() && cur!.dwell && p.activity !== cur!.activity && p.layer !== "waiting") {
       const oneShotTool = p.layer === "tool" && p.oneShot;
       let until = cur!.startedAt + (oneShotTool || owed ? DWELL_MS : cur!.dwellMs);
-      // 세션 일로 하던 활동인데 일이 끝났다: 남은 머무름 대신 마무리만(FINISH_MS)
+      // 세션 일로 하던 활동인데 일이 끝났다: 남은 머무름 대신 마무리만(FINISH_MS). 글 쓰기(answer)는 머무름이 지났어도
+      // WRITE_FINISH_MS 를 다 채운다 — 조금 더 치다가 손을 쉬고 끝낸다(아래 13)
       if ((cur!.layer === "tool" || cur!.layer === "answer") && !WORK_LAYERS.has(p.layer)) {
         cur!.finishFrom ??= now;
-        until = Math.min(until, cur!.finishFrom + FINISH_MS);
+        until = cur!.layer === "answer" ? cur!.finishFrom + WRITE_FINISH_MS : Math.min(until, cur!.finishFrom + FINISH_MS);
       } else cur!.finishFrom = null;
       if (now < until) {
         hold = true;
@@ -320,8 +321,10 @@ export function createScheduler(ctrl: SchedulerCtrl, clock: Clock, getPlan: (now
       log(`곁들임 ${side ?? "끝"}`);
     }
 
-    // 13) 쉼: 계획이 쉼이고 그 활동이 지금 엔진에서 돌 때만. 바뀔 때만 보낸다
-    const rest = p.rest && p.activity !== null && ctrl.activity === p.activity;
+    // 13) 쉼: 글을 다 쓰고 마무리하는 중(WRITE_TYPE_MS 를 더 친 뒤)이면 손만 쉰다. 바뀔 때만 보낸다
+    const fin = hold && cur?.layer === "answer" ? cur.finishFrom : null;
+    if (fin !== null && now < fin + WRITE_TYPE_MS) want(fin + WRITE_TYPE_MS);
+    const rest = fin !== null && now >= fin + WRITE_TYPE_MS && ctrl.activity === "typing";
     if (rest !== sentRest) {
       sentRest = rest;
       ctrl.setRest(rest);

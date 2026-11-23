@@ -24,10 +24,11 @@ export const RESULT_LINGER_MS = 600;
 export const SLEEPY_MS = 5 * 60_000;
 export const DEEP_SLEEP_MS = 6 * 60_000;
 /**
- * 다른 앱에서 키를 멈춘 뒤 이만큼은 다른 활동으로 넘어가지 않고 타이핑 자세 그대로 손을 쉬며 화면을 본다(사용자).
- * 그 안에 다시 치면 그대로 이어 친다. 지나면 맨 앞 앱에 맞는 활동으로
+ * 채팅에 글을 다 쓴 뒤(답·산책 일지·첫마디) 바로 손을 떼지 않는다(사용자: 끝나자마자 꺼지면 어색하다). WRITE_TYPE_MS 는 조금
+ * 더 치고, 그 뒤 WRITE_FINISH_MS 까지는 자세 그대로 손만 쉬며 화면을 본다(엔진 setRest). 결과 표정은 그 뒤에 — 스케줄러가 쓴다
  */
-export const TYPE_REST_MS = 15_000;
+export const WRITE_TYPE_MS = 1200;
+export const WRITE_FINISH_MS = 3000;
 
 /** 돌아다니며 하는 활동(선언의 stance 가 move: 털실·나비·선물·벽 타기) */
 const ROAMING: ReadonlySet<string> = new Set(Object.entries(MIX).filter(([, d]) => d.stance === "move").map(([k]) => k));
@@ -35,7 +36,7 @@ const ROAMING: ReadonlySet<string> = new Set(Object.entries(MIX).filter(([, d]) 
 function plan(layer: NekoLayer, p: Partial<NekoPlan> = {}): NekoPlan {
   return {
     layer, mood: "idle", pose: "stand", activity: null, oneShot: false, repeat: false, dwell: false,
-    instance: layer, tailHold: null, wander: false, side: null, rest: false, ...p,
+    instance: layer, tailHold: null, wander: false, side: null, ...p,
   };
 }
 
@@ -90,12 +91,16 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
   }
   if (s.phase === "result" && s.result) {
     const look = resultLook(s.result.kind, s.result.petState);
-    const end = s.result.at + RESULT_LINGER_MS + look.holdMs;
+    // 답을 쓰다 끝났으면 타이핑 마무리(WRITE_FINISH_MS) 뒤부터 센다 — 결과 자세가 마무리에 가려 안 보이지 않게
+    const end = s.result.at + (s.result.typed ? WRITE_FINISH_MS : 0) + RESULT_LINGER_MS + look.holdMs;
     if (look.holdMs > 0 && now < end) {
       at(end);
       return out(plan("result", { mood: look.mood, pose: look.pose, instance: `result:${s.result.at}` }));
     }
   }
+
+  // 3-1) 네코가 채팅에 글을 남기는 중(산책 일지·브리핑·첫마디, stores nekoWrites): 답 쓰기와 같은 타이핑, 끝나면 같은 마무리
+  if (input.writing) return out(plan("answer", { activity: "typing", dwell: true, instance: "answer" }));
 
   // 밥을 다 먹은 여운
   if (input.fedAt !== null && now < input.fedAt + FED_MS) {
@@ -116,16 +121,9 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
     return out(plan("game", { mood: e.mood, pose: e.pose, activity: e.act, instance: `game:${input.game.emotion}` }));
   }
 
-  // 5-1) 다른 앱에서 키를 치는 중: 같이 타이핑(졸고 있었어도 — 사용자가 일하는 중이다)
+  // 6) 졸림: 사용자가 한동안 앱도 안 쓰고 다른 앱에서 키도 안 치면(배고프거나 심심해도 결국은 잔다). 사용자 타이핑은 따라 치지
+  // 않는다(0.1.28, 사용자: 네코 타이핑은 네코가 채팅에 글을 남길 때만) — 키를 치는 동안 안 조는 것만 남았다
   const out_ = input.outside;
-  if (out_.typing) return out(plan("outside", { activity: "typing", dwell: true, instance: "outside:typing" }));
-  // 5-2) 키를 멈췄다: 잠깐은 손만 쉬고 화면을 본다(at = 마지막 키 누름)
-  if (now < out_.at + TYPE_REST_MS) {
-    at(out_.at + TYPE_REST_MS);
-    return out(plan("outside", { activity: "typing", dwell: true, instance: "outside:typing", rest: true }));
-  }
-
-  // 6) 졸림: 사용자가 한동안 앱도 안 쓰고 다른 앱에서 키도 안 치면(배고프거나 심심해도 결국은 잔다)
   const last = Math.max(input.lastActiveAt, out_.at);
   const idleFor = now - last;
   if (idleFor >= DEEP_SLEEP_MS) return out(plan("sleep", { mood: "sleepy", pose: "lie" }));

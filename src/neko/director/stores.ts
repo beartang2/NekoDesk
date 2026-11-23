@@ -64,6 +64,8 @@ interface NekoAppStore {
   /** 마당 고양이를 메뉴로 숨겼다(Rust neko-screen-hidden). 이 앱이 맨 앞으로 오면 풀린다 */
   screenHidden: boolean;
   setScreenHidden: (on: boolean) => void;
+  /** 채팅에 글을 남기는 일이 몇 개 도는가(nekoWrites). 0 보다 크면 감독이 타이핑한다 */
+  writing: number;
 }
 
 export const useNekoApp = create<NekoAppStore>((set, get) => ({
@@ -73,12 +75,13 @@ export const useNekoApp = create<NekoAppStore>((set, get) => ({
   game: null,
   lastActiveAt: performance.now(),
   pets: 0,
-  outside: { typing: false, at: -Infinity, activity: null, music: false },
+  outside: { at: -Infinity, activity: null, music: false },
   screenHidden: false,
+  writing: 0,
   setScreenHidden: (on) => { if (get().screenHidden !== on) set({ screenHidden: on }); },
   setOutside: (o) => {
     const cur = get().outside;
-    if (cur.typing !== o.typing || cur.at !== o.at || cur.activity !== o.activity || cur.music !== o.music) set({ outside: o });
+    if (cur.at !== o.at || cur.activity !== o.activity || cur.music !== o.music) set({ outside: o });
   },
   setFeeding: (on, wake = true) => {
     const now = performance.now();
@@ -100,3 +103,21 @@ export const useNekoApp = create<NekoAppStore>((set, get) => ({
   callHome: () => { const now = performance.now(); set({ calledAt: now, lastActiveAt: now }); },
   notePet: () => set((s) => ({ pets: s.pets + 1, lastActiveAt: performance.now() })),
 }));
+
+/** 글이 바로 생겨도(첫마디 말풍선) 이만큼은 친다 — 손을 올리자마자 떼지 않게. 그 뒤 마무리는 감독(WRITE_FINISH_MS) */
+export const WRITE_MIN_MS = 2000;
+
+/**
+ * 네코가 채팅에 글을 남긴다(산책 일지·브리핑·첫마디, 0.1.28 사용자: 네코 타이핑은 이때만). work 가 끝날 때까지(적어도
+ * WRITE_MIN_MS) 감독이 답 쓰기처럼 타이핑하고, 끝나면 답처럼 조금 더 치다 손을 쉰다. work 의 결과를 그대로 돌려준다
+ */
+export async function nekoWrites<T = void>(work: Promise<T> = Promise.resolve() as Promise<T>): Promise<T> {
+  const app = useNekoApp;
+  app.setState({ writing: app.getState().writing + 1 });
+  try {
+    const [r] = await Promise.all([work, new Promise((ok) => setTimeout(ok, WRITE_MIN_MS))]);
+    return r;
+  } finally {
+    app.setState({ writing: Math.max(0, app.getState().writing - 1) });
+  }
+}

@@ -90,7 +90,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       return {
         session: useNekoSessions.getState().get(activeRef.current),
         feeding, fedAt: app.fedAt, playCue: app.playCue, game: app.game,
-        needs: needsRef.current, lastActiveAt, outside: app.outside, box, hidden: app.screenHidden,
+        needs: needsRef.current, lastActiveAt, outside: app.outside, box, hidden: app.screenHidden, writing: app.writing > 0,
       };
     };
     const sch = createScheduler(ctrl, realClock, (now) => deriveNeko(input(), now));
@@ -104,7 +104,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       const app = useNekoApp.getState();
       const s = useNekoSessions.getState().get(activeRef.current);
       const now = performance.now();
-      const resting = (s.phase === "idle" || s.phase === "result") && !app.feeding && !app.game
+      const resting = (s.phase === "idle" || s.phase === "result") && !app.feeding && !app.game && !app.writing
         && !(app.playCue && now < app.playCue.at + 6000);
       if (!resting || needsRef.current.play < BOX_PLAY_MIN) {
         if (boxTimer) { clearTimeout(boxTimer); boxTimer = null; }

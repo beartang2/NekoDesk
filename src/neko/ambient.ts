@@ -6,10 +6,10 @@ import { useNekoApp } from "./director/stores";
 /**
  * 다른 앱 따라 하기(늘 켜짐, macOS). 사용자가 다른 앱에서 하는 일을 고양이가 흉내 낸다(src-tauri/src/ambient.rs).
  *
- * - 글을 치는 중이면 같이 타이핑한다. 그동안은 졸지 않는다(감독 derive 의 outside 층). 단축키엔 반응하지 않는다:
- *   키를 실제로 치고(2초에 3번 넘게, ⌘·⌃ 조합 뺌) 포커스가 글 입력 칸일 때만이다(src-tauri/src/ambient.rs). 다른 앱의 입력
- *   칸은 Rust 가 손쉬운 사용 API 로 보고, 이 앱이 맨 앞이면 여기서 document.activeElement 로 본다.
- *   키를 멈추면 15초(TYPE_REST_MS)는 타이핑 자세 그대로 손만 쉬며 화면을 본다(엔진 setRest) — 그 안에 다시 치면 이어 친다.
+ * - 글을 치는 동안은 졸지 않는다(감독 졸림 시계가 outside.at 도 본다). 따라 치지는 않는다(0.1.28, 사용자: 네코 타이핑은
+ *   네코가 채팅에 글을 남길 때만). 단축키는 치는 걸로 안 센다: 키를 실제로 치고(2초에 3번 넘게, ⌘·⌃ 조합 뺌) 포커스가 글
+ *   입력 칸일 때만이다(src-tauri/src/ambient.rs). 다른 앱의 입력 칸은 Rust 가 손쉬운 사용 API 로 보고, 이 앱이 맨 앞이면
+ *   여기서 document.activeElement 로 본다.
  * - 맨 앞 앱에 맞춰 한다: 그림 앱이면 그리기, 브라우저면 창밖 보기, 문서면 책 읽기…
  * - 음악이 나오면 하던 것 위에 헤드폰을 얹는다(곁들임, docs/neko-activity-mix.md §1.13).
  * - '앱을 쓰는 중'(lastActiveAt)은 건드리지 않는다 — 산책·기억 정리처럼 '자리 비움'을 보는 일은 그대로다.
@@ -19,8 +19,6 @@ import { useNekoApp } from "./director/stores";
 const POLL_MS = 1000;
 /** 음악 재생을 묻는 간격(osascript 를 띄운다) */
 const MUSIC_MS = 15_000;
-/** 폰: 마지막 입력이 이보다 가까우면 '치는 중' */
-const TYPING_S = 2;
 
 /** 번들 ID(앞부분이 맞으면) → 활동. 위에 있는 게 먼저 */
 const APPS: [prefix: string, activity: NekoActivity][] = [
@@ -70,21 +68,15 @@ export function typingNow(p: Pick<Probe, "own" | "keys" | "typing">, ownTextFocu
 const IS_MAC = !IS_PHONE && typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 
 /**
- * 폰의 따라 하기. 다른 앱은 못 보니 이 앱 입력 칸에 치는 것과, 다른 앱에서 나오는 소리(음악, AVAudioSession)만 따라 한다.
- * 치다 멈춘 뒤 손 쉬기·졸림 시계는 맥과 같이 감독이 `at` 으로 센다.
+ * 폰의 따라 하기. 다른 앱은 못 보니 다른 앱에서 나오는 소리(음악, AVAudioSession)만 따라 한다. 이 앱 입력 칸에 치는 동안은
+ * 맥과 같이 졸지 않는다(감독 졸림 시계가 `at` 을 본다) — 따라 치지는 않는다.
  */
 function startPhoneAmbient(): void {
   const app = useNekoApp;
-  let last = -Infinity;
   document.addEventListener("input", (e) => {
     if (!(e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement)) return;
-    last = performance.now();
-    app.getState().setOutside({ ...app.getState().outside, typing: true, at: last });
+    app.getState().setOutside({ ...app.getState().outside, at: performance.now() });
   }, true);
-  setInterval(() => {
-    const cur = app.getState().outside;
-    if (cur.typing && performance.now() - last > TYPING_S * 1000) app.getState().setOutside({ ...cur, typing: false });
-  }, POLL_MS);
   const music = async () => {
     const on = await invoke<boolean>("ambient_music").catch(() => false);
     app.getState().setOutside({ ...app.getState().outside, music: on });
@@ -101,7 +93,7 @@ export function startAmbient(): void {
   if (IS_PHONE) return startPhoneAmbient();
   let music = false;
   let musicAt = -Infinity;
-  const off = () => useNekoApp.getState().setOutside({ ...useNekoApp.getState().outside, typing: false, activity: null, music: false });
+  const off = () => useNekoApp.getState().setOutside({ ...useNekoApp.getState().outside, activity: null, music: false });
 
   const tick = async () => {
     // 늘 켜져 있다(설정에서 끄는 스위치는 없앴다). 마당 고양이를 숨긴 동안만 쉰다(보일 것도 없는데 osascript 를 띄울 일이 없다)
@@ -117,8 +109,7 @@ export function startAmbient(): void {
     const typing = typingNow(p, isTextInput(document.activeElement));
     const cur = useNekoApp.getState().outside;
     useNekoApp.getState().setOutside({
-      typing,
-      // 마지막 키 누름 시각. 키를 멈춘 뒤 15초 손 쉬기(감독 TYPE_REST_MS)·졸림 시계가 여기서 센다
+      // 마지막 키 누름 시각. 졸림 시계가 여기서 센다(치는 동안은 안 존다)
       at: typing ? now - p.typed_ago * 1000 : cur.at,
       activity: p.own ? null : appActivity(p.app),
       // 음악은 이 앱을 쓰는 동안에도 같이 듣는다. 주 활동이 아니라 곁들임이다(감독 derive)
