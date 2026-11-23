@@ -238,6 +238,19 @@ describe("지난 답이 쓴 도구", () => {
     expect(mid.map((m) => m.role)).toEqual(["user", "assistant", "tool", "user", "assistant", "user"]);
   });
 
+  it("결과는 다 싣고, 예산이 모자라면 첫·끝 줄로 줄여서라도 싣는다", () => {
+    const rich: LlmMessage = {
+      role: "assistant", content: "정리했어\n\n(도구 사용: web.search)",
+      ran: { text: "정리했어", calls: [{ call: { id: "p1", name: "web.search", params: { query: "q" } }, step: step("web.search", `정리 첫 줄\n${"근거 문단 ".repeat(150)}\n출처: https://a.example`) }] },
+    };
+    const toolOf = (len: number) => new AgentContext([q("물음"), rich], "다음", true, len).toMessages().find((m) => m.role === "tool")?.content as string | undefined;
+    expect(toolOf(32768)).toContain("근거 문단 근거 문단");
+    const tight = toolOf(1500);
+    expect(tight).toContain("정리 첫 줄");
+    expect(tight).toContain("출처: https://a.example");
+    expect(tight).not.toContain("근거 문단 근거 문단");
+  });
+
   it("예산에 밀릴 땐 호출·결과·답 글을 한 덩이로 뺀다 — 짝 잃은 결과가 남지 않는다", () => {
     const old = searched(`옛 답 ${"내용".repeat(400)}`);
     const kept = [1024, 2048, 3072, 4096, 8192].map((len) => {

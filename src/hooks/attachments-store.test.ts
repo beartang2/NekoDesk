@@ -145,6 +145,10 @@ describe("buildHistory", () => {
     const history = [{ role: "user" as const, content: "가".repeat(400) }];
     expect(needsCompaction(history, 100_000)).toBe(false);
     expect(needsCompaction(history, 10)).toBe(true);
+    // 지난 답의 도구 결과도 같이 실리니 같이 센다
+    const ran = { text: "", calls: [{ call: { id: "p", name: "web.search", params: {} }, step: { summary: "가".repeat(4000) } as AgentStep }] };
+    expect(needsCompaction([{ role: "assistant", content: "짧은 답", ran }], 1000)).toBe(true);
+    expect(needsCompaction([{ role: "assistant", content: "짧은 답" }], 1000)).toBe(false);
   });
 
   it("말풍선이 줄인 글 대신 모델이 받은 글을 싣는다 — 다시 열어도", () => {
@@ -165,7 +169,7 @@ describe("buildHistory", () => {
       .toBe("(도구 사용: todo.list)");
   });
 
-  it("도구를 쓴 답엔 실제 호출과 결과 첫 줄을 단다 — 자동 힌트는 빼고, id 는 요청마다 같게", () => {
+  it("도구를 쓴 답엔 실제 호출과 결과를 저장 길이만큼 단다 — 자동 힌트는 빼고, id 는 요청마다 같게", () => {
     const steps = [
       { id: 1, thought: "", tool: "web.search", params: { query: "Java4Shell" }, result: [], summary: "검색 결과 3개\n1. …", status: "done" },
       { id: 2, thought: "", tool: "code.exec", params: {}, result: null, summary: "오류: 없음\n\n[자동 힌트] web.search로 이 오류의 해결책을 찾아 재시도하세요.", status: "error", errorMessage: "없음" },
@@ -177,11 +181,15 @@ describe("buildHistory", () => {
     expect(a.content).toBe("이런 거야\n\n(도구 사용: web.search, code.exec 실패, web.scrape 실패)");
     expect(a.ran?.text).toBe("이런 거야");
     expect(a.ran?.calls.map((c) => [c.call.id, c.call.name, c.step.summary])).toEqual([
-      ["past_a-1_0", "web.search", "검색 결과 3개"],
+      ["past_a-1_0", "web.search", "검색 결과 3개\n1. …"],
       ["past_a-1_1", "code.exec", "오류: 없음"],
       ["past_a-1_2", "web.scrape", "중단됨"],
     ]);
     expect(a.ran?.calls[0].call.params).toEqual({ query: "Java4Shell" });
+    // 첫 줄만 실으니 검색 정리·출처로 쓴 말의 근거가 안 보여 "거짓말이었다" 고 했다(0.1.28) — 저장되는 2000자까지
+    const long = buildHistory([{ ...msgs[1], steps: [{ ...steps[0], summary: `정리 ${"가".repeat(3000)}\n\n출처:\n- 제목 (https://a.example)` }] }])[0].ran!;
+    expect(long.calls[0].step.summary.startsWith(`정리 ${"가".repeat(1990)}`)).toBe(true);
+    expect(long.calls[0].step.summary).toContain("자 생략");
     expect(buildHistory(msgs)[1].ran).toEqual(a.ran);
   });
   it("모델이 바뀐 답 앞의 질문에 새 모델 이름을 단다 — 이름 없는 예전 답은 비교하지 않는다", () => {

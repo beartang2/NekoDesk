@@ -84,21 +84,6 @@ function sanitize(text: string): string {
     .replace(/(?:Bearer|token|key|secret|password)[=:\s]+\S+/gi, "<redacted>");
 }
 
-/** LLM 전용 힌트 문단을 제거하고 '오류 요약:' 줄만 남긴다 (사용자 표시용). */
-function stripLlmHints(summary: string): string {
-  const markers = ["\n\n[자동 힌트]", "\n\n[AppleScript 오류 힌트]"];
-  for (const marker of markers) {
-    const idx = summary.indexOf(marker);
-    if (idx !== -1) {
-      const before = summary.slice(0, idx);
-      const after = summary.slice(idx);
-      const errLine = after.match(/\n오류 요약: .+/);
-      return errLine ? before + errLine[0] : before;
-    }
-  }
-  return summary;
-}
-
 /**
  * code.exec 결과에서 오류를 감지하고, 있으면 LLM에게 힌트를 주입한다.
  * AppleScript 오류는 스킬 → 검색 힌트, 그 외는 web.search 힌트.
@@ -922,22 +907,6 @@ export async function* runAgentLoop(
   }
 
   yield { type: "done", answer: finalAnswer, steps: context.steps, promptTokens: latestPromptTokens, tokensPerSecond: tpsNow() };
-}
-
-/**
- * Direct chat (no tool loop) — streams response tokens.
- */
-export async function* runDirectChat(
-  userInput: string,
-  chatHistory: LlmMessage[],
-  signal?: AbortSignal
-): AsyncGenerator<LoopEvent> {
-  const messages: LlmMessage[] = [
-    ...chatHistory.slice(-12),
-    { role: "user", content: userInput },
-  ];
-
-  yield* streamAnswer((onUsage) => chatStream(messages, "", onUsage, signal));
 }
 
 /** 잰 생성량(여러 호출이면 합)을 tok/s 로. 토큰이나 시간이 없으면 없음 */

@@ -16,8 +16,8 @@ import type {
 } from "../agent/types";
 import type { PlanStep } from "../agent/plan";
 import { clock } from "../lib/time";
-import { estimateMessagesTokens } from "../agent/token-estimate";
-import { historyBudget } from "../agent/agent-context";
+import { estimateMessagesTokens, estimateTokens } from "../agent/token-estimate";
+import { historyBudget, stripLlmHints } from "../agent/agent-context";
 import { getModelContextLength, summarizeConversation } from "../agent/llm-client";
 import { isClaudeActive, nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import { josa } from "../lib/hangul";
@@ -313,7 +313,9 @@ const AUTO_COMPACT_AT = 0.8;
 
 /** 지금 대화 기록이 자동 요약할 만큼 찼는가. */
 export function needsCompaction(history: LlmMessage[], budget: number): boolean {
-  return estimateMessagesTokens(history) >= budget * AUTO_COMPACT_AT;
+  // 지난 답의 도구 결과(ran)도 같이 실리니 같이 센다 — 안 세면 요약하기 전에 오래된 말이 예산에 밀려 빠진다
+  const ran = history.reduce((n, m) => n + (m.ran ? estimateTokens(m.ran.calls.map((c) => `${JSON.stringify(c.call.params)}\n${c.step.summary}`).join("\n")) : 0), 0);
+  return estimateMessagesTokens(history) + ran >= budget * AUTO_COMPACT_AT;
 }
 
 /** 요약 중인 세션. 같은 세션을 두 번 겹쳐 요약하지 않는다. */
@@ -395,14 +397,16 @@ export function buildHistory(messages: ChatMessage[]): LlmMessage[] {
 /**
  * 지난 답의 스텝 → 도구 호출과 결과. 글 메모("(도구 사용: …)")는 모델 눈에 제가 쓴 말과 같아서, "실제로
  * 실행된 작업만 완료됐다고 해" 를 지키려던 모델이 그 말을 못 믿고 "실행 기록이 없다" 며 같은 검색을 다시
- * 했다(0.1.26). 결과는 첫 줄만 — 무엇이 나왔는지 표시면 된다. 둘째 줄부터 붙는 자동 힌트("web.search 로
- * 찾아 재시도")는 지난 일이라 뺀다. id 는 메시지 id 에서 — 요청마다 같아야 프롬프트 캐시가 그대로다.
+ * 했다(0.1.26). 결과는 저장되는 만큼(MAX_STORED_FIELD) 싣는다 — 첫 줄만 실으니 검색 정리·출처로 쓴 말의 근거가
+ * 안 보여 "그때 말은 거짓말이었다" 고 했다(0.1.28). 예산이 모자라면 AgentContext 가 줄인다. 자동 힌트("web.search
+ * 로 찾아 재시도")는 지난 일이라 뺀다. 저장 길이로 자르니 다시 열어도 같은 글이고, id 는 메시지 id 에서 — 요청마다
+ * 같아야 프롬프트 캐시가 그대로다.
  */
 function pastCalls(id: string, steps: AgentStep[]): NonNullable<LlmMessage["ran"]>["calls"] {
   const base = id.replace(/[^a-zA-Z0-9_-]/g, "");
   return steps.map((s, i) => ({
     call: { id: `past_${base}_${i}`, name: s.tool, params: s.params ?? {} },
-    step: { ...s, summary: ((s.summary ?? "").split("\n")[0] || s.errorMessage || "").slice(0, 200) },
+    step: { ...s, summary: String(clipForStore(stripLlmHints(s.summary || s.errorMessage || "")) ?? "") },
   }));
 }
 

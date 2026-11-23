@@ -37,6 +37,21 @@ function resultText(call: ToolCall, step: AgentStep, verbatim: boolean): string 
   return `[${call.name} 결과]\n${verbatim || KEEP_WHOLE.has(call.name) ? step.summary : condense(step.summary)}`;
 }
 
+/** LLM 전용 힌트 문단을 제거하고 '오류 요약:' 줄만 남긴다. 대화 기록에 지난 도구 결과를 실을 때 쓴다(useAgentLoop pastCalls). 힌트는 agent-loop 가 붙인다 — 지난 일의 "검색해 재시도" 는 지금 할 일이 아니다. */
+export function stripLlmHints(summary: string): string {
+  const markers = ["\n\n[자동 힌트]", "\n\n[AppleScript 오류 힌트]"];
+  for (const marker of markers) {
+    const idx = summary.indexOf(marker);
+    if (idx !== -1) {
+      const before = summary.slice(0, idx);
+      const after = summary.slice(idx);
+      const errLine = after.match(/\n오류 요약: .+/);
+      return errLine ? before + errLine[0] : before;
+    }
+  }
+  return summary;
+}
+
 /** 요약해도 예산을 넘으면 오래된 것부터 이 표시로 접는다. */
 const ELIDED = "[이전 단계 생략됨]";
 
@@ -208,8 +223,13 @@ export class AgentContext {
     let remaining = budget;
     let answerAfter = false;
     for (let i = this.chatHistory.length - 1; i >= 0; i--) {
-      const block = this.pastMessages(this.chatHistory[i], answerAfter);
-      const cost = estimateMessagesTokens(block);
+      // 지난 도구 결과는 저장된 만큼 싣고, 안 들어가면 첫·끝 줄로 줄여 다시 본다(이번 요청의 오래된 턴과 같은 줄임)
+      let block = this.pastMessages(this.chatHistory[i], answerAfter, true);
+      let cost = estimateMessagesTokens(block);
+      if (cost > remaining && this.chatHistory[i].ran) {
+        block = this.pastMessages(this.chatHistory[i], answerAfter, false);
+        cost = estimateMessagesTokens(block);
+      }
       if (cost > remaining) break;
       remaining -= cost;
       history.unshift(...block);
@@ -224,11 +244,12 @@ export class AgentContext {
    * 뒤에 답이 없으면 도구 결과가 이번 질문에 바로 붙어 하다 만 도구 턴이 되니(생각 블록 없는 tool_use 로
    * Claude 가 거부) 그땐 메모 글 그대로 싣는다.
    */
-  private pastMessages(m: LlmMessage, answerAfter: boolean): LlmMessage[] {
+  private pastMessages(m: LlmMessage, answerAfter: boolean, whole: boolean): LlmMessage[] {
     const { ran, ...msg } = m;
     if (!ran || (!ran.text && !answerAfter)) return [msg];
+    const calls = whole ? ran.calls : ran.calls.map((c) => ({ ...c, step: { ...c.step, summary: condense(c.step.summary) } }));
     return [
-      ...this.turnMessages({ text: "", calls: ran.calls }, true),
+      ...this.turnMessages({ text: "", calls }, true),
       ...(ran.text ? [{ role: "assistant" as const, content: ran.text }] : []),
     ];
   }
