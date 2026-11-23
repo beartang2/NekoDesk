@@ -2439,16 +2439,21 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const prev = new Map(decor.map((d) => [d.id, d]));
     decor = (items || []).filter((d) => d && d.id != null && Number.isFinite(d.u)).map((d) => {
       const o = prev.get(String(d.id)), shape = validateShape(d.shape);
-      const surface = d.surface === "wall" ? "wall" : "floor", u = clamp(d.u, 0, 1), v = clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1);
+      const surface = d.surface === "wall" ? "wall" : d.surface === "furniture" && d.fid != null ? "furniture" : "floor";
+      const u = clamp(d.u, 0, 1), v = clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1);
+      const fid = surface === "furniture" ? String(d.fid) : null, fi = Number.isInteger(d.i) ? d.i : 0, fu = clamp(Number.isFinite(d.fu) ? d.fu : 0.5, 0, 1);
       // 호스트가 자리를 바꿨다(굴러가는 중에 사용자가 선물 창에서 끌어 놓음 등): 사용자 자리가 이긴다 — 굴러가던 자리를 버린다
-      const keep = o && o.surface === surface && o.u === u && (surface === "floor" || o.v === v);
+      const keep = o && o.surface === surface && o.u === u && (surface === "floor" || (surface === "wall" ? o.v === v : o.fid === fid && o.fi === fi && o.fu === fu));
+      // 가구 윗면 위에 있다가 바닥으로 내려왔는데 그 면이 없어졌다(탁자를 치움 — 호스트가 바닥으로 적는다): 그 자리에서 떨어진다
+      const off = o && o.surface === "furniture" && surface === "floor" && o.box && !o.fall && !HOLD_TOPS.some((t) => t.fid === o.fid && t.i === o.fi);
+      const fall = keep && o.fall ? o.fall : off ? { x: o.box.x + o.box.w / 2, bottom: o.box.y + o.box.h, vx: 0, vy: 0 } : null;
       return {
-        id: String(d.id), surface, u, v,
+        id: String(d.id), surface, u, v, fid, fi, fu,
         shape, play: PLAYS.has(d.play) ? d.play : defaultPlay(shape), size: d.size, scale: d.scale, at: d.at, k: 1, frame: !!d.frame,
-        fall: keep && o.fall ? o.fall : null, // 떨어지는 중(액자 아닌 걸 벽 쪽에 놓음)이면 이어서
+        fall, // 떨어지는 중(액자 아닌 걸 벽 쪽에 놓음·탁자를 치움)이면 이어서
         // 새로 놓인 것만 '뿅'. 화면 모드는 안 한다 — 선물 창이 멈춘 그림으로 그린다(모니터를 건너가도 다 뿅 하지 않게)
         t0: o ? o.t0 : WORLD ? -1e9 : time, box: null, showTo: o ? o.showTo : 0,
-        px: keep ? o.px : null, vx: keep ? o.vx : 0, rot: o ? o.rot : 0, wob: o ? o.wob : new Spring(0), hidden: o ? o.hidden : false, front: o ? o.front : false,
+        px: keep ? o.px : off ? [fall.x, fall.bottom] : null, vx: keep ? o.vx : 0, rot: o ? o.rot : 0, wob: o ? o.wob : new Spring(0), hidden: o ? o.hidden : false, front: o ? o.front : false,
         // 마지막으로 놀아 준 때(호스트가 decorPlayed 를 저장해 돌려준다). 없으면 한 번도 안 논 것
         lastPlayed: Number.isFinite(d.lastPlayed) ? d.lastPlayed : o ? o.lastPlayed : null,
       };
@@ -2461,14 +2466,15 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     }
   }
   const sizeK = DD.sizeK;
-  const geomNow = () => ({ W, floorY: BASE_Y, S }); // 마당 선물은 화면 바닥 기준(창 윗변에 올라앉아도)
+  // 마당 선물은 화면 바닥 기준(창 윗변에 올라앉아도). tops = 물건을 얹는 가구 윗면(탁자, layoutFurniture 가 만든다)
+  const geomNow = () => ({ W, floorY: BASE_Y, S, tops: HOLD_TOPS });
   /** 그릴 배율 = 크기 × 사용자 배율, 그 자리 상한까지(무대 크기에 달려 크기가 바뀌면 다시 잰다) */
   function refreshDecorK() { const g = geomNow(); for (const d of decor) d.k = DD.decorK(d.shape, d.size, d.scale, d.at, g).k; }
   const decorDims = (shape, k = 1) => DD.decorDims(shape, k, S);
   const decorM = () => DD.decorM(S);
   const wallSpan = (h) => DD.wallSpan(h, geomNow());
   /** 자리(면·비율) → 그릴 자리(가운데 x, 바닥 y) */
-  const decorAt = (d, h) => DD.decorAt(d, h, geomNow(), decorDims(d.shape, d.k).w); // 벽에 건 것은 날씨 창문을 피한다
+  const decorAt = (d, h) => DD.decorAt(d.surface === "furniture" ? { ...d, i: d.fi } : d, h, geomNow(), decorDims(d.shape, d.k).w); // 벽에 건 것은 날씨 창문을 피한다
   /** 무대의 한 점(물건 가운데 x, 바닥 y) → 자리(면·비율). 바닥 가까이면 바닥, 높이 띄우면 벽 */
   const spotOf = (x, bottom, h) => DD.spotOf(x, bottom, h, geomNow());
   /** 물건 하나를 그릴 자리·크기(무대 px). 끄는 중이면 손을 따라, 놀다 옮겨졌으면 그 자리 */
@@ -2476,7 +2482,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     const { bd, u, w, h } = decorDims(d.shape, d.k), drag = !!decorDrag && decorDrag.id === d.id;
     let [x, bottom] = d.px || decorAt(d, h);
     if (drag) { x = decorDrag.x; bottom = decorDrag.bottom; }
-    return { bd, u, w, h, x, bottom, drag, onFloor: drag ? floorY - bottom < DD.WALL_GAP * S : d.surface === "floor" };
+    const onTop = !drag && !d.px && d.surface === "furniture" && HOLD_TOPS.some((t) => t.fid === d.fid && t.i === d.fi);
+    return { bd, u, w, h, x, bottom, drag, onFloor: drag ? floorY - bottom < DD.WALL_GAP * S : d.surface !== "wall", ...(onTop ? { shadowY: bottom } : {}) };
   }
   /** 물건 하나를 g 에 그린다(앱 무대는 고양이 캔버스, 화면 모드는 선물 캔버스) */
   /*
@@ -2558,8 +2565,13 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function settleDecor(d) {
     if (!d || !d.px) return;
     const spot = spotOf(d.px[0], d.px[1], decorDims(d.shape, d.k).h);
-    Object.assign(d, spot); d.px = null; d.vx = 0;
+    takeSpot(d, spot); d.px = null; d.vx = 0;
     emit("decorMove", { id: d.id, ...spot });
+  }
+  /** 알린 자리를 물건에 바로 적는다(호스트가 다시 넣기 전까지도 제자리에). 가구 윗면 번호는 엔진에선 fi */
+  function takeSpot(d, spot) {
+    if (spot.surface === "furniture") Object.assign(d, { surface: "furniture", u: spot.u, fid: spot.fid, fi: spot.i, fu: spot.fu });
+    else Object.assign(d, spot.surface === "wall" ? spot : { ...spot, v: d.v });
   }
 
   /** 이 점(무대 px)이 놓아 둔 물건 위면 그 id(위에 그린 것부터) */
@@ -3352,7 +3364,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function giftPos(d) { const h = decorDims(d.shape, d.k).h; const [x, bottom] = d.px || decorAt(d, h); return { x, bottom, h }; }
   /** 놀 물건: 오래 안 놀아 준 것부터(한 번도 안 논 것이 먼저). 놓인 건 돌아가며 하나도 빠짐없이 논다 */
   function pickGift(A) {
-    const free = decor.filter((d) => !d.hidden), when = (d) => d.lastPlayed ?? -Infinity;
+    const free = decor.filter((d) => !d.hidden && d.surface !== "furniture"), when = (d) => d.lastPlayed ?? -Infinity; // 탁자 위는 탁자 놀이 몫
     const oldest = Math.min(...free.map(when)), pool = free.filter((d) => when(d) === oldest);
     const d = pool[Math.floor(Math.random() * pool.length)];
     A.id = d ? d.id : null; A.kicks = 0; A.stage = d ? "go" : "rest"; A.rest = d ? 0 : 1.5; A.dt = 0;
@@ -3502,7 +3514,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      남아 다시 시켜도 같은 걸 또 쫓지 않고 그 자리에서 지켜본다. 쫓는 중에 또 던지면 새 물건으로 바꿔 쫓는다.
      선물 갖고 놀기의 굴리기(roll)를 그대로 쓴다 */
   function chaseTarget(A) {
-    const d = decor.find((o) => o.id === thrownId && !o.hidden && o.surface !== "wall");
+    const d = decor.find((o) => o.id === thrownId && !o.hidden && o.surface === "floor");
     thrownId = null;
     A.id = d ? d.id : null; A.play = "roll"; A.kicks = 0; A.kickMax = Math.random() < 0.4 ? 2 : 1; A.maxRounds = 1; A.rounds = 0;
     A.stage = d ? "go" : "watch"; A.dt = 0;
@@ -4999,6 +5011,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      조명)만 그린 뒤 furnitureHeld 로 알린다(그 층은 그걸 빼고 그린다). 상자 앞 겹은 늘 엔진이 고양이 위에 그린다.
      캣타워 발판·소파 쿠션은 올라앉는 면(TOPS)이 된다 — 화면 모드의 창 윗변과 같은 길이라 잡았다 놓아도 그 위에 내린다. */
   let furniture = []; // [{ id, kind, at, slot, on, x, slotW, box: { x, y, w, h } }]
+  let HOLD_TOPS = []; // 물건을 얹는 가구 윗면(탁자): [{ fid, i, x0, x1, y }] — 선물 자리 furniture(decor-draw tops)
   const FURN_KINDS = new Set(["lamp", "cattower", "wheel", "sofa", "box", "table"]);
   function layoutFurniture() {
     if (WORLD) return;
@@ -5011,6 +5024,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     // 올라앉는 면(그림 furniture-art 한 곳): 캣타워 발판·소파 쿠션·캣휠 안 레일
     TOPS = furniture.flatMap((f) => FA.furnitureSurfaces(f.kind, S, f.slotW, f.surfaces)
       .map((sf, i) => ({ id: `f:${f.id}:${i}`, win: "furniture", fid: f.id, i, wheel: f.kind === "wheel", hold: !!sf.hold, x0: f.x + sf.x0, x1: f.x + sf.x1, y: BASE_Y - sf.y })));
+    HOLD_TOPS = TOPS.filter((t) => t.hold).map((t) => ({ fid: t.fid, i: t.i, x0: t.x0, x1: t.x1, y: t.y }));
     const c = cat, was = c.perch;
     if (!was) return;
     const t = TOPS.find((o) => o.id === was.id);
@@ -5178,7 +5192,6 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     mouse.x = x; mouse.y = y; mouse.t = time; mouse.seen = true;
     // 문 물건이 먼저: 입에서 끌어내기가 쓰다듬기·목덜미 잡기로 새지 않게. 끌어내기는 호스트가 한다
     if (hitCarry(x, y)) { emit("carryPress", { x, y, pointerId: e.pointerId }); e.preventDefault(); return; }
-    if (hitBasket(x, y)) { grabWand(e, el, x, y); return; } // 낚싯대: 바구니를 누르면 막대가 손을 따라온다
     if (hitCat(x, y)) {
       // 바로 잡지 않는다: 움직이거나 잠깐 누르고 있으면 잡기, 그냥 떼면 '냥'
       press = { id: e.pointerId, x, y, t: performance.now(), grabbing: false, el };
@@ -5201,6 +5214,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
       }
       try { el.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터: 캡처 없이도 끌린다 */ }
       el.classList.add("dragging"); e.preventDefault(); emit("hold", true);
+    } else if (hitBasket(x, y)) { // 낚싯대: 바구니를 누르면 막대가 손을 따라온다(바구니에 선물이 겹치면 선물이 먼저)
+      grabWand(e, el, x, y);
     } else if (hitFurniture(x, y)) { // 가구: 끌 수 없다. 터치·펜으로 꾹 누르면 '치우기'(마우스는 우클릭)
       const id = hitFurniture(x, y);
       if (e.pointerType !== "mouse") {
@@ -5260,7 +5275,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
           d.fall = { x: decorDrag.x, bottom: decorDrag.bottom, vx: clamp(tvx, -lim, lim), vy: clamp(tvy, -lim, lim) };
           d.px = [decorDrag.x, decorDrag.bottom]; d.vx = 0;
         } else {
-          Object.assign(d, spot.surface === "wall" ? spot : { ...spot, v: d.v }); // 호스트가 다시 넣기 전까지도 제자리에
+          takeSpot(d, spot); // 호스트가 다시 넣기 전까지도 제자리에
           d.px = null; d.vx = 0; // 굴러가던 걸 잡아 옮겼으면 굴러가던 자리로 돌아가지 않게
           emit("decorMove", { id: d.id, ...spot });
         }
@@ -5530,7 +5545,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     /** 벽에 건 선물만 그릴 캔버스(호스트가 정지 가구 층 밑에 둔다). null 이면 고양이 캔버스에 */
     setWallCanvas,
     /** 놓인 가구와 조명 켜짐(감독이 후보를 고를 때) */
-    get furniture() { return furniture.map((f) => ({ id: f.id, kind: f.kind, on: !!f.on, spin: f.spin || 0, spinV: f.spinV || 0, inV: f.inV || 0 })); },
+    // itemsOn = 그 가구 윗면에 얹힌 물건 수(자유 가구 올라앉기 후보에서 물건 찬 면을 뺄 때, 집사)
+    get furniture() { return furniture.map((f) => ({ id: f.id, kind: f.kind, on: !!f.on, spin: f.spin || 0, spinV: f.spinV || 0, inV: f.inV || 0, itemsOn: decor.filter((d) => d.surface === "furniture" && d.fid === f.id).length })); },
     hitFurniture,
     /** 입 원(무대 px): 가운데와 받는 반지름 50 × 배율 */
     get mouth() { const m = mouthPt(); return { x: m[0], y: m[1], r: MOUTH_R * S }; },

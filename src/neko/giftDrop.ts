@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { stageS } from "./engine/stage-scale";
 import { dropSpot, useNekoGifts, yardGeom } from "./gifts";
+import { holdTops, useNekoFurniture } from "./furniture";
 import type { NekoPlacement } from "./nekoStore";
 
 /**
@@ -30,7 +31,8 @@ function drop(id: string, d: Drop): void {
   // 무대 = 고양이 캔버스(빈 방은 선물 그림 캔버스). 산책 중이라 없으면 자리 전체. 바닥은 아래에서 6px(엔진 resize 와 같다)
   const r = (s.el.querySelector("canvas.neko-canvas, canvas.neko-room__gifts") ?? s.el).getBoundingClientRect();
   const floorY = r.height - 6;
-  useNekoGifts.getState().place(id, dropSpot(g, s.at, d.x - r.left, d.y - r.top, { W: r.width, floorY, S: stageS(r.width, floorY, s.at) }), s.at);
+  const S = stageS(r.width, floorY, s.at), tops = s.at === "sidebar" || s.at === "dock" ? holdTops(useNekoFurniture.getState().items, s.at, r.width, floorY, S) : [];
+  useNekoGifts.getState().place(id, dropSpot(g, s.at, d.x - r.left, d.y - r.top, { W: r.width, floorY, S, tops }), s.at); // 탁자 윗면 근처면 그 위에
 }
 
 let over: HTMLElement | null = null;

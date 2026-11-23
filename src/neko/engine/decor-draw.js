@@ -72,6 +72,10 @@ export const wallSpan = (h, g) => Math.max(1, g.floorY - h - 10 * g.S);
  */
 export function decorAt(d, h, g, w = 0) {
   const m = decorM(g.S), x = m + d.u * Math.max(0, g.W - 2 * m);
+  if (d.surface === "furniture") { // 가구 윗면 위(탁자): 그 면이 무대에 없으면 바로 아래 바닥(u)
+    const t = topOf(g, d.fid, d.i);
+    if (t) { const half = Math.min(w / 2, (t.x1 - t.x0) / 2); return [clamp(t.x0 + (d.fu ?? 0.5) * (t.x1 - t.x0), t.x0 + half, t.x1 - half), t.y]; }
+  }
   if (d.surface !== "wall") return [x, g.floorY];
   let bottom = g.floorY - (d.v ?? 0.5) * wallSpan(h, g);
   if (w > 0) {
@@ -83,6 +87,13 @@ export function decorAt(d, h, g, w = 0) {
   }
   return [x, bottom];
 }
+/**
+ * 물건을 얹는 가구 윗면(사용자: 탁자 위에 물건을 둔다). g.tops = [{ fid(가구 id), i(면 번호), x0, x1, y }](무대 px, 면 위가 y).
+ * 엔진은 놓인 가구의 hold 면에서, 빈 방·선물함 끌어 놓기는 가구 저장 값에서 같은 식으로 만든다(furnitureSurfaces)
+ */
+const topOf = (g, fid, i) => (g.tops || []).find((t) => t.fid === fid && t.i === i) || null;
+/** 끌어 놓을 때 물건 바닥이 윗면에서 이만큼(S) 안이면 그 위에 얹는다 */
+export const ON_TOP_SNAP = 22;
 /** 끄는 중인 물건(높이 h)을 무대 안에 묶는다: 양끝 여백 안, 바닥 아래로는 안 내려가고 무대 위로도 안 나간다 */
 /**
  * 던진 물건이 바닥으로 떨어진다 — 고양이를 던졌을 때와 같은 중력·최고 속도(엔진 GRAV·FALL_VMAX), 바닥에서 FALL_BOUNCE 만큼 튕긴다.
@@ -130,6 +141,10 @@ const liftedOnFloor = (bottom, g) => g.floorY - bottom < WALL_GAP * g.S;
 /** 무대의 한 점(물건 가운데 x, 바닥 y) → 자리(면·비율). 바닥 가까이면 바닥, 높이 띄우면 벽 */
 export function spotOf(x, bottom, h, g) {
   const m = decorM(g.S), u = clamp((x - m) / Math.max(1, g.W - 2 * m), 0, 1);
+  // 가구 윗면 위: u 는 바로 아래 바닥 자리(모르는 자리를 바닥으로 읽는 옛 버전은 거기에 둔다)
+  for (const t of g.tops || []) {
+    if (x >= t.x0 && x <= t.x1 && Math.abs(bottom - t.y) < ON_TOP_SNAP * g.S) return { surface: "furniture", fid: t.fid, i: t.i, fu: clamp((x - t.x0) / Math.max(1, t.x1 - t.x0), 0, 1), u };
+  }
   return g.floorY - bottom < WALL_GAP * g.S ? { surface: "floor", u } : { surface: "wall", u, v: clamp((g.floorY - bottom) / wallSpan(h, g), 0, 1) };
 }
 
@@ -139,9 +154,9 @@ export function spotOf(x, bottom, h, g) {
  */
 export function paintDecor(g, shape, L, geom, o = {}) {
   const { bd, u, h, x, bottom, onFloor } = L, S = geom.S, sc = o.sc || [1, 1];
-  if (onFloor) { // 고양이와 같은 바닥 그림자
+  if (onFloor) { // 고양이와 같은 바닥 그림자(가구 윗면 위면 그 면에)
     g.save(); g.globalAlpha = 0.5; g.fillStyle = o.shadow || "rgba(20, 14, 24, 0.18)";
-    g.beginPath(); g.ellipse(x, geom.floorY + 1 * S, L.w * 0.5, 2.6 * S, 0, 0, Math.PI * 2); g.fill(); g.restore();
+    g.beginPath(); g.ellipse(x, (L.shadowY ?? geom.floorY) + 1 * S, L.w * 0.5, 2.6 * S, 0, 0, Math.PI * 2); g.fill(); g.restore();
   }
   if (sc[0] <= 0.002 || sc[1] <= 0.002) return;
   g.save();
@@ -170,12 +185,14 @@ function layoutAll(items, geom, drag) {
       // 던져 날아가거나 굴러가는 중(fly)은 들어 올린 모양 없이 돈다(rot)
       return { id, shape, L: { ...dims, x, bottom, onFloor: liftedOnFloor(bottom, geom) }, lifted: !drag.fly, fly: !!drag.fly, rot: drag.rot || 0 };
     }
-    const spot = { surface: d.surface === "wall" ? "wall" : "floor", u: clamp(d.u, 0, 1), v: clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1), at: d.at };
+    const on = d.surface === "furniture" && topOf(geom, d.fid, d.i); // 가구 윗면 위(그 면이 있을 때만, 없으면 바닥)
+    const spot = on ? { surface: "furniture", fid: d.fid, i: d.i, fu: d.fu, u: clamp(d.u, 0, 1) }
+      : { surface: d.surface === "wall" ? "wall" : "floor", u: clamp(d.u, 0, 1), v: clamp(Number.isFinite(d.v) ? d.v : 0.5, 0, 1), at: d.at };
     const [x, bottom] = decorAt(spot, dims.h, geom, dims.w);
-    return { id, shape, L: { ...dims, x, bottom, onFloor: spot.surface === "floor" }, wall: spot.surface === "wall" };
+    return { id, shape, L: { ...dims, x, bottom, onFloor: spot.surface !== "wall", ...(on ? { shadowY: bottom } : {}) }, wall: spot.surface === "wall" };
   });
 }
-const geomOf = ({ W, floorY, scale }) => ({ W, floorY, S: clamp(Number.isFinite(scale) ? scale : 1, 0.35, 1.4) });
+const geomOf = ({ W, floorY, scale, tops }) => ({ W, floorY, S: clamp(Number.isFinite(scale) ? scale : 1, 0.35, 1.4), tops });
 
 /**
  * 엔진 없이 선물만 그린다(모니터별 선물 창). 캔버스를 W×H(css px) × dpr 로 맞추고 다 지운 뒤 그린다.
@@ -183,8 +200,8 @@ const geomOf = ({ W, floorY, scale }) => ({ W, floorY, S: clamp(Number.isFinite(
  * drag = { id, x, bottom }: 사용자가 끄는 물건(물건 가운데 x, 바닥 y). 엔진 끌기와 같게 묶고 들어 올린 모양으로 맨 위에.
  * only = "wall": 벽에 건 것만(끄는 것 빼고) · "rest": 그 밖 — 벽 선물을 가구 밑 캔버스에 따로 그릴 때(빈 방, 사용자: 가구 위에 액자가 걸리지 않게)
  */
-export function drawDecor(canvas, items, { W, H, floorY, scale, dpr = 1, dark = false, drag = null, only = null }) {
-  const geom = geomOf({ W, floorY, scale }), bw = Math.round(W * dpr), bh = Math.round(H * dpr);
+export function drawDecor(canvas, items, { W, H, floorY, scale, tops, dpr = 1, dark = false, drag = null, only = null }) {
+  const geom = geomOf({ W, floorY, scale, tops }), bw = Math.round(W * dpr), bh = Math.round(H * dpr);
   if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
   const g = canvas.getContext("2d");
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, bw, bh);

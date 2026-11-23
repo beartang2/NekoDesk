@@ -254,9 +254,10 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
       const face = gift.frame ? "wall" : "floor";
       const us = get().gifts.filter((g) => g.id !== id && g.placed?.at === where && g.placed.surface === face && g.placed.screen === scr).map((g) => g.placed!.u);
       const s: NekoDecorSpot = spot !== "auto" ? spot : gift.frame ? { surface: "wall", u: freeSpot(us), v: FRAME_V[where] } : { surface: "floor", u: freeSpot(us) };
-      // 액자만 벽에(마당 빼고). 벽 자리가 와도 액자가 아니면 같은 가로 자리의 바닥으로
+      // 액자만 벽에(마당 빼고). 벽 자리가 와도 액자가 아니면 같은 가로 자리의 바닥으로. 가구 윗면(탁자) 위는 방·거실만
       const hang = s.surface === "wall" && (gift.frame || where === "screen");
-      placed = hang && s.surface === "wall" ? { surface: "wall", u: s.u, v: s.v, at: where } : { surface: "floor", u: s.u, at: where };
+      placed = s.surface === "furniture" && where !== "screen" ? { surface: "furniture", u: s.u, fid: s.fid, i: s.i, fu: s.fu, at: where }
+        : hang && s.surface === "wall" ? { surface: "wall", u: s.u, v: s.v, at: where } : { surface: "floor", u: s.u, at: where };
       if (scr) placed.screen = scr;
     }
     const gifts = get().gifts.map((g) => {

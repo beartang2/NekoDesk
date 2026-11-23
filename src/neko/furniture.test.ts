@@ -7,7 +7,7 @@ vi.mock("../api/tauri", () => ({
   settingsApi: { get: async (k: string) => db.kv.get(k) ?? null, set: async (k: string, v: string) => void db.kv.set(k, v) },
 }));
 
-import { BASE_FURNITURE, parseFurniture, useNekoFurniture } from "./furniture";
+import { BASE_FURNITURE, holdTops, orphansOnFurniture, parseFurniture, useNekoFurniture } from "./furniture";
 import { furnitureSlots } from "./engine/decor-draw";
 
 beforeEach(() => { db.kv.clear(); useNekoFurniture.setState({ items: BASE_FURNITURE, loaded: false }); });
@@ -115,5 +115,22 @@ describe("가구 저장", () => {
     expect(items.some((f) => f.id === "walk:x")).toBe(false);
     expect(items.find((f) => f.id === "base:wheel")!.kind).toBe("wheel");
     expect(parseFurniture("{망가짐").length).toBe(6);
+  });
+});
+
+describe("가구 윗면(탁자) 위 선물", () => {
+  const T = (place: { at: "sidebar" | "dock"; slot: number } | null) => [{ id: "base:table", kind: "table" as const, place }, { id: "base:sofa", kind: "sofa" as const, place: { at: "dock" as const, slot: 0 } }];
+  const on = (id: string, fid: string, at = "dock", i = 0) => ({ id, placed: { surface: "furniture", at, u: 0.4, fid, i, fu: 0.5 } });
+  it("탁자가 그 장소에 있으면 그대로, 치웠거나 다른 장소·면 없는 가구면 바닥 u 로", () => {
+    const gifts = [on("a", "base:table"), on("b", "base:table", "sidebar"), on("c", "base:sofa"), on("d", "walk:gone"), { id: "e", placed: { surface: "floor", at: "dock", u: 0.1 } }];
+    expect(orphansOnFurniture(gifts, T({ at: "dock", slot: 2 }))).toEqual([["b", 0.4], ["c", 0.4], ["d", 0.4]]);
+    expect(orphansOnFurniture(gifts, T(null)).map(([id]) => id)).toEqual(["a", "b", "c", "d"]); // 탁자를 치웠다
+  });
+  it("물건 얹는 윗면: 놓인 탁자 칸의 상판 위(엔진과 같은 칸·면 번호)", () => {
+    const tops = holdTops(T({ at: "dock", slot: 1 }), "dock", 760, 164, 0.68);
+    expect(tops).toHaveLength(1);
+    expect(tops[0]).toMatchObject({ fid: "base:table", i: 0 });
+    expect((tops[0].x0 + tops[0].x1) / 2).toBeCloseTo(285, 0); // 둘째 칸 가운데
+    expect(164 - tops[0].y).toBeCloseTo(0.72 * 68, 0); // 상판 높이 = 고양이 키 0.72
   });
 });

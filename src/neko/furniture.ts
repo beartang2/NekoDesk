@@ -2,7 +2,8 @@ import { create } from "zustand";
 import { emit, listen } from "@tauri-apps/api/event";
 import { settingsApi } from "../api/tauri";
 import { validateShape, type GiftShape } from "./engine/gift-shape";
-import { FURNITURE_SLOTS } from "./engine/decor-draw";
+import { FURNITURE_SLOTS, furnitureSlots, type DecorTop } from "./engine/decor-draw";
+import { furnitureSurfaces } from "./engine/furniture-art";
 import { cleanShownText } from "../lib/replyTags";
 
 /**
@@ -184,3 +185,27 @@ export const useNekoFurniture = create<FurnitureStore>((set, get) => ({
 
 /** 그 장소에 놓인 가구(엔진 setFurniture 용) */
 export const placedAt = (items: FurnitureItem[], at: string) => items.filter((f) => f.place?.at === at);
+/**
+ * 가구 윗면(탁자) 위 선물 중 그 가구가 그 장소에 없는 것(치움·버림·다른 기기에서 치운 값·그 면이 없는 가구): [선물 id, 바닥 u].
+ * 호스트가 바닥으로 적는다(furnitureHost)
+ */
+export function orphansOnFurniture(gifts: { id: string; placed?: { surface: string; at: string; u: number; fid?: string; i?: number } }[], items: FurnitureItem[]): [string, number][] {
+  return gifts.flatMap((g): [string, number][] => {
+    const p = g.placed;
+    if (p?.surface !== "furniture") return [];
+    const f = items.find((x) => x.id === p.fid);
+    return f?.place?.at === p.at && furnitureSurfaces(f.kind, 1)[p.i ?? -1]?.hold ? [] : [[g.id, p.u]];
+  });
+}
+/**
+ * 그 장소(방·거실)에 놓인 가구의 물건 얹는 윗면(hold, 탁자) — 무대 px(폭 W·바닥 floorY·배율 S). 엔진(layoutFurniture)과 같은 칸·면·번호라
+ * 빈 방 그림(RoomGifts)·선물함 끌어 놓기(giftDrop)가 엔진과 같은 자리(surface "furniture")를 쓴다
+ */
+export function holdTops(items: FurnitureItem[], at: "sidebar" | "dock", W: number, floorY: number, S: number): DecorTop[] {
+  const slots = furnitureSlots(at, W);
+  return placedAt(items, at).flatMap((f) => {
+    const slot = slots[f.place!.slot];
+    if (!slot) return [];
+    return furnitureSurfaces(f.kind, S, slot.w).flatMap((sf, i) => (sf.hold ? [{ fid: f.id, i, x0: slot.x + sf.x0, x1: slot.x + sf.x1, y: floorY - sf.y }] : []));
+  });
+}

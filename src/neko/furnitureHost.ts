@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { NekoController } from "./engine/neko-engine";
-import { placedAt, useNekoFurniture, type FurnitureKind } from "./furniture";
+import { orphansOnFurniture, placedAt, useNekoFurniture, type FurnitureKind } from "./furniture";
+import { useNekoGifts } from "./gifts";
 import { useNekoStore } from "./nekoStore";
 
 /**
@@ -77,6 +78,15 @@ export function startFurnitureHost(ctrl: NekoController) {
   lampSubs.add(send);
   // 다른 창(맥 선물함)·다른 기기가 바꾸면 스토어가 다시 읽는다(furniture.ts load)
   void useNekoFurniture.getState().load().then(send);
+  // 가구 윗면(탁자) 위 선물: 그 가구가 그 장소에 없으면(치움·버림·다른 기기에서 치운 값·그 면이 없는 가구) 바로 아래 바닥(u)으로 적는다.
+  // 엔진은 받은 자리가 바닥으로 바뀐 걸 보고 그 자리에서 떨어뜨린다. 가구·선물 둘 다 읽은 뒤에만(읽기 전 빈 목록으로 다 내리지 않게)
+  const dropOrphans = () => {
+    const fs = useNekoFurniture.getState(), gs = useNekoGifts.getState();
+    if (!fs.loaded || !gs.loaded) return;
+    for (const [id, u] of orphansOnFurniture(gs.gifts, fs.items)) gs.place(id, { surface: "floor", u });
+  };
+  useNekoFurniture.subscribe((s, prev) => { if (s.items !== prev.items || s.loaded !== prev.loaded) dropOrphans(); });
+  useNekoGifts.subscribe((s, prev) => { if (s.gifts !== prev.gifts || s.loaded !== prev.loaded) dropOrphans(); });
   if (!fc.setFurniture) return; // 옛 엔진: 사건도 없다
   fc.on("lamp", ({ id, on }) => setLampOn(id, on));
   fc.on("furnitureHeld", (ids) => { held = new Set(ids); heldSubs.forEach((f) => f()); });
