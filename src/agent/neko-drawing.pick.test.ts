@@ -34,6 +34,6 @@ describe("그릴 것 고르기(산책 주제와 같은 생각하기)", () => {
     expect(ask).not.toMatch(/동물|꽃|음식|풍경|예:/);
     expect(material.join("\n")).toContain("## 최근에 그린 것\n- 우산(11/20)");
     expect(m.drawGift).toHaveBeenCalledWith("머그컵", "그려 봤어");
-    expect(useNekoGifts.getState().gifts.at(-1)).toMatchObject({ title: "머그컵", body: "그려 봤어", frame: true });
+    expect(useNekoGifts.getState().gifts.slice(-1)[0]).toMatchObject({ title: "머그컵", body: "그려 봤어", frame: true });
   });
 });
