@@ -2173,6 +2173,7 @@ pub fn run() {
             commands::neko_screen_screens,
             #[cfg(target_os = "macos")]
             commands::neko_decor_boxes,
+            #[cfg(target_os = "macos")]
             commands::neko_wall_lift,
             #[cfg(target_os = "macos")]
             commands::neko_screen_held,
