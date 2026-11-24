@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { IS_PHONE } from "../lib/platform";
 import { Archive, ChevronDown, FileText, Folder, Pencil, RotateCcw, StickyNote, Trash2, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
@@ -930,7 +931,9 @@ export function DrawingPadCard({
     // 실제로 보이는 폭은 패널 너비라, 저장한 그림 오른쪽이 늘 빈 여백이었다.
     const dataUrl = canvas.toDataURL("image/png");
     try {
-      await invoke<string>("save_canvas_image", { dataUrl });
+      // 폰: 바탕화면이 없다 — iOS 공유 창(이미지 저장·파일에 저장·다른 앱으로). 그냥 닫았으면(false) 표시를 바꾸지 않는다
+      if (IS_PHONE) { if (!(await invoke<boolean>("share_image", { dataUrl }))) return; }
+      else await invoke<string>("save_canvas_image", { dataUrl });
       setSaveMsg("✓");
       window.setTimeout(() => setSaveMsg(null), 2000);
     } catch (err) {
