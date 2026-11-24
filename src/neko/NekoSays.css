@@ -1,0 +1,46 @@
+/* 네코의 첫마디 말풍선(NekoSays). 자리는 stage 면 스크립트가 translate 로, top 이면 CSS 가 정한다 */
+.neko-says {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(260px, calc(100% - 12px));
+  max-height: calc(100% - 12px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  /* 한국어는 낱말 단위로 줄바꿈, 칸보다 긴 낱말(주소 등)만 중간에서 끊는다 */
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  color: var(--text-primary);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  animation: neko-says-in 0.25s ease-out;
+}
+/* 넘쳐서 안에서 밀어야 할 때만 누르기를 받는다 */
+.neko-says--scroll { pointer-events: auto; }
+/* 마당(화면 창): 창 = 모니터 기준 */
+.neko-says--fixed {
+  position: fixed;
+  max-width: min(320px, calc(100vw - 12px));
+  max-height: calc(100vh - 12px);
+}
+/* 폰 세로 화면: 채팅 화면 위쪽 가운데 */
+.neko-says--top {
+  top: 8px;
+  left: 50%;
+  translate: -50% 0;
+  max-width: min(420px, calc(100% - 24px));
+  max-height: 40%;
+}
+@keyframes neko-says-in { from { opacity: 0; scale: 0.96; } }
+@media (prefers-reduced-motion: reduce) { .neko-says { animation: none; } }

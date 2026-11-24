@@ -7,6 +7,7 @@ import { useNekoApp } from "./director/stores";
 import { useNekoStore } from "./nekoStore";
 import { decorItems, dropSpot, useNekoGifts, yardGeom, type NekoGift, type ScreenPick } from "./gifts";
 import { listenGiftDrop } from "./giftDrop";
+import { appEvents } from "../lib/events";
 
 /**
  * 메인 창 쪽 '모니터 화면' 자리 연결(docs/neko-screen-mode.md §4).
@@ -207,6 +208,8 @@ export function link(): void {
       notify();
     }
   });
+  // 첫마디 말풍선(NekoSays): 네코가 마당에 있으면 화면 창이 머리 위에 띄운다(모니터 안). 산책 중(팻말)엔 안 띄운다
+  appEvents.on("nekoSays", (text) => { if (isScreen() && remote && !awayNow) void emitTo(SCREEN_LABEL, "neko-screen-says", text).catch(() => {}); });
   // 메인 창이 다시 떴는데 화면 창은 살아 있을 때(개발 중 새로 고침): 준비 신호를 다시 받는다
   ping();
 }

@@ -10,6 +10,7 @@ import { useNekoStore } from "./nekoStore";
 import type { NekoCmd, NekoEvt } from "./remoteNeko";
 import { useKeepInside } from "./keepInside";
 import { NekoFileArch, type NekoArchItem } from "./NekoFileArch";
+import { NekoSays } from "./NekoSays";
 import "./NekoScreen.css";
 
 /**
@@ -99,6 +100,18 @@ export function NekoScreen() {
   const [towerWhy, setTowerWhy] = useState<Map<number, { why: string; ok: boolean }>>(new Map());
   // 머리 위 꺼내기 아치(열고 닫기·끌어내기는 아래 효과가 한다)
   const [arch, setArch] = useState<{ items: NekoArchItem[]; head: Circle } | null>(null);
+  // 첫마디 말풍선(메인 창 remoteNeko 가 보낸다): 머리 위를 따라다니고 모니터 밖으로 안 나간다, 7초
+  const [says, setSays] = useState<string | null>(null);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const un = listen<string>("neko-screen-says", (e) => {
+      if (typeof e.payload !== "string") return;
+      setSays(e.payload);
+      clearTimeout(t);
+      t = setTimeout(() => setSays(null), 7000);
+    });
+    return () => { clearTimeout(t); void un.then((f) => f()).catch(() => {}); };
+  }, []);
   const dragOutRef = useRef<(item: NekoArchItem) => void>(() => {});
   useEffect(() => {
     if (!menu) return;
@@ -475,6 +488,7 @@ export function NekoScreen() {
       )}
       <canvas ref={canvasRef} className="neko-screen__canvas" tabIndex={-1} aria-hidden="true" />
       {arch && <NekoFileArch items={arch.items} head={arch.head} onDragOut={(item) => dragOutRef.current(item)} />}
+      {says && <NekoSays text={says} mode="stage" fixed head={() => ctrlRef.current?.head} />}
       {menu && (
         <button
           ref={menuRef}

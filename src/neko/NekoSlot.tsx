@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTrackpadPet } from "../hooks/useTrackpadPet";
 import { ensureNeko, nekoCanvas, nekoWallCanvas, useNekoController } from "./nekoHost";
 import { useNekoStore, type NekoPlacement } from "./nekoStore";
@@ -15,6 +16,9 @@ import type { Walk } from "../lib/walk";
 import { useNekoGifts } from "./gifts";
 import { useKeepInside } from "./keepInside";
 import { appEvents } from "../lib/events";
+import { IS_PHONE } from "../lib/platform";
+import { useStandby } from "../lib/standby";
+import { NekoSays } from "./NekoSays";
 import "./NekoSlot.css";
 
 /**
@@ -119,19 +123,21 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
     el.addEventListener("pointercancel", up);
   }, [height, placement, setStageHeight]);
 
-  // 네코가 먼저 건네는 한마디(agent/neko-mind): 이 자리에 네코가 있을 때 고양이 머리 위 말풍선으로 7초
-  const [says, setSays] = useState<{ text: string; x: number } | null>(null);
+  // 네코가 먼저 건네는 한마디(agent/neko-mind): 이 자리에 네코가 있을 때 7초. 맥·폰 가로는 머리 위를 따라다니고(무대 안),
+  // 폰 세로는 채팅 화면 위쪽 가운데(네코 띠가 좁다, 사용자) — NekoSays
+  const [says, setSays] = useState<string | null>(null);
+  const standby = useStandby();
   useEffect(() => {
     if (!active || away) return;
     let t: ReturnType<typeof setTimeout> | undefined;
     const off = appEvents.on("nekoSays", (text) => {
-      const cat = (ctrl as unknown as { cat?: { head?: { x: number } } } | null)?.cat;
-      setSays({ text, x: cat?.head?.x ?? 0 });
+      setSays(text);
       clearTimeout(t);
       t = setTimeout(() => setSays(null), 7000);
     });
     return () => { off(); clearTimeout(t); setSays(null); };
-  }, [active, away, ctrl]);
+  }, [active, away]);
+  const chat = IS_PHONE && !standby && says ? document.querySelector<HTMLElement>(".main") : null;
 
   // 사이드바 방은 네코가 거실·마당에 가 있어도 같은 높이로 남는다(빈 방: 배경·방에 놓인 선물만). 거실 자리는 그때 없앤다
   if (!active && placement !== "sidebar") return null;
@@ -179,9 +185,7 @@ export function NekoSlot({ placement, onRubPet, away = false, walk = null, isDar
           />
         </>
       )}
-      {says && (
-        <div className="neko-slot__says" role="status" style={says.x ? { left: says.x } : undefined}>{says.text}</div>
-      )}
+      {says && (chat ? createPortal(<NekoSays text={says} mode="top" />, chat) : <NekoSays text={says} mode="stage" head={() => ctrl?.head} />)}
       {active && !away && walk && (
         <button type="button" className="neko-slot__map-btn" onClick={() => setLastWalkOpen(true)} title="지난 산책 지도" aria-label="지난 산책 지도">
           <MapIcon size={13} strokeWidth={2} />

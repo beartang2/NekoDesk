@@ -46,6 +46,8 @@ export interface NekoMind { v: 1; notes: MindNote[]; topics: MindTopic[]; lean?:
 const NOTES_MAX = 40;
 const TOPICS_MAX = 30;
 const LINE_MAX = 60;
+/** 첫마디(말풍선) 길이 상한 */
+const GREET_MAX = 140;
 export const TOPIC_MAX = 40;
 const THINK_MS = 20_000;
 
@@ -53,7 +55,8 @@ const SOLO = new Set<string>(SOLO_KEYS);
 /** 보기(혼자 놀기) 안의 것만, 겹치지 않게, but 에 든 건 빼고, max 개까지 */
 const acts = (v: unknown, max: number, but: NekoActivity[] = []): NekoActivity[] =>
   [...new Set((Array.isArray(v) ? v : []).filter((k): k is NekoActivity => typeof k === "string" && SOLO.has(k) && !but.includes(k as NekoActivity)))].slice(0, max);
-const line = (v: unknown, max = LINE_MAX) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
+// 글자(코드 포인트) 단위로 자른다 — UTF-16 으로 자르면 이모지가 반쪽만 남아 폰에서 깨진 글자로 보였다(사용자)
+const line = (v: unknown, max = LINE_MAX) => (typeof v === "string" ? [...v.replace(/\s+/g, " ").trim()].slice(0, max).join("") : "");
 
 /** 저장된 값을 읽는다. 모르는 칸·망가진 줄은 버린다 */
 export function parseMind(raw: string | null): NekoMind {
@@ -467,7 +470,9 @@ export async function restThink(o: { greet: boolean }, signal?: AbortSignal): Pr
     ...(secrets.length ? { tell: { type: "string", enum: secrets.map((x) => x.id), description: "첫마디에서 털어놓을 비밀 번호. 털어놓을 때만(아니면 빼)" } } : {}),
   });
   if (!t) return;
-  if (o.greet) await settingsApi.set(GREET_KEY, JSON.stringify({ text: t.pick, at: Date.now(), askedAt: Date.now() })).catch(() => {});
+  // 첫마디는 노트 한 줄(60자)보다 길게 둔다 — 60자에서 문장 가운데가 잘려 말풍선 글이 깨져 보였다(사용자). 길면 말풍선이 줄바꿈·스크롤
+  const greet = line(t.extra?.pick, GREET_MAX) || t.pick;
+  if (o.greet) await settingsApi.set(GREET_KEY, JSON.stringify({ text: greet, at: Date.now(), askedAt: Date.now() })).catch(() => {});
   const tell = typeof t.extra?.tell === "string" ? secrets.find((x) => x.id === t.extra!.tell) : undefined;
   if (tell) await markTold(tell.id, ymd(new Date())).catch(() => null);
   const like = acts(t.extra?.like, 3), tired = acts(t.extra?.tired, 2, like);
