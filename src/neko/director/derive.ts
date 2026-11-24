@@ -102,6 +102,14 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
   // 3-1) 네코가 채팅에 글을 남기는 중(산책 일지·브리핑·첫마디, stores nekoWrites): 답 쓰기와 같은 타이핑, 끝나면 같은 마무리
   if (input.writing) return out(plan("answer", { activity: "typing", dwell: true, instance: "answer" }));
 
+  // 3-2) 네코가 직접 고른 활동(neko.act, 사용자: 네코가 자기 행동을 고르게): 일(답 쓰기·결과 표정)을 마친 뒤 그 활동을, until 이 지나면
+  // 원래 흐름으로. 혼자 놀기와 같은 길(산책 허용은 돌아다니는 놀이만, 한 번짜리는 한 번)
+  if (input.chosen && now < input.chosen.until) {
+    at(input.chosen.until);
+    const k = input.chosen.kind;
+    return out(plan("chosen", { activity: k, instance: `chosen:${input.chosen.since}`, wander: ROAMING.has(k), oneShot: ONE_SHOT.has(k) }));
+  }
+
   // 밥을 다 먹은 여운
   if (input.fedAt !== null && now < input.fedAt + FED_MS) {
     at(input.fedAt + FED_MS);

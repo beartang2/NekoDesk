@@ -63,6 +63,8 @@ describe("neko.self 결과", () => {
     expect(text).toContain("상태: 깨어 있음");
     expect(text).toContain("배고픔 42(낮을수록 배고픔) · 놀이 15(낮을수록 심심함)");
     expect(text).toContain("- 14:00– 캣휠 달리는 중(지금)");
+    // 직접 고를 수 있는 행동(neko.act) — 무대(감독)가 없으면 왜 못 하는지
+    expect(text).toContain("지금 할 수 있는 행동(neko.act): 없음(지금은 무대에 없어서 못 해)");
   });
 
   it("성격은 털어놓은 것까지만 내용이 보이고, 아직 말 안 한 비밀은 수만(docs/neko-heart.md §4)", async () => {

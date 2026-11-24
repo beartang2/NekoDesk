@@ -90,6 +90,8 @@ export type ToolName =
   | "skill.read"
   /** 네코 안에서만 쓰는 도구: 제 상태 보기(neko/selfState). 화면·네코 동작·대화 기록엔 안 나온다(agent-context INTERNAL_TOOLS) */
   | "neko.self"
+  /** 네코가 자기 행동을 직접 고른다(neko/nekoAct). neko.self 처럼 안에서만 쓰인다 */
+  | "neko.act"
   /** 지금 날짜·요일·시각과 시간대(0.1.32 — 요청마다 시각을 붙이지 않는다) */
   | "time.now"
   /** 루프가 직접 처리하는 가상 툴 (execute 없음). */

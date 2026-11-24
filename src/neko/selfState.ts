@@ -57,6 +57,13 @@ export function noteLabel(label: string, now = Date.now()): void {
   cur = { label, at: now };
 }
 
+/** 한순간의 일(네코가 직접 고른 행동 — neko/nekoAct). 시작·끝이 같은 줄로 남는다 */
+export function noteMoment(label: string, now = Date.now()): void {
+  const list = read().filter((e) => e.end > now - SELF_LOG_MS);
+  list.push({ at: now, end: now, label });
+  write(list.slice(-MAX));
+}
+
 /** 화면에 보이는 배고픔·놀이 게이지(감독이 넘긴다 — 배고픔은 대화 길이에서 나와 앱이 계산한다) */
 export function setShownNeeds(n: { hunger: number; play: number }): void {
   shown = n;
@@ -84,7 +91,7 @@ async function dreams(since: number): Promise<{ at: number; text: string }[]> {
 export async function recentDoings(now = Date.now()): Promise<string> {
   const since = now - SELF_LOG_MS;
   const rows: { at: number; line: string }[] = read().filter((e) => e.end > since)
-    .map((e) => ({ at: e.at, line: `- ${hm(e.at)}–${hm(e.end)} ${e.label}` }));
+    .map((e) => ({ at: e.at, line: e.end === e.at ? `- ${hm(e.at)} ${e.label}` : `- ${hm(e.at)}–${hm(e.end)} ${e.label}` }));
   const w = await lastWalk();
   if (w && walkStart(w) > since && walkStart(w) <= now) {
     rows.push({ at: walkStart(w), line: `- ${hm(walkStart(w))}–${walkEnd(w) > now ? "" : hm(walkEnd(w))} 산책${w.done ? "" : "(아직 다녀오는 중)"}` });
@@ -119,5 +126,7 @@ export async function selfStateText(now = Date.now()): Promise<string> {
     // 성격(docs/neko-heart.md §5): 사건 수 많은 순 12개, 털어놓은 비밀까지. 아직 말 안 한 비밀은 수만 — 내용은 첫마디로 털어놓을 때까지 모른다
     `내 성격:\n${heartLines(heart, { secrets: "told", max: 12 }) || "- 아직 굳은 것 없음"}`,
     ...(untold ? [`아직 말하지 않은 비밀: ${untold}개(내용은 지금 떠오르지 않는다)`] : []),
+    // 직접 고를 수 있는 행동(neko.act) — 이 자리에서 지금 되는 것만. 도구 표와 고리가 생기지 않게 쓸 때 불러온다
+    `지금 할 수 있는 행동(neko.act): ${(await import("./nekoAct")).actOptionsText()}`,
   ].join("\n");
 }

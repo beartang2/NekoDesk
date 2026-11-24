@@ -391,3 +391,19 @@ describe("일할 때 머무름 6초와 마무리", () => {
     expect(w.ctrl.seen("act:")).toEqual(["0.0 act:window", "6.0 act:typing", "8.0 act:null"]);
   });
 });
+
+describe("네코가 직접 고른 활동(neko.act)", () => {
+  it("답을 마친 뒤 엔진에 그 활동을 시키고, 고른 시간이 지나면 그만둔다", () => {
+    const w = world();
+    w.sig(0, { type: "run_start" });
+    w.sig(0.1, { type: "answering" });
+    w.set(1, { chosen: { kind: "groom", since: 1000, until: 61_000 } });
+    w.sig(3, { type: "done", petState: null });
+    w.to(70);
+    const acts = w.ctrl.seen("act:");
+    expect(acts[0]).toBe("0.1 act:typing");
+    const groom = acts.find((a) => a.endsWith("act:groom"));
+    expect(groom && Number(groom.split(" ")[0])).toBeGreaterThanOrEqual(6); // 타이핑 마무리(3초) 뒤
+    expect(acts[acts.length - 1]).toMatch(/^61\.0 act:null$/);
+  });
+});

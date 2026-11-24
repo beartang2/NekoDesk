@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { CatEmotion } from "../../agent/types";
+import type { NekoActivity } from "../engine/neko-engine";
 import { IDLE_SESSION, reduceSession } from "./session";
 import type { NekoSessionState, NekoSignal, OutsideState, PlayKind, Reaction } from "./types";
 
@@ -66,6 +67,9 @@ interface NekoAppStore {
   setScreenHidden: (on: boolean) => void;
   /** 채팅에 글을 남기는 일이 몇 개 도는가(nekoWrites). 0 보다 크면 감독이 타이핑한다 */
   writing: number;
+  /** 네코가 직접 고른 활동(neko.act). 감독이 until 까지 한다 */
+  chosen: { kind: NekoActivity; since: number; until: number } | null;
+  choose: (kind: NekoActivity, ms: number) => void;
 }
 
 export const useNekoApp = create<NekoAppStore>((set, get) => ({
@@ -78,6 +82,8 @@ export const useNekoApp = create<NekoAppStore>((set, get) => ({
   outside: { at: -Infinity, activity: null, music: false },
   screenHidden: false,
   writing: 0,
+  chosen: null,
+  choose: (kind, ms) => { const now = performance.now(); set({ chosen: { kind, since: now, until: now + ms } }); },
   setScreenHidden: (on) => { if (get().screenHidden !== on) set({ screenHidden: on }); },
   setOutside: (o) => {
     const cur = get().outside;

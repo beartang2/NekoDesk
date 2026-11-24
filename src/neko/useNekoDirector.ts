@@ -12,6 +12,7 @@ import { useNekoNeeds } from "./director/needsStore";
 import { createScheduler, realClock, type Scheduler } from "./director/scheduler";
 import { onNekoSignal, useNekoApp, useNekoSessions } from "./director/stores";
 import { noteLabel, setShownNeeds } from "./selfState";
+import { setActController } from "./nekoAct";
 import type { DirectorInput } from "./director/types";
 import { emotionPlan } from "./emotionMap";
 import { useNekoController } from "./nekoHost";
@@ -92,10 +93,11 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       return {
         session: useNekoSessions.getState().get(activeRef.current),
         feeding, fedAt: app.fedAt, playCue: app.playCue, game: app.game,
-        needs: needsRef.current, lastActiveAt, outside: app.outside, box, hidden: app.screenHidden, writing: app.writing > 0,
+        needs: needsRef.current, lastActiveAt, outside: app.outside, box, hidden: app.screenHidden, writing: app.writing > 0, chosen: app.chosen,
       };
     };
     const sch = createScheduler(ctrl, realClock, (now) => deriveNeko(input(), now));
+    setActController(ctrl); // 네코가 직접 고르는 행동(neko.act)이 지금 무대의 가구·선물·갈 창을 본다
     schRef.current = sch;
 
     const leaveBox = () => {
@@ -106,7 +108,8 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       const app = useNekoApp.getState();
       const s = useNekoSessions.getState().get(activeRef.current);
       const now = performance.now();
-      const resting = (s.phase === "idle" || s.phase === "result") && !app.feeding && !app.game && !app.writing
+      // 네코가 직접 고른 활동(neko.act)을 하는 동안은 혼자 놀기를 새로 안 고른다
+      const resting = (s.phase === "idle" || s.phase === "result") && !app.feeding && !app.game && !app.writing && !(app.chosen && now < app.chosen.until)
         && !(app.playCue && now < app.playCue.at + 6000);
       if (!resting || needsRef.current.play < BOX_PLAY_MIN) {
         if (boxTimer) { clearTimeout(boxTimer); boxTimer = null; }
@@ -236,6 +239,7 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       syncBoxRef.current = () => {};
       sch.dispose();
       schRef.current = null;
+      setActController(null);
       if (import.meta.env.DEV) useDevTools.setState({ director: null });
     };
   }, [ctrl]);

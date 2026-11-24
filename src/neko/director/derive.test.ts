@@ -182,3 +182,17 @@ describe("네코가 채팅에 글을 남길 때만 타이핑(0.1.28)", () => {
     expect(layer(input({ session: t }), 2000 + 3200)).toBe("base");
   });
 });
+
+describe("네코가 직접 고른 활동(neko.act, 0.1.32)", () => {
+  it("하던 일(답 쓰기)을 마친 뒤 그 활동을, 시간이 지나면 원래 흐름으로", () => {
+    const chosen = { kind: "box" as const, since: 1000, until: 61_000 };
+    const busy = sess([0, { type: "run_start" }], [10, { type: "answering" }]);
+    expect(layer(input({ session: busy, chosen }), 2000)).toBe("answer"); // 답 쓰는 동안은 그대로
+    const a = deriveNeko(input({ chosen }), 2000);
+    expect(a.plan).toMatchObject({ layer: "chosen", activity: "box", instance: "chosen:1000" });
+    expect(a.recheckAt).toBe(61_000);
+    expect(layer(input({ chosen }), 61_000)).toBe("base");
+    // 혼자 놀기·심심함보다 먼저
+    expect(layer(input({ chosen, box: { since: 0, kind: "yarn" }, needs: { hunger: 100, play: 5 } }), 2000)).toBe("chosen");
+  });
+});

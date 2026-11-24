@@ -21,6 +21,7 @@ import { noteCreated, saveMemory, type SaveResult } from "./memory-merge";
 import { claudeWebSearch } from "./llm-transport";
 import { dayWithRel, nowInZone, timeZone } from "../lib/time";
 import { selfStateText } from "../neko/selfState";
+import { SOLO_KEYS } from "../neko/director/needs";
 import type {
   ToolName,
   JsonSchema,
@@ -329,6 +330,23 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       if (n === 0) return "일정 삭제 실패: 해당 ID의 일정이 존재하지 않음";
       return `일정 ${n}개 삭제됨`;
     },
+  },
+
+  // 네코가 자기 행동을 직접 고른다(0.1.32, 사용자: neko.self 는 보기만 — 행동을 고르고 하는 도구). 안에서만 쓰여(INTERNAL_TOOLS) 채팅 도구
+  // 표시·도구 동작이 없다 — 도구 동작이 고른 활동을 덮지 않게. 결과는 그 요청 안에서만 모델이 보고, 최근 행동 기록(selfState)엔 남는다.
+  // 고를 수 있는 건 혼자 놀기 키(enum) 중 지금 이 자리에서 되는 것만 — 안 되면 까닭과 되는 것을 돌려준다(neko/nekoAct)
+  "neko.act": {
+    name: "neko.act",
+    description: "네 행동(놀이)을 직접 골라 한다. 지금 이 자리에서 할 수 있는 것은 neko.self 에 나온다. 하던 말을 마친 뒤 한다",
+    params: {
+      type: "object",
+      properties: { act: { type: "string", enum: SOLO_KEYS, description: "할 행동(영어 이름)" } },
+      required: ["act"],
+    },
+    readOnly: true,
+    // 도구 표 → nekoAct → 도구 동작 표 → 도구 표 고리가 생기지 않게 쓸 때 불러온다
+    execute: async (p) => (await import("../neko/nekoAct")).nekoAct(p["act"]),
+    summarize: (r) => r as string,
   },
 
   // 날짜·시각(0.1.32, 사용자: 메시지마다 붙이지 말고 필요할 때 네코가 확인하게). 날씨 위치의 시간대(모르면 이 기기)

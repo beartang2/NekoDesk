@@ -106,6 +106,19 @@ export interface SoloWhere {
 const NEEDS_USE: Partial<Record<string, string>> = { fperch: "perch", fhide: "inside", fscratch: "scratch", fbat: "bat" };
 /** 놓인 가구가 있어야 하는 혼자 놀기(상자 놀이도 상자 가구로 옮겼다 — 사용자) */
 const NEEDS_FURNITURE: Partial<Record<string, string>> = { lamp: "lamp", cattower: "cattower", wheel: "wheel", sofa: "sofa", box: "box", table: "table" };
+/**
+ * 이 자리에서 그 혼자 놀기를 못 하는 까닭(되면 null). 감독의 후보 고르기(soloOdds)와 네코가 직접 고르는 도구(neko/nekoAct)가 같이 쓴다:
+ * 가구 놀이는 그 가구가, 자유 가구 쓰임새 놀이는 그 쓰임새가, 선물 놀이는 놓인 선물이, 창 탐험은 갈 창이 있을 때만. 조명은 lampWant 일 때만
+ */
+export function soloBlock(k: string, o: Pick<SoloWhere, "hasGifts" | "towerOk" | "furniture" | "lampWant" | "furnitureUses">): string | null {
+  const f = NEEDS_FURNITURE[k], u = NEEDS_USE[k];
+  if (u) return o.furnitureUses?.includes(u) ? null : "그 쓰임새를 내주는 가구가 이 자리에 없어";
+  if (f && !o.furniture?.includes(f)) return "그 가구가 이 자리에 없어";
+  if (k === "lamp" && !o.lampWant) return "조명을 켜고 끌 까닭이 없어";
+  if (k === "giftplay" && !o.hasGifts) return "이 자리에 놓아 둔 선물이 없어";
+  if (k === "tower" && !o.towerOk) return "갈 창이 없어";
+  return null;
+}
 /** 기울기 손잡이(docs/neko-mind.md §6.3) */
 export const LIKE_K = 1.6, TIRED_K = 0.5;
 
@@ -115,13 +128,8 @@ export const LIKE_K = 1.6, TIRED_K = 0.5;
  */
 export function soloOdds(s: Needs, o: SoloWhere): { key: NekoActivity; p: number }[] {
   const recent = new Set([o.last, ...(o.recent ?? [])]);
-  const has = (k: string) => {
-    const f = NEEDS_FURNITURE[k], u = NEEDS_USE[k];
-    if (u) return !!o.furnitureUses?.includes(u);
-    return !f || (!!o.furniture?.includes(f) && (k !== "lamp" || !!o.lampWant));
-  };
   const w = SOLO_KEYS
-    .filter((k) => !recent.has(k) && (k !== "giftplay" || o.hasGifts) && (k !== "tower" || !!o.towerOk) && has(k))
+    .filter((k) => !recent.has(k) && !soloBlock(k, o))
     .map((key) => ({ key, w: score(s, fillsOf(key), o.play) * (o.like?.includes(key) ? LIKE_K : o.tired?.includes(key) ? TIRED_K : 1) }));
   const sum = w.reduce((a, b) => a + b.w, 0) || 1;
   return w.map(({ key, w: x }) => ({ key, p: x / sum }));
