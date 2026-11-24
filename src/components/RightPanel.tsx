@@ -14,6 +14,7 @@ import type { DrawingGameState, DrawingGameActions } from "../hooks/useDrawingGa
 import { createSwipeStepper } from "../lib/swipe";
 import { dbDate } from "../lib/time";
 import { shrinkable } from "../lib/windowMin";
+import { createSmoother, type Seg } from "../lib/strokeSmooth";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import "./RightPanel.css";
 
@@ -768,7 +769,8 @@ export function DrawingPadCard({
   const isDrawingRef = useRef(false);
   /** 그리는 손가락·마우스 하나. 두 번째 손가락은 무시한다 */
   const pointerRef = useRef<number | null>(null);
-  const lastPtRef = useRef<{ x: number; y: number } | null>(null);
+  /** 약한 손떨림 보정(lib/strokeSmooth): 입력 점을 살짝 늦춰 따라가고 곡선으로 잇는다 */
+  const smoothRef = useRef(createSmoother());
   const undoStackRef = useRef<ImageData[]>([]);
   const redoStackRef = useRef<ImageData[]>([]);
 
@@ -872,35 +874,43 @@ export function DrawingPadCard({
     redoStackRef.current = [];
     isDrawingRef.current = true;
     const pt = getPos(e);
-    lastPtRef.current = pt;
+    smoothRef.current.start(pt);
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, (thick ? 6 : 2) / 2, 0, Math.PI * 2);
     ctx.fillStyle = tool === "eraser" ? "#ffffff" : color;
     ctx.fill();
   }
 
-  function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (!isDrawingRef.current || e.pointerId !== pointerRef.current) return;
-    const ctx = getCtx();
-    const last = lastPtRef.current;
-    if (!ctx || !last) return;
-    const pt = getPos(e);
+  /** 보정한 조각들을 한 번에 긋는다(2차 곡선) */
+  function drawSegs(ctx: CanvasRenderingContext2D, segs: Seg[]) {
+    if (!segs.length) return;
     ctx.beginPath();
-    ctx.moveTo(last.x, last.y);
-    ctx.lineTo(pt.x, pt.y);
+    ctx.moveTo(segs[0].from.x, segs[0].from.y);
+    for (const s of segs) ctx.quadraticCurveTo(s.ctrl.x, s.ctrl.y, s.to.x, s.to.y);
     ctx.strokeStyle = tool === "eraser" ? "#ffffff" : color;
     ctx.lineWidth = thick ? 6 : 2;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.stroke();
-    lastPtRef.current = pt;
+  }
+
+  function onPointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!isDrawingRef.current || e.pointerId !== pointerRef.current) return;
+    const ctx = getCtx();
+    if (!ctx) return;
+    // 한 프레임 사이에 모인 점들(있으면) — 빠르게 그어도 곡선이 각지지 않게
+    const many = e.nativeEvent.getCoalescedEvents?.() ?? [];
+    const pts = (many.length ? many : [e.nativeEvent]).map(getPos);
+    drawSegs(ctx, pts.flatMap((p) => smoothRef.current.move(p) ?? []));
   }
 
   function onPointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
     if (e.pointerId !== pointerRef.current) return;
     pointerRef.current = null;
     isDrawingRef.current = false;
-    lastPtRef.current = null;
+    // 남은 곳에서 손을 뗀 점까지 마저 긋는다
+    const ctx = getCtx(), tail = smoothRef.current.end();
+    if (ctx && tail) drawSegs(ctx, [tail]);
   }
 
   function clearCanvas() {

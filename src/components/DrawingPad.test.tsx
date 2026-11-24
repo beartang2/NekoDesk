@@ -11,7 +11,7 @@ vi.mock("../api/tauri", () => ({ todosApi: {}, scheduleApi: {}, settingsApi: { g
 
 import { DrawingPadCard } from "./RightPanel";
 
-const ctx = { getImageData: vi.fn(() => ({})), putImageData: vi.fn(), beginPath: vi.fn(), arc: vi.fn(), fill: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), fillRect: vi.fn() };
+const ctx = { getImageData: vi.fn(() => ({})), putImageData: vi.fn(), beginPath: vi.fn(), arc: vi.fn(), fill: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), quadraticCurveTo: vi.fn(), stroke: vi.fn(), fillRect: vi.fn() };
 
 beforeAll(() => {
   globalThis.ResizeObserver = class { observe() {} disconnect() {} } as unknown as typeof ResizeObserver;
@@ -38,13 +38,15 @@ describe("그림판", () => {
     touch("pointerMove", 1, 30, 30);
     touch("pointerUp", 2, 210, 110);
     touch("pointerUp", 1, 30, 30);
-    expect(ctx.stroke).toHaveBeenCalledTimes(2);
+    // 움직임 둘 + 손을 뗄 때 손떨림 보정이 남긴 끝(마지막 점까지)
+    expect(ctx.stroke).toHaveBeenCalledTimes(3);
+    expect(ctx.quadraticCurveTo.mock.calls.at(-1)!.slice(2)).toEqual([30, 30]);
     expect(ctx.getImageData).toHaveBeenCalledTimes(1); // 되돌리기 한 칸(첫 손가락 획만)
     touch("pointerMove", 1, 40, 40); // 뗀 뒤 움직임은 안 그린다
-    expect(ctx.stroke).toHaveBeenCalledTimes(2);
+    expect(ctx.stroke).toHaveBeenCalledTimes(3);
     fireEvent.pointerDown(cv, { clientX: 5, clientY: 5, pointerId: 9, pointerType: "mouse", button: 0 });
     fireEvent.pointerMove(cv, { clientX: 15, clientY: 5, pointerId: 9, pointerType: "mouse" });
     fireEvent.pointerUp(cv, { clientX: 15, clientY: 5, pointerId: 9, pointerType: "mouse" });
-    expect(ctx.stroke).toHaveBeenCalledTimes(3);
+    expect(ctx.stroke).toHaveBeenCalledTimes(5);
   });
 });
