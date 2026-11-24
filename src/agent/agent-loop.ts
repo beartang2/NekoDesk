@@ -447,6 +447,9 @@ async function preparePageImages(executed: ExecutedCall[], canSee: boolean): Pro
   }
 }
 
+/** 붙일 접두(지식·기억)가 없으면 질문 그대로 — 날짜·시각은 이제 접두에 없다(time.now) */
+const withPrefix = (q: string | ContentPart[], pre: string) => (pre ? prefixContent(q, pre) : q);
+
 function finalAnswerOf(text: string): string {
   const trimmed = text.trim();
   if (trimmed) return trimmed;
@@ -492,7 +495,7 @@ export async function* runAgentLoop(
   const context = new AgentContext(
     chatHistory,
     // Claude 는 시각·기억을 여기서 한 번 붙여 요청 내내 같은 글을 보낸다(agentContextPrefix).
-    claude ? prefixContent(question, agentContextPrefix(userInput, memories)) : question,
+    claude ? withPrefix(question, agentContextPrefix(userInput, memories)) : question,
     native,
     getModelContextLength(),
     claude

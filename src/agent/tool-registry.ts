@@ -19,7 +19,7 @@ import { useMessageStore } from "../stores/messageStore";
 import { buildSkillIndex, readKnowledge } from "./knowledge";
 import { noteCreated, saveMemory, type SaveResult } from "./memory-merge";
 import { claudeWebSearch } from "./llm-transport";
-import { timeZone } from "../lib/time";
+import { dayWithRel, nowInZone, timeZone } from "../lib/time";
 import { selfStateText } from "../neko/selfState";
 import type {
   ToolName,
@@ -187,7 +187,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       noteCreated(p["content"] as string);
       return todo;
     },
-    summarize: (r) => `할 일 추가됨: ${(r as Todo).id}`,
+    summarize: (r) => { const t = r as Todo; return `할 일 추가됨: ${t.id}${t.due_at ? ` (마감 ${dayWithRel(t.due_at)})` : ""}`; },
   },
 
   "todo.complete": {
@@ -304,7 +304,11 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       noteCreated(p["title"] as string);
       return ev;
     },
-    summarize: (r) => `일정 추가됨: ${(r as ScheduleEvent).title}`,
+    // 저장된 날짜에 요일·오늘 기준 말을 붙인다 — 날짜를 잘못 셌으면 결과에서 바로 보이게(시각이 이제 요청에 안 붙는다, time.now)
+    summarize: (r) => {
+      const ev = r as ScheduleEvent;
+      return `일정 추가됨: ${ev.title} — ${dayWithRel(ev.start_at)}${ev.end_at ? ` ~ ${dayWithRel(ev.end_at)}` : ""}`;
+    },
   },
 
   "schedule.delete": {
@@ -325,6 +329,16 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       if (n === 0) return "일정 삭제 실패: 해당 ID의 일정이 존재하지 않음";
       return `일정 ${n}개 삭제됨`;
     },
+  },
+
+  // 날짜·시각(0.1.32, 사용자: 메시지마다 붙이지 말고 필요할 때 네코가 확인하게). 날씨 위치의 시간대(모르면 이 기기)
+  "time.now": {
+    name: "time.now",
+    description: "지금 날짜·요일·시각과 시간대를 확인한다",
+    params: NO_PARAMS,
+    readOnly: true,
+    execute: async () => nowInZone(),
+    summarize: (r) => { const n = r as ReturnType<typeof nowInZone>; return `${n.date}(${n.weekday}) ${n.time}, 시간대 ${n.zone}`; },
   },
 
   // 네코 안에서만 쓰는 도구(agent-context INTERNAL_TOOLS): 결과는 모델만 본다 — 채팅 도구 표시·네코 동작·대화 기록에 안 나온다

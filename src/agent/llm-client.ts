@@ -26,7 +26,6 @@ import { josa } from "../lib/hangul";
 import { claudeCompact, llmFetch } from "./llm-transport";
 import { claudeModelOf } from "../lib/claude-models";
 import { prefixContent } from "./agent-context";
-import { timeZone } from "../lib/time";
 
 
 /**
@@ -130,6 +129,7 @@ const STYLE_RULES = `⚠️ 말투 규칙 (답변 전체에 적용, 예외 없�
 ⑥ 툴을 다 부른 뒤엔 물은 것에 대한 답을 한두 문장으로 써. "다 했어" 로 끝내거나 앞서 한 말을 반복하지 마.
 ⑦ 잡담·감정적인 대화엔 표·목록·굵게를 쓰지 마. 서식은 내용이 여러 갈래일 때만.
 ⚠️ 할루시네이션 금지:
+⓪ 날짜·시각이 필요하면 time.now 로 확인해. 확인 못 하면 모른다고 해.
 ① 데이터 날조 금지 — 곡명·아티스트명·게임명·출시일·URL·검색 결과 등은 절대 만들어내지 마. 답변의 모든 데이터는 반드시 툴 실행 결과에서만 가져와. 표를 채우려고 항목을 늘리지 마 — 툴로 확인한 게 두 개면 두 줄만 써라. 검색해도 안 나오면 "못 찾았어" 라고 해.
 ①-1 툴 사용 여부를 물으면("검색한 거 맞지?", "어디서 찾았어?") 이번 대화에서 **실제로 부른 툴만** 말해. 안 불렀으면 "안 썼어. 기억으로 답한 거라 틀릴 수 있어" 라고 해. 여기서 둘러대면 사용자가 틀린 정보를 사실로 믿는다.
 ② 액션 날조 금지 — 앱 실행·음악 재생·파일 조작·메시지 전송 등 시스템 조작은 반드시 툴을 실제로 호출한 후에만 완료 표현("재생 중이야", "실행했어")을 써. 툴을 호출하지 않았으면 아무것도 실행된 게 아니다.
@@ -154,18 +154,6 @@ J3. thought 는 한 문장 이내로 짧게.
 
 ⚠️ params.code 안에 큰따옴표(")가 있으면 반드시 백슬래시로 이스케이프(\\")해야 해. AppleScript 는 문자열에 큰따옴표를 쓰므로 특히 주의: \\"Music\\", \\"Neko Queue\\" 처럼.`;
 
-/** 날씨 위치의 시각. 예전엔 Asia/Seoul 로 박혀 있었다. */
-function nowHere(): string {
-  return new Date().toLocaleString("ko-KR", {
-    timeZone: timeZone(),
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    weekday: "short",
-  });
-}
 
 /**
  * 시각·지식은 이 프롬프트에 넣지 않는다. 매번 바뀌어 llama.cpp 프롬프트 캐시가
@@ -210,19 +198,20 @@ export const DEFAULT_CHAT_SYSTEM_PROMPT = `너는 NekoDesk 어시스턴트야. �
 - 목록·비교는 마크다운 표를 써. 헤더 다음 줄에 구분선(| --- | --- |)을 꼭 넣고, 모든 행의 칸 수를 맞추고, 표를 \`\`\`로 감싸지 마.
 - 응답 마지막에 반드시 [[PET_STATE:감정]] 형식으로 고양이 감정을 표시해. (idle/happy/curious/proud/sleepy/error 중 하나)
 - 실제로 실행된 작업만 완료됐다고 해.
+- 날짜·시각이 필요하면 time.now 로 확인해. 확인 못 하면 모른다고 해.
 - 응답을 "네," 또는 "네!" 로 시작하지 마. 맞장구·동의 표현 없이 바로 본론으로 시작해.
 - 말투는 처음부터 끝까지 반말(해체)로 통일해. 한 답변 안에서 존댓말과 반말을 섞지 마.
   금지 어미: ~습니다, ~합니다, ~됩니다, ~입니다, ~해요, ~예요, ~드릴게요, ~드릴게, ~세요.
   자기 지칭은 "나"/"내가". 3인칭으로 자기를 부르지 마.
   검색 결과나 인용 문서의 문체를 그대로 옮기지 말고 내용만 가져와서 네 말투로 다시 써.`;
 
-const STATIC_TOOLS_BRIEF = `todo.list, todo.add, todo.complete, schedule.list, schedule.add, code.exec, web.search, web.scrape, weather.get`;
+const STATIC_TOOLS_BRIEF = `todo.list, todo.add, todo.complete, schedule.list, schedule.add, code.exec, web.search, web.scrape, weather.get, time.now`;
 
 /** Returns base system prompt + dynamic tool list injected at the end. */
 function buildChatSystemPrompt(): string {
   const base = useSettingsStore.getState().systemPrompt ?? DEFAULT_CHAT_SYSTEM_PROMPT;
   const nameSection = `\n네 이름은 ${josa(nekoNameOf(useSettingsStore.getState()), "이야/야")}.`;
-  const dateSection = `\n현재 날짜/시각: ${nowHere()}`;
+  // 날짜·시각은 싣지 않는다 — 필요하면 time.now(사용자: 메시지마다 자동으로 붙이지 말고 필요할 때). 분마다 바뀌던 글이 빠져 이 프롬프트도 고정된다
 
   const mcpEntries = getMcpTools();
   const mcpList = mcpEntries.length > 0
@@ -234,7 +223,7 @@ function buildChatSystemPrompt(): string {
   const profile = useSettingsStore.getState().userProfile?.trim();
   const profileSection = profile ? `\n사용자 프로필:\n${profile}` : "";
 
-  return base + nameSection + dateSection + profileSection + toolsSection;
+  return base + nameSection + profileSection + toolsSection;
 }
 
 // ── Core fetch ────────────────────────────────────────────────────────────────
@@ -681,9 +670,10 @@ function stripImageParts(messages: LlmMessage[]): { messages: LlmMessage[]; hadI
   return { messages: stripped, hadImages };
 }
 
-/** 매 호출 바뀌는 컨텍스트(시각 + 상황별 지식 + 떠올린 기억). 시스템 프롬프트가
+/** 매 호출 바뀌는 컨텍스트(상황별 지식 + 떠올린 기억). 시스템 프롬프트가
  *  아니라 현재 user 메시지 앞에 붙여, 큰 정적 시스템 프롬프트의 프롬프트 캐시를
- *  보존한다. */
+ *  보존한다. 날짜·시각은 싣지 않는다(0.1.32, 사용자: 메시지마다 자동으로 붙이지 말고 필요할 때 네코가 time.now 로) —
+ *  붙일 게 없으면 접두도 없다. */
 function buildAgentContextPrefix(
   userInput: string,
   recentContext: string,
@@ -693,11 +683,12 @@ function buildAgentContextPrefix(
   // 기억은 "참고" 로만 준다. 모델이 이걸 사용자가 방금 한 말로 착각하면
   // 엉뚱한 것을 확인 없이 실행한다.
   const recalled = memories ? `\n\n[예전에 기억해둔 것 — 참고만 해]\n${memories}` : "";
-  return `[현재 날짜/시각: ${nowHere()}]${knowledge}${recalled}\n\n`;
+  const body = `${knowledge}${recalled}`.replace(/^\n+/, "");
+  return body ? `${body}\n\n` : "";
 }
 
 /**
- * Claude 용. 시각·지식·기억을 요청 시작 때 한 번 만들어 현재 질문에 붙인다(agent-loop).
+ * Claude 용. 지식·기억을 요청 시작 때 한 번 만들어 현재 질문에 붙인다(agent-loop).
  * 매 턴 "마지막 user 메시지" 에 붙이면 시각이 바뀌고 붙는 자리도 옮겨 가서(그림 검토
  * 메시지가 생기면 그쪽으로), 앞쪽이 바뀌어 생각 블록·프롬프트 캐시가 깨진다.
  */
@@ -730,7 +721,7 @@ function buildAgentMessages(
     .slice(-5)
     .map((m) => (typeof m.content === "string" ? m.content : ""))
     .join(" ");
-  // 시스템 프롬프트는 고정(캐시됨), 시각·지식은 현재 user 메시지에 붙인다.
+  // 시스템 프롬프트는 고정(캐시됨), 지식·기억은 현재 user 메시지에 붙인다.
   const systemMessage: LlmMessage = {
     role: "system",
     content: buildAgentSystemPrompt(native),
@@ -738,7 +729,7 @@ function buildAgentMessages(
   // Claude 는 agent-loop 가 현재 질문에 이미 붙였다(agentContextPrefix).
   if (isClaudeActive()) return [systemMessage, ...messages];
   const prefix = buildAgentContextPrefix(userInput, recentUserContext, memories);
-  return [systemMessage, ...injectContextIntoLastUser(messages, prefix)];
+  return [systemMessage, ...(prefix ? injectContextIntoLastUser(messages, prefix) : messages)];
 }
 
 export type AgentStepEvent =

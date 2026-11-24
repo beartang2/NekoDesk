@@ -34,6 +34,7 @@ const TABLE: Record<Exclude<ToolName, "user.ask" | "neko.self">, NekoActivity> =
   "web.search": "window",
   "web.scrape": "reading",
   "weather.get": "window",
+  "time.now": "calendar", // 날짜·시각 확인: 달력 보기
   "music.control": "music",
   "device.level": "think",
   "game.start": "draw", // 끝말잇기는 아래에서 골똘히로
