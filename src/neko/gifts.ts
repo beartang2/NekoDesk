@@ -145,14 +145,15 @@ interface GiftStore {
 
 /** 저장된 JSON 을 선물 목록으로. 모양도 한 번 더 검사한다 — 손으로 고친 DB, 예전 꼴, 다른 기기에서 온 것이 엔진까지 가지 않게 */
 /**
- * 액자만 벽에 건다(사용자, 0.1.24). 방·거실 벽에 걸려 있던 다른 물건은 같은 가로 자리의 바닥으로 내린다 — 업데이트 뒤 한 번,
- * 그리고 옛 버전이 벽 자리를 다시 보내와도 받을 때마다. 바닥 자리는 옛 버전도 그대로 읽는다. 마당(screen)은 화면 창 몫이라 둔다
+ * 액자만 벽에 건다(사용자, 0.1.24 — 마당도 0.1.32, 사용자: 마당에선 물건이 다 액자처럼 공중에 걸린다). 벽에 걸려 있던 다른 물건은
+ * 같은 가로 자리의 바닥으로 조용히 내린다(한꺼번에 우수수 떨어지지 않게) — 업데이트 뒤 한 번, 그리고 옛 버전이 벽 자리를 다시
+ * 보내와도 받을 때마다. 바닥 자리는 옛 버전도 그대로 읽는다
  */
 export function hangOnlyFrames(gifts: NekoGift[]): { gifts: NekoGift[]; moved: NekoGift[] } {
   const moved: NekoGift[] = [];
   const out = gifts.map((g) => {
     const p = g.placed;
-    if (!p || g.frame || p.surface !== "wall" || p.at === "screen") return g;
+    if (!p || g.frame || p.surface !== "wall") return g;
     const placed: GiftPlacement = { surface: "floor", u: p.u, at: p.at, ...(p.screen ? { screen: p.screen } : {}) };
     const next = { ...g, placed };
     moved.push(next);
@@ -254,8 +255,8 @@ export const useNekoGifts = create<GiftStore>((set, get) => ({
       const face = gift.frame ? "wall" : "floor";
       const us = get().gifts.filter((g) => g.id !== id && g.placed?.at === where && g.placed.surface === face && g.placed.screen === scr).map((g) => g.placed!.u);
       const s: NekoDecorSpot = spot !== "auto" ? spot : gift.frame ? { surface: "wall", u: freeSpot(us), v: FRAME_V[where] } : { surface: "floor", u: freeSpot(us) };
-      // 액자만 벽에(마당 빼고). 벽 자리가 와도 액자가 아니면 같은 가로 자리의 바닥으로. 가구 윗면(탁자) 위는 방·거실만
-      const hang = s.surface === "wall" && (gift.frame || where === "screen");
+      // 액자만 벽에(마당도). 벽 자리가 와도 액자가 아니면 같은 가로 자리의 바닥으로(떨어지는 그림은 놓은 쪽이 보인다). 가구 윗면(탁자) 위는 방·거실만
+      const hang = s.surface === "wall" && !!gift.frame;
       // 놀다 멈춘 각도(던지기·굴리기, 누운 액자): 바닥·가구 윗면만, 0 이면 칸을 안 둔다(옛 선물과 같은 꼴 — 안 바뀐 건 다시 안 올라간다)
       const r = s.surface === "wall" ? 0 : normRot(s.rot), rot = r ? { rot: r } : {};
       placed = s.surface === "furniture" && where !== "screen" ? { surface: "furniture", u: s.u, fid: s.fid, i: s.i, fu: s.fu, ...rot, at: where }

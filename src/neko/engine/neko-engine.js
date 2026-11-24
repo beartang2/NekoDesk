@@ -3597,6 +3597,9 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
      한 번 더 칠 거면 칠 때 다시 알려 놀아주기를 잇는다. 던진 건 한 번만 쫓는다(thrownId 를 가져간다) — 다 놀고 끝났는데 놀아주기가
      남아 다시 시켜도 같은 걸 또 쫓지 않고 그 자리에서 지켜본다. 쫓는 중에 또 던지면 새 물건으로 바꿔 쫓는다.
      선물 갖고 놀기의 굴리기(roll)를 그대로 쓴다 */
+  /** 마당(화면 모드)은 모니터가 넓다: 던진 것이 고양이에서 이만큼(S) 안일 때만 쫓는다. 방·거실은 늘 */
+  const CHASE_NEAR = 560;
+  const chaseNear = (x) => !WORLD || (!AWAY && Math.abs(cat.x - x) <= CHASE_NEAR * S);
   function chaseTarget(A) {
     const d = decor.find((o) => o.id === thrownId && !o.hidden && o.surface === "floor");
     thrownId = null;
@@ -5602,14 +5605,17 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         // 놓기 전 잠깐(THROW_STILL) 손이 멈춰 있었으면 빠르기 0 — 빨리 끌다 멈춰 두었다 놓으면 던지지 않는다
         const moving = performance.now() - (decorDrag.mt ?? 0) < DD.THROW_STILL;
         const tvx = moving ? decorDrag.vx ?? 0 : 0, tvy = moving ? decorDrag.vy ?? 0 : 0, fast = Math.hypot(tvx, tvy) > DD.THROW_MIN * S;
-        if (fast && !d.frame && !WORLD) {
+        if (fast && !d.frame) {
           // 던지기(사용자): 놓는 순간의 빠르기로 날아가 떨어져 튕기고, 바닥에선 굴러가 선다(서면 decorMove). 네코가 쫓아간다(chase —
-          // 감독이 놀아주기로 받아 시킨다, play 사건)
+          // 감독이 놀아주기로 받아 시킨다, play 사건). 마당은 넓어 가까울 때만 쫓는다(chaseNear)
           const [vx, vy] = DD.throwVel(tvx, tvy, decorDrag.bottom, decorDims(d.shape, d.k).h, geomNow());
           d.fall = { x: decorDrag.x, bottom: decorDrag.bottom, vx, vy, roll: true };
-          d.px = [decorDrag.x, decorDrag.bottom]; d.vx = 0; thrownId = d.id;
-          if (cat.act && cat.act.key === "chase") { if (cat.mode === "act") setMode("idle"); chaseTarget(cat.act); } // 쫓는 중에 또 던졌다
-          emit("play", { kind: "chase", id: d.id });
+          d.px = [decorDrag.x, decorDrag.bottom]; d.vx = 0;
+          if (chaseNear(decorDrag.x)) {
+            thrownId = d.id;
+            if (cat.act && cat.act.key === "chase") { if (cat.mode === "act") setMode("idle"); chaseTarget(cat.act); } // 쫓는 중에 또 던졌다
+            emit("play", { kind: "chase", id: d.id });
+          }
         } else if (spot.surface === "wall" && !d.frame) {
           // 액자만 벽에 건다(사용자, 0.1.24): 다른 물건은 고양이를 던졌을 때처럼 떨어져 바닥에 놓인다(내려앉으면 settleDecor 가 알린다)
           const lim = 900 * S;
@@ -5931,6 +5937,18 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     get mouth() { const m = mouthPt(); return { x: m[0], y: m[1], r: MOUTH_R * S }; },
     /** 머리 원(무대 px): 아치를 여는 자리이자 기준 */
     get head() { return { x: cat.head.x, y: cat.head.y, r: 38 * S }; },
+    /**
+     * 마당 선물 창에서 던진 것이 굴러가다 섰다(remoteNeko): 고양이가 가까우면 쫓아가 친다(chase — play 사건으로 감독이 시킨다).
+     * 바닥 선물이고 가까울 때만 true
+     */
+    chaseDecor(id) {
+      const d = decor.find((o) => o.id === String(id) && !o.hidden && o.surface === "floor");
+      if (!d || !chaseNear(decorLayout(d).x)) return false;
+      thrownId = d.id;
+      if (cat.act && cat.act.key === "chase") { if (cat.mode === "act") setMode("idle"); chaseTarget(cat.act); }
+      emit("play", { kind: "chase", id: d.id });
+      return true;
+    },
     // 입에 물기(docs/neko-gifts.md §6)
     carry(items) {
       for (const raw of Array.isArray(items) ? items : [items]) {

@@ -133,12 +133,23 @@ function pushDecor(heldOnly = false): void {
   }
 }
 
+/**
+ * 마당 한 모니터의 공중(x, y = 커서, 물건 가운데쯤)에 놓은 액자 아닌 선물: 바닥 자리로 저장하고(place), 그 모니터 선물 창이
+ * 거기서부터 떨어지는 모습을 보이게 알린다(neko-decor-fall — 선물 창이 받은 바닥 자리까지 fallStep). 액자·바닥 근처면 그대로 놓기만
+ */
+export function placeInYard(id: string, screen: string, x: number, y: number, w: number, ground: number): void {
+  const g = useNekoGifts.getState().gifts.find((o) => o.id === id);
+  if (!g) return;
+  const spot = dropSpot(g, "screen", x, y, yardGeom(w, ground));
+  useNekoGifts.getState().place(id, spot, "screen", screen);
+  const label = screens?.screens.find((o) => o.id === screen)?.decor;
+  if (label && spot.surface === "wall" && !g.frame) void emitTo(label, "neko-decor-fall", { id, x, y }).catch(() => {});
+}
+
 /** 화면 창·선물 창에서 끌던 선물을 다른 모니터 위에서 놓았다: 그 모니터 자리(x, y 는 그 모니터 왼쪽 위 기준)로 옮긴다 */
 function putOn({ id, screen, x, y }: { id: string; screen: string; x: number; y: number }): void {
   const s = screens?.screens.find((o) => o.id === screen);
-  const g = useNekoGifts.getState().gifts.find((o) => o.id === id);
-  if (!s || !g) return;
-  useNekoGifts.getState().place(id, dropSpot(g, "screen", x, y, yardGeom(s.layout.w, s.layout.ground)), "screen", screen);
+  if (s) placeInYard(id, screen, x, y, s.layout.w, s.layout.ground);
 }
 
 let linked = false;
@@ -193,6 +204,12 @@ export function link(): void {
   // 엔진 안에서 끌어 옮김(갖고 노느라 잡은 것) = 고양이가 있는 모니터 안. 그 모니터로 적는다(빠진 모니터 것을 주 모니터에서 옮기면 주 모니터 것이 된다)
   addListener("decorMove", (p) => { const { id, ...spot } = p as { id: string } & NekoDecorSpot; useNekoGifts.getState().place(id, spot, undefined, screens?.cat ?? undefined); });
   addListener("decorPlayed", (p) => { const { id, at } = p as { id: string; at: number }; useNekoGifts.getState().played(id, at); });
+  // 마당에서 사용자가 던졌다(엔진이 잡은 것 — 엔진이 가까울 때만 알린다): 감독 놀아주기로(방·거실은 nekoHost 가 같은 일)
+  addListener("play", (p) => useNekoApp.getState().play((p as { kind: "chase" | "wand" }).kind));
+  // 선물 창에서 던진 것이 굴러가다 섰다(그 모니터 바닥 자리는 neko-decor-move 로 먼저 왔다): 고양이가 그 모니터에 있고 가까우면 쫓는다
+  void listen<{ id: string; screen: string }>("neko-decor-thrown", (e) => {
+    if (remote && !awayNow && screens?.cat === e.payload.screen) remote.chaseDecor(e.payload.id);
+  }).catch(() => {});
   void listen<string>("neko-screen-put", (e) => useNekoGifts.getState().place(e.payload, null)).catch(() => {});
   void listen<boolean>("neko-screen-tower", (e) => { towerOk = e.payload === true; }).catch(() => {});
   // 고양이 메뉴 '숨기기'·다시 보임(Rust). 감독은 숨긴 동안 아무 활동도 안 시킨다

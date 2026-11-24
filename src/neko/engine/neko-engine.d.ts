@@ -257,6 +257,8 @@ export interface NekoController {
   readonly mouth: { x: number; y: number; r: number };
   /** 머리 원: 아치를 여는 자리이자 아치의 기준(머리 위 가운데에 편다) */
   readonly head: { x: number; y: number; r: number };
+  /** 마당 선물 창에서 던진 것이 섰다: 고양이가 가까우면 쫓아가 친다(play chase). 바닥 선물이고 가까울 때만 true */
+  chaseDecor(id: string): boolean;
   /**
    * 이 장소에 놓인 가구(칸 번호로, docs/neko-furniture.md §4). 자리·크기는 엔진이 무대가 바뀔 때마다 칸과 그림으로 다시 잰다.
    * 캣타워 발판·소파 쿠션은 올라앉는 면이 된다. on = 조명 켜짐(엔진이 바꾸면 lamp 사건)

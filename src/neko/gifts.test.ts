@@ -73,8 +73,8 @@ describe("선물함", () => {
     expect(at()).toEqual({ surface: "floor", u: 0.6, at: "dock" });
     s.place("r", { surface: "floor", u: 0.6, rot: Number.NaN });
     expect(at()).toEqual({ surface: "floor", u: 0.6, at: "dock" });
-    s.place("r", { surface: "wall", u: 0.6, v: 0.5, rot: 1 } as never, "screen"); // 벽은 늘 똑바로
-    expect(at()).toEqual({ surface: "wall", u: 0.6, v: 0.5, at: "screen" });
+    s.place("r", { surface: "wall", u: 0.6, v: 0.5, rot: 1 } as never, "screen"); // 마당도 액자만 건다 — 같은 가로 자리 바닥, 벽 자리 각도는 버린다
+    expect(at()).toEqual({ surface: "floor", u: 0.6, at: "screen" });
   });
 
   it("크기는 small·medium·large 만 남긴다(없으면 엔진이 medium)", () => {
@@ -300,14 +300,14 @@ describe("액자만 벽에 건다(0.1.24)", () => {
     ...gift(id), placed: { surface: "wall", u: 0.4, v: 0.6, at }, ...(frame ? { frame: true as const } : {}),
   });
 
-  it("업데이트 뒤 불러오면 방·거실 벽의 액자 아닌 물건은 같은 가로 자리 바닥으로 내리고 저장을 고친다(액자·마당은 그대로)", async () => {
+  it("업데이트 뒤 불러오면 벽(방·거실·마당)의 액자 아닌 물건은 같은 가로 자리 바닥으로 조용히 내리고 저장을 고친다(액자는 그대로, 마당은 0.1.32 부터)", async () => {
     saveDb([wall("cup", "sidebar"), wall("pic", "dock", true), wall("yard", "screen")] as unknown as Record<string, unknown>[]);
     store.set("neko_gifts", JSON.stringify(dbGifts()));
     await useNekoGifts.getState().load();
     const by = (id: string) => useNekoGifts.getState().gifts.find((g) => g.id === id)!.placed;
     expect(by("cup")).toEqual({ surface: "floor", u: 0.4, at: "sidebar" });
     expect(by("pic")).toMatchObject({ surface: "wall", v: 0.6 });
-    expect(by("yard")).toMatchObject({ surface: "wall" });
+    expect(by("yard")).toEqual({ surface: "floor", u: 0.4, at: "screen" }); // 사용자: 마당에선 물건이 다 액자처럼 공중에 걸렸다
     expect(dbGifts().find((g) => g.id === "cup")!.placed).toEqual({ surface: "floor", u: 0.4, at: "sidebar" }); // 동기화로 다른 기기도
   });
 

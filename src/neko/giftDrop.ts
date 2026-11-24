@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { stageS } from "./engine/stage-scale";
-import { dropSpot, useNekoGifts, yardGeom } from "./gifts";
+import { dropSpot, useNekoGifts } from "./gifts";
+import { placeInYard } from "./remoteNeko";
 import { holdTops, useNekoFurniture } from "./furniture";
 import type { NekoPlacement } from "./nekoStore";
 
@@ -22,8 +23,8 @@ function stageAt(x: number, y: number): { at: NekoPlacement; el: HTMLElement } |
 function drop(id: string, d: Drop): void {
   const g = useNekoGifts.getState().gifts.find((o) => o.id === id);
   if (!g) return;
-  if (d.to === "yard") {
-    useNekoGifts.getState().place(id, dropSpot(g, "screen", d.x, d.y, yardGeom(d.w, d.ground)), "screen", d.screen);
+  if (d.to === "yard") { // 액자 아닌 걸 공중에 놓으면 그 모니터 바닥으로 떨어진다(placeInYard)
+    placeInYard(id, d.screen, d.x, d.y, d.w, d.ground);
     return;
   }
   const s = stageAt(d.x, d.y);

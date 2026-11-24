@@ -1845,7 +1845,7 @@ try {
     });
     check("놀다 멈춘 각도: 던져 서면 decorMove 에 각도, 다시 받으면 같은 그림(옛 자리는 똑바로), 꾹(메뉴)은 그대로, 집으면(누르고 떼기·옮기기) 0, 누운 액자는 rot 쪽",
       JSON.stringify(r),
-      r.thrown.surface === "floor" && Math.abs(r.thrown.rot) > 0.05 && Math.abs(r.thrown.rot) <= Math.PI && Math.round(r.thrown.rot * 100) === r.thrown.rot * 100 &&
+      r.thrown.surface === "floor" && Math.abs(r.thrown.rot) > 0.05 && Math.abs(r.thrown.rot) <= Math.PI && Math.abs(Math.round(r.thrown.rot * 100) - r.thrown.rot * 100) < 1e-6 &&
         r.draw.same && r.draw.oldDiffers && r.hold.moves === 0 && r.hold.same && r.tap === 0 && r.dragged === 0 && r.dragUpright && r.lie.join() === "-1,1,1");
     await p.close();
   }
@@ -2013,6 +2013,37 @@ try {
     check("다른 가구 위 물건: 소파 방석·캣타워 발판 둘·자유 가구 perch 에 얹히고 그 위에 그린다, 캣휠 레일은 아니다, 가구를 치우면 떨어져 바닥", JSON.stringify(r),
       ((ok) => ok("S0", "S", 0) && ok("C0", "C", 0) && ok("C1", "C", 1) && ok("F0", "F", 0))((k, fid, i) => r[k] && r[k].hold && r[k].surface === "furniture" && r[k].fid === fid && r[k].i === i && r[k].onTop) &&
         r.W0 && !r.W0.hold && r.W0.surface !== "furniture" && r.fall.midAir && r.fall.moves.join() === "floor" && r.fall.end);
+    await p.close();
+  }
+
+  // 9-u2p) 마당에서 던진 장난감 쫓기(0.1.32, 사용자: 마당에 물건 설치하면 물리는 적용 안 되네): 선물 창이 던진 것이 서면 메인 창이
+  //        chaseDecor — 고양이가 가까우면(560·S 안) play(chase) 를 알리고 쫓아 친다, 멀면 안 쫓는다. 액자·벽 선물은 안 쫓는다
+  {
+    const p = await open(`?world=1&fixed=0.8`, { width: 1400, height: 800 });
+    const r = await p.evaluate(async () => {
+      const n = window.__neko, c = n.cat, out = {};
+      n.pause(); n.setWander(false); n.setMood("idle"); n.step(30);
+      const shape = { parts: [{ t: "circle", x: 0, y: -8, r: 8, c: "red" }] };
+      const plays = []; n.on("play", (e) => plays.push(e.id));
+      c.x = n.W * 0.2; n.step(10);
+      n.setDecor([
+        { id: "near", surface: "floor", u: 0.3, size: "small", shape, at: "screen" },
+        { id: "far", surface: "floor", u: 0.95, size: "small", shape, at: "screen" },
+        { id: "pic", surface: "wall", u: 0.25, v: 0.3, size: "small", shape, at: "screen", frame: true },
+      ]);
+      n.step(5);
+      out.far = n.chaseDecor("far");
+      out.pic = n.chaseDecor("pic");
+      out.near = n.chaseDecor("near");
+      out.plays = plays.slice();
+      if (out.near) n.act("chase");
+      let kicks = 0;
+      for (let i = 0; i < 120 * 12 && n.activity === "chase"; i++) { n.step(1); kicks = Math.max(kicks, c.act?.kicks || 0); }
+      out.kicks = kicks;
+      return out;
+    });
+    check("마당 던진 장난감 쫓기: 가까우면 쫓아가 치고(play chase), 멀거나 액자면 안 쫓는다", JSON.stringify(r),
+      r.near === true && r.far === false && r.pic === false && r.plays.join() === "near" && r.kicks >= 1);
     await p.close();
   }
 
