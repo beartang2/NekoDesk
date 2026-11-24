@@ -68,8 +68,9 @@ interface NekoAppStore {
   /** 채팅에 글을 남기는 일이 몇 개 도는가(nekoWrites). 0 보다 크면 감독이 타이핑한다 */
   writing: number;
   /** 네코가 직접 고른 활동(neko.act). 감독이 until 까지 한다 */
-  chosen: { kind: NekoActivity; since: number; until: number } | null;
-  choose: (kind: NekoActivity, ms: number) => void;
+  /** 네코가 직접 고른 활동(neko.act). kind null = 심부름(다른 장소로 가기·선물 옮기기) 동안 아무 활동 없이 기다림(neko/nekoErrand) */
+  chosen: { kind: NekoActivity | null; since: number; until: number } | null;
+  choose: (kind: NekoActivity | null, ms: number) => void;
 }
 
 export const useNekoApp = create<NekoAppStore>((set, get) => ({

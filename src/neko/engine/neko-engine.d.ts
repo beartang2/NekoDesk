@@ -105,6 +105,10 @@ export interface NekoEvents {
   carryPress: { x: number; y: number; pointerId: number };
   /** 화면 모드: 열린 가장자리(setEdges·walkOut)에서 고양이 가운데가 세계 밖으로 나간 순간 한 번 */
   edge: "left" | "right";
+  /** leave(다른 장소로 가기)로 그쪽 끝을 다 넘었다. edge 와 따로 온다(화면 창이 창을 옮기지 않게) */
+  exit: "left" | "right";
+  /** enterFrom 의 put: 들어와 멈추고 입에 문 것을 내려놓았다 — 그 바닥 자리(id 는 머리 gift:·decor: 를 뗀 것) */
+  put: { id: string } & NekoDecorSpot;
   /** 놓아 둔 물건 하나와 한 판 놀았음(at = Date.now()). 호스트가 저장해 setDecor 의 lastPlayed 로 돌려주면 껐다 켜도 오래 안 논 것부터 */
   decorPlayed: { id: string; at: number };
   /** 사용자가 무대에서 같이 논다(호스트가 감독 놀아주기로 넘긴다): 바닥 물건을 던졌다(chase, 쫓을 물건 id)·낚싯대를 잡고 흔든다(wand, 2.5초마다) */
@@ -210,6 +214,15 @@ export interface NekoController {
   setEdges(e: { left: boolean; right: boolean }): void;
   /** 그쪽을 열고 가장자리 너머(몸이 다 넘어가는 만큼)로 걸어간다. 넘어가는 순간 "edge" */
   walkOut(side: "left" | "right"): void;
+  /** 다른 장소로 가기(neko.act): walkOut 처럼 걸어 나가되 넘어가는 순간 "edge" 대신 "exit". 창 위면 먼저 내려온다(다시 부르면 나간다) */
+  leave(side: "left" | "right"): void;
+  /** 그쪽 끝 밖으로 옮겨 놓고 걸어 들어온다(하던 활동은 끝낸다). put = 입에 문 그 id 를 들어와 멈추면 내려놓고 "put" */
+  enterFrom(side: "left" | "right", o?: { put?: string }): void;
+  /**
+   * 사용자가 시킨 대상(neko.act): 다음에 시작하는 선물 놀이(giftplay)는 그 선물 하나와 한 판(play 가 있으면 그 방식 — 크기·기운이
+   * 안 맞으면 엔진이 맞는 것으로), fetch 면 물고 가까운 끝으로 나간다(leave → "exit"). 자유 가구 놀이는 fid 그 가구에서. 한 번 쓰면 지운다
+   */
+  aim(w: { gift?: string; play?: NekoGiftPlay; fetch?: boolean; fid?: string } | null): void;
   /**
    * 산책 중(화면 모드 마당): 고양이를 감추고 그 자리 바닥에 나무 팻말(발자국·화살표)을 꽂는다. 그동안 고양이는 움직이지
    * 않고 hit·hitCarry 는 거짓이라 클릭은 뒤로 지나간다(마당 선물은 그대로). false 면 팻말을 거두고 그 자리에서 다시 보인다

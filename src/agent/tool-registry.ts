@@ -22,6 +22,7 @@ import { claudeWebSearch } from "./llm-transport";
 import { dayWithRel, nowInZone, timeZone } from "../lib/time";
 import { selfStateText } from "../neko/selfState";
 import { SOLO_KEYS } from "../neko/director/needs";
+import { GIFT_HOWS, PLACE_KEYS } from "../neko/actLabels";
 import type {
   ToolName,
   JsonSchema,
@@ -54,14 +55,22 @@ export function clipList<T>(items: T[], max: number, line: (item: T) => string):
   return lines.join("\n");
 }
 
+/**
+ * 도구 결과의 id 는 줄 끝 따로 떨어진 칸에만 둔다 — 이름 앞 "[id:33]" 이면 모델이 답에 "(id 33, 1014)" 처럼 옮겨 적었다(사용자).
+ * 사람은 이름으로 부르고, id 는 다음 도구 호출에만 쓴다(설명 ID_NOTE)
+ */
+export const idCell = (id: string | number) => ` | id=${id}`;
+/** 목록 도구 설명 끝에 붙이는 한마디(시스템 프롬프트가 아니라 도구 설명이다) */
+export const ID_NOTE = "결과의 id 는 도구 호출에만 쓰고 사용자에게 말하지 않는다";
+
 function summarizeTodos(todos: Todo[], max: number): string {
   if (todos.length === 0) return "할 일 없음";
-  return clipList(todos, max, (t) => `- [id:${t.id}] [${t.status}] ${t.content}${t.due_at ? ` (마감: ${t.due_at})` : ""}`);
+  return clipList(todos, max, (t) => `- ${t.content} [${t.status}]${t.due_at ? ` (마감: ${t.due_at})` : ""}${idCell(t.id)}`);
 }
 
 function summarizeEvents(events: ScheduleEvent[], max: number): string {
   if (events.length === 0) return "일정 없음";
-  return clipList(events, max, (e) => `- [id:${e.id}] ${e.title} (${e.start_at}${e.end_at ? ` ~ ${e.end_at}` : ""})`);
+  return clipList(events, max, (e) => `- ${e.title} (${e.start_at}${e.end_at ? ` ~ ${e.end_at}` : ""})${idCell(e.id)}`);
 }
 
 function summarizeSearch(results: SearchResult[]): string {
@@ -154,7 +163,7 @@ function virtual(name: string): () => Promise<never> {
 const REGISTRY: Record<ToolName, ToolEntry> = {
   "todo.list": {
     name: "todo.list",
-    description: "열린 할 일 목록을 가져온다",
+    description: `열린 할 일 목록을 가져온다. ${ID_NOTE}`,
     params: NO_PARAMS,
     readOnly: true,
     execute: async () => todosApi.list(),
@@ -163,7 +172,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
 
   "todo.list_done": {
     name: "todo.list_done",
-    description: "완료된 할 일 목록을 가져온다 (최근 완료순)",
+    description: `완료된 할 일 목록을 가져온다 (최근 완료순). ${ID_NOTE}`,
     params: NO_PARAMS,
     readOnly: true,
     execute: async () => todosApi.listDone(),
@@ -188,7 +197,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
       noteCreated(p["content"] as string);
       return todo;
     },
-    summarize: (r) => { const t = r as Todo; return `할 일 추가됨: ${t.id}${t.due_at ? ` (마감 ${dayWithRel(t.due_at)})` : ""}`; },
+    summarize: (r) => { const t = r as Todo; return `할 일 추가됨: ${t.content}${t.due_at ? ` (마감 ${dayWithRel(t.due_at)})` : ""}${idCell(t.id)}`; },
   },
 
   "todo.complete": {
@@ -264,7 +273,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
 
   "schedule.list": {
     name: "schedule.list",
-    description: "일정을 조회한다",
+    description: `일정을 조회한다. ${ID_NOTE}`,
     params: {
       type: "object",
       properties: {
@@ -308,7 +317,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     // 저장된 날짜에 요일·오늘 기준 말을 붙인다 — 날짜를 잘못 셌으면 결과에서 바로 보이게(시각이 이제 요청에 안 붙는다, time.now)
     summarize: (r) => {
       const ev = r as ScheduleEvent;
-      return `일정 추가됨: ${ev.title} — ${dayWithRel(ev.start_at)}${ev.end_at ? ` ~ ${dayWithRel(ev.end_at)}` : ""}`;
+      return `일정 추가됨: ${ev.title} — ${dayWithRel(ev.start_at)}${ev.end_at ? ` ~ ${dayWithRel(ev.end_at)}` : ""}${idCell(ev.id)}`;
     },
   },
 
@@ -337,15 +346,23 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
   // 고를 수 있는 건 혼자 놀기 키(enum) 중 지금 이 자리에서 되는 것만 — 안 되면 까닭과 되는 것을 돌려준다(neko/nekoAct)
   "neko.act": {
     name: "neko.act",
-    description: "네 행동(놀이)을 직접 골라 한다. 지금 이 자리에서 할 수 있는 것은 neko.self 에 나온다. 하던 말을 마친 뒤 한다",
+    description:
+      "네 행동을 직접 한다: 혼자 놀기(act), 다른 장소로 가기(go), 놓인 선물 다루기(gift + how, bring 은 to), 이 자리 가구에서 놀기(furniture + act). " +
+      `할 수 있는 것과 대상 id 는 neko.self 에 나온다. 하던 말을 마친 뒤 한다. ${ID_NOTE}`,
     params: {
       type: "object",
-      properties: { act: { type: "string", enum: SOLO_KEYS, description: "할 행동(영어 이름)" } },
-      required: ["act"],
+      properties: {
+        act: { type: "string", enum: SOLO_KEYS, description: "혼자 놀기(영어 이름). furniture 와 같이 주면 그 가구에서 할 놀이" },
+        go: { type: "string", enum: [...PLACE_KEYS], description: "갈 곳: room 방 · living 거실 · yard 마당" },
+        gift: { type: "string", description: "neko.self 놓인 선물 목록의 id" },
+        how: { type: "string", enum: [...GIFT_HOWS], description: "선물로 할 것: sniff 냄새 맡기 · bat 치기 · roll 굴리기 · sit_on 위에 앉기 · bite 물기 · bring 물어 옮기기" },
+        to: { type: "string", enum: [...PLACE_KEYS], description: "bring: 지금 자리 선물을 옮길 곳. 다른 자리 선물은 지금 자리로 물어 온다(빼)" },
+        furniture: { type: "string", description: "neko.self 이 자리 가구 목록의 id" },
+      },
     },
     readOnly: true,
     // 도구 표 → nekoAct → 도구 동작 표 → 도구 표 고리가 생기지 않게 쓸 때 불러온다
-    execute: async (p) => (await import("../neko/nekoAct")).nekoAct(p["act"]),
+    execute: async (p) => (await import("../neko/nekoAct")).nekoAct(p),
     summarize: (r) => r as string,
   },
 

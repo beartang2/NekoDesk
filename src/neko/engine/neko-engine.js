@@ -574,7 +574,8 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     propsStep(dt);
     carryStep(dt);
     decorStep(dt); furnitureStep(dt); wandStep(dt);
-    if (WORLD) checkEdges();
+    checkEdges(); // 방·거실은 leave(다른 장소로 가기)로만 열린다
+    if (putId && c.x > EDGE * S && c.x < W - EDGE * S && (c.mode === "idle" || c.mode === "sit" || c.mode === "loaf")) putDown(); // 들어와 멈췄다
     const mainP = c.mode === "act" && c.act ? actPose() : null;
     c.actP = c.side ? sidePose(mainP) : mainP;
     const P = c.actP, AD = (P && P.add) || NO_ADD;
@@ -3392,7 +3393,21 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   const giftOf = (A) => decor.find((d) => d.id === A.id) || null;
   function giftPos(d) { const h = decorDims(d.shape, d.k).h; const [x, bottom] = d.px || decorAt(d, h); return { x, bottom, h }; }
   /** 놀 물건: 오래 안 놀아 준 것부터(한 번도 안 논 것이 먼저). 놓인 건 돌아가며 하나도 빠짐없이 논다 */
+  /** 사용자가 시킨 대상(neko.act): 다음에 시작하는 선물 놀이·자유 가구 놀이 한 번에만 쓴다 */
+  let wish = null;
+  function aim(w) {
+    wish = w && typeof w === "object"
+      ? { gift: w.gift != null ? String(w.gift) : null, play: PLAYS.has(w.play) ? w.play : null, fetch: !!w.fetch, fid: w.fid != null ? String(w.fid) : null }
+      : null;
+  }
   function pickGift(A) {
+    const want = wish && wish.gift && decor.find((d) => d.id === wish.gift && !d.hidden);
+    if (want) { // 시킨 선물 하나와 한 판(fetch = 물고 다른 장소로 나간다)
+      const w = wish; wish = null;
+      A.id = want.id; A.kicks = 0; A.stage = "go"; A.rest = 0; A.dt = 0; A.maxRounds = 1; A.out = w.fetch;
+      A.play = w.fetch ? "carry" : playFor(w.play ? { ...want, play: w.play } : want);
+      return;
+    }
     const free = decor.filter((d) => !d.hidden && d.surface !== "furniture"), when = (d) => d.lastPlayed ?? -Infinity; // 탁자 위는 탁자 놀이 몫
     const oldest = Math.min(...free.map(when)), pool = free.filter((d) => when(d) === oldest);
     const d = pool[Math.floor(Math.random() * pool.length)];
@@ -3445,7 +3460,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   }
   function giftWander(A) {
     const c = cat, d = giftOf(A);
-    if (A.stage === "rest") return;
+    if (A.stage === "rest" || A.stage === "out") return; // out: 물고 다른 장소로 나가는 중(leave 가 걷는다)
     if (!d) { pickGift(A); return; }
     if (A.stage === "rolling" || A.stage === "eye") return; // 굴러가는 동안·노려보는 동안은 눈으로만 쫓는다(step 이 멈추면 다시 간다)
     const want = A.stage === "move" ? A.dest : giftStand(A, d), { x } = giftPos(d);
@@ -3481,6 +3496,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     step(A, dt) {
       const c = cat, d = giftOf(A);
       if (A.stage === "rest") { if ((A.rest -= dt) <= 0) pickGift(A); return; }
+      if (A.stage === "out") return;
       // 놀던 선물이 목록에서 빠졌다(버리기·치우기·다른 장소로 옮김): 'act' 에선 wander 가 안 돌아 빈 자세로 멈췄다. 쉬었다 다시 고른다
       if (!d) { A.stage = "rest"; A.rest = rand(1, 2); if (c.mode === "act") setMode("idle"); return; }
       if (A.stage === "rolling") {
@@ -3540,6 +3556,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
         case "carry":
           if (A.stage === "go" && A.dt > 0.45) { // 물었다: 바닥에서 감추고 입에 문다, 놓을 곳으로
             d.hidden = true; carrying.push({ id: "decor:" + d.id, kind: "shape", shape: d.shape, k: (d.k * DD.DECOR_SIZE) / CARRY_SIZE }); // 바닥과 같은 크기로 문다
+            if (A.out) { A.stage = "out"; setMode("idle"); leave(c.x < W / 2 ? "left" : "right"); break; } // 물고 다른 장소로
             const m = decorM() + p.h, far = c.x < W / 2 ? [W / 2, W - m] : [m, W / 2];
             A.dest = clamp(rand(far[0], far[1]), EDGE * S, W - EDGE * S); A.stage = "move"; setMode("idle");
           } else if (A.stage === "move" && A.dt > 0.45) { // 내려놓는다
@@ -3585,6 +3602,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     end(A) { // 그만하라면: 물고 있던 건 그 자리에 내려놓는다. 굴러가던 건 서면서 알린다
       const d = giftOf(A); if (!d) return;
       d.front = false;
+      if (A.exited) return; // 물고 다른 장소로 나갔다 — 입에 문 채로(호스트가 옮긴다)
       const i = carrying.findIndex((o) => o.id === "decor:" + d.id);
       if (i >= 0) { carrying.splice(i, 1); d.hidden = false; d.px = [clamp(ahead(26), decorM(), W - decorM()), floorY]; }
       if (d.px && !d.vx && !d.fall) settleDecor(d); // 굴러가는(날아가는) 건 그대로 — 서면 decorStep 이 알린다
@@ -4031,6 +4049,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
   function freeFor(use, A) {
     const list = furniture.filter((f) => f.kind === "free" && f.usesOn?.some((x) => x.u === use));
     if (!list.length) return null;
+    if (wish && wish.fid && !A.fid && list.some((f) => f.id === wish.fid)) { A.fid = wish.fid; wish = null; } // 시킨 가구
     const cur = A.fid && list.find((f) => f.id === A.fid);
     if (cur) return cur;
     const f = list.reduce((a, b) => ((a.played ?? -1) <= (b.played ?? -1) ? a : b));
@@ -5490,7 +5509,54 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     if (AWAY) return;
     const c = cat, out = c.x < 0 ? "left" : c.x > W ? "right" : null;
     if (!out) { edgeFired = null; return; }
-    if (EDGES[out] && edgeFired !== out) { edgeFired = out; emit("edge", out); }
+    if (EDGES[out] && edgeFired !== out) {
+      edgeFired = out;
+      if (leaving !== out) { emit("edge", out); return; }
+      // 다른 장소로 나갔다: 물고 나가던 선물 놀이(fetch)는 입에 문 채로 끝낸다(호스트가 다음 장소에서 다시 물려 들어온다)
+      leaving = null;
+      if (c.act && c.act.out) { c.act.exited = true; endAct(); }
+      emit("exit", out);
+    }
+  }
+
+  /* ----- 다른 장소로 가기(neko.act, 사용자가 시킨 일) -----
+     leave: 그쪽 끝 너머로 걸어 나가 다 나가면 "exit" 한 번(여러 모니터 건너기의 "edge" 와 따로 — 화면 창이 창을 옮기지 않게).
+     enterFrom: 그쪽 끝 밖으로 옮겨 놓고 걸어 들어온다(순간이동 없이). put = 입에 문 그 id 를 들어와 멈추면 앞에 내려놓고 "put" 으로
+     바닥 자리를 알린다(저장은 호스트). 창 위·누운 자세는 화면 밖이라 바로 바닥에 세운다 */
+  let leaving = null, putId = null;
+  function leave(side) {
+    if (AWAY) return;
+    leaving = side === "left" ? "left" : "right";
+    walkOut(leaving);
+  }
+  function enterFrom(side, o) {
+    if (AWAY) return;
+    const c = cat, from = side === "left" ? "left" : "right";
+    if (c.act) endAct();
+    leaving = null; edgeFired = null;
+    const dy = c.perch ? BASE_Y - floorY : 0;
+    if (c.perch) { c.perch = null; c.hopDir = 0; floorY = BASE_Y; }
+    const dx = (from === "left" ? -BEYOND * 0.7 * S : W + BEYOND * 0.7 * S) - c.x;
+    transformWorld((x) => x + dx, (y) => y + dy, 1);
+    c.x += dx; c.y += dy; c.vx = 0;
+    for (const j of c.jig) j.init = false;
+    c.tailRoot.init = false;
+    if (!GROUND.has(c.mode) || c.mode === "act" || c.mode === "lie") setMode("idle");
+    c.y = floorY - standH() * S;
+    c.face = from === "left" ? 1 : -1;
+    putId = o && o.put != null ? String(o.put) : null;
+    EDGES = { left: false, right: false }; returning = true;
+    walkTo(from === "left" ? W * 0.3 : W * 0.7);
+  }
+  function putDown() {
+    const id = putId, i = carrying.findIndex((o) => o.id === id);
+    putId = null;
+    if (i < 0) return;
+    const [it] = carrying.splice(i, 1);
+    emit("carry", carrying.slice());
+    const h = it.kind === "shape" ? decorDims(it.shape, it.k || 1).h : 0;
+    const spot = spotOf(clamp(ahead(26), decorM() + h / 2, W - decorM() - h / 2), floorY, h);
+    emit("put", { id: id.replace(/^(gift|decor):/, ""), ...spot });
   }
 
   function initPose() {
@@ -5967,7 +6033,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     carried: () => carrying.slice(),
     // 놓아 둔 물건(선물). 자리는 면 + 비율
     // 화면 모드 여러 모니터(docs/neko-screen-mode.md 3단계)
-    shiftWorld, setEdges, walkOut,
+    shiftWorld, setEdges, walkOut, leave, enterFrom, aim,
     setAway,
     get away() { return !!AWAY; },
     setDecor,

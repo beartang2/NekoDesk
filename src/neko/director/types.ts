@@ -112,7 +112,7 @@ export interface DirectorInput {
   /** 네코가 채팅에 글을 남기는 중(산책 일지·브리핑·첫마디 — stores nekoWrites). 답 쓰기처럼 타이핑한다 */
   writing?: boolean;
   /** 네코가 직접 고른 활동(neko.act — neko/nekoAct): until 까지. 하던 일(답 쓰기 등)을 마친 뒤 한다 */
-  chosen?: { kind: NekoActivity; since: number; until: number } | null;
+  chosen?: { kind: NekoActivity | null; since: number; until: number } | null;
   /** 신나서 혼자 노는 중(상자에 쏙·털실·나비) */
   /** 혼자 놀기(신남). kind 는 엔진 활동(없으면 상자) */
   box: { since: number; kind?: NekoActivity } | null;

@@ -403,6 +403,38 @@ try {
     await p.close();
   }
 
+  // 9-g2) 시키는 일(neko.act, 0.1.33): 방·거실에서도 leave 하면 끝을 넘어 exit 한 번(edge 아님), enterFrom 은 반대쪽 밖에서 걸어
+  //       들어와(순간이동 없이) put 으로 입에 문 걸 내려놓는다. aim 으로 시킨 선물만 물고(fetch) 끝으로 나가 exit — 입에 문 채로
+  {
+    const p = await open();
+    const r = await p.evaluate(() => {
+      const n = window.__neko, c = n.cat, o = {}, ev = [];
+      for (const k of ["edge", "exit", "put"]) n.on(k, (x) => ev.push([k, x]));
+      const shapes = { round: { parts: [{ t: "circle", x: 0, y: -7, r: 7, c: "red" }] } };
+      n.setWander(false); n.act(null); n.step(120); c.x = n.W * 0.5; c.vx = 0; n.step(60);
+      n.leave("right"); let t = 0; while (!ev.some(([k]) => k === "exit") && t < 120 * 20) { n.step(1); t++; }
+      o.exit = ev.map(([k, x]) => `${k}:${x}`).join(",");
+      n.carry({ id: "gift:g9", kind: "shape", shape: shapes.round, size: "small" });
+      n.enterFrom("left", { put: "gift:g9" }); const xs = [c.x];
+      for (let i = 0; i < 120 * 12 && !ev.some(([k]) => k === "put"); i++) { n.step(1); if (i % 60 === 0) xs.push(c.x); }
+      o.walkIn = xs[0] < 0 && xs.every((x, i) => i === 0 || x >= xs[i - 1] - 0.5) && c.x > 0 && c.x < n.W;
+      const put = ev.find(([k]) => k === "put");
+      o.put = put ? put[1] : null; o.carryAfterPut = n.carried().length;
+      // 시킨 선물만 물고 나간다: 둘 중 aim 한 것
+      ev.length = 0; c.x = n.W * 0.5; c.vx = 0; n.step(60);
+      n.setDecor([{ id: "a", surface: "floor", u: 0.2, play: "sniff", size: "small", shape: shapes.round }, { id: "b", surface: "floor", u: 0.8, play: "sniff", size: "small", shape: shapes.round }]);
+      n.aim({ gift: "b", fetch: true }); n.act("giftplay");
+      for (let i = 0; i < 120 * 40 && !ev.some(([k]) => k === "exit"); i++) n.step(1);
+      o.fetch = { exit: ev.some(([k]) => k === "exit"), carried: n.carried().map((x) => x.id), act: n.activity };
+      n.setDecor([]); n.step(10); o.fetch.cleared = n.carried().length;
+      return o;
+    });
+    check("시키는 일: leave 하면 끝을 넘어 exit 한 번(edge 아님)", r.exit, r.exit === "exit:right");
+    check("시키는 일: enterFrom 은 밖에서 걸어 들어와 입에 문 걸 내려놓고 put(바닥 자리)", `${r.walkIn} · ${JSON.stringify(r.put)} · 입 ${r.carryAfterPut}`,
+      r.walkIn && r.put?.id === "g9" && r.put?.surface === "floor" && r.put.u >= 0 && r.put.u <= 1 && r.carryAfterPut === 0);
+    check("시키는 일: aim 한 선물만 물고 끝으로 나가 exit(입에 문 채로 끝)", JSON.stringify(r.fetch), r.fetch.exit && r.fetch.carried.join() === "decor:b" && r.fetch.act === null && r.fetch.cleared === 0);
+  }
+
   // 9-h) 화면 모드 여러 모니터(docs/neko-screen-mode.md 3단계): 닫힌 가장자리는 벽, walkOut 하면 넘어가며 edge 한 번,
   //      shiftWorld 하면 걷던 걸음 그대로 새 화면 쪽에서 이어 걷고, 잡고 끌던 중에도 커서 밑에 그대로, 창 크기가 바뀌어도 자리 그대로
   {

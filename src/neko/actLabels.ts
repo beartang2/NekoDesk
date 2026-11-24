@@ -5,3 +5,7 @@ export const ACT_LABEL: Partial<Record<string, string>> = {
   tower: "창 탐험", gaze: "쳐다보기", lamp: "조명 켜고 끄기", cattower: "캣타워", wheel: "캣휠", sofa: "소파에서 쉬기", table: "탁자에서 놀기",
   fperch: "가구 위에 올라앉기", fhide: "가구 안에 숨기", fscratch: "가구 긁기", fbat: "가구에 매달린 것 치기",
 };
+
+/** neko.act 의 갈 곳·선물 다루기 키(도구 표·nekoAct 가 같이 쓴다 — 도구 표가 nekoAct 를 바로 부르면 고리가 생긴다) */
+export const PLACE_KEYS = ["room", "living", "yard"] as const;
+export const GIFT_HOWS = ["sniff", "bat", "roll", "sit_on", "bite", "bring"] as const;

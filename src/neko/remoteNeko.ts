@@ -39,6 +39,8 @@ const subs = new Set<() => void>();
 const notify = () => subs.forEach((fn) => fn());
 
 export const getRemoteNeko = (): NekoController | null => remote;
+/** 고양이가 있는 마당 모니터(neko.act 가 선물을 마당에 내려놓을 때). 모르면 없음 = 주 모니터 */
+export const catScreen = (): string | undefined => screens?.cat ?? undefined;
 export function onRemoteNeko(fn: () => void): () => void {
   subs.add(fn);
   return () => subs.delete(fn);

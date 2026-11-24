@@ -107,6 +107,8 @@ export function deriveNeko(input: DirectorInput, now: number): DeriveOut {
   if (input.chosen && now < input.chosen.until) {
     at(input.chosen.until);
     const k = input.chosen.kind;
+    // null = 심부름 중(neko/nekoErrand): 활동·산책 없이 — 걸어 나가기·들어오기를 심부름이 직접 시킨다
+    if (!k) return out(plan("chosen", { activity: null, instance: `chosen:${input.chosen.since}`, wander: false }));
     return out(plan("chosen", { activity: k, instance: `chosen:${input.chosen.since}`, wander: ROAMING.has(k), oneShot: ONE_SHOT.has(k) }));
   }
 
