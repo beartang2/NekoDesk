@@ -1,15 +1,21 @@
 import { settingsApi } from "../api/tauri";
 
 /**
- * 네코의 성격(속마음 개편, docs/neko-heart.md — 사용자: 속마음은 지식보다 성격·비밀). 좋아함·싫어함·버릇·겁냄·자기만의 규칙·비밀을
- * 동기화 설정 키 neko_heart 에 둔다(맥·폰 같이, 마이그레이션 14). neko_mind 에 두지 않는 까닭: 옛 버전이 neko_mind 를 아는 칸만으로
- * 다시 써 성격이 사라진다. 여기는 데이터·검사·재료 글만 — 굳히기(모델 호출)는 heart-fold.ts.
+ * 네코의 속마음(docs/neko-heart.md — 사용자: 최근 관심사·교양·철학·성격·가치관·정체성, 알게 된 사실은 기억으로). 동기화 설정 키
+ * neko_heart2 에 둔다(맥·폰 같이, 마이그레이션 16). 0.1.30–0.1.31 의 neko_heart(옛 갈래)는 새 키가 없을 때 한 번 옮겨 오고 쓰지 않는다 —
+ * 옛 버전은 모르는 갈래를 버리고 다시 써 새 갈래가 사라지기 때문이다. 여기는 데이터·검사·재료 글만 — 굳히기(모델 호출)는 heart-fold.ts.
  */
 
-export const HEART_KEY = "neko_heart";
-export const TRAIT_KINDS = ["like", "dislike", "habit", "fear", "rule", "secret"] as const;
+export const HEART_KEY = "neko_heart2";
+/** 0.1.30–0.1.31 의 키. 옛 버전 기기는 계속 이걸 쓴다 */
+const OLD_KEY = "neko_heart";
+export const TRAIT_KINDS = ["interest", "culture", "philosophy", "temper", "value", "identity", "secret"] as const;
 export type TraitKind = (typeof TRAIT_KINDS)[number];
-export const TRAIT_NAME: Record<TraitKind, string> = { like: "좋아함", dislike: "싫어함", habit: "버릇", fear: "겁냄", rule: "자기만의 규칙", secret: "비밀" };
+export const TRAIT_NAME: Record<TraitKind, string> = {
+  interest: "관심사", culture: "교양", philosophy: "철학", temper: "성격", value: "가치관", identity: "정체성", secret: "비밀",
+};
+/** 옛 갈래 → 새 갈래(옮겨 올 때만). 맞는 갈래는 첫 굳히기가 바로잡는다(review) */
+const OLD_KIND: Record<string, TraitKind> = { like: "interest", dislike: "value", habit: "temper", fear: "temper", rule: "value", secret: "secret" };
 
 export interface Trait {
   id: string;
@@ -26,12 +32,14 @@ export interface Trait {
   told?: string;
 }
 export interface NekoHeart {
-  v: 1;
+  v: 2;
   traits: Trait[];
   /** 이때(ISO)까지의 노트는 굳혔다 — 생각하기 재료에서 뺀다 */
   folded?: string;
   /** 마지막으로 굳힌 날(YYYY-MM-DD) — 하루 한 번, 맥·폰 같이 센다 */
   day?: string;
+  /** 옛 키에서 옮겨 와 아직 한 번 훑지 않았다 — 첫 굳히기가 줄마다 갈래를 바로잡거나 기억으로 옮긴다(heart-fold) */
+  review?: true;
 }
 
 export const TRAITS_MAX = 40;
@@ -42,8 +50,11 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const line = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, LINE_MAX) : "");
 const isKind = (v: unknown): v is TraitKind => typeof v === "string" && (TRAIT_KINDS as readonly string[]).includes(v);
 
-/** 저장된 값 → 성격. 모르는 종류·망가진 줄·겹친 id 는 버리고, 상한을 넘으면 사건 수가 적은 것부터 뺀다 */
-export function parseHeart(raw: string | null): NekoHeart {
+/**
+ * 저장된 값 → 속마음. 모르는 갈래·망가진 줄·겹친 id 는 버리고, 상한을 넘으면 사건 수가 적은 것부터 뺀다. old = 옛 키의 값 —
+ * 갈래를 OLD_KIND 로 바꾸고 review 를 붙인다(굳힌 날은 안 가져온다: 그날도 훑게)
+ */
+export function parseHeart(raw: string | null, old = false): NekoHeart {
   let p: unknown;
   try { p = raw ? JSON.parse(raw) : null; } catch { p = null; }
   const o = (p && typeof p === "object" ? p : {}) as Record<string, unknown>;
@@ -51,21 +62,23 @@ export function parseHeart(raw: string | null): NekoHeart {
   const traits = (Array.isArray(o.traits) ? o.traits : []).flatMap((x): Trait[] => {
     const r = (x ?? {}) as Record<string, unknown>;
     const id = typeof r.id === "string" ? r.id.slice(0, 16) : "", text = line(r.text);
-    if (!id || seen.has(id) || !isKind(r.kind) || !text) return [];
+    const kind = old ? OLD_KIND[String(r.kind)] : isKind(r.kind) ? r.kind : undefined;
+    if (!id || seen.has(id) || !kind || !text) return [];
     seen.add(id);
     const since = typeof r.since === "string" && DAY.test(r.since) ? r.since : "";
     const at = typeof r.at === "string" && DAY.test(r.at) ? r.at : since;
     if (!since) return [];
     const n = Number.isInteger(r.n) && (r.n as number) > 0 ? (r.n as number) : 1;
-    const told = r.kind === "secret" && typeof r.told === "string" && DAY.test(r.told) ? { told: r.told } : {};
-    return [{ id, kind: r.kind, text, since, at, n, ...told }];
+    const told = kind === "secret" && typeof r.told === "string" && DAY.test(r.told) ? { told: r.told } : {};
+    return [{ id, kind, text, since, at, n, ...told }];
   });
   const folded = typeof o.folded === "string" && !Number.isNaN(Date.parse(o.folded)) ? { folded: o.folded } : {};
-  const day = typeof o.day === "string" && DAY.test(o.day) ? { day: o.day } : {};
-  return { v: 1, traits: trim(traits), ...folded, ...day };
+  const day = !old && typeof o.day === "string" && DAY.test(o.day) ? { day: o.day } : {};
+  const review = old || o.review === true ? { review: true as const } : {};
+  return { v: 2, traits: trim(traits), ...folded, ...day, ...review };
 }
 
-/** 상한: 성격 TRAITS_MAX, 안 털어놓은 비밀 SECRETS_MAX. 넘으면 사건 수가 적고 오래 확인 안 된 것부터 뺀다 */
+/** 상한: 속마음 TRAITS_MAX, 안 털어놓은 비밀 SECRETS_MAX. 넘으면 사건 수가 적고 오래 확인 안 된 것부터 뺀다 */
 function trim(traits: Trait[]): Trait[] {
   const rank = (t: Trait) => `${String(t.n).padStart(4, "0")}${t.at}`;
   const keep = new Set([...traits].sort((a, b) => rank(b).localeCompare(rank(a))).slice(0, TRAITS_MAX).map((t) => t.id));
@@ -73,12 +86,14 @@ function trim(traits: Trait[]): Trait[] {
   return traits.filter((t) => keep.has(t.id) && !(t.kind === "secret" && !t.told && ++secrets > SECRETS_MAX));
 }
 
-let cache: NekoHeart = { v: 1, traits: [] };
-/** 마지막으로 읽거나 쓴 성격(재료를 만드는 mindMaterial 은 동기라 이걸 본다 — loadMind 가 같이 읽는다) */
+let cache: NekoHeart = { v: 2, traits: [] };
+/** 마지막으로 읽거나 쓴 속마음(재료를 만드는 mindMaterial 은 동기라 이걸 본다 — loadMind 가 같이 읽는다) */
 export const heartNow = (): NekoHeart => cache;
 
 export async function loadHeart(): Promise<NekoHeart> {
-  cache = parseHeart(await settingsApi.get(HEART_KEY).catch(() => null));
+  const raw = await settingsApi.get(HEART_KEY).catch(() => null);
+  const old = raw == null ? await settingsApi.get(OLD_KEY).catch(() => null) : null;
+  cache = raw != null ? parseHeart(raw) : old ? parseHeart(old, true) : { v: 2, traits: [] };
   return cache;
 }
 
@@ -90,7 +105,7 @@ export async function updateHeart(fn: (h: NekoHeart) => NekoHeart): Promise<Neko
   return next;
 }
 
-/** 설정에서 성격 하나 지우기(사용자 결정: 고치지는 않고 지우기만) */
+/** 설정에서 속마음 한 줄 지우기(사용자 결정: 고치지는 않고 지우기만) */
 export const removeTrait = (id: string) => updateHeart((h) => ({ ...h, traits: h.traits.filter((t) => t.id !== id) }));
 
 /** 비밀을 털어놓았다(첫마디에서) */

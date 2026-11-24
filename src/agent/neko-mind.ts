@@ -27,15 +27,13 @@ import type { Memory, OpenAiToolSchema } from "./types";
  */
 
 export const MIND_KEY = "neko_mind";
-export type NoteKind = "wonder" | "want" | "chose" | "dream";
+/** 고른 것(chose)은 노트가 아니다 — 행동 기록이라 속마음 재료가 아니다(사용자, docs/neko-heart.md §0). 예전 것은 읽을 때 버린다 */
+export type NoteKind = "wonder" | "want" | "dream";
 export interface MindNote {
   /** ISO 시각 */
   at: string;
   kind: NoteKind;
   text: string;
-  /** chose 일 때 무엇을 골랐나(walk_topic …) */
-  what?: string;
-  why?: string;
 }
 /** field = 네코가 스스로 붙인 갈래 한두 낱말(0.1.22, 옛 기록엔 없다) */
 export interface MindTopic { topic: string; at: string[]; field?: string }
@@ -65,12 +63,9 @@ export function parseMind(raw: string | null): NekoMind {
   const o = (p && typeof p === "object" ? p : {}) as { notes?: unknown; topics?: unknown };
   const notes = (Array.isArray(o.notes) ? o.notes : []).flatMap((n): MindNote[] => {
     const r = (n ?? {}) as Record<string, unknown>;
-    const kind = r.kind === "wonder" || r.kind === "want" || r.kind === "chose" || r.kind === "dream" ? r.kind : null;
+    const kind = r.kind === "wonder" || r.kind === "want" || r.kind === "dream" ? r.kind : null;
     const text = line(r.text), at = typeof r.at === "string" && !Number.isNaN(Date.parse(r.at)) ? r.at : "";
-    if (!kind || !text || !at) return [];
-    // 선물 종류 고름("고름: 놀이" 같은 것)은 속마음이 아니다(사용자) — 예전에 적힌 것도 읽을 때 버린다
-    if (kind === "chose" && r.what === "walk_gift") return [];
-    return [{ at, kind, text, ...(line(r.what) ? { what: line(r.what) } : {}), ...(line(r.why) ? { why: line(r.why) } : {}) }];
+    return kind && text && at ? [{ at, kind, text }] : [];
   });
   const topics = (Array.isArray(o.topics) ? o.topics : []).flatMap((t): MindTopic[] => {
     const r = (t ?? {}) as Record<string, unknown>;
@@ -110,11 +105,11 @@ export async function updateMind(fn: (m: NekoMind) => NekoMind): Promise<NekoMin
 }
 
 /**
- * 같은 노트(종류·무엇·글이 같은 것)가 또 오면 새로 쌓지 않고 있던 줄을 뒤로(가장 최근으로) 옮긴다. 까닭은 새 것을 쓴다
+ * 같은 노트(종류·글이 같은 것)가 또 오면 새로 쌓지 않고 있던 줄을 뒤로(가장 최근으로) 옮긴다
  * (사용자: 같은 글이면 새로 쌓지 않기, 0.1.22 — 쉴 때 정리는 기억 목록만 다룬다). 모델은 안 부른다
  */
 export function dedupeNotes(notes: MindNote[]): MindNote[] {
-  const key = (n: MindNote) => `${n.kind}|${n.what ?? ""}|${n.text}`;
+  const key = (n: MindNote) => `${n.kind}|${n.text}`;
   const last = new Map<string, number>();
   notes.forEach((n, i) => last.set(key(n), i));
   return notes.filter((n, i) => last.get(key(n)) === i);
@@ -155,8 +150,7 @@ export function leaksFact(text: string, memories: Memory[]): boolean {
 const ymd = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: timeZone() });
 const md = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()}`; };
 const dayPart = (h: number) => (h < 6 ? "새벽" : h < 11 ? "아침" : h < 14 ? "점심 무렵" : h < 18 ? "오후" : h < 21 ? "저녁" : "밤");
-const KIND_NAME: Record<NoteKind, string> = { wonder: "궁금", want: "하고 싶음", chose: "고름", dream: "꿈" };
-const WHAT_NAME: Record<string, string> = { walk_topic: "산책 주제", walk_gift: "가져올 선물", drawing: "그림" };
+const KIND_NAME: Record<NoteKind, string> = { wonder: "궁금", want: "하고 싶음", dream: "꿈" };
 function section(title: string, body: string): string {
   return body ? `## ${title}\n${body}` : "";
 }
@@ -184,8 +178,7 @@ export function mindMaterial(mind: NekoMind, memories: Memory[], o: { facts?: bo
     `기운 ${Math.round(n.energy)} · 호기심 ${Math.round(n.curiosity)} · 청결 ${Math.round(n.clean)} · 애정 ${Math.round(n.affection)} (0–100)`,
   ].filter(Boolean).join("\n");
   // 성격으로 굳힌 노트는 뺀다(docs/neko-heart.md §2 — 지우지 않고 folded 시각으로 가른다)
-  const notes = unfolded(mind.notes).slice(-20).map((x) =>
-    `- ${md(x.at)} ${KIND_NAME[x.kind]}${x.what ? `(${WHAT_NAME[x.what] ?? x.what})` : ""}: ${x.text}${x.why ? ` — ${x.why}` : ""}`).join("\n");
+  const notes = unfolded(mind.notes).slice(-20).map((x) => `- ${md(x.at)} ${KIND_NAME[x.kind]}: ${x.text}`).join("\n");
   const topics = [
     ...mind.topics.map((t) => `- ${t.topic}${t.field ? ` [${t.field}]` : ""} — ${t.at.length}번: ${t.at.map((d) => md(d)).join(", ")}`),
     fieldsLine(mind.topics),
@@ -202,7 +195,8 @@ export function mindMaterial(mind: NekoMind, memories: Memory[], o: { facts?: bo
     section("나는 이런 고양이", heartLines(heartNow(), { secrets: "all" })),
     section("내 노트", notes),
     section("내가 알아본 주제", topics),
-    section("산책에서 알게 된 것", walked),
+    // 산책에서 알게 된 것 + 굳히기가 속마음에서 기억으로 보낸 것(둘 다 기억 종류 neko)
+    section("내가 알게 된 것", walked),
     section("사용자에 대해 아는 것", user),
     section("사용자가 요즘 이야기한 것(관심)", (o.interests ?? []).join(", ")),
     section("이번 산책에 지나는 곳", (o.places ?? []).join(", ")),
@@ -335,8 +329,8 @@ export async function think(ask: string, material: string[], signal?: AbortSigna
 
 /**
  * 이번 산책에서 알아볼 주제 한 줄(TOPIC_MAX 자). 재료는 노트·알아본 주제(횟수·날짜)·산책 기억·사용자 기억이고, 고르는 건 네코다.
- * 주제가 사용자 사실을 담거나 생각하기가 안 되면 null — 하위 에이전트가 지금처럼 스스로 고른다. 고른 주제와 까닭, 따라 나온
- * 궁금한 것은 노트에 남긴다
+ * 주제가 사용자 사실을 담거나 생각하기가 안 되면 null — 하위 에이전트가 지금처럼 스스로 고른다. 고른 주제는 알아본 주제 목록에만
+ * 남기고(노트가 아니다 — 행동 기록), 따라 나온 궁금한 것·하고 싶은 것만 노트에 남긴다
  */
 export async function chooseWalkTopic(memories: Memory[], signal?: AbortSignal, places: string[] = []): Promise<string | null> {
   const mind = await loadMind();
@@ -353,8 +347,7 @@ export async function chooseWalkTopic(memories: Memory[], signal?: AbortSignal, 
   await updateMind((m) => {
     const topics = m.topics.filter((x) => x.topic !== topic);
     const prev = m.topics.find((x) => x.topic === topic);
-    const notes: MindNote[] = [...m.notes, { at, kind: "chose", what: "walk_topic", text: topic, ...(t.why && !leaksFact(t.why, memories) ? { why: t.why } : {}) }];
-    if (t.note && !leaksFact(t.note.text, memories)) notes.push({ at, kind: t.note.kind, text: t.note.text });
+    const notes: MindNote[] = t.note && !leaksFact(t.note.text, memories) ? [...m.notes, { at, kind: t.note.kind, text: t.note.text }] : m.notes;
     return { ...m, notes, topics: [...topics, { topic, at: [...(prev?.at ?? []).filter((d) => d !== day), day], ...(field && !leaksFact(field, memories) ? { field } : prev?.field ? { field: prev.field } : {}) }] };
   });
   return topic;
@@ -378,7 +371,7 @@ export interface Choice { key: string; label: string; hint?: string }
  * 고른 것이 보기에 없거나 생각하기가 안 되면 null(부르는 쪽은 지금 동작으로). 고른 것은 노트에 남기지 않는다 — 보기가 선물 종류
  * 같은 갈래 이름이라 "고름: 놀이"처럼 속마음답지 않은 줄이 쌓였다(사용자). 같이 떠올린 궁금·하고 싶음만 남긴다
  */
-export async function chooseAmong(what: string, ask: string, choices: Choice[], extra: string[], memories: Memory[], signal?: AbortSignal): Promise<string | null> {
+export async function chooseAmong(ask: string, choices: Choice[], extra: string[], memories: Memory[], signal?: AbortSignal): Promise<string | null> {
   if (!choices.length) return null;
   const mind = await loadMind();
   const list = choices.map((c) => `- ${c.key}: ${c.label}${c.hint ? ` — ${c.hint}` : ""}`).join("\n");
@@ -492,12 +485,6 @@ export async function takeGreeting(): Promise<string | null> {
 export async function recentNotesText(n = 10): Promise<string> {
   const m = await loadMind();
   return m.notes.slice(-n).map((x) => `- ${md(x.at)} ${KIND_NAME[x.kind]}: ${x.text}`).join("\n");
-}
-
-/** 그림을 골랐다: 노트에 남긴다(사용자 사실이 섞인 까닭은 뺀다) */
-export async function noteChose(what: string, text: string, why: string, memories: Memory[]): Promise<void> {
-  if (!line(text) || leaksFact(text, memories)) return;
-  await updateMind((m) => ({ ...m, notes: [...m.notes, { at: new Date().toISOString(), kind: "chose", what, text: line(text), ...(line(why) && !leaksFact(why, memories) ? { why: line(why) } : {}) }] }));
 }
 
 // ── 꿈(0.1.25, 사용자: 중간중간 잘 때 꿈을 꾸게) ─────────────────────────────────

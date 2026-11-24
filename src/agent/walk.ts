@@ -339,7 +339,7 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
   };
   const choices = (Object.keys(GIFTS) as GiftKind[]).filter((k) => available[k]).map((k) => ({ key: k, label: GIFTS[k].label, hint: GIFTS[k].hint }));
   const log = (history?.log ?? []).map((l) => `- ${l.day} ${GIFTS[l.kind]?.label ?? l.kind}`).join("\n");
-  const chosen = (await chooseAmong("walk_gift", "이번 산책에서 사용자에게 가져갈 선물 종류", choices, [
+  const chosen = (await chooseAmong("이번 산책에서 사용자에게 가져갈 선물 종류", choices, [
     section("최근 가져간 선물", log),
     section("이번에 알아본 것", g.findings.slice(0, 600)),
   ], memories, signal).catch(() => null)) as GiftKind | null;

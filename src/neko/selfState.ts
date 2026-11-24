@@ -113,8 +113,8 @@ export async function selfStateText(now = Date.now()): Promise<string> {
     `지금: ${doing}`,
     `상태: ${BIG[bigState()]}`,
     `최근 ${SELF_LOG_MS / 3_600_000}시간 한 일:\n${recent || "- 기록 없음"}`,
-    // 성격(docs/neko-heart.md §5): 사건 수 많은 순 12개, 털어놓은 비밀까지. 아직 말 안 한 비밀은 수만 — 내용은 첫마디로 털어놓을 때까지 모른다
-    `내 성격:\n${heartLines(heart, { secrets: "told", max: 12 }) || "- 아직 굳은 것 없음"}`,
+    // 속마음(docs/neko-heart.md §5): 사건 수 많은 순 12개, 털어놓은 비밀까지. 아직 말 안 한 비밀은 수만 — 내용은 첫마디로 털어놓을 때까지 모른다
+    `내 속마음:\n${heartLines(heart, { secrets: "told", max: 12 }) || "- 아직 굳은 것 없음"}`,
     ...(untold ? [`아직 말하지 않은 비밀: ${untold}개(내용은 지금 떠오르지 않는다)`] : []),
     // 직접 고를 수 있는 행동(neko.act) — 이 자리에서 지금 되는 것만. 도구 표와 고리가 생기지 않게 쓸 때 불러온다
     `지금 할 수 있는 행동(neko.act): ${(await import("./nekoAct")).actOptionsText()}`,
