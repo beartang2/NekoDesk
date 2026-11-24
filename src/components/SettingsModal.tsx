@@ -1239,6 +1239,9 @@ export function MindNotesSection() {
   useEffect(() => appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("setting")) refresh(); }), [refresh]);
   const page = usePage(notes);
   const logPage = usePage(log);
+  // 성격 줄도 노트처럼 눌러서 펼친다(사용자: 좋아함 목록을 눌러도 내용이 안 펼쳐진다)
+  const [openTrait, setOpenTrait] = useState<ReadonlySet<string>>(new Set());
+  const toggleTrait = (id: string) => setOpenTrait((prev) => { const next = new Set(prev); if (!next.delete(id)) next.add(id); return next; });
   async function remove(n: MindNote) {
     const m = await forgetNote(n);
     setNotes([...m.notes].reverse());
@@ -1251,9 +1254,11 @@ export function MindNotesSection() {
   const secrets = heart.traits.filter((t) => t.kind === "secret");
   const untold = secrets.filter((t) => !t.told).length;
   const traitRow = (t: Trait, kind: string) => (
-    <div className="rule-row" key={t.id}>
+    <div className={`rule-row${openTrait.has(t.id) ? " memory-row--open" : ""}`} key={t.id}>
       <span className="memory-row__kind">{kind}</span>
-      <span className="memory-row__text"><span className="rule-row__key">{t.text}</span></span>
+      <button type="button" className="memory-row__text" aria-expanded={openTrait.has(t.id)} onClick={() => toggleTrait(t.id)}>
+        <span className="rule-row__key">{t.text}</span>
+      </button>
       <span className="mind-row__at">{t.n}번 · {MIND_AT.format(new Date(t.since))}부터</span>
       <IconButton label="지우기" danger onClick={() => void drop(t)}><Trash2 size={12} /></IconButton>
     </div>
