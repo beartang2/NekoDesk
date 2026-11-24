@@ -42,7 +42,7 @@ import { MenuModal } from "./components/MenuModal";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { useDrawingGame } from "./hooks/useDrawingGame";
 import { useWordChainGame } from "./hooks/useWordChainGame";
-import { useAgentPool, makeInitialMessages, modelSwitches, parseMeta, serializeMeta, splitAttachmentSection, type QueuedMessage } from "./hooks/useAgentLoop";
+import { useAgentPool, makeInitialMessages, modelSwitches, contextTokensOf, parseMeta, serializeMeta, splitAttachmentSection, type QueuedMessage } from "./hooks/useAgentLoop";
 import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UpdatePrompt } from "./components/Update";
@@ -1328,9 +1328,15 @@ export default function App() {
     try {
       const msgs = await conversationApi.load(sessionId);
       if (msgs.length === 0) {
-        if (fresh) setAllMessages((prev) => (prev[sessionId]?.some((m) => m.isStreaming) ? prev : { ...prev, [sessionId]: makeInitialMessages() }));
+        if (fresh) {
+          setAllMessages((prev) => (prev[sessionId]?.some((m) => m.isStreaming) ? prev : { ...prev, [sessionId]: makeInitialMessages() }));
+          pool.clearContextTokens(sessionId); // 다른 기기에서 밥을 줬다(요약): 밥 게이지도 다시 찬다
+        }
         return;
       }
+      // 밥 게이지(남은 컨텍스트)를 맥·폰이 같게: 마지막 답에 적힌 토큰 수로 맞춘다(없으면 — 옛 답 — 이 기기 값 그대로)
+      const lastTokens = contextTokensOf(msgs.map((m) => m.meta));
+      if (lastTokens !== null) pool.adoptContextTokens(sessionId, lastTokens);
       const chatMessages: ChatMessage[] = msgs.map((m) => {
         const meta = parseMeta(m.meta);
         // 예전 저장분은 본문 뒤에 "첨부 파일:" 목록이 붙어 있다. 보낸 모습으로 되돌린다.
