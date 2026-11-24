@@ -64,3 +64,41 @@ describe("같이 쓰는 벽지·기억 설정", () => {
     expect(useSettingsStore.getState().nekoWallpaper).toBe("panel");
   });
 });
+
+describe("같이 쓰는 Claude 컨텍스트 크기(0.1.33, 사용자: 같은 세션인데 폰 64k·맥 128k 라 밥 게이지가 다르다)", () => {
+  const SONNET = "claude-sonnet-5-5", K = "nekodesk_claude_context";
+  it("DB 에 아직 없으면 이 기기에서 고른 값만 올리고, 고른 적 없으면 안 올린다(기본값이 다른 기기 값을 안 덮는다)", async () => {
+    let { hydrateSyncedSettings } = await fresh();
+    await hydrateSyncedSettings();
+    expect(h.sets.some(([k]) => k === "claude_context")).toBe(false);
+    h.kv.set(K, JSON.stringify({ [SONNET]: 64_000 }));
+    ({ hydrateSyncedSettings } = await fresh());
+    await hydrateSyncedSettings();
+    expect(h.sets).toContainEqual(["claude_context", JSON.stringify({ [SONNET]: 64_000 })]);
+  });
+
+  it("받으면 바로 이 기기 값이 되어 게이지 분모(claudeContextFor)가 다른 기기와 같아지고, 이 기기에만 있는 모델 값은 합쳐 다시 올린다", async () => {
+    h.kv.set(K, JSON.stringify({ [SONNET]: 128_000, "claude-opus-5-5": 400_000 }));
+    h.db.set("claude_context", JSON.stringify({ [SONNET]: 64_000, 망가진: "x" }));
+    const { hydrateSyncedSettings, claudeContextFor, useSettingsStore } = await fresh();
+    expect(claudeContextFor(SONNET)).toBe(128_000);
+    await hydrateSyncedSettings();
+    expect(claudeContextFor(SONNET)).toBe(64_000);
+    expect(useSettingsStore.getState().claudeContext).toEqual({ [SONNET]: 64_000, "claude-opus-5-5": 400_000 });
+    expect(JSON.parse(h.kv.get(K)!)).toEqual({ [SONNET]: 64_000, "claude-opus-5-5": 400_000 });
+    expect(h.sets).toEqual([["claude_context", JSON.stringify({ [SONNET]: 64_000, "claude-opus-5-5": 400_000 })]]);
+    // 다 같으면 다시 안 올린다(두 기기가 서로 주고받으며 돌지 않게)
+    h.sets = [];
+    await hydrateSyncedSettings();
+    expect(h.sets).toEqual([]);
+  });
+
+  it("바꾸면 이 기기와 DB 둘 다에, 다른 창은 localStorage 알림으로 다시 읽는다", async () => {
+    const { useSettingsStore } = await fresh();
+    useSettingsStore.getState().setClaudeContext(SONNET, 64_000);
+    await new Promise((ok) => setTimeout(ok, 0));
+    expect(h.sets).toEqual([["claude_context", JSON.stringify({ [SONNET]: 64_000 })]]);
+    window.dispatchEvent(Object.assign(new Event("storage"), { key: K, newValue: JSON.stringify({ [SONNET]: 128_000 }) }));
+    expect(useSettingsStore.getState().claudeContext).toEqual({ [SONNET]: 128_000 });
+  });
+});

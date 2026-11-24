@@ -81,6 +81,9 @@ const SYNCED = {
   nekoWallpaper: "neko_wallpaper",
   memoryCap: "memory_cap",
   memoryTidy: "memory_tidy",
+  // 0.1.33(사용자: 같은 세션인데 폰 64k·맥 128k 라 밥 게이지가 다르다) — Claude 모델별 컨텍스트 크기(마이그레이션 17). 로컬 모델의
+  // 컨텍스트(서버가 알려 주는 값)는 기기 환경이라 안 맞춘다
+  claudeContext: "claude_context",
 } as const;
 type SyncedField = keyof typeof SYNCED;
 const mirror = (field: SyncedField, value: string | null) => void settingsApi.set(SYNCED[field], value ?? "").catch(() => {});
@@ -103,14 +106,17 @@ function loadSessionRetention(): SessionRetention {
   return toRetention(localStorage.getItem(K.sessionRetention));
 }
 
-function loadClaudeContext(): Record<string, number> {
+/** 글 → 모델별 컨텍스트 크기. 망가진 값·숫자 아닌 칸은 버린다(다른 기기에서 온 글도 이걸 거친다) */
+function contextMapOf(raw: string | null): Record<string, number> {
   try {
-    const raw = JSON.parse(localStorage.getItem(K.claudeContext) ?? "{}") as unknown;
-    return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, number>) : {};
+    const p = JSON.parse(raw ?? "{}") as unknown;
+    if (!p || typeof p !== "object" || Array.isArray(p)) return {};
+    return Object.fromEntries(Object.entries(p).filter(([, n]) => Number.isInteger(n) && (n as number) > 0)) as Record<string, number>;
   } catch {
     return {};
   }
 }
+const loadClaudeContext = () => contextMapOf(localStorage.getItem(K.claudeContext));
 
 function loadToolMode(): ToolMode {
   const raw = localStorage.getItem(K.toolMode);
@@ -264,6 +270,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const claudeContext = { ...get().claudeContext, [model]: tokens };
     localStorage.setItem(K.claudeContext, JSON.stringify(claudeContext));
     set({ claudeContext });
+    mirror("claudeContext", JSON.stringify(claudeContext));
   },
   setAutoCompact: (on) => {
     localStorage.setItem(K.autoCompact, on ? "on" : "off");
@@ -310,6 +317,7 @@ if (typeof window !== "undefined") {
     for (const field of Object.keys(SYNCED_LOCAL) as (keyof typeof SYNCED_LOCAL)[]) {
       if (e.key === K[field]) useSettingsStore.setState(fromLocal(field, e.newValue));
     }
+    if (e.key === K.claudeContext) useSettingsStore.setState({ claudeContext: contextMapOf(e.newValue) });
   });
 }
 
@@ -334,6 +342,16 @@ export async function hydrateSyncedSettings(): Promise<void> {
       const local = SYNCED_LOCAL[field](v);
       localStorage.setItem(K[field], local);
       useSettingsStore.setState(fromLocal(field, local));
+    } else if (field === "claudeContext") {
+      // 모델 하나씩 합친다: 같은 모델은 받은 값이 이기고(나중에 쓴 기기), 이 기기에만 있는 모델 값은 남겨 다시 올린다 — 처음 옮길 때
+      // 맥은 sonnet·폰은 opus 만 골라 뒀어도 서로 지우지 않게. 받자마자 스토어가 바뀌어 밥 게이지 분모(App)·기록 예산·자동 요약
+      // 기준(getModelContextLength)이 새 크기를 쓴다.
+      // ponytail: 값 전체에 시각이 하나라, 두 기기가 동기화 사이에 서로 다른 모델을 바꾸면 늦게 쓴 쪽의 옛 값이 다른 모델을 되돌릴 수
+      // 있다. 실제로 보이면 모델마다 고친 시각을 싣는다
+      const got = contextMapOf(v), merged = { ...loadClaudeContext(), ...got };
+      localStorage.setItem(K[field], JSON.stringify(merged));
+      useSettingsStore.setState({ claudeContext: merged });
+      if (Object.keys(merged).length > Object.keys(got).length) mirror(field, JSON.stringify(merged));
     } else if (field === "nekoName") {
       localStorage.setItem(K[field], v);
       useSettingsStore.setState({ nekoName: v });

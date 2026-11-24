@@ -19,9 +19,9 @@ pub mod terms;
 /// 바꾸면 이미 배포된 마이그레이션 4번은 그대로 두고, 트리거를 새 마이그레이션에서 다시 만든다.
 /// 비밀(키체인·API 키), 경로·권한·실행 관련 키(fs_write_roots 등), 모델 프로필, 예산·장부는 절대 넣지 않는다 —
 /// 연결된 다른 기기가 이 맥의 권한을 넓힐 수 있게 된다. 받을 때도 이 목록 밖은 버린다(crate::sync::apply).
-pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention", "neko_needs", "neko_walk_view", "neko_here", "cat_rpg_state", "neko_mind", "neko_presence", "neko_furniture", "neko_heart", "neko_wallpaper", "memory_cap", "memory_tidy", "neko_heart2"];
+pub const SYNCED_SETTINGS: &[&str] = &["neko_appearance", "neko_name", "neko_persona", "user_profile", "session_retention", "neko_needs", "neko_walk_view", "neko_here", "cat_rpg_state", "neko_mind", "neko_presence", "neko_furniture", "neko_heart", "neko_wallpaper", "memory_cap", "memory_tidy", "neko_heart2", "claude_context"];
 /// 트리거용 같은 목록(SQL 글). concat! 은 상수를 못 받아 따로 적고, 테스트가 둘이 같은지 본다.
-macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention', 'neko_needs', 'neko_walk_view', 'neko_here', 'cat_rpg_state', 'neko_mind', 'neko_presence', 'neko_furniture', 'neko_heart', 'neko_wallpaper', 'memory_cap', 'memory_tidy', 'neko_heart2')" } }
+macro_rules! synced_keys { () => { "('neko_appearance', 'neko_name', 'neko_persona', 'user_profile', 'session_retention', 'neko_needs', 'neko_walk_view', 'neko_here', 'cat_rpg_state', 'neko_mind', 'neko_presence', 'neko_furniture', 'neko_heart', 'neko_wallpaper', 'memory_cap', 'memory_tidy', 'neko_heart2', 'claude_context')" } }
 
 /// 지금 시각(ms). SQLite 의 julianday 는 ms 까지 준다
 macro_rules! now_ms { () => { "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)" } }
@@ -291,6 +291,15 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     // 16 — 맞추는 설정 키에 neko_heart2(속마음 갈래 개편: 관심사·교양·철학·성격·가치관·정체성·비밀, docs/neko-heart.md §2.2)를 더한다.
     // 새 키인 까닭: 0.1.30–0.1.31 은 neko_heart 를 읽을 때 모르는 갈래를 버리고 다시 써 새 갈래가 사라진다. 새 버전은 neko_heart2 가
     // 없을 때 neko_heart 를 한 번 옮겨 오고, 옛 키는 옛 버전 기기가 계속 쓴다. 옛 버전은 모르는 키를 받으면 버린다
+    concat!(
+        "DROP TRIGGER IF EXISTS sync_setting_ins; DROP TRIGGER IF EXISTS sync_setting_upd; DROP TRIGGER IF EXISTS sync_setting_del;",
+        sync_named_triggers!("setting", "settings", "key", concat!("NEW.key IN ", synced_keys!()), "OLD.value IS NOT NEW.value"),
+        sync_tombstone!("setting", "settings", "OLD.key", concat!("OLD.key IN ", synced_keys!())),
+    ),
+    // 17 — 맞추는 설정 키에 claude_context(Claude 모델별 컨텍스트 크기, 사용자: 같은 세션인데 폰 64k·맥 128k 라 밥 게이지가 다르다)를
+    // 더한다. 값은 모델 → 토큰 수 JSON 하나라 나중에 쓴 기기가 이기고, 받는 쪽이 제게만 있는 모델 값을 합쳐 다시 올린다
+    // (settingsStore.hydrateSyncedSettings). 로컬 모델의 컨텍스트(서버가 알려 주는 값)는 기기 환경이라 맞추지 않는다.
+    // 옛 버전은 모르는 키를 받으면 버린다
     concat!(
         "DROP TRIGGER IF EXISTS sync_setting_ins; DROP TRIGGER IF EXISTS sync_setting_upd; DROP TRIGGER IF EXISTS sync_setting_del;",
         sync_named_triggers!("setting", "settings", "key", concat!("NEW.key IN ", synced_keys!()), "OLD.value IS NOT NEW.value"),

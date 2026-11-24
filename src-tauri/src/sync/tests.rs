@@ -996,8 +996,9 @@ fn wallpaper_and_memory_settings_reach_the_other_device_and_a_joining_device_doe
     settings::set(&a, "memory_cap", "450").unwrap();
     settings::set(&a, "memory_tidy", "off").unwrap();
     settings::set(&a, "neko_heart2", "{}").unwrap(); // 마이그레이션 16: 속마음 새 키
+    settings::set(&a, "claude_context", r#"{"claude-sonnet-4-5":65536}"#).unwrap(); // 마이그레이션 17: Claude 컨텍스트 크기
     apply_all(&b, "B", &push_all(&a, "A"));
-    for (k, v) in [("neko_wallpaper", "panel"), ("memory_cap", "450"), ("memory_tidy", "off"), ("neko_heart2", "{}")] {
+    for (k, v) in [("neko_wallpaper", "panel"), ("memory_cap", "450"), ("memory_tidy", "off"), ("neko_heart2", "{}"), ("claude_context", r#"{"claude-sonnet-4-5":65536}"#)] {
         assert_eq!(settings::get(&b, k).unwrap().as_deref(), Some(v), "{k}");
     }
     // 나중에 바꾼 기기가 이긴다
