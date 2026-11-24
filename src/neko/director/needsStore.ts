@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { settingsApi } from "../../api/tauri";
 import { appEvents } from "../../lib/events";
+import { following, onLead } from "../lead";
 import {
   add, applyFill, decay, fillsOf, FILL_MINUTES, LONELY_MS, PET_AFFECTION, PET_CAP, PET_WINDOW_MS, START,
   type DecayHow, type Needs,
@@ -16,6 +17,10 @@ import {
  * 15초 동기화마다 서버에 쌓이니 자주 쓰지 않는다: 어느 게이지든 SAVE_DELTA 넘게 바뀌었거나 SAVE_EVERY_MS 가 지났을 때,
  * 또는 사건(산책 귀가·개발 화면)일 때만. 다른 기기 값이 오면(syncChanged setting) 그 값을 잰 때(at)부터 지난 만큼
  * 줄여 읽는다. born = 고양이 생일(YYYY-MM-DD, DAY 셈) — 기기마다 처음 켠 날이 달라 가장 이른 날로 맞춘다
+ *
+ * 계산은 앞 기기(가장 최근에 사용자가 쓴 기기, neko/presence)만 한다(0.1.32): 두 기기가 각자 줄이고 채워 번갈아 덮어쓰면 값이
+ * 왔다 갔다 했다. 뒤에 있는 기기는 받은 값에서 저절로 줄기만 하고(제 활동으로 채우지 않는다) 적지 않는다. 이 기기를 쓰기 시작해
+ * 앞이 되면 지금 값(받아 온 것)에서 이어 계산하고 바로 한 번 적는다.
  */
 
 const KEY = "neko_needs";
@@ -52,6 +57,7 @@ interface NeedsStore {
 
 /** 마지막으로 저장한(또는 받아 온) 값과 잰 때 — 다음 저장을 미룰지, 받은 값이 더 새것인지 본다 */
 let saved: { needs: Needs; at: number } | null = null;
+let watchingLead = false;
 const earlier = (a: string | null, b: string | null) => (!a ? b : !b ? a : a < b ? a : b);
 
 type Stored = Partial<Needs> & { at?: number; born?: string };
@@ -70,6 +76,7 @@ function readNeeds(p: Stored | null): Needs {
 }
 
 function persist(n: Needs, born: string | null, force = false) {
+  if (following()) return; // 앞 기기가 적는다
   const now = Date.now();
   if (!force && saved && now - saved.at < SAVE_EVERY_MS && !(Object.keys(n) as (keyof Needs)[]).some((k) => Math.abs(n[k] - saved!.needs[k]) >= SAVE_DELTA)) return;
   saved = { needs: { ...n }, at: now };
@@ -89,7 +96,19 @@ export const useNekoNeeds = create<NeedsStore>((set, get) => ({
     if (p && Number.isFinite(p.at)) needs = decay(needs, Date.now() - p.at!, "off");
     const born = typeof p?.born === "string" ? p.born : null;
     set({ needs, loaded: true, born: earlier(get().born, born) });
-    persist(needs, get().born, true);
+    // 저장된 값이 있으면 켰다고 다시 적지 않는다 — 뒤에 있는 기기가 켜지며 낡은 값을 "지금 잰 값"으로 올려 앞 기기 것을 덮었다
+    if (p && Number.isFinite(p.at)) saved = { needs: readNeeds(p), at: p.at! };
+    else persist(needs, get().born, true);
+    // 이 기기가 앞이 됐다(쓰기 시작): 이어 계산하고 바로 한 번 적는다
+    if (!watchingLead) {
+      watchingLead = true;
+      let wasFollowing = following();
+      onLead(() => {
+        const now = following();
+        if (wasFollowing && !now && get().loaded) persist(get().needs, get().born, true);
+        wasFollowing = now;
+      });
+    }
     // 다른 기기에서 바뀐 값(동기화)
     appEvents.on("syncChanged", ({ colls }) => { if (colls.includes("setting")) void get().pull(); });
   },
@@ -114,7 +133,8 @@ export const useNekoNeeds = create<NeedsStore>((set, get) => ({
   tick(ms, how, doing) {
     const s = get();
     let n = decay(s.needs, ms, how, Date.now() - s.touchedAt > LONELY_MS);
-    for (const k of doing) n = applyFill(n, fillsOf(k), ms / 60_000);
+    // 뒤에 있는 기기는 제 활동으로 채우지 않는다(앞 기기 값을 따른다)
+    if (!following()) for (const k of doing) n = applyFill(n, fillsOf(k), ms / 60_000);
     set({ needs: n });
     if (s.loaded) persist(n, s.born);
   },

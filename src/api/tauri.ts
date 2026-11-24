@@ -301,6 +301,10 @@ export interface SyncStatus {
 /** 백엔드가 다 맞춘 뒤 보내는 이벤트. 바뀐 종류와 메시지가 바뀐 세션 */
 export const SYNC_CHANGED = "sync-changed";
 export interface SyncChanged { colls: string[]; sessions: string[]; first: boolean }
+/** 놀이 게이지 기준: 서버가 잰 값(play)과 그때(at, ms), 그날(UTC day) 밥 준 횟수 */
+export interface PetBase { play: number; at: number; feeds: number; day: string }
+/** 놀이 게이지 행동. n = reward 가 더하는 값(0–20). at 은 정수 ms */
+export interface PetAct { kind: "play" | "pet" | "reward" | "feed"; at: number; id: string; n?: number }
 /** 서버와 다시 맞춘 결과. heavy: 옛 서버라 전부 다시 올리고 받는 중(개수는 모른다) */
 export interface SyncReconcile { fetched: number; pushed: number; deleted: number; heavy: boolean }
 export const syncApi = {
@@ -317,6 +321,10 @@ export const syncApi = {
   pairJoin: (pairing: string) => invoke<void>("sync_pair_join", { pairing }),
   /** 맥: 짝 문자열을 QR(SVG 글)로. 폰 카메라로 찍으면 앱이 열린다 */
   pairQr: (pairing: string) => invoke<string>("sync_pair_qr", { pairing }),
+  /** 기기들이 나눠 쓰는 놀이 게이지 기준(서버가 계산한다). supported 가 false 면 옛 서버·동기화 꺼짐 — 예전 방식(기기마다) */
+  petShared: () => invoke<{ supported: boolean; pet: PetBase | null }>("pet_shared"),
+  /** 행동을 서버에 보내고 새 기준을 받는다. init = 서버에 기준이 없을 때 이 기기 값. 못 보내면 오류(모아 두었다 다시 보낸다) */
+  petAct: (acts: PetAct[], init: { play: number; at: number } | null) => invoke<PetBase | null>("pet_act", { acts, init }),
   /** 기기들이 같이 보는 마지막 산책(동기화를 안 쓰면 null) */
   walkShared: () => invoke<{ start: number; end: number; mine: boolean } | null>("walk_shared"),
   /** 나가기 전에 선점한다. ok 가 false 면 다른 기기가 먼저 나갔다. 동기화를 안 쓰거나 서버에 못 닿으면 ok */

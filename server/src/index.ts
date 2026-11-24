@@ -160,6 +160,8 @@ async function sync(req: Request, env: Env, device: string): Promise<Response> {
   if (push.length > PUSH_MAX) return fail(413, `push ≤ ${PUSH_MAX}`);
   const now = Date.now();
   const db = env.DB;
+  // 이 요청 전에 기기 중 누구든 마지막으로 다녀간 때(놀이 게이지: 아무도 안 켜져 있던 시간은 2시간치만 줄인다, petSeen)
+  const seenBefore = (await db.prepare("SELECT MAX(last_seen) AS seen FROM devices WHERE revoked = 0").first<{ seen: number | null }>())?.seen ?? null;
 
   const rejected: { coll: string; id: string; reason: string }[] = [];
   const good: Rec[] = [];
@@ -210,7 +212,7 @@ async function sync(req: Request, env: Env, device: string): Promise<Response> {
     records.push(r);
     seq = r.seq!;
   }
-  return json({ records, seq, more, rejected, walk: await walkNow(db) });
+  return json({ records, seq, more, rejected, walk: await walkNow(db), pet: await petSeen(db, seenBefore, now) });
 }
 
 // ── 다시 맞추기(docs/neko-sync.md §4.5): 기기가 가끔 서버 기록 목록과 제 사본을 견준다 ─────────────────────────
@@ -294,6 +296,99 @@ async function walkEnd(req: Request, env: Env, device: string): Promise<Response
   return json({ walk: await walkNow(env.DB) });
 }
 
+// ── 놀이 게이지: 기기들이 한 값을 나눠 쓴다(docs/neko-sync.md §4.7) ───────────────────────────
+// 기기마다 따로 줄이고 저장하면(나중에 쓴 쪽이 이김) 한쪽의 놀아 주기를 다른 쪽의 "시간이 지나 줄어든 값"이 덮었다. 그래서 기준값
+// 하나(play, 잰 때 at)를 meta 의 'pet' 에 두고(표를 더하지 않는다), 기기는 행동만 보낸다. 서버가 기준을 행동 시각까지 줄인 뒤 행동을
+// 더해 새 기준으로 적는다. 화면 값은 기기가 같은 식으로 낸다: play − PLAY_PER_MIN × (지금 − at)분, 0–100. 시간이 지나 줄어든 값은
+// 저장하지 않는다. 숫자와 시각뿐이라 암호화하지 않는다(서버가 계산해야 한다). 밥 게이지는 여기 없다 — 열린 대화의 남은 컨텍스트라
+// 대화(메시지)와 함께 간다. 밥을 준 횟수(오늘)만 같이 센다.
+const PLAY_PER_MIN = 0.3;
+/** 아무 기기도 안 켜져 있던 시간은 이만큼만 줄인다(예전 앱의 '꺼져 있던 시간은 2시간까지') */
+const PET_GAP_MS = 120 * 60_000;
+/** 같은 행동을 두 번 적용하지 않게 기억하는 번호 수 · 한 요청의 행동 수 */
+const PET_IDS = 200, PET_ACTS = 100;
+/** 행동이 놀이에 더하는 값. reward 는 기기가 준 n(0–20: 답 끝남 5, 그림 맞추기 10, 끝말잇기 턴/2) */
+const PET_GAIN: Record<string, number> = { play: 20, pet: 10 };
+interface Pet { play: number; at: number; feeds: number; day: string; seed?: boolean; ids: string[] }
+
+const clampPlay = (v: number) => Math.max(0, Math.min(100, v));
+const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+const playAt = (p: { play: number; at: number }, t: number) => clampPlay(p.play - (PLAY_PER_MIN * Math.max(0, t - p.at)) / 60_000);
+/** 기기에 주는 모양(번호 목록은 뺀다) */
+const petOut = (p: Pet) => ({ play: p.play, at: p.at, feeds: p.feeds, day: p.day });
+
+async function petRead(db: D1Database): Promise<{ raw: string | null; pet: Pet | null }> {
+  const raw = (await db.prepare("SELECT value FROM meta WHERE key = 'pet'").first<{ value: string }>())?.value ?? null;
+  try {
+    const p = raw ? (JSON.parse(raw) as Pet) : null;
+    return { raw, pet: p && Number.isFinite(p.play) && Number.isFinite(p.at) ? { ...p, feeds: p.feeds || 0, day: p.day || "", ids: Array.isArray(p.ids) ? p.ids : [] } : null };
+  } catch { return { raw, pet: null }; }
+}
+/** 읽은 값(raw)이 그대로일 때만 바꾼다 — 두 기기가 같이 보내도 한쪽 행동이 사라지지 않게(진 쪽은 다시 읽고 다시 한다) */
+async function petWrite(db: D1Database, raw: string | null, pet: Pet): Promise<boolean> {
+  const next = JSON.stringify(pet);
+  const res = raw === null
+    ? await db.prepare("INSERT INTO meta (key, value) VALUES ('pet', ?1) ON CONFLICT (key) DO NOTHING").bind(next).run()
+    : await db.prepare("UPDATE meta SET value = ?1 WHERE key = 'pet' AND value = ?2").bind(next, raw).run();
+  return res.meta.changes > 0;
+}
+
+/** sync 응답에 싣는 지금 기준. seenBefore 뒤로 아무 기기도 안 다녀간 시간이 PET_GAP_MS 를 넘으면 넘는 만큼 기준 시각을 당긴다 */
+async function petSeen(db: D1Database, seenBefore: number | null, now: number) {
+  let { raw, pet } = await petRead(db);
+  if (!pet) return null;
+  const skip = seenBefore === null ? 0 : now - Math.max(seenBefore, pet.at) - PET_GAP_MS;
+  if (skip > 0) {
+    const next = { ...pet, at: pet.at + skip };
+    if (await petWrite(db, raw, next)) pet = next;
+    else pet = (await petRead(db)).pet ?? pet; // 다른 기기가 방금 고쳤다
+  }
+  return petOut(pet);
+}
+
+/**
+ * 행동을 적용한다. { acts: [{ kind: play|pet|reward|feed, at, id, n? }], init?: { play, at } } → { pet }.
+ * 같은 id 는 한 번만(다시 보내도 안전). 행동 시각 순으로: 기준보다 나중이면 그때까지 줄인 뒤 더하고, 기준보다 이르면(오프라인에서
+ * 늦게 온 행동) 지금 기준에 더하기만 한다. init = 서버에 기준이 아직 없을 때 기기가 갖고 있던 값 — 처음 온 것으로 시작하고,
+ * 아직 행동이 하나도 없으면(seed) 다른 기기의 init 이 더 높을 때 그쪽으로 바꾼다(놀아 준 쪽 값이 더 높다).
+ */
+async function petAct(req: Request, env: Env): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as { acts?: unknown; init?: { play?: unknown; at?: unknown } } | null;
+  const now = Date.now();
+  const acts = (Array.isArray(body?.acts) ? body!.acts : []).flatMap((a): { kind: string; at: number; id: string; n: number }[] => {
+    const o = (a ?? {}) as { kind?: unknown; at?: unknown; id?: unknown; n?: unknown };
+    if (typeof o.kind !== "string" || !["play", "pet", "reward", "feed"].includes(o.kind)) return [];
+    if (typeof o.id !== "string" || !o.id || o.id.length > 64 || !Number.isSafeInteger(o.at) || (o.at as number) <= 0) return [];
+    return [{ kind: o.kind, id: o.id, at: Math.min(o.at as number, now), n: Number.isFinite(o.n) ? Math.max(0, Math.min(20, o.n as number)) : 0 }];
+  }).sort((x, y) => x.at - y.at);
+  if (acts.length > PET_ACTS) return fail(413, `acts ≤ ${PET_ACTS}`);
+  const i = body?.init;
+  const init = i && Number.isFinite(i.play) && Number.isSafeInteger(i.at) && (i.at as number) > 0
+    ? { play: clampPlay(i.play as number), at: Math.min(i.at as number, now) } : null;
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { raw, pet: cur } = await petRead(env.DB);
+    if (!cur && !init && !acts.length) return json({ pet: null });
+    const pet: Pet = cur ? { ...cur, ids: [...cur.ids] } : { play: init?.play ?? 100, at: init?.at ?? now, feeds: 0, day: dayOf(now), seed: true, ids: [] };
+    if (cur?.seed && init && playAt(init, now) > playAt(cur, now)) { pet.play = init.play; pet.at = init.at; }
+    for (const a of acts) {
+      if (pet.ids.includes(a.id)) continue;
+      if (a.at > pet.at) { pet.play = playAt(pet, a.at); pet.at = a.at; }
+      if (a.kind === "feed") {
+        const d = dayOf(a.at);
+        if (d > pet.day) { pet.day = d; pet.feeds = 0; }
+        if (d === pet.day) pet.feeds++;
+      } else pet.play = clampPlay(pet.play + (a.kind === "reward" ? a.n : PET_GAIN[a.kind]));
+      delete pet.seed;
+      pet.ids.push(a.id);
+    }
+    pet.ids = pet.ids.slice(-PET_IDS);
+    const same = cur && JSON.stringify(cur) === JSON.stringify(pet);
+    if (same || (await petWrite(env.DB, raw, pet))) return json({ pet: petOut(pet) });
+  }
+  return fail(409, "pet busy");
+}
+
 async function route(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname, method = req.method;
@@ -308,6 +403,7 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (method === "POST" && path === "/v1/fetch") return fetchRecords(req, env);
   if (method === "POST" && path === "/v1/walk/claim") return walkClaim(req, env, device);
   if (method === "POST" && path === "/v1/walk/end") return walkEnd(req, env, device);
+  if (method === "POST" && path === "/v1/pet/act") return petAct(req, env);
   if (method === "POST" && path === "/v1/pair") {
     const code = randomToken(16), expires = Date.now() + PAIR_MS;
     // 기기당 살아 있는 코드는 하나: 새로 만들면 그 기기의 이전 코드는 지운다

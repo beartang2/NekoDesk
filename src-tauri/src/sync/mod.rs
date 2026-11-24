@@ -656,6 +656,41 @@ struct SyncResp {
     /// 기기들이 나눠 쓰는 마지막 산책(시작·끝·나간 기기). 옛 서버는 안 준다
     #[serde(default)]
     walk: Option<SharedWalk>,
+    /// 기기들이 나눠 쓰는 놀이 게이지 기준(§4.7). 옛 서버는 칸 자체가 없고(None), 새 서버는 아직 기준이 없으면 null(Some(None))
+    #[serde(default, deserialize_with = "present")]
+    pet: Option<Option<SharedPet>>,
+}
+
+/// 칸이 있으면(null 이어도) Some — "서버가 이 기능을 안다"와 "값이 아직 없다"를 가른다
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
+}
+
+/// 놀이 게이지의 기준(§4.7): 서버가 행동을 적용해 잰 값(play)과 그때(at, ms). 화면 값은 기기가 같은 식으로 줄여 낸다.
+/// feeds·day = 그날(UTC) 밥을 준 횟수
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct SharedPet {
+    pub play: f64,
+    pub at: i64,
+    #[serde(default)]
+    pub feeds: i64,
+    #[serde(default)]
+    pub day: String,
+}
+
+/// 받은 놀이 게이지 기준을 적는다(없으면 "null" — 서버가 기능은 안다). 바뀌었으면 true(화면에 알린다)
+pub fn store_pet(conn: &Connection, pet: Option<&SharedPet>) -> AppResult<bool> {
+    let next = serde_json::to_string(&pet).unwrap_or_else(|_| "null".into());
+    if state(conn, "pet")?.as_deref() == Some(next.as_str()) {
+        return Ok(false);
+    }
+    set_state(conn, "pet", &next)?;
+    Ok(true)
+}
+
+/// 서버가 놀이 게이지를 아는가와 지금 기준. 옛 서버(칸을 안 줌)면 None
+pub fn stored_pet(conn: &Connection) -> AppResult<Option<Option<SharedPet>>> {
+    Ok(state(conn, "pet")?.and_then(|s| serde_json::from_str::<Option<SharedPet>>(&s).ok()))
 }
 
 /// 마지막 산책 하나를 기기들이 같이 본다(§5.4): 한 기기가 나가 있으면 다른 기기는 안 나가고, 다음 산책 시각도 이걸로 잰다.
@@ -783,6 +818,19 @@ fn settle(conn: &Connection, srv: &Server, push: &[Record], resp: &SyncResp, ch:
     // 옛 서버(walk 를 안 줌)면 적어 둔 것을 지우지 않는다
     if resp.walk.is_some() && store_walk(conn, resp.walk.as_ref())? {
         ch.colls.insert("walk".into());
+    }
+    // 놀이 게이지: 옛 서버(칸이 없음)면 적어 둔 것을 지워 화면이 예전 방식(기기마다)으로 돌아가게 한다
+    match &resp.pet {
+        Some(p) => {
+            if store_pet(conn, p.as_ref())? {
+                ch.colls.insert("pet".into());
+            }
+        }
+        None => {
+            if conn.execute("DELETE FROM sync_state WHERE key = 'pet'", [])? > 0 {
+                ch.colls.insert("pet".into());
+            }
+        }
     }
     let again = resp.reset || repull;
     set_state(conn, "since", &(if again { 0 } else { resp.seq }).to_string())?;

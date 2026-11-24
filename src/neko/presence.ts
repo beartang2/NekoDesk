@@ -1,6 +1,7 @@
 import { settingsApi, syncApi } from "../api/tauri";
 import { appEvents } from "../lib/events";
 import { useNekoApp } from "./director/stores";
+import { setFollowing } from "./lead";
 
 /**
  * 네코의 큰 상태를 맥·폰이 맞춘다(사용자: "한쪽은 자고 있고 한쪽은 다른 활동 중", 고른 방식은 큰 상태만 — 0.1.22).
@@ -27,7 +28,8 @@ let shared: Presence | null = null;
 let me = "";
 let local: BigState = "awake";
 const subs = new Set<() => void>();
-const changed = () => subs.forEach((f) => f());
+// 숨은 게이지(director/needsStore)도 앞 기기 것을 따른다 — 앞·뒤를 neko/lead 에 알린다
+const changed = () => { setFollowing(otherLeads()); subs.forEach((f) => f()); };
 
 /** 이 기기 사용자가 마지막으로 앱을 쓴 때(epoch). 감독의 lastActiveAt 은 performance 시계라 바꾼다 */
 export const usedAtNow = (): number => Date.now() - (performance.now() - useNekoApp.getState().lastActiveAt);
@@ -101,4 +103,4 @@ export function watchPresence(): () => void {
 }
 
 /** 시험용 */
-export function resetPresence(device = "", value: Presence | null = null): void { me = device; shared = value; local = "awake"; }
+export function resetPresence(device = "", value: Presence | null = null): void { me = device; shared = value; local = "awake"; setFollowing(otherLeads()); }

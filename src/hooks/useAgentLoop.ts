@@ -179,6 +179,8 @@ export interface MessageMeta {
   compacted?: boolean;
   model?: string;
   offer?: WordchainOffer;
+  /** 이 답을 받을 때 대화가 쓴 컨텍스트 토큰 수. 대화와 함께 동기화돼 다른 기기의 밥 게이지(남은 컨텍스트)도 같은 값이 된다 */
+  contextTokens?: number;
 }
 
 /**
@@ -214,6 +216,7 @@ export function serializeMeta(meta: MessageMeta): string | undefined {
     ...(meta.compacted ? { compacted: true } : {}),
     ...(meta.model ? { model: meta.model } : {}),
     ...(meta.offer ? { offer: meta.offer } : {}),
+    ...(meta.contextTokens ? { contextTokens: meta.contextTokens } : {}),
   };
   return Object.keys(stored).length ? JSON.stringify(stored) : undefined;
 }
@@ -226,6 +229,15 @@ export function parseMeta(raw: string | null | undefined): MessageMeta {
   } catch {
     return {};
   }
+}
+
+/** 대화의 마지막 답에 적힌 컨텍스트 토큰 수(meta.contextTokens). 그런 답이 없으면 null */
+export function contextTokensOf(metas: (string | null | undefined)[]): number | null {
+  for (let i = metas.length - 1; i >= 0; i--) {
+    const n = parseMeta(metas[i]).contextTokens;
+    if (typeof n === "number" && n > 0) return n;
+  }
+  return null;
 }
 
 // 첨부를 글로 풀어 쓴 것 — 이미지가 없을 때 모델에 보내는 내용.
@@ -459,6 +471,8 @@ export function useAgentPool() {
   const lastSignalRef = useRef<Record<string, NekoSignal["type"]>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [sessionTokens, setSessionTokens] = useState<Record<string, number>>(loadContextTokens);
+  const tokensRef = useRef(sessionTokens);
+  tokensRef.current = sessionTokens;
   useEffect(() => {
     localStorage.setItem(CONTEXT_TOKENS_KEY, JSON.stringify(sessionTokens));
   }, [sessionTokens]);
@@ -757,6 +771,8 @@ export function useAgentPool() {
                 [sessionId]: Math.max(prev[sessionId] ?? 0, event.promptTokens!),
               }));
             }
+            // 답과 같이 저장해 다른 기기도 같은 밥 게이지(남은 컨텍스트)를 보게 한다
+            const contextTokens = event.promptTokens !== undefined ? Math.max(tokensRef.current[sessionId] ?? 0, event.promptTokens) : undefined;
             const { clean, emotion } = stripSpecialTokens(event.answer);
             const images = finalSteps
               .map((s) => s.imageDataUrl)
@@ -789,6 +805,7 @@ export function useAgentPool() {
                 tokensPerSecond: event.tokensPerSecond,
                 notice: event.notice,
                 model,
+                contextTokens,
               }))
               .catch(() => {})
               // 적은 뒤에 — 읽은 때가 답보다 앞서면 다시 켰을 때 본 답에 점이 붙는다
@@ -902,6 +919,9 @@ export function useAgentPool() {
     contextTokens: (sessionId: string): number => sessionTokens[sessionId] ?? 0,
     clearContextTokens: (sessionId: string) =>
       setSessionTokens((prev) => { const next = { ...prev }; delete next[sessionId]; return next; }),
+    /** 대화를 읽어 왔다: 마지막 답에 적힌 토큰 수(다른 기기에서 받은 답일 수 있다)로 맞춘다 */
+    adoptContextTokens: (sessionId: string, tokens: number) =>
+      setSessionTokens((prev) => (prev[sessionId] === tokens ? prev : { ...prev, [sessionId]: tokens })),
     sendMessage,
     stop,
     /** 일하는 사이 보낸, 아직 네코가 못 읽은 말. */

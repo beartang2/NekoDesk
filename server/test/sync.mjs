@@ -191,4 +191,45 @@ assert.ok(!find(r, "memory", `k-${run}`), "기록이 비었다");
   assert.equal((await call("POST", "/v1/fetch", { keys: Array.from({ length: 51 }, (_, i) => ["msg", `x${i}`]) }, A.token)).status, 413);
 }
 
+// 놀이 게이지: 서버가 기준 하나를 갖고 기기는 행동만 보낸다(같은 로컬 D1 에 여러 번 돌려도 되게 지금 값에서부터 견준다)
+{
+  const act = (d, acts = [], init = null) => ok("POST", "/v1/pet/act", { acts, init }, d.token).then((x) => x.pet);
+  const near = (x, y, msg) => assert.ok(Math.abs(x - y) < 0.05, `${msg}: ${x} ≠ ${y}`);
+  const cap = (v) => Math.max(0, Math.min(100, v));
+  assert.equal((await call("POST", "/v1/pet/act", { acts: [] }, "nope")).status, 401);
+  const P = await ok("POST", "/v1/devices", { name: "폰", pair_code: (await ok("POST", "/v1/pair", {}, A.token)).code });
+  const t = Date.now();
+  if ((await act(A)) === null) {
+    // 처음: 먼저 온 기기 값으로 시작하고, 아직 행동이 없으면 더 높은 다른 기기 값으로 바꾼다. 행동이 생긴 뒤엔 안 바꾼다
+    assert.equal((await act(A, [], { play: 40, at: t })).play, 40);
+    assert.equal((await act(P, [], { play: 30, at: t })).play, 40, "낮은 값으로는 안 바꾼다");
+    assert.equal((await act(P, [], { play: 90, at: t })).play, 90, "행동 전이면 높은 쪽");
+  }
+  // 맥에서 놀아 주고 폰에서 쓰다듬는다 → 두 기기가 sync 로 같은 기준을 받는다
+  const p0 = await act(A);
+  const p1 = await act(A, [{ kind: "play", at: t, id: `play-${run}` }], { play: 5, at: t });
+  near(p1.play, cap(p0.play - (0.3 * Math.max(0, t - p0.at)) / 60000 + 20), "기준을 행동 시각까지 줄인 뒤 +20(init 은 기준이 있으면 무시)");
+  const p2 = await act(P, [{ kind: "pet", at: t + 60_000 > Date.now() ? Date.now() : t + 60_000, id: `pet-${run}` }]);
+  near(p2.play, cap(p1.play - (0.3 * (p2.at - p1.at)) / 60000 + 10), "쓰다듬기 +10");
+  const [sa, sp] = [await sync(A.token, 0), await sync(P.token, 0)];
+  assert.deepEqual(sa.pet, sp.pet, "두 기기가 같은 기준");
+  assert.deepEqual(sa.pet, p2);
+  assert.ok(!("ids" in sa.pet), "번호 목록은 안 내려준다");
+  // 같은 행동을 다시 보내도 한 번만
+  assert.deepEqual(await act(A, [{ kind: "play", at: t, id: `play-${run}` }, { kind: "pet", at: t, id: `pet-${run}` }]), p2);
+  // 오프라인에서 늦게 온 행동(기준보다 이른 시각): 지금 기준에 더하기만, 시각은 그대로. 보상은 n 만큼(20 까지)
+  const p3 = await act(P, [{ kind: "reward", at: t - 3_600_000, id: `late-${run}`, n: 5 }, { kind: "reward", at: t - 3_500_000, id: `late2-${run}`, n: 999 }]);
+  near(p3.play, cap(cap(p2.play + 5) + 20), "늦게 온 보상");
+  assert.equal(p3.at, p2.at);
+  // 밥: 그날 횟수만 센다(놀이는 안 바뀐다 — 화면의 밥 게이지는 대화의 남은 컨텍스트다)
+  const p4 = await act(A, [{ kind: "feed", at: p3.at, id: `feed-${run}` }]);
+  assert.equal(p4.day, new Date(p3.at).toISOString().slice(0, 10));
+  assert.equal(p4.feeds, (p3.day === p4.day ? p3.feeds : 0) + 1);
+  near(p4.play, p3.play, "밥은 놀이를 안 바꾼다");
+  // 모르는 행동·망가진 것은 버리고, 너무 많으면 거절
+  assert.deepEqual(await act(A, [{ kind: "hack", at: t, id: "x" }, { kind: "play", at: "내일", id: "y" }, { kind: "play", at: t }]), p4);
+  assert.equal((await call("POST", "/v1/pet/act", { acts: Array.from({ length: 101 }, (_, i) => ({ kind: "pet", at: t, id: `m${i}-${run}` })) }, A.token)).status, 413);
+  await ok("DELETE", `/v1/devices/${P.device_id}`, undefined, A.token);
+}
+
 console.log("server sync ok");

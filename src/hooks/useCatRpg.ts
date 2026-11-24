@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { settingsApi } from "../api/tauri";
 import { useNekoNeeds } from "../neko/director/needsStore";
 import { appEvents } from "../lib/events";
+import { flushPet, petDo, petGauge, petView, refreshPet, setPetSeed, usePetGauge } from "../lib/petGauge";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -104,10 +105,18 @@ export function resetRpgSync(): void { saved = null; }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
+/**
+ * 놀이 게이지와 밥 횟수는 서버가 하나로 계산한다(lib/petGauge, 새 Worker). 그때 이 훅은 그 값을 보여 주고 행동만 넘긴다 —
+ * 시간이 지나 줄어든 값을 cat_rpg_state 에 저장하지 않는다(그 저장이 다른 기기의 놀아 주기를 덮었다). 옛 서버·동기화 꺼짐이면
+ * 아래 예전 방식(기기마다 줄이고 저장) 그대로다. 생일은 어느 쪽이든 여기 값과 neko_needs 의 born 으로 맞춘다.
+ * 밥 게이지(hunger)는 화면에 쓰지 않는다 — 화면의 밥은 열린 대화의 남은 컨텍스트다(App displayHunger).
+ */
 export function useCatRpg() {
   const [state, setStateRaw] = useState<CatRpgState>(makeDefault);
+  const gauge = usePetGauge();
   const stateRef = useRef(state);
   stateRef.current = state;
+  const [now, setNow] = useState(() => Date.now());
 
   const setState = useCallback((next: CatRpgState, force = false) => {
     setStateRaw(next);
@@ -116,15 +125,19 @@ export function useCatRpg() {
 
   // 마운트 시 전역 상태 로드
   useEffect(() => {
-    loadState().then((loaded) => {
+    void refreshPet().then(loadState).then((loaded) => {
       const s = loaded.feedDate !== today()
         ? { ...loaded, feedCountToday: 0, feedDate: today() }
         : loaded;
-      setState(applyDecay(s, Date.now()), true);
+      // 서버에 기준이 아직 없으면 이 기기가 지금 보이던 값(꺼져 있던 시간은 예전처럼 2시간치까지만 줄인)으로 시작하게 한다
+      setPetSeed({ play: applyDecay(s, Date.now()).play, at: Date.now() });
+      if (petGauge().supported) { setStateRaw(s); void flushPet(); }
+      else setState(applyDecay(s, Date.now()), true);
     });
     // 다른 기기에서 밥을 주거나 놀아 줬다(동기화)
     return appEvents.on("syncChanged", ({ colls }) => {
-      if (!colls.includes("setting")) return;
+      if (colls.includes("pet")) void refreshPet();
+      if (!colls.includes("setting") || petGauge().supported) return;
       void loadState().then((remote) => {
         const next = newerRemote(remote, stateRef.current, Date.now());
         if (!next) return;
@@ -145,7 +158,9 @@ export function useCatRpg() {
   // 1분 틱
   useEffect(() => {
     const id = setInterval(() => {
-      setState(applyDecay(stateRef.current, Date.now()));
+      // 서버 기준이면 다시 그리기만(값은 기준에서 낸다) + 못 보낸 행동 다시 보내기
+      if (petGauge().supported) { setNow(Date.now()); void flushPet(); }
+      else setState(applyDecay(stateRef.current, Date.now()));
     }, TICK_MS);
     return () => clearInterval(id);
   }, [setState]);
@@ -160,6 +175,7 @@ export function useCatRpg() {
   // ── Actions ──────────────────────────────────────────────────────────────
 
   const feed = useCallback(() => {
+    if (petDo("feed")) return;
     const s = stateRef.current;
     setState({
       ...s,
@@ -171,17 +187,20 @@ export function useCatRpg() {
   }, [setState]);
 
   const playAction = useCallback(() => {
+    if (petDo("play")) return;
     const s = stateRef.current;
     setState({ ...s, play: clamp(s.play + 20), lastTick: new Date().toISOString() }, true);
   }, [setState]);
 
   const pet = useCallback(() => {
+    if (petDo("pet")) return;
     const s = stateRef.current;
     setState({ ...s, play: clamp(s.play + 10) });
   }, [setState]);
 
   // 에이전트 완료, 메모/할 일 추가 등 간접 보상
   const reward = useCallback((amount: number) => {
+    if (petDo("reward", amount)) return;
     const s = stateRef.current;
     setState({ ...s, play: clamp(s.play + amount) });
   }, [setState]);
@@ -192,5 +211,10 @@ export function useCatRpg() {
     setState({ ...s, hunger: clamp(s.hunger - 3) });
   }, [setState]);
 
-  return { state, dayCount, canFeed, feed, playAction, pet, reward, consume };
+  // 서버 기준이 있으면 놀이·밥 횟수는 거기서(행동 직후엔 gauge 가 바뀌어 다시 그린다)
+  void gauge;
+  const view = petView(Math.max(now, Date.now()));
+  const shown = view ? { ...state, play: view.play, feedCountToday: view.feeds } : state;
+
+  return { state: shown, dayCount, canFeed, feed, playAction, pet, reward, consume };
 }
