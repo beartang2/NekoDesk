@@ -11,7 +11,7 @@ import { CHASE_BELOW, pickByNeeds } from "./director/needs";
 import { useNekoNeeds } from "./director/needsStore";
 import { createScheduler, realClock, type Scheduler } from "./director/scheduler";
 import { onNekoSignal, useNekoApp, useNekoSessions } from "./director/stores";
-import { noteLabel, setShownNeeds } from "./selfState";
+import { noteLabel } from "./selfState";
 import { setActController } from "./nekoAct";
 import type { DirectorInput } from "./director/types";
 import { emotionPlan } from "./emotionMap";
@@ -65,7 +65,6 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
 
   useEffect(() => {
     ctrl?.setNeeds({ hunger: needs.hunger, play: needs.play });
-    setShownNeeds(needs); // 네코가 제 상태를 볼 때(neko/selfState)
     syncBoxRef.current();
     schRef.current?.update();
   }, [ctrl, needs.hunger, needs.play]);

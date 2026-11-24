@@ -362,7 +362,7 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
   // 네코 안에서만 쓰는 도구(agent-context INTERNAL_TOOLS): 결과는 모델만 본다 — 채팅 도구 표시·네코 동작·대화 기록에 안 나온다
   "neko.self": {
     name: "neko.self",
-    description: "네 지금 모습·털 색, 있는 곳, 하고 있는 일, 게이지(배고픔·놀이·기운 등), 잠·산책 상태, 최근 몇 시간 한 일을 본다",
+    description: "네 지금 모습, 있는 곳, 하고 있는 일, 잠·산책 상태, 최근 몇 시간 한 일을 본다",
     params: NO_PARAMS,
     readOnly: true,
     execute: () => selfStateText(),

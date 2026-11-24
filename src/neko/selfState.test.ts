@@ -48,20 +48,19 @@ describe("최근 행동 기록", () => {
 });
 
 describe("neko.self 결과", () => {
-  it("모습·털 색·자리·지금 하는 일·게이지·최근 기록을 사람이 읽는 말로", async () => {
-    const { noteLabel, selfStateText, setShownNeeds, useNekoStore } = await fresh();
+  it("모습(털 색 포함)·자리·지금 하는 일·최근 기록을 사람이 읽는 말로, 게이지는 싣지 않는다", async () => {
+    const { noteLabel, selfStateText, useNekoStore } = await fresh();
     useNekoStore.setState({ appearance: { ...useNekoStore.getState().appearance, coat: "cheese", patterns: ["tabby"], eye: "green", ear: "fold", tail: "bob", legs: "short" } });
     useNekoStore.setState({ stage: { ...useNekoStore.getState().stage, placement: "dock" } });
-    setShownNeeds({ hunger: 42, play: 15 });
     noteLabel("캣휠 달리는 중", min(0));
     const text = await selfStateText(min(1));
     expect(text).toContain("모습: 치즈 · 줄무늬 · 연두 눈");
     expect(text).toContain("접힌 귀 · 짧은 꼬리 · 짧은 다리");
-    expect(text).toContain("털 색: #e2984a");
+    expect(text).toMatch(/^모습: .* · 털 색 #e2984a$/m);
     expect(text).toContain("있는 곳: 거실");
     expect(text).toContain("지금: 캣휠 달리는 중");
     expect(text).toContain("상태: 깨어 있음");
-    expect(text).toContain("배고픔 42(낮을수록 배고픔) · 놀이 15(낮을수록 심심함)");
+    expect(text).not.toMatch(/게이지|배고픔|심심함/);
     expect(text).toContain("- 14:00– 캣휠 달리는 중(지금)");
     // 직접 고를 수 있는 행동(neko.act) — 무대(감독)가 없으면 왜 못 하는지
     expect(text).toContain("지금 할 수 있는 행동(neko.act): 없음(지금은 무대에 없어서 못 해)");

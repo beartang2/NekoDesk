@@ -2,7 +2,6 @@ import { settingsApi } from "../api/tauri";
 import { heartLines, heartNow, loadHeart, untoldSecrets } from "../agent/neko-heart";
 import { timeZone } from "../lib/time";
 import { walkEnd, walkStart, type Walk } from "../lib/walk";
-import { useNekoNeeds } from "./director/needsStore";
 import { useNekoApp } from "./director/stores";
 import { PLACE_NAME } from "./gifts";
 import { useNekoStore } from "./nekoStore";
@@ -30,7 +29,6 @@ const JOIN_MS = 60_000;
 export interface SelfEntry { at: number; end: number; label: string }
 
 let cur: { label: string; at: number } | null = null;
-let shown = { hunger: 100, play: 100 };
 
 function read(): SelfEntry[] {
   try {
@@ -62,11 +60,6 @@ export function noteMoment(label: string, now = Date.now()): void {
   const list = read().filter((e) => e.end > now - SELF_LOG_MS);
   list.push({ at: now, end: now, label });
   write(list.slice(-MAX));
-}
-
-/** 화면에 보이는 배고픔·놀이 게이지(감독이 넘긴다 — 배고픔은 대화 길이에서 나와 앱이 계산한다) */
-export function setShownNeeds(n: { hunger: number; play: number }): void {
-  shown = n;
 }
 
 const hm = (t: number) => new Date(t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: timeZone() });
@@ -101,27 +94,24 @@ export async function recentDoings(now = Date.now()): Promise<string> {
   return rows.sort((a, b) => a.at - b.at).map((r) => r.line).join("\n");
 }
 
-const EAR = { pointy: "뾰족 귀", round: "동글 귀", fold: "접힌 귀" } as const;
-const TAIL = { long: "길쭉 꼬리", fluffy: "복슬 꼬리", bob: "짧은 꼬리" } as const;
-const LEGS = { short: "짧은 다리", normal: "보통 다리", long: "긴 다리" } as const;
+const EAR = { pointy: "뾰족한 귀", round: "동그란 귀", fold: "접힌 귀" } as const;
+const TAIL = { long: "평범한 꼬리", fluffy: "복슬 꼬리", bob: "짧은 꼬리" } as const;
+const LEGS = { short: "짧은 다리", normal: "평범한 다리", long: "긴 다리" } as const;
 const BIG = { awake: "깨어 있음", sleep: "졸거나 자는 중", walk: "산책 중", eat: "밥 먹는 중" } as const;
 
-/** 내부 도구 neko.self 의 결과: 지금 네 모습·자리·하는 일·게이지와 최근 기록 */
+/** 내부 도구 neko.self 의 결과: 지금 네 모습·자리·하는 일과 최근 기록 */
 export async function selfStateText(now = Date.now()): Promise<string> {
   const { appearance: a, stage } = useNekoStore.getState();
-  const n = useNekoNeeds.getState().needs;
   const app = useNekoApp.getState();
   const doing = cur?.label ?? "알 수 없음";
   const recent = await recentDoings(now);
   const heart = await loadHeart().catch(() => heartNow());
   const untold = untoldSecrets(heart).length;
   return [
-    `모습: ${summarizeAppearance(a)} · ${EAR[a.ear]} · ${TAIL[a.tail]} · ${LEGS[a.legs]} · 말랑함 ${Math.round(a.soft * 100)}/100`,
-    `털 색: ${coatSwatch(a)}`,
+    `모습: ${summarizeAppearance(a)} · ${EAR[a.ear]} · ${TAIL[a.tail]} · ${LEGS[a.legs]} · 말랑함 ${Math.round(a.soft * 100)}/100 · 털 색 ${coatSwatch(a)}`,
     `있는 곳: ${PLACE_NAME[stage.placement]}${app.screenHidden ? "(사용자가 숨겨 둠)" : ""}`,
     `지금: ${doing}`,
     `상태: ${BIG[bigState()]}`,
-    `게이지(0–100): 배고픔 ${Math.round(shown.hunger)}(낮을수록 배고픔) · 놀이 ${Math.round(shown.play)}(낮을수록 심심함) · 기운 ${Math.round(n.energy)} · 호기심 ${Math.round(n.curiosity)} · 청결 ${Math.round(n.clean)} · 애정 ${Math.round(n.affection)}`,
     `최근 ${SELF_LOG_MS / 3_600_000}시간 한 일:\n${recent || "- 기록 없음"}`,
     // 성격(docs/neko-heart.md §5): 사건 수 많은 순 12개, 털어놓은 비밀까지. 아직 말 안 한 비밀은 수만 — 내용은 첫마디로 털어놓을 때까지 모른다
     `내 성격:\n${heartLines(heart, { secrets: "told", max: 12 }) || "- 아직 굳은 것 없음"}`,
