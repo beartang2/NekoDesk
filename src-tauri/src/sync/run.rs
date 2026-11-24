@@ -692,6 +692,38 @@ pub async fn walk_end(db: State<'_, DbState>, start: i64, end: i64) -> Result<()
     Ok(())
 }
 
+// ── 놀이 게이지(화면의 useCatRpg): 서버가 하나로 계산한다(§4.7) ───────────────────
+
+#[derive(Serialize)]
+pub struct PetSeen {
+    /// 서버가 놀이 게이지를 안다(새 Worker)·동기화가 켜져 있다. false 면 화면은 예전 방식(기기마다 cat_rpg_state)
+    supported: bool,
+    pet: Option<SharedPet>,
+}
+
+/// 동기화가 받아 둔 놀이 게이지 기준
+#[tauri::command(async)]
+pub fn pet_shared(db: State<'_, DbState>) -> Result<PetSeen, AppError> {
+    let c = db.0.lock()?;
+    let got = if enabled(&c) { stored_pet(&c)? } else { None };
+    Ok(PetSeen { supported: got.is_some(), pet: got.flatten() })
+}
+
+/// 행동(놀아 주기·쓰다듬기·보상·밥)을 서버에 보낸다. acts = [{ kind, at, id, n? }], init = 서버에 기준이 없을 때 이 기기 값.
+/// 새 기준을 적고 돌려준다. 못 보내면 오류 — 화면이 모아 두었다 다시 보낸다(같은 id 는 서버가 한 번만 적용한다)
+#[tauri::command]
+pub async fn pet_act(db: State<'_, DbState>, acts: Value, init: Option<Value>) -> Result<Option<SharedPet>, AppError> {
+    let srv = server(&*db.0.lock()?)?.ok_or_else(|| AppError::msg("동기화가 꺼져 있습니다."))?;
+    #[derive(Deserialize)]
+    struct Resp {
+        pet: Option<SharedPet>,
+    }
+    let body = serde_json::json!({ "acts": acts, "init": init });
+    let resp: Resp = call(reqwest::Method::POST, &srv.url, "/v1/pet/act", Some(&srv.token), &body).await?;
+    store_pet(&*db.0.lock()?, resp.pet.as_ref())?;
+    Ok(resp.pet)
+}
+
 // ── 세션 목록(화면의 sessionStore) ───────────────────────────────────────────
 
 #[tauri::command(async)]

@@ -2017,6 +2017,8 @@ pub fn run() {
             sync::run::walk_shared,
             sync::run::walk_claim,
             sync::run::walk_end,
+            sync::run::pet_shared,
+            sync::run::pet_act,
             #[cfg(desktop)]
             sync::run::sync_pair_qr,
             #[cfg(target_os = "ios")]

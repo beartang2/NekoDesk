@@ -275,7 +275,7 @@ fn records_sealed_with_another_key_are_skipped_and_counted() {
     let recs = push_all(&a, "A");
     // B 는 다른 암호 키를 들고 있다(dev 빌드가 키체인의 열쇠를 덮은 뒤 연결된 기기처럼)
     let srv = Server { url: String::new(), token: String::new(), device: "B".into(), key: [7u8; 32] };
-    let resp = SyncResp { records: recs.clone(), seq: 9, more: false, rejected: Vec::new(), reset: false, walk: None };
+    let resp = SyncResp { records: recs.clone(), seq: 9, more: false, rejected: Vec::new(), reset: false, walk: None, pet: None };
     settle(&b, &srv, &[], &resp, &mut Changes::default()).unwrap();
     assert!(todos::list_open(&b).unwrap().is_empty(), "못 푼 기록은 적용되지 않는다");
     assert_eq!(state_i64(&b, "skipped").unwrap(), recs.len() as i64, "건너뛴 수를 남긴다(설정이 알린다)");
@@ -292,7 +292,7 @@ fn the_shared_walk_from_the_server_is_kept_and_reported_once() {
     let c = db();
     let srv = Server { url: String::new(), token: String::new(), device: "B".into(), key: KEY };
     let walk = SharedWalk { start: 1000, end: 2000, device: "A".into() };
-    let with = |w: Option<SharedWalk>| SyncResp { records: Vec::new(), seq: 1, more: false, rejected: Vec::new(), reset: false, walk: w };
+    let with = |w: Option<SharedWalk>| SyncResp { records: Vec::new(), seq: 1, more: false, rejected: Vec::new(), reset: false, walk: w, pet: None };
     let mut ch = Changes::default();
     settle(&c, &srv, &[], &with(Some(walk.clone())), &mut ch).unwrap();
     assert!(ch.colls.contains("walk"), "다른 기기의 산책을 화면에 알린다");
@@ -1012,4 +1012,30 @@ fn wallpaper_and_memory_settings_reach_the_other_device_and_a_joining_device_doe
     let all_a = { a.execute("UPDATE sync_meta SET dirty = 1 WHERE coll = 'setting'", []).unwrap(); push_all(&a, "A") };
     apply_all(&c, "C", &all_a);
     assert_eq!(settings::get(&c, "neko_wallpaper").unwrap().as_deref(), Some("twotone"));
+}
+
+#[test]
+fn pet_gauge_from_sync_response_new_server_null_and_old_server() {
+    let c = db();
+    let srv = Server { url: String::new(), token: String::new(), device: "A".into(), key: KEY };
+    let settle_with = |json: &str| {
+        let resp: SyncResp = serde_json::from_str(json).unwrap();
+        let mut ch = Changes::default();
+        settle(&c, &srv, &[], &resp, &mut ch).unwrap();
+        ch.colls.contains("pet")
+    };
+    // 옛 서버: 칸이 없다 → 모른다(화면은 예전 방식)
+    assert!(!settle_with(r#"{"records":[],"seq":1}"#));
+    assert_eq!(stored_pet(&c).unwrap(), None);
+    // 새 서버인데 아직 기준이 없다 → 안다, 값은 없음
+    assert!(settle_with(r#"{"records":[],"seq":1,"pet":null}"#));
+    assert_eq!(stored_pet(&c).unwrap(), Some(None));
+    // 기준이 왔다 → 화면에 알린다. 같은 값이면 다시 알리지 않는다
+    let pet = r#"{"records":[],"seq":1,"pet":{"play":62.5,"at":1700000000000,"feeds":2,"day":"2026-11-24"}}"#;
+    assert!(settle_with(pet));
+    assert!(!settle_with(pet));
+    assert_eq!(stored_pet(&c).unwrap().unwrap().unwrap(), SharedPet { play: 62.5, at: 1_700_000_000_000, feeds: 2, day: "2026-11-24".into() });
+    // 옛 서버로 돌아갔다 → 적어 둔 것을 지워 예전 방식으로
+    assert!(settle_with(r#"{"records":[],"seq":1}"#));
+    assert_eq!(stored_pet(&c).unwrap(), None);
 }
