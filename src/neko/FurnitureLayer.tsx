@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { drawFurniture, furnitureBox } from "./engine/furniture-art";
 import { furnitureSlots, hitDecorAt } from "./engine/decor-draw";
 import { stageS } from "./engine/stage-scale";
-import { placedAt, useNekoFurniture } from "./furniture";
+import { holdTops, placedAt, useNekoFurniture } from "./furniture";
 import { decorItems, useNekoGifts } from "./gifts";
 import { useAccent, useFurnitureHeld, useLamps } from "./furnitureHost";
 import { useSkyLight } from "./Wallpaper";
@@ -86,7 +86,9 @@ export function FurnitureLayer({ place, still = false, onMenu }: {
       const x = e.clientX - r.left, y = e.clientY - r.top, L = live.current;
       const p = [...L.placed].reverse().find((q) => x >= q.box.x && x <= q.box.x + q.box.w && y >= q.box.y && y <= q.box.y + q.box.h);
       if (!p) return null;
-      if (hitDecorAt(decorItems(useNekoGifts.getState().gifts, place), { W: L.w, floorY: L.floorY, scale: L.S }, x, y) !== null) return null;
+      // 선물이 먼저(가구 위에 얹힌 것도 — 그 면 자리로 잰다)
+      const tops = holdTops(useNekoFurniture.getState().items, place, L.w, L.floorY, L.S);
+      if (hitDecorAt(decorItems(useNekoGifts.getState().gifts, place), { W: L.w, floorY: L.floorY, scale: L.S, tops }, x, y) !== null) return null;
       return { p, x, y };
     };
     const open = (id: string) => {

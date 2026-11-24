@@ -7,6 +7,7 @@ import { useWeatherNow } from "./weatherNow";
 import { useNekoController } from "./nekoHost";
 import { useNekoStore } from "./nekoStore";
 import { decorItems, useNekoGifts } from "./gifts";
+import { holdTops, useNekoFurniture } from "./furniture";
 import { WINDOW_PAD, WINDOW_SILL, drawWindow, skyAt, weatherKind, type WeatherKind, type WindowState } from "./weatherWindowDraw";
 import "./WeatherWindow.css";
 
@@ -95,7 +96,8 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
       if (here && c && (c.hit(x, y) || c.hitDecor(x, y) !== null)) return;
       if (!here && place === "sidebar") { // 빈 방: 정지 그림(RoomGifts)의 선물 위
         const W = box.width, floorY = box.height - 6, scale = stageS(W, floorY);
-        if (hitDecorAt(decorItems(useNekoGifts.getState().gifts, "sidebar"), { W, floorY, scale }, x, y) !== null) return;
+        const tops = holdTops(useNekoFurniture.getState().items, "sidebar", W, floorY, scale); // 가구 위 선물은 그 면 자리
+        if (hitDecorAt(decorItems(useNekoGifts.getState().gifts, "sidebar"), { W, floorY, scale, tops }, x, y) !== null) return;
       }
       if (!live.current.weather) return; // 커튼이 닫혀 있으면(날씨 모름) 아무것도 안 띄운다(사용자)
       setBubble({ x: box.left + r.x + r.w / 2, y: box.top + r.y + r.h * 0.4, at: e.timeStamp });

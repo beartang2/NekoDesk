@@ -248,8 +248,9 @@ export function drawDecor(canvas, items, { W, H, floorY, scale, tops, dpr = 1, d
 }
 
 /** 놓인 물건마다 그린 칸(css px, 그린 순서). 누르기 판정과 '정리' 버튼 자리(엔진은 칸 오른쪽 위 x + w, y)에 쓴다 */
-export function decorBoxes(items, { W, floorY, scale }) {
-  return layoutAll(items, geomOf({ W, floorY, scale })).map(({ id, L }) => ({ id, x: L.x - L.w / 2, y: L.bottom - L.h, w: L.w, h: L.h }));
+// tops 를 꼭 넘긴다 — 빠지면 가구 위 선물이 아래 바닥 자리로 잡혔다(사용자: 탁자 위 물건을 집으면 바닥 위치로 잡힘)
+export function decorBoxes(items, { W, floorY, scale, tops }) {
+  return layoutAll(items, geomOf({ W, floorY, scale, tops })).map(({ id, L }) => ({ id, x: L.x - L.w / 2, y: L.bottom - L.h, w: L.w, h: L.h }));
 }
 
 /** 이 점(css px)이 놓인 물건 위면 그 id(위에 그린 것부터). drawDecor 와 같은 자리, 엔진 hitDecor 와 같은 여유 */

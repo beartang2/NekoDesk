@@ -151,6 +151,17 @@ describe("가구 윗면(탁자) 위 자리", () => {
     expect(x).toBeCloseTo(320 - 15, 6);
     expect(decorAt(d, 20, { ...g, tops: [] }, 30)).toEqual(decorAt({ surface: "floor", u: 0.3 }, 20, g, 30));
   });
+  it("누르기 칸(decorBoxes·hitDecorAt)도 면 위 — 보이는 자리에서 잡히고 아래 바닥에선 안 잡힌다(사용자: 탁자 위 물건을 집으면 바닥 위치로 잡힘)", () => {
+    const shape = { parts: [{ t: "circle" as const, x: 0, y: -8, r: 8, c: "red" }] };
+    const item = { id: "a", shape, size: "small" as const, surface: "furniture" as const, fid: "base:table", i: 0, fu: 0.5, u: 0.3 };
+    const view = { W: 760, floorY: 164, scale: 0.68, tops: g.tops };
+    const [b] = decorBoxes([item], view);
+    expect(b.y + b.h).toBeCloseTo(115, 6); // 칸 바닥 = 상판
+    expect(b.x + b.w / 2).toBeCloseTo(285, 6);
+    expect(hitDecorAt([item], view, 285, 115 - b.h / 2)).toBe("a");
+    const [fx] = decorAt({ surface: "floor", u: 0.3 }, b.h, g, b.w);
+    expect(hitDecorAt([item], view, fx, 164 - b.h / 2)).toBeNull(); // 아래 바닥 자리
+  });
 });
 
 describe("떨어진 액자(0.1.28)", () => {

@@ -19,6 +19,7 @@ vi.mock("./engine/decor-draw", async (orig) => ({ ...(await orig<object>()), dra
 
 import { RoomGifts } from "./NekoRoom";
 import { decorM } from "./engine/decor-draw";
+import { holdTops, useNekoFurniture } from "./furniture";
 import { stageS } from "./engine/stage-scale";
 
 /** 방 280×200 에서 물건 가운데 x 의 바닥 비율 자리 */
@@ -164,6 +165,22 @@ describe("빈 방의 선물(RoomGifts)", () => {
       tap(cv(), 12);
       expect(h.place).not.toHaveBeenCalled();
     } finally { h.gifts[0] = g0; }
+  });
+
+  it("탁자 위 물건은 보이는 자리(상판 위)에서 잡히고, 아래 바닥을 누르면 안 잡힌다(사용자: 탁자 위 물건을 집으면 바닥 위치로 잡힘)", () => {
+    const g0 = [...h.gifts], f0 = useNekoFurniture.getState().items;
+    try {
+      useNekoFurniture.setState({ items: [{ id: "base:table", kind: "table", place: { at: "sidebar", slot: 0 } }] });
+      const S = stageS(280, 194), top = holdTops(useNekoFurniture.getState().items, "sidebar", 280, 194, S)[0], cx = (top.x0 + top.x1) / 2;
+      h.gifts.splice(0, h.gifts.length, { ...g0[0], id: "t", placed: { at: "sidebar", surface: "furniture", u: uOf(cx), fid: "base:table", i: 0, fu: 0.5 } as typeof g0[0]["placed"] });
+      const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas:not(.neko-room__gifts--wall)")!;
+      fireEvent.pointerDown(cv, { clientX: cx, clientY: 190, button: 0, pointerId: 21, pointerType: "mouse" }); // 아래 바닥
+      expect(document.documentElement.dataset.holding).toBeUndefined();
+      fireEvent.pointerDown(cv, { clientX: cx, clientY: top.y - 8, button: 0, pointerId: 22, pointerType: "mouse" }); // 상판 위 그림
+      expect(document.documentElement.dataset.holding).toBe("1");
+      expect(h.drag).toMatchObject({ bottom: top.y });
+      fireEvent.pointerUp(cv, { clientX: cx, clientY: top.y - 8, pointerId: 22, pointerType: "mouse" });
+    } finally { h.gifts.splice(0, h.gifts.length, ...g0); useNekoFurniture.setState({ items: f0 }); }
   });
 
   it("구르는 중에 방이 닫혀도(사라짐) 그 자리를 저장한다", () => {
