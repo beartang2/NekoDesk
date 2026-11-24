@@ -99,24 +99,28 @@ const TAIL = { long: "평범한 꼬리", fluffy: "복슬 꼬리", bob: "짧은 �
 const LEGS = { short: "짧은 다리", normal: "평범한 다리", long: "긴 다리" } as const;
 const BIG = { awake: "깨어 있음", sleep: "졸거나 자는 중", walk: "산책 중", eat: "밥 먹는 중" } as const;
 
+/** 한 줄 만들기가 실패해도(이상한 저장 값·대리 엔진) 그 줄만 '알 수 없음'으로 — 나머지 줄은 돌려준다(0.1.32: 한 곳 오류로 통째 실패) */
+async function part(make: () => string | Promise<string>, fallback = "알 수 없음"): Promise<string> {
+  try { return await make(); } catch { return fallback; }
+}
+
 /** 내부 도구 neko.self 의 결과: 지금 네 모습·자리·하는 일과 최근 기록 */
 export async function selfStateText(now = Date.now()): Promise<string> {
-  const { appearance: a, stage } = useNekoStore.getState();
-  const app = useNekoApp.getState();
-  const doing = cur?.label ?? "알 수 없음";
-  const recent = await recentDoings(now);
   const heart = await loadHeart().catch(() => heartNow());
-  const untold = untoldSecrets(heart).length;
-  return [
-    `모습: ${summarizeAppearance(a)} · ${EAR[a.ear]} · ${TAIL[a.tail]} · ${LEGS[a.legs]} · 말랑함 ${Math.round(a.soft * 100)}/100 · 털 색 ${coatSwatch(a)}`,
-    `있는 곳: ${PLACE_NAME[stage.placement]}${app.screenHidden ? "(사용자가 숨겨 둠)" : ""}`,
-    `지금: ${doing}`,
-    `상태: ${BIG[bigState()]}`,
-    `최근 ${SELF_LOG_MS / 3_600_000}시간 한 일:\n${recent || "- 기록 없음"}`,
+  const untold = await part(() => String(untoldSecrets(heart).length), "0");
+  return (await Promise.all([
+    part(() => {
+      const a = useNekoStore.getState().appearance;
+      return `모습: ${summarizeAppearance(a)} · ${EAR[a.ear]} · ${TAIL[a.tail]} · ${LEGS[a.legs]} · 말랑함 ${Math.round(a.soft * 100)}/100 · 털 색 ${coatSwatch(a)}`;
+    }, "모습: 알 수 없음"),
+    part(() => `있는 곳: ${PLACE_NAME[useNekoStore.getState().stage.placement]}${useNekoApp.getState().screenHidden ? "(사용자가 숨겨 둠)" : ""}`, "있는 곳: 알 수 없음"),
+    part(() => `지금: ${cur?.label ?? "알 수 없음"}`),
+    part(() => `상태: ${BIG[bigState()]}`, "상태: 알 수 없음"),
+    part(async () => `최근 ${SELF_LOG_MS / 3_600_000}시간 한 일:\n${(await recentDoings(now)) || "- 기록 없음"}`, "최근 한 일: 알 수 없음"),
     // 속마음(docs/neko-heart.md §5): 사건 수 많은 순 12개, 털어놓은 비밀까지. 아직 말 안 한 비밀은 수만 — 내용은 첫마디로 털어놓을 때까지 모른다
-    `내 속마음:\n${heartLines(heart, { secrets: "told", max: 12 }) || "- 아직 굳은 것 없음"}`,
-    ...(untold ? [`아직 말하지 않은 비밀: ${untold}개(내용은 지금 떠오르지 않는다)`] : []),
+    part(() => `내 속마음:\n${heartLines(heart, { secrets: "told", max: 12 }) || "- 아직 굳은 것 없음"}`, "내 속마음: 알 수 없음"),
+    untold !== "0" ? `아직 말하지 않은 비밀: ${untold}개(내용은 지금 떠오르지 않는다)` : "",
     // 직접 고를 수 있는 행동(neko.act) — 이 자리에서 지금 되는 것만. 도구 표와 고리가 생기지 않게 쓸 때 불러온다
-    `지금 할 수 있는 행동(neko.act): ${(await import("./nekoAct")).actOptionsText()}`,
-  ].join("\n");
+    part(async () => `지금 할 수 있는 행동(neko.act): ${(await import("./nekoAct")).actOptionsText()}`, "지금 할 수 있는 행동(neko.act): 알 수 없음"),
+  ])).filter(Boolean).join("\n");
 }

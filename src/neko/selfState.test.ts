@@ -76,4 +76,33 @@ describe("neko.self 결과", () => {
     expect(text).not.toContain("몰래 하는 것");
     expect(text).toContain("아직 말하지 않은 비밀: 1개");
   });
+
+  it("마당(화면 자리)의 대리 엔진이 모르는 칸에 함수를 돌려줘도 행동 줄이 나온다(0.1.32: i.map is not a function 으로 통째 실패)", async () => {
+    const { selfStateText } = await fresh();
+    const { setActController } = await import("./nekoAct");
+    // remoteNeko 대리처럼: 아는 칸만 값, 나머지는 화면 창에 보내는 함수
+    setActController(new Proxy({}, { get: (_, k) => (k === "decorCount" ? 0 : k === "towerOk" ? false : () => undefined) }) as never);
+    const text = await selfStateText(min(1));
+    expect(text).toMatch(/지금 할 수 있는 행동\(neko\.act\): .*\(yarn\)/);
+    expect(text).not.toContain("is not a function");
+  });
+
+  it("옛 형식·빈 값·이상한 저장 값을 견디고, 한 줄이 실패해도 나머지 줄은 돌려준다", async () => {
+    for (const [key, raw] of [["neko_heart2", "[]"], ["neko_heart2", "null"], ["neko_heart2", '"글"'], ["neko_heart2", '{"traits":{"a":1}}'],
+      ["neko_heart2", '{"traits":[null,1,"x",{"id":"a"}]}'], ["neko_heart", '{"traits":"옛 값"}'], ["neko_heart2", "{망가짐"]] as const) {
+      const { selfStateText } = await fresh();
+      h.settings.clear();
+      h.settings.set(key, raw);
+      const text = await selfStateText(min(1));
+      expect(text, raw).toContain("내 속마음:\n- 아직 굳은 것 없음");
+      expect(text, raw).toContain("상태: 깨어 있음");
+    }
+    // 모습 값이 망가져도(다른 기기·옛 버전에서 온 외형) 그 줄만 알 수 없음
+    const { selfStateText, useNekoStore } = await fresh();
+    useNekoStore.setState({ appearance: { ...useNekoStore.getState().appearance, patterns: "줄무늬" as never } });
+    const text = await selfStateText(min(1));
+    expect(text).toContain("모습: 알 수 없음");
+    expect(text).toContain("있는 곳:");
+    expect(text).toContain("지금 할 수 있는 행동(neko.act):");
+  });
 });

@@ -44,9 +44,16 @@ function stateBlock(): string | null {
 /** 활동마다 지금 되는지와 안 되는 까닭 */
 export function actOptions(): { key: NekoActivity; why: string | null }[] {
   const all = stateBlock();
-  const c = ctrlNow as unknown as { furniture?: { kind: string; uses?: string[] }[]; decorCount?: number; towerOk?: boolean } | null;
-  const furn = c?.furniture ?? [];
-  const where = { hasGifts: !!c?.decorCount, towerOk: c?.towerOk === true, furniture: furn.map((f) => f.kind), furnitureUses: furn.flatMap((f) => f.uses ?? []), lampWant: true };
+  const c = ctrlNow as unknown as { furniture?: unknown; decorCount?: unknown; towerOk?: unknown } | null;
+  // 마당(화면 자리)의 엔진은 대리(remoteNeko Proxy)라 모르는 칸을 물으면 배열 대신 함수를 돌려준다 — 그대로 .map 하면
+  // "i.map is not a function" 으로 neko.self 가 통째로 실패했다(0.1.32, 사용자). 배열·숫자일 때만 믿는다(마당엔 가구가 없다)
+  const furn = (Array.isArray(c?.furniture) ? c.furniture : []) as { kind?: unknown; uses?: unknown }[];
+  const where = {
+    hasGifts: typeof c?.decorCount === "number" && c.decorCount > 0, towerOk: c?.towerOk === true,
+    furniture: furn.flatMap((f) => (typeof f?.kind === "string" ? [f.kind] : [])),
+    furnitureUses: furn.flatMap((f) => (Array.isArray(f?.uses) ? f.uses.filter((u): u is string => typeof u === "string") : [])),
+    lampWant: true,
+  };
   const energy = useNekoNeeds.getState().needs.energy;
   return SOLO_KEYS.map((key) => {
     const fills = (MIX as Record<string, { fills?: { energy?: number } }>)[key]?.fills;
