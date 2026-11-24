@@ -136,10 +136,19 @@ describe("산책 주제", () => {
 
 describe("2단계", () => {
   const CHOICES = [{ key: "trinket", label: "주운 것" }, { key: "weather", label: "날씨" }];
-  it("보기 중에서 고르면 그 이름, 보기 밖이면 null(지금 동작으로). 고른 것과 까닭은 노트에", async () => {
+  it("보기 중에서 고르면 그 이름, 보기 밖이면 null(지금 동작으로). 고른 갈래(선물 종류)는 노트에 안 남긴다 — 같이 떠올린 궁금만", async () => {
     h.reply = { pick: "weather", why: "비가 와서" };
     expect(await chooseAmong("walk_gift", "선물", CHOICES, [], MEMS)).toBe("weather");
-    expect((await loadMind()).notes[0]).toMatchObject({ kind: "chose", what: "walk_gift", text: "날씨", why: "비가 와서" });
+    expect((await loadMind()).notes).toEqual([]); // "고름: 날씨" 같은 줄은 속마음이 아니다(사용자)
+    h.reply = { pick: "weather", why: "비가 와서", note: { kind: "wonder", text: "비는 어디서 올까" } };
+    expect(await chooseAmong("walk_gift", "선물", CHOICES, [], MEMS)).toBe("weather");
+    expect((await loadMind()).notes.map((n) => [n.kind, n.text])).toEqual([["wonder", "비는 어디서 올까"]]);
+    // 예전에 적힌 선물 종류 고름은 읽을 때 버린다(산책 주제·그림 고름은 남는다)
+    const old = parseMind(JSON.stringify({ notes: [
+      { at: "2026-11-20T01:00:00Z", kind: "chose", what: "walk_gift", text: "놀이" },
+      { at: "2026-11-20T02:00:00Z", kind: "chose", what: "walk_topic", text: "새는 왜 깃털을 부풀릴까" },
+    ] }));
+    expect(old.notes.map((n) => n.text)).toEqual(["새는 왜 깃털을 부풀릴까"]);
     h.reply = { pick: "drawing", why: "" };
     expect(await chooseAmong("walk_gift", "선물", CHOICES, [], MEMS)).toBeNull();
   });
