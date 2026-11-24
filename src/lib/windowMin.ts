@@ -9,7 +9,8 @@ import { DOCK_H, useNekoStore } from "../neko/nekoStore";
  * 칸마다 잘리지 않을 높이:
  * - 사이드바: 대화 목록 몇 줄(.sidebar__list 의 min-height) + 그림판 제목 줄 + 나머지(새 대화·방·상태 띠) 그대로
  * - 채팅: 입력창 + 최근 메시지 몇 줄
- * - 오른쪽 패널: 카드 그대로, 포모도로는 접힌 한 줄, 메모는 min-height(자리가 모자랄 때 RightPanel 이 하는 모양)
+ * - 오른쪽 패널: 카드 그대로, 포모도로는 접힌 한 줄, 할 일·메모(보관함)는 본문 최소 높이(두 줄씩 — RightPanel.css, shrinkable)
+ *   — 자리가 모자랄 때 RightPanel 이 하는 모양
  *
  * 화면이 작아 다 못 담으면 거실이 먼저 줄어든다(--dock-max, 저장한 높이는 그대로). 그래도 모자라면 칸 안에서 스크롤한다(CSS).
  */
@@ -18,10 +19,18 @@ import { DOCK_H, useNekoStore } from "../neko/nekoStore";
 const LIST_MIN = 72;
 /** 입력창 위로 보이는 최근 메시지 몇 줄 */
 const CHAT_LINES = 120;
-/** .panel-card--memo 의 min-height(RightPanel.css)와 같다 */
-const MEMO_MIN = 100;
 /** 접힌 포모도로 본문 한 줄(.right-panel--tight .pomo-body: 버튼 28 + 위아래 6) */
 const POMO_TIGHT = 40;
+
+/**
+ * 카드가 지금보다 줄 수 있는 높이(px): 늘어나는 본문(.panel-card__body)마다 지금 높이 − CSS min-height. 할 일은 남는 자리를 다
+ * 쓰고, 메모·보관함은 정사각형에서 두 줄씩까지 준다(RightPanel.css). 창 최소 높이와 포모도로 펴기(RightPanel)가 같이 쓴다
+ */
+export function shrinkable(card: HTMLElement | null): number {
+  if (!card) return 0;
+  return [...card.querySelectorAll<HTMLElement>(".panel-card__body")]
+    .reduce((a, b) => a + Math.max(0, b.offsetHeight - (parseFloat(getComputedStyle(b).minHeight) || 0)), 0);
+}
 
 const shown = (e: Element | null): e is HTMLElement => e instanceof HTMLElement && e.offsetWidth > 40 && e.offsetHeight > 0;
 
@@ -69,7 +78,7 @@ export function topNeed(doc: Document = document): { need: number; row: number; 
   if (shown(right)) {
     const tight = right.classList.contains("right-panel--tight");
     fit(right, columnNeed(right, (c) => {
-      if (c.classList.contains("panel-card--memo")) return MEMO_MIN;
+      if (c.classList.contains("panel-card--todo") || c.classList.contains("panel-card--memo")) return c.offsetHeight - shrinkable(c);
       // 포모도로 본문은 카드가 펼쳐져 있을 때만 카드 높이에 든다(접혀 있으면 제목 줄뿐)
       const pomo = c.querySelector<HTMLElement>(".pomo-body");
       return pomo && !tight && c.offsetHeight > pomo.offsetHeight ? c.offsetHeight - pomo.offsetHeight + POMO_TIGHT : c.offsetHeight;

@@ -13,6 +13,7 @@ import type { Todo, ScheduleEvent } from "../agent/types";
 import type { DrawingGameState, DrawingGameActions } from "../hooks/useDrawingGame";
 import { createSwipeStepper } from "../lib/swipe";
 import { dbDate } from "../lib/time";
+import { shrinkable } from "../lib/windowMin";
 import { nekoNameOf, useSettingsStore } from "../stores/settingsStore";
 import "./RightPanel.css";
 
@@ -293,7 +294,7 @@ function TodoCard() {
   }
 
   return (
-    <div className="panel-card">
+    <div className="panel-card panel-card--todo">
       <div className="panel-card__header">
         ✓ TODO List
         <button
@@ -1410,8 +1411,8 @@ export function RightPanel({
   onResizeStart?: (e: React.MouseEvent) => void;
   isResizing?: boolean;
 }) {
-  // 자리가 모자라면(메모가 정사각형을 못 지키면) 포모도로를 한 줄로 접는다. 되돌리는 건 그만큼
-  // 자리가 생겼을 때만 — 접고 펴는 기준이 같으면 경계에서 깜빡인다. 산책 지도는 네코 자리로 옮겼다(WalkMap).
+  // 자리가 모자라면(할 일이 두 줄까지 줄고도 메모가 정사각형을 못 지키면) 포모도로를 한 줄로 접는다. 되돌리는 건 할 일에
+  // 그만큼 남는 자리가 생겼을 때만 — 접고 펴는 기준이 같으면 경계에서 깜빡인다. 산책 지도는 네코 자리로 옮겼다(WalkMap).
   const ref = useRef<HTMLElement>(null);
   const [tight, setTight] = useState(false);
   const tightRef = useRef(tight);
@@ -1426,10 +1427,8 @@ export function RightPanel({
       const pomoCard = pomo?.closest<HTMLElement>(".panel-card");
       if (!memo || !pomo || !pomoCard) return;
       const squeezed = memo.offsetHeight < memo.offsetWidth - 1 || panel.scrollHeight > panel.clientHeight;
-      const rowGap = parseFloat(getComputedStyle(panel).rowGap) || 0;
-      // 메모 바로 위 카드 아래로 남는 빈자리(메모는 margin-top: auto 로 바닥에 붙는다)
-      const above = (memo.previousElementSibling as HTMLElement | null) ?? pomoCard;
-      const room = memo.offsetTop - (above.offsetTop + above.offsetHeight) - rowGap;
+      // 할 일이 내줄 수 있는 자리(남는 자리를 다 쓰고 있다 — 두 줄 최소 위로 늘어난 만큼, lib/windowMin shrinkable)
+      const room = shrinkable(panel.querySelector<HTMLElement>(".panel-card--todo"));
       let next = tightRef.current;
       if (!next) fullPomoH.current = pomo.offsetHeight;
       if (next) {

@@ -1,6 +1,10 @@
 /* ── Right Panel ─────────────────────────────────────────────────────────────── */
 
 .right-panel {
+  /* 한 줄 높이: 할 일(체크 줄)·보관함(파일 줄). 두 줄 최소 높이와 창 최소 높이 계산(lib/windowMin)이 같이 쓴다 */
+  --todo-row: 16px;
+  --shelf-row: 19px;
+  container-type: inline-size; /* 메모 정사각형 = 카드 폭(100cqi) */
   display: flex;
   flex-direction: column;
   /* 카드 사이 틈. RightPanel 이 포모도로를 접을지 잴 때 이 값을 뺀다. */
@@ -9,8 +13,9 @@
      넓히고 안쪽 여백으로 되돌린다 — 카드 자리는 그대로다. */
   margin: -3px 0 0 -3px;
   padding: 3px var(--gutter) var(--gutter) 3px;
-  /* 자리가 모자라면 포모도로가 접히고(right-panel--tight), 길어지는 건 할 일 목록 안에서만 스크롤한다. 창 최소 높이
-     (lib/windowMin)가 접힌 모양을 다 담게 잡는다 — 화면이 작아 그것도 못 담을 때만 패널이 스크롤한다(잘리지 않게) */
+  /* 남는 세로 자리는 할 일 목록이 다 쓴다(사용자). 창이 작아지면 할 일이 먼저 두 줄까지 줄고(목록 안 스크롤), 그다음 포모도로가
+     접히고(right-panel--tight), 메모·보관함이 두 줄씩까지 줄어든다. 창 최소 높이(lib/windowMin)가 그 모양을 다 담게 잡는다 —
+     화면이 작아 그것도 못 담을 때만 패널이 스크롤한다(잘리지 않게) */
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -33,27 +38,54 @@
   flex-shrink: 0;
 }
 
-/* 메모는 맨 아래에 붙는 패널 폭만큼의 정사각형. 자리가 모자라면 산책 지도가 먼저
-   숨고, 다음에 포모도로가 접히고(RightPanel 이 잰다), 그래도 모자라면 이게 min-height 까지 납작해진다. */
+/* 할 일: 남는 세로 자리를 다 쓴다(사용자: 오른쪽 패널에 빈 자리가 있으면 할 일 목록이 최대한 넓게). 바탕 크기 0 에서 늘어나니
+   자리가 모자라면 이게 먼저 줄고, 두 줄 반(--todo-row × 2.5 + 줄 틈 둘 — 반 줄이 보여야 더 있다는 걸 안다)에서 멈춘다.
+   그 아래는 목록 안에서 스크롤 */
+.panel-card--todo {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+}
+.panel-card--todo > .panel-card__body {
+  flex: 1;
+  min-height: calc(2.5 * var(--todo-row) + 2 * 4px + 4px); /* 두 줄 반 + 줄 틈(.todo-list gap 4) 둘 + 아래 여백 4 */
+  display: flex;
+  flex-direction: column;
+}
+.panel-card--todo .todo-list {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+}
+
+/* 메모는 맨 아래 패널 폭만큼의 정사각형(바탕 크기 그대로). 자리가 모자라면 할 일이 먼저 줄고, 다음에 포모도로가 접히고
+   (RightPanel 이 잰다), 그래도 모자라면 메모·보관함이 두 줄씩 보이는 높이까지 납작해진다(사용자). 넘치는 건 칸 안에서 스크롤 */
 .panel-card--memo {
-  margin-top: auto;
-  flex: 0 1 auto;
-  aspect-ratio: 1;
-  min-height: 100px;
+  /* 정사각형은 aspect-ratio 가 아니라 바탕 크기(폭 = 100cqi)로 — aspect-ratio 면 자동 최소 높이가 폭이라 안 줄었다.
+     최소는 제목 줄 둘 + 메모 두 줄 + 보관함 두 줄 + 반 사이 틈 4 + 아래 여백 6. 자동 최소 높이에 맡기면 WebKit 은 바탕 크기에서
+     안 줄었다(크롬은 내용으로 줄었다) — 그래서 적어 둔다. 제목 줄 높이는 아래에서 13px 로 못 박는다 */
+  flex: 0 1 100cqi;
+  min-height: calc(2 * (10px + 6px + 13px) + (2 * 1.6 * 11px + 4px) + (2 * var(--shelf-row) + 2px + 4px) + 4px + 6px);
   display: flex;
   flex-direction: column;
 }
 
+.panel-card--memo .panel-card__header {
+  line-height: 13px; /* 최소 높이 계산(위)과 같게 — 기본(normal)과 같은 높이 */
+}
 .panel-card--memo .panel-card__body {
   flex: 1;
-  min-height: 0;
+  min-height: calc(2 * 1.6 * 11px + 4px); /* 메모 두 줄(.memo-input 11px · 줄 1.6) + 아래 여백 */
+  contain: size; /* 내용(파일 여러 줄·긴 메모)이 카드 최소 높이에 안 들게 — 최소는 위 min-height 뿐, 넘치면 안에서 스크롤 */
   display: flex;
 }
+.panel-card--memo .shelf__body {
+  min-height: calc(2 * var(--shelf-row) + 2px + 4px); /* 보관함 두 줄(+ 줄 틈 2 · 아래 여백 4) */
+}
 
-/* 정사각형을 가로로 반씩: 위는 메모, 아래는 임시 보관함. */
+/* 정사각형을 가로로 반씩: 위는 메모, 아래는 임시 보관함. 반은 제목 줄 + 본문 최소(두 줄)보다 작아지지 않는다 */
 .memo-half {
   flex: 1 1 0;
-  min-height: 0;
   display: flex;
   flex-direction: column;
 }
