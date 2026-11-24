@@ -59,3 +59,26 @@ describe("숨은 게이지 동기화", () => {
     expect(stored().born).toBe("2026-09-20");
   });
 });
+
+describe("숨은 게이지는 앞 기기가 계산한다", () => {
+  it("다른 기기가 앞이면 적지도 제 활동으로 채우지도 않고, 이 기기가 앞이 되면 이어 계산해 바로 적는다", async () => {
+    const { setFollowing } = await import("../lead");
+    db.kv.set("neko_needs", JSON.stringify({ energy: 50, curiosity: 50, clean: 50, affection: 50, at: Date.now() }));
+    await useNekoNeeds.getState().load();
+    expect(db.writes).toBe(0); // 저장된 값이 있으면 켰다고 다시 적지 않는다(낡은 값으로 앞 기기 것을 덮지 않게)
+    setFollowing(true);
+    const before = useNekoNeeds.getState().needs.curiosity;
+    for (let i = 0; i < 30; i++) useNekoNeeds.getState().tick(60_000, "awake", ["window"]); // 창밖 구경은 호기심을 채운다
+    expect(useNekoNeeds.getState().needs.curiosity).toBeLessThan(before); // 채우지 않고 줄기만
+    expect(db.writes).toBe(0);
+    // 앞 기기 값이 오면 그걸 따른다
+    db.kv.set("neko_needs", JSON.stringify({ energy: 90, curiosity: 90, clean: 90, affection: 90, at: Date.now() + 1 }));
+    appEvents.emit("syncChanged", { colls: ["setting"] });
+    await flush();
+    expect(useNekoNeeds.getState().needs.curiosity).toBeGreaterThan(85);
+    // 이 기기를 쓰기 시작했다: 받아 온 값에서 이어 가고 한 번 적는다
+    setFollowing(false);
+    expect(db.writes).toBe(1);
+    expect(stored().curiosity as number).toBeGreaterThan(85);
+  });
+});
