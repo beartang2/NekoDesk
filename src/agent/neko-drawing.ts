@@ -1,7 +1,7 @@
 import { memoryApi, settingsApi } from "../api/tauri";
 import { drawGift } from "./gift-draw";
 import type { Memory } from "./types";
-import { leaksFact, loadMind, mindMaterial, noteChose, recentInterests, think } from "./neko-mind";
+import { leaksFact, loadMind, mindMaterial, recentInterests, think } from "./neko-mind";
 import { shapeBounds, validateShape, type GiftPart, type GiftShape } from "../neko/engine/gift-shape";
 import { useNekoGifts } from "../neko/gifts";
 import { budgetBlockReason } from "../stores/claudeBudget";
@@ -110,7 +110,6 @@ async function pickTopic(): Promise<{ title: string; note: string } | null> {
   );
   const title = t?.pick.slice(0, 30) ?? "";
   if (!t || !title || leaksFact(title, all)) return null;
-  void noteChose("drawing", title, t.why, all).catch(() => {});
   const say = t.extra?.say;
   return { title, note: typeof say === "string" ? say.trim().slice(0, 200) : "" };
 }

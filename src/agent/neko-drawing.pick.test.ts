@@ -11,7 +11,6 @@ vi.mock("./neko-mind", () => ({
   mindMaterial: () => ["## 지금\n재료"],
   recentInterests: async () => [],
   leaksFact: () => false,
-  noteChose: async () => {},
 }));
 vi.mock("./gift-draw", () => ({ drawGift: m.drawGift }));
 vi.mock("../api/tauri", () => ({

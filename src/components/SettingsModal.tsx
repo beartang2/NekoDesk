@@ -1074,7 +1074,8 @@ const MEMORY_KIND_LABELS: Record<string, string> = {
   preference: "취향",
   project: "진행 중",
   reference: "자료",
-  neko: "산책",
+  // 산책에서 알게 된 것 + 속마음 굳히기가 기억으로 보낸 것(agent/heart-fold, docs/neko-heart.md §9)
+  neko: "네코",
 };
 
 /**
@@ -1220,13 +1221,13 @@ export function MemoriesSection() {
 
 const TIDY_AT = new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-const MIND_KIND: Record<NoteKind, string> = { wonder: "궁금", want: "하고 싶음", chose: "고름", dream: "꿈" };
+const MIND_KIND: Record<NoteKind, string> = { wonder: "궁금", want: "하고 싶음", dream: "꿈" };
 const MIND_AT = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric" });
 
 /**
- * 네코의 속마음(agent/neko-mind·neko-heart, docs/neko-mind.md·neko-heart.md). 위는 성격(좋아함·싫어함·버릇·겁냄·자기만의 규칙) —
+ * 네코의 속마음(agent/neko-mind·neko-heart, docs/neko-mind.md·neko-heart.md §9). 위는 관심사·교양·철학·성격·가치관·정체성 —
  * 쉴 때 하루 한 번 노트(사건)가 굳은 것, 하나씩 지울 수 있다(사용자 결정: 고치지는 않고 지우기만). 비밀은 접힌 칸, 눌러야 보인다
- * (사용자 결정). 아래는 노트 — 성격으로 굳은 것은 흐리게. 맥·폰이 같이 본다(neko_heart·neko_mind)
+ * (사용자 결정). 노트는 속마음이 아니라 정리의 재료라 접힌 칸에 둔다 — 정리된 것은 흐리게. 맥·폰이 같이 본다(neko_heart2·neko_mind)
  */
 export function MindNotesSection() {
   const name = useSettingsStore(nekoNameOf);
@@ -1267,11 +1268,11 @@ export function MindNotesSection() {
     <section className="settings-section">
       <h3 className="settings-section__title">{name}의 속마음</h3>
       <p className="settings-section__desc">
-        {josa(name, "이/가")} 어떤 고양이인지입니다. 졸 때 하루 한 번 최근 노트를 보고 좋아하는 것, 싫어하는 것, 버릇, 겁내는 것,
-        자기만의 규칙을 정리합니다. 이 성격이 산책·첫마디·놀이 고르기의 재료가 됩니다. 맥과 폰이 같이 씁니다.
+        {josa(name, "이/가")} 어떤 생각을 하는 고양이인지입니다. 졸 때 하루 한 번 최근 노트를 보고 관심사·교양·철학·성격·가치관·정체성을
+        정리하고, 알게 된 사실은 '기억하는 것'으로 옮깁니다. 맥과 폰이 같이 씁니다.
       </p>
       {byKind.length === 0 && secrets.length === 0 ? (
-        <div className="settings-empty">아직 굳은 성격이 없습니다.</div>
+        <div className="settings-empty">아직 굳은 속마음이 없습니다.</div>
       ) : (
         <div className="rule-list">
           {byKind.flatMap(([k, ts]) => ts.map((t) => traitRow(t, TRAIT_NAME[k])))}
@@ -1285,35 +1286,31 @@ export function MindNotesSection() {
           </div>
         </details>
       )}
-      <p className="settings-section__desc">
-        아래는 {josa(name, "이/가")} 고르며 남긴 짧은 노트입니다. 궁금한 것, 하고 싶은 것, 고른 까닭이 다음 선택의 재료가 되고,
-        성격으로 굳은 노트는 흐리게 보입니다.
-      </p>
-      {notes.length === 0 ? (
-        <div className="settings-empty">아직 남긴 노트가 없습니다.</div>
-      ) : (
-        <div className="rule-list">
-          {page.shown.map((n) => {
-            // 기억 목록처럼 눌러서 펼친다(쪽을 넘기면 접힌다)
-            // 고른 것(산책 주제·그림)은 성격으로 굳히지 않는다(agent/heart-fold)
-            const id = `${n.at}${n.text}`, isOpen = page.open.has(id), done = n.kind !== "chose" && Date.parse(n.at) <= folded;
-            return (
-              <div className={`rule-row${isOpen ? " memory-row--open" : ""}${done ? " mind-row--folded" : ""}`} key={id}>
-                <span className="memory-row__kind">{MIND_KIND[n.kind]}</span>
-                <button type="button" className="memory-row__text" aria-expanded={isOpen} onClick={() => page.toggle(id)}>
-                  <span className="rule-row__key">{n.text}{n.why ? ` — ${n.why}` : ""}</span>
-                </button>
-                <span className="mind-row__at">{done ? "성격으로 굳음 · " : ""}{MIND_AT.format(new Date(n.at))}</span>
-                <IconButton label="지우기" danger onClick={() => void remove(n)}><Trash2 size={12} /></IconButton>
-              </div>
-            );
-          })}
-        </div>
+      {notes.length > 0 && (
+        <details className="memory-tidy-log">
+          <summary>최근 노트 {notes.length}개</summary>
+          <div className="rule-list">
+            {page.shown.map((n) => {
+              // 기억 목록처럼 눌러서 펼친다(쪽을 넘기면 접힌다). 정리된 노트는 흐리게만
+              const id = `${n.at}${n.text}`, isOpen = page.open.has(id), done = Date.parse(n.at) <= folded;
+              return (
+                <div className={`rule-row${isOpen ? " memory-row--open" : ""}${done ? " mind-row--folded" : ""}`} key={id}>
+                  <span className="memory-row__kind">{MIND_KIND[n.kind]}</span>
+                  <button type="button" className="memory-row__text" aria-expanded={isOpen} onClick={() => page.toggle(id)}>
+                    <span className="rule-row__key">{n.text}</span>
+                  </button>
+                  <span className="mind-row__at">{MIND_AT.format(new Date(n.at))}</span>
+                  <IconButton label="지우기" danger onClick={() => void remove(n)}><Trash2 size={12} /></IconButton>
+                </div>
+              );
+            })}
+          </div>
+          <Pager {...page} />
+        </details>
       )}
-      <Pager {...page} />
       {log.length > 0 && (
         <details className="memory-tidy-log">
-          <summary>최근 성격 정리 {log.length}번</summary>
+          <summary>최근 속마음 정리 {log.length}번</summary>
           {logPage.shown.map((r) => (
             <div key={r.at} className="memory-tidy-log__day">
               <div className="memory-tidy-log__at">{TIDY_AT.format(new Date(r.at))}</div>
@@ -1325,6 +1322,7 @@ export function MindNotesSection() {
                 </div>
               ))}
               {r.drop.map((x, i) => <div key={`d${i}`} className="memory-tidy-log__merge"><span className="memory-tidy-log__from">− {x}</span></div>)}
+              {(r.remember ?? []).map((x, i) => <div key={`m${i}`} className="memory-tidy-log__merge"><span className="memory-tidy-log__from">기억으로: {x}</span></div>)}
               {r.keep > 0 && <div className="memory-tidy-log__merge"><span className="memory-tidy-log__from">다시 확인 {r.keep}개</span></div>}
             </div>
           ))}

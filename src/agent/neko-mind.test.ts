@@ -107,14 +107,13 @@ describe("생각하기", () => {
 });
 
 describe("산책 주제", () => {
-  it("고른 주제를 돌려주고 날짜·고른 까닭·궁금한 것을 노트에 남긴다. 같은 주제를 다시 고르면 날짜가 는다", async () => {
+  it("고른 주제를 돌려주고 알아본 주제에 날짜를 남긴다(고른 것은 노트가 아니다 — 같이 떠올린 것만). 같은 주제를 다시 고르면 날짜가 는다", async () => {
     h.kv.set("neko_mind", JSON.stringify({ v: 1, notes: [], topics: [{ topic: "비 오는 날 새들", at: ["2026-11-02"] }] }));
     h.reply = { pick: "비 오는 날 새들", why: "오랜만에 다시", note: { kind: "want", text: "창밖을 오래 보고 싶어" } };
     expect(await chooseWalkTopic(MEMS)).toBe("비 오는 날 새들");
     const m = await loadMind();
     expect(m.topics[0].at).toHaveLength(2);
-    expect(m.notes.map((n) => n.kind)).toEqual(["chose", "want"]);
-    expect(m.notes[0]).toMatchObject({ what: "walk_topic", text: "비 오는 날 새들", why: "오랜만에 다시" });
+    expect(m.notes.map((n) => [n.kind, n.text])).toEqual([["want", "창밖을 오래 보고 싶어"]]);
   });
 
   it("사용자 사실이 담긴 주제는 버리고 아무것도 남기지 않는다(하위 에이전트가 스스로 고른다)", async () => {
@@ -138,19 +137,20 @@ describe("2단계", () => {
   const CHOICES = [{ key: "trinket", label: "주운 것" }, { key: "weather", label: "날씨" }];
   it("보기 중에서 고르면 그 이름, 보기 밖이면 null(지금 동작으로). 고른 갈래(선물 종류)는 노트에 안 남긴다 — 같이 떠올린 궁금만", async () => {
     h.reply = { pick: "weather", why: "비가 와서" };
-    expect(await chooseAmong("walk_gift", "선물", CHOICES, [], MEMS)).toBe("weather");
+    expect(await chooseAmong("선물", CHOICES, [], MEMS)).toBe("weather");
     expect((await loadMind()).notes).toEqual([]); // "고름: 날씨" 같은 줄은 속마음이 아니다(사용자)
     h.reply = { pick: "weather", why: "비가 와서", note: { kind: "wonder", text: "비는 어디서 올까" } };
-    expect(await chooseAmong("walk_gift", "선물", CHOICES, [], MEMS)).toBe("weather");
+    expect(await chooseAmong("선물", CHOICES, [], MEMS)).toBe("weather");
     expect((await loadMind()).notes.map((n) => [n.kind, n.text])).toEqual([["wonder", "비는 어디서 올까"]]);
-    // 예전에 적힌 선물 종류 고름은 읽을 때 버린다(산책 주제·그림 고름은 남는다)
+    // 예전에 적힌 고름(선물 종류·산책 주제·그림)은 읽을 때 버린다 — 행동 기록이라 속마음 재료가 아니다(docs/neko-heart.md §0)
     const old = parseMind(JSON.stringify({ notes: [
       { at: "2026-11-20T01:00:00Z", kind: "chose", what: "walk_gift", text: "놀이" },
       { at: "2026-11-20T02:00:00Z", kind: "chose", what: "walk_topic", text: "새는 왜 깃털을 부풀릴까" },
+      { at: "2026-11-20T03:00:00Z", kind: "wonder", text: "깃털은 몇 개일까", why: "옛 칸" },
     ] }));
-    expect(old.notes.map((n) => n.text)).toEqual(["새는 왜 깃털을 부풀릴까"]);
+    expect(old.notes).toEqual([{ at: "2026-11-20T03:00:00Z", kind: "wonder", text: "깃털은 몇 개일까" }]);
     h.reply = { pick: "drawing", why: "" };
-    expect(await chooseAmong("walk_gift", "선물", CHOICES, [], MEMS)).toBeNull();
+    expect(await chooseAmong("선물", CHOICES, [], MEMS)).toBeNull();
   });
 
   it("첫마디: 졸 때 생각해 두고(2시간에 한 번), 깨면 한 번만 꺼낸다", async () => {
@@ -163,36 +163,36 @@ describe("2단계", () => {
   });
 });
 
-describe("성격(docs/neko-heart.md)", () => {
+describe("속마음(docs/neko-heart.md)", () => {
   const trait = (id: string, kind: string, text: string, extra = {}) => ({ id, kind, text, since: "2026-11-20", at: "2026-11-22", n: 2, ...extra });
-  it("생각하기 재료에 '나는 이런 고양이'가 붙고, 성격으로 굳은 노트는 빠진다", async () => {
+  it("생각하기 재료에 '나는 이런 고양이'가 붙고(옛 키의 갈래는 새 갈래로 옮겨 읽는다), 굳은 노트는 빠진다", async () => {
     h.kv.set("neko_mind", JSON.stringify({ v: 1, notes: [
       { at: "2026-11-21T09:00:00Z", kind: "wonder", text: "굳은 노트" }, { at: "2026-11-23T09:00:00Z", kind: "wonder", text: "새 노트" },
     ], topics: [] }));
     h.kv.set("neko_heart", JSON.stringify({ traits: [trait("a", "like", "창가 햇볕"), trait("s", "secret", "몰래 하는 것")], folded: "2026-11-22T00:00:00Z" }));
     const text = mindMaterial(await loadMind(), MEMS, { facts: false }).join("\n");
     expect(text).toContain("## 나는 이런 고양이");
-    expect(text).toContain("창가 햇볕");
+    expect(text).toContain("[관심사] 창가 햇볕");
     expect(text).toContain("몰래 하는 것"); // 자기 마음엔 비밀도 보인다
     expect(text).toContain("새 노트");
     expect(text).not.toContain("굳은 노트");
   });
   it("첫마디를 생각할 때만 아직 말 안 한 비밀을 번호와 함께 주고, 털어놓으면(tell) 털어놓은 날이 붙는다", async () => {
-    h.kv.set("neko_heart", JSON.stringify({ traits: [trait("s", "secret", "몰래 하는 것"), trait("a", "like", "햇볕")] }));
+    h.kv.set("neko_heart2", JSON.stringify({ traits: [trait("s", "secret", "몰래 하는 것"), trait("a", "interest", "햇볕")] }));
     h.reply = { pick: "사실은 몰래 하는 게 있어", why: "요즘 가까워져서", like: [], tired: [], tell: "s" };
     await restThink({ greet: true });
     expect(h.sent).toContain("아직 사용자에게 말하지 않은 비밀");
     expect(h.sent).toContain("- s 몰래 하는 것");
-    const heart = JSON.parse(h.kv.get("neko_heart")!);
+    const heart = JSON.parse(h.kv.get("neko_heart2")!);
     expect(heart.traits.find((x: { id: string }) => x.id === "s").told).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(await takeGreeting()).toBe("사실은 몰래 하는 게 있어");
     // 기울기만 생각할 땐(첫마디 아님) 비밀 칸·tell 이 없다
     h.kv.set("neko_greeting", JSON.stringify({ text: "", at: 0, askedAt: 0 }));
-    h.kv.set("neko_heart", JSON.stringify({ traits: [trait("k", "secret", "또 다른 것")] }));
+    h.kv.set("neko_heart2", JSON.stringify({ traits: [trait("k", "secret", "또 다른 것")] }));
     h.reply = { pick: "그냥", why: "", like: ["yarn"], tired: [], tell: "k" };
     await restThink({ greet: false });
     expect(h.sent).not.toContain("아직 사용자에게 말하지 않은 비밀");
-    expect(JSON.parse(h.kv.get("neko_heart")!).traits[0].told).toBeUndefined();
+    expect(JSON.parse(h.kv.get("neko_heart2")!).traits[0].told).toBeUndefined();
   });
 });
 
@@ -257,14 +257,14 @@ describe("산책 주제가 한쪽으로 쏠리지 않게(0.1.22): 규칙 대신 
 });
 
 describe("노트 중복(0.1.22, 사용자: 같은 글이면 새로 쌓지 않기)", () => {
-  it("같은 종류·무엇·글이면 하나만, 가장 최근 자리·날짜로", async () => {
+  it("같은 종류·글이면 하나만, 가장 최근 자리·날짜로", async () => {
     await noteWonder("고양이 꿈은 무슨 색일까");
     await noteWonder("비 오는 날 새들은?");
     await noteWonder("고양이 꿈은 무슨 색일까");
     const m = await loadMind();
     expect(m.notes.map((n) => n.text)).toEqual(["비 오는 날 새들은?", "고양이 꿈은 무슨 색일까"]);
-    const n = (kind: "wonder" | "chose", text: string, what?: string) => ({ at: "2026-11-20T00:00:00Z", kind, text, ...(what ? { what } : {}) });
-    expect(dedupeNotes([n("chose", "날씨", "walk_gift"), n("chose", "날씨", "walk_topic")])).toHaveLength(2); // 무엇이 다르면 따로
+    const n = (kind: "wonder" | "want", text: string) => ({ at: "2026-11-20T00:00:00Z", kind, text });
+    expect(dedupeNotes([n("wonder", "날씨"), n("want", "날씨")])).toHaveLength(2); // 종류가 다르면 따로
   });
 });
 
