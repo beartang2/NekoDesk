@@ -15,6 +15,7 @@ import type {
   ToolName,
 } from "../agent/types";
 import type { PlanStep } from "../agent/plan";
+import type { WordchainOffer } from "../lib/wordchainOffer";
 import { clock } from "../lib/time";
 import { estimateMessagesTokens, estimateTokens } from "../agent/token-estimate";
 import { historyBudget, stripLlmHints } from "../agent/agent-context";
@@ -87,6 +88,8 @@ export interface ChatMessage {
   compacted?: boolean;
   /** 이 답을 쓴 모델 이름(activeModelName). 직전 답과 다르면 화면에 "여기부터 …" 줄을 긋는다. */
   model?: string;
+  /** 산책 선물로 네코가 꺼낸 끝말잇기 첫 낱말(lib/wordchainOffer). 사용자가 이어 답하면 그 낱말로 게임이 이어진다 */
+  offer?: WordchainOffer;
 }
 
 /** 대화 루프 대신 지시 하나로만 시키는 짧은 글 일(runTextTask). 빠른 질문의 버튼. */
@@ -175,6 +178,7 @@ export interface MessageMeta {
   prompt?: string;
   compacted?: boolean;
   model?: string;
+  offer?: WordchainOffer;
 }
 
 /**
@@ -209,6 +213,7 @@ export function serializeMeta(meta: MessageMeta): string | undefined {
     ...(meta.prompt ? { prompt: meta.prompt } : {}),
     ...(meta.compacted ? { compacted: true } : {}),
     ...(meta.model ? { model: meta.model } : {}),
+    ...(meta.offer ? { offer: meta.offer } : {}),
   };
   return Object.keys(stored).length ? JSON.stringify(stored) : undefined;
 }

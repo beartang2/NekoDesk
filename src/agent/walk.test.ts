@@ -190,6 +190,23 @@ describe("산책 머리", () => {
     expect(useNekoGifts.getState().gifts.some((g) => g.title === "작은 발판")).toBe(true);
   });
 
+  it("끝말잇기 선물은 첫 낱말을 구조(game_word)로 받아 앱이 보이고 대기로 연다 — 낱말이 아니면 안 연다(0.1.32)", async () => {
+    among.mockResolvedValueOnce("game");
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "끝말잇기", gift_body: "같이 하자", game_word: "사과" }));
+    const r = await startWalkBrain({ places: [], here: null }).result;
+    expect(r.offer).toEqual({ game: "wordchain", word: "사과" });
+    expect(r.content).toContain('끝말잇기: "사과" — "과"로 시작하는 낱말로 이어 줘');
+    // 보고 지시엔 예시 낱말이 없다(칸 설명만)
+    expect(JSON.stringify(completion.mock.calls[completion.mock.calls.length - 1])).toContain("game_word");
+    among.mockResolvedValueOnce("game");
+    subagent.mockResolvedValueOnce("");
+    completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "끝말잇기", gift_body: "같이 하자", game_word: "apple" }));
+    const bad = await startWalkBrain({ places: [], here: null }).result;
+    expect(bad.offer).toBeUndefined();
+    expect(bad.content).not.toContain("끝말잇기:");
+  });
+
   it("주제를 못 고르면(생각하기 실패) 지금처럼 하위 에이전트가 스스로 고른다", async () => {
     subagent.mockResolvedValueOnce("");
     completion.mockResolvedValueOnce(report({ learned: [], diary: "d", gift_title: "t", gift_body: "b" }));

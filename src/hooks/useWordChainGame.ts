@@ -20,7 +20,12 @@ export interface WordChainGame {
   turnCount: number;
   currentWord: string;
   startGame: () => Promise<string | null>;
-  submitWord: (word: string) => Promise<WordChainResult>;
+  /**
+   * 네코가 이미 꺼낸 첫 낱말로 게임을 연다(산책 선물 — lib/wordchainOffer). 모델을 안 부른다. 같은 차례에 이어 submitWord 하려면
+   * 돌려준 base 를 넘긴다(상태는 다음 그리기에 바뀐다)
+   */
+  continueFrom: (first: string) => { lastChar: string; usedWords: string[] };
+  submitWord: (word: string, base?: { lastChar: string; usedWords: string[] }) => Promise<WordChainResult>;
   reset: () => void;
   endGame: () => void;
   disputeContext: () => string;
@@ -39,8 +44,8 @@ export function useWordChainGame(
   onEmotionChange: (emotion: CatEmotion, durationMs?: number) => void
 ): WordChainGame {
   const [phase, setPhase] = useState<WordChainPhase>("idle");
-  const [lastChar, setLastChar] = useState("");
-  const [usedWords, setUsedWords] = useState<string[]>([]);
+  const [lastCharNow, setLastChar] = useState("");
+  const [usedNow, setUsedWords] = useState<string[]>([]);
   const [turnCount, setTurnCount] = useState(0);
   const [currentWord, setCurrentWord] = useState("");
 
@@ -64,8 +69,20 @@ export function useWordChainGame(
     }
   }, [onEmotionChange]);
 
-  const submitWord = useCallback(async (word: string): Promise<WordChainResult> => {
+  const continueFrom = useCallback((first: string) => {
+    const char = first[first.length - 1];
+    setCurrentWord(first);
+    setLastChar(char);
+    setUsedWords([first]);
+    setTurnCount(1);
+    setPhase("user_turn");
+    onEmotionChange("curious", 60000);
+    return { lastChar: char, usedWords: [first] };
+  }, [onEmotionChange]);
+
+  const submitWord = useCallback(async (word: string, base?: { lastChar: string; usedWords: string[] }): Promise<WordChainResult> => {
     const cleaned = word.trim();
+    const lastChar = base?.lastChar ?? lastCharNow, usedWords = base?.usedWords ?? usedNow;
 
     if (!isPlayableWord(cleaned)) {
       return {
@@ -112,7 +129,7 @@ export function useWordChainGame(
       setPhase("done");
       return { type: "error" };
     }
-  }, [lastChar, usedWords, onEmotionChange]);
+  }, [lastCharNow, usedNow, onEmotionChange]);
 
   const reset = useCallback(() => {
     setPhase("idle");
@@ -127,8 +144,8 @@ export function useWordChainGame(
   }, []);
 
   const disputeContext = useCallback((): string => {
-    return `[끝말잇기 게임 중 | 지금까지 나온 단어: ${usedWords.join(" → ")} | 마지막 단어: "${currentWord}"] 유저가 방금 나온 단어 "${currentWord}"에 이의를 제기했어. web.search 로 국어사전에 실린 말인지 확인하고, 그 결과로 game.judge 를 불러 판정해. 판정은 검색 결과에 근거해야 해 — 뜻풀이를 찾았으면 있는 말, 못 찾았으면 없는 말. 판정한 뒤엔 무엇을 찾았는지 한두 문장으로 말해. 검색 결과에 없는 뜻이나 출처를 지어내지 마.`;
-  }, [usedWords, currentWord]);
+    return `[끝말잇기 게임 중 | 지금까지 나온 단어: ${usedNow.join(" → ")} | 마지막 단어: "${currentWord}"] 유저가 방금 나온 단어 "${currentWord}"에 이의를 제기했어. web.search 로 국어사전에 실린 말인지 확인하고, 그 결과로 game.judge 를 불러 판정해. 판정은 검색 결과에 근거해야 해 — 뜻풀이를 찾았으면 있는 말, 못 찾았으면 없는 말. 판정한 뒤엔 무엇을 찾았는지 한두 문장으로 말해. 검색 결과에 없는 뜻이나 출처를 지어내지 마.`;
+  }, [usedNow, currentWord]);
 
-  return { phase, lastChar, usedWords, turnCount, currentWord, startGame, submitWord, reset, endGame, disputeContext };
+  return { phase, lastChar: lastCharNow, usedWords: usedNow, turnCount, currentWord, startGame, continueFrom, submitWord, reset, endGame, disputeContext };
 }

@@ -10,6 +10,7 @@ import type { Memory, OpenAiToolSchema, ToolName } from "./types";
 import { validateShape, type GiftShape } from "../neko/engine/gift-shape";
 import { useNekoGifts } from "../neko/gifts";
 import { drawGift, type DrawnGift } from "./gift-draw";
+import { isPlayableWord, roParticle } from "../lib/hangul";
 import { drawFurniture, type DrawnFurniture } from "./furniture-draw";
 import { heartLines, heartNow, loadHeart } from "./neko-heart";
 import { chooseAmong, chooseWalkTopic, noteWonder, touchMemories } from "./neko-mind";
@@ -44,6 +45,8 @@ export interface WalkReport {
    */
   prompt: string;
   gift: WalkGift | null;
+  /** 끝말잇기 선물이면 네코가 먼저 낸 첫 낱말 — App 이 산책 일지 메시지에 달아 대기로 연다(lib/wordchainOffer) */
+  offer?: { game: "wordchain"; word: string };
 }
 
 /**
@@ -147,6 +150,7 @@ const REPORT_TOOL = {
         gift_url: { type: "string", description: "선물이 링크면 알아본 것에 나온 URL 그대로" },
         drawing_prompt: { type: "string", description: "선물이 그림일 때만. 그릴 장면을 영어로 자세히" },
         next_wonder: { type: "string", description: "다음 산책에서 궁금한 것 한 줄(있으면)" },
+        game_word: { type: "string", description: "선물이 끝말잇기일 때만: 네가 먼저 내는 첫 낱말(한글 두 글자 이상). 선물 글엔 쓰지 마 — 앱이 따로 보이고 그 낱말로 게임을 연다" },
       },
       required: ["learned", "diary", "gift_title", "gift_body"],
     },
@@ -161,6 +165,7 @@ interface Structured {
   gift_url: string;
   drawing_prompt: string;
   next_wonder: string;
+  game_word: string;
 }
 
 /** 산책하며 모은 것. abort 되면 그 순간의 이것으로 보고한다. */
@@ -403,6 +408,7 @@ async function walk(ctx: WalkCtx, g: Gathered, signal: AbortSignal): Promise<voi
     gift_url: str(p?.gift_url),
     drawing_prompt: str(p?.drawing_prompt),
     next_wonder: str(p?.next_wonder),
+    game_word: str(p?.game_word),
   };
   // 다음에 궁금한 것: 노트로 남겨 다음 산책의 재료가 된다(관심이 이어지게). 이번 보고가 사용자 기억(선물 재료 memory)을 봤으면
   // 남기지 않는다 — 노트는 웹을 도는 다음 산책 주제의 재료라, 웹 글에 심긴 지시가 그 기억을 실어 내보내지 못하게
@@ -468,7 +474,11 @@ function compose(g: Gathered): WalkReport {
       (gift.file ? `\n(임시 보관함에 넣어 뒀어: ${gift.file})` : "") +
       (gift.kind === "furniture" ? "\n(가구 탭에 넣어 뒀어)" : "")
     : "";
-  const content = diary + giftText;
+  // 끝말잇기 선물: 첫 낱말은 구조로 받아 앱이 보이고, 그 낱말로 게임을 대기로 연다(App — 사용자가 이어 답하면 그대로 판정)
+  const word = g.kind === "game" && r?.game_word && isPlayableWord(r.game_word) ? r.game_word : "";
+  const last = word[word.length - 1];
+  const gameText = word ? `\n\n끝말잇기: "${word}" — "${last}"${roParticle(last)} 시작하는 낱말로 이어 줘` : "";
+  const content = diary + giftText + gameText;
 
   // 정리가 됐으면 알게 된 것들, 못 됐으면 조사 요약 원문을 단기기억으로 남긴다.
   const notes = r ? r.learned.map((l) => `- ${l.content}`).join("\n") : g.findings.slice(0, 1500);
@@ -476,5 +486,6 @@ function compose(g: Gathered): WalkReport {
     content,
     prompt: notes ? `${content}\n\n[산책하며 알게 된 것 — 이 대화에서만 기억]\n${notes}` : content,
     gift,
+    ...(word ? { offer: { game: "wordchain" as const, word } } : {}),
   };
 }

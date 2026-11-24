@@ -41,7 +41,8 @@ import { RightPanel, DrawingPadCard, parseEventDate } from "./components/RightPa
 import { MenuModal } from "./components/MenuModal";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { useDrawingGame } from "./hooks/useDrawingGame";
-import { useWordChainGame } from "./hooks/useWordChainGame";
+import { useWordChainGame, type WordChainResult } from "./hooks/useWordChainGame";
+import { parseOffer, pendingOffer, repliesTo, type WordchainOffer } from "./lib/wordchainOffer";
 import { useAgentPool, makeInitialMessages, modelSwitches, parseMeta, serializeMeta, splitAttachmentSection, type QueuedMessage } from "./hooks/useAgentLoop";
 import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -1350,6 +1351,7 @@ export default function App() {
           prompt: meta.prompt,
           compacted: meta.compacted,
           model: meta.model,
+          offer: parseOffer(meta.offer),
           isStreaming: false,
         };
       });
@@ -1591,6 +1593,10 @@ export default function App() {
     });
   }, [wordChain.endGame, wordChain.turnCount, reward]);
 
+  /** 이번 차례에 대기 중인 산책 선물 낱말(handleSend 가 정하고 게임 시작이 쓴다 — lib/wordchainOffer). 답이 끝나면 비운다 */
+  const offerTurnRef = useRef<WordchainOffer | null>(null);
+  useEffect(() => appEvents.on("agentDone", () => { offerTurnRef.current = null; }), []);
+
   const injectMessage = useCallback((role: "user" | "assistant", content: string) => {
     const msg = {
       id: crypto.randomUUID(),
@@ -1610,6 +1616,34 @@ export default function App() {
     // 답하는 도중에 게임이 열리면 안 된다.
     if (pool.isRunning(activeId)) {
       void pool.sendMessage(activeId, text, files, undefined, compactSummaries[activeId] || undefined);
+      return;
+    }
+
+    // 끝말잇기 결과를 채팅에 보인다(게임 중 차례·산책 선물 낱말에 이어 답한 차례 같이)
+    const showWordChainResult = (result: WordChainResult) => {
+      if (result.type === "invalid_word" || result.type === "invalid_start" || result.type === "duplicate") {
+        injectMessage("assistant", `앗! ${result.error} 😸`);
+      } else if (result.type === "cat_failed") {
+        injectMessage("assistant", `"${result.neededChar}"${roParticle(result.neededChar)} 시작하는 단어가 생각이 안 나... 항복! 유저 승리 🏆 (${wordChain.turnCount}턴)`);
+        reward(Math.min(20, Math.floor(wordChain.turnCount / 2)));
+      } else if (result.type === "cat_word") {
+        injectMessage("assistant", `${result.catWord} 😸`);
+      } else {
+        injectMessage("assistant", `앗, 뭔가 잘못됐어. 게임을 다시 시작해줘! 😿`);
+      }
+    };
+
+    // 산책 선물로 꺼낸 끝말잇기 첫 낱말(lib/wordchainOffer, 사용자: 선물 낱말에 바로 답하면 게임이 이어지게). 그 낱말에 이어 답하면 그
+    // 낱말을 네코의 첫 수로 놓고 판정한다. 다른 말이면 이번 차례에 게임을 시작할 때(game.start·게임 말 알아듣기) 새 낱말 대신 그
+    // 낱말로 연다 — 그 차례가 끝나면 대기는 조용히 끝난다(그 뒤엔 사용자 말이 있어 pendingOffer 가 없다)
+    const gameIdle = (game.phase === "idle" || game.phase === "done") && (wordChain.phase === "idle" || wordChain.phase === "done");
+    const offer = gameIdle ? pendingOffer(useMessageStore.getState().get(activeId), Date.now()) : null;
+    offerTurnRef.current = offer;
+    if (offer && files.length === 0 && repliesTo(offer, text)) {
+      offerTurnRef.current = null;
+      const word = text.trim();
+      injectMessage("user", word);
+      showWordChainResult(await wordChain.submitWord(word, wordChain.continueFrom(offer.word)));
       return;
     }
 
@@ -1642,21 +1676,7 @@ export default function App() {
 
       if (isSingleWord) {
         injectMessage("user", trimmed);
-        const result = await wordChain.submitWord(trimmed);
-        if (
-          result.type === "invalid_word" ||
-          result.type === "invalid_start" ||
-          result.type === "duplicate"
-        ) {
-          injectMessage("assistant", `앗! ${result.error} 😸`);
-        } else if (result.type === "cat_failed") {
-          injectMessage("assistant", `"${result.neededChar}"${roParticle(result.neededChar)} 시작하는 단어가 생각이 안 나... 항복! 유저 승리 🏆 (${wordChain.turnCount}턴)`);
-          reward(Math.min(20, Math.floor(wordChain.turnCount / 2)));
-        } else if (result.type === "cat_word") {
-          injectMessage("assistant", `${result.catWord} 😸`);
-        } else {
-          injectMessage("assistant", `앗, 뭔가 잘못됐어. 게임을 다시 시작해줘! 😿`);
-        }
+        showWordChainResult(await wordChain.submitWord(trimmed));
       } else {
         injectMessage("user", trimmed);
         injectMessage("assistant", `끝말잇기 중이야! 한글 단어만 입력해줘 😺\n"${wordChain.lastChar}"${roParticle(wordChain.lastChar)} 시작하는 단어를 입력해봐!`);
@@ -1841,7 +1861,10 @@ export default function App() {
     {
       id: "wordchain",
       launch: (requestId?: number) => {
-        wordChain.startGame().then((firstWord) => {
+        // 산책 선물로 꺼낸 첫 낱말이 대기 중이면(이번 차례 — handleSend) 새로 떠올리지 않고 그 낱말로 연다
+        const offered = offerTurnRef.current;
+        offerTurnRef.current = null;
+        (offered ? Promise.resolve(wordChain.continueFrom(offered.word) && offered.word) : wordChain.startGame()).then((firstWord) => {
           // 에이전트 요청이면 첫 단어를 그쪽으로 돌려준다. 직접 시작이면 직접 메시지.
           const delivered = resolveWordchainFirstWord(requestId, firstWord);
           if (!delivered) {
@@ -2095,11 +2118,13 @@ export default function App() {
       const report = await nekoWrites(brain.result); // 일지를 쓰는 동안 타이핑(0.1.28)
       const sid = useSessionStore.getState().activeId;
       const prompt = report.prompt || undefined;
+      // 끝말잇기 선물이면 첫 낱말을 메시지에 단다 — 사용자가 이어 답하면 그 낱말로 게임이 이어진다(다른 기기도, 동기화되는 meta)
+      const offer = report.offer ? { ...report.offer, at: Date.now() } : undefined;
       useMessageStore.getState().patch(sid, (prev) => [
         ...prev,
-        { id: crypto.randomUUID(), role: "assistant", content: report.content, prompt, time: clock(), steps: [], isStreaming: false },
+        { id: crypto.randomUUID(), role: "assistant", content: report.content, prompt, time: clock(), steps: [], isStreaming: false, ...(offer ? { offer } : {}) },
       ]);
-      conversationApi.save(sid, "assistant", report.content, undefined, serializeMeta({ prompt })).then(relistSessions).catch(() => {});
+      conversationApi.save(sid, "assistant", report.content, undefined, serializeMeta({ prompt, offer })).then(relistSessions).catch(() => {});
       saveWalk({ ...w, done: true, pin: report.gift?.place });
       void syncApi.walkEnd(walkStart(w), walkEnd(w)).catch(() => {});
       playAction();

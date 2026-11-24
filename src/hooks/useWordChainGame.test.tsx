@@ -144,3 +144,25 @@ describe("끝말잇기 흐름", () => {
     expect(outcome.error).toContain("한글");
   });
 });
+
+describe("산책 선물 첫 낱말로 이어 하기(continueFrom, 0.1.32)", () => {
+  it("선물 낱말을 네코 첫 수로 놓고, 같은 차례에 사용자 답을 그 낱말 기준으로 판정한다 — 모델은 첫 낱말을 안 떠올린다", async () => {
+    catReply.mockResolvedValueOnce("자두");
+    const { result } = setup();
+    let outcome;
+    await act(async () => { outcome = await result.current.submitWord("과자", result.current.continueFrom("사과")); });
+    expect(outcome).toMatchObject({ type: "cat_word", catWord: "자두" });
+    expect(catReply).toHaveBeenCalledTimes(1);
+    expect(catReply).toHaveBeenCalledWith("자", ["사과", "과자"]);
+    expect(result.current.usedWords).toEqual(["사과", "과자", "자두"]);
+    expect(result.current.phase).toBe("user_turn");
+  });
+  it("이어지지 않는 답은 그 낱말 기준으로 틀렸다고 한다", async () => {
+    const { result } = setup();
+    let outcome;
+    await act(async () => { outcome = await result.current.submitWord("바다", result.current.continueFrom("사과")); });
+    expect(outcome).toMatchObject({ type: "invalid_start" });
+    expect(result.current.lastChar).toBe("과");
+  });
+});
+

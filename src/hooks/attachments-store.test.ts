@@ -200,5 +200,7 @@ describe("buildHistory", () => {
     ]);
     expect([...at]).toEqual([["q2", "Sonnet"]]);
     expect(parseMeta(serializeMeta({ model: "Sonnet" })).model).toBe("Sonnet");
+    // 산책 선물 끝말잇기 첫 낱말도 메시지와 같이 저장·동기화된다(다른 기기에서 답해도 이어지게)
+    expect(parseMeta(serializeMeta({ offer: { game: "wordchain", word: "사과", at: 5 } })).offer).toEqual({ game: "wordchain", word: "사과", at: 5 });
   });
 });
