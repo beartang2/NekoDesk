@@ -3,11 +3,11 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vite
 import { render, cleanup, act } from "@testing-library/react";
 
 /** 마당 선물 창(NekoDecorScreen): 액자만 걸고 나머지는 떨어지고, 빨리 놓으면 던진다(사용자: 마당에선 물건이 다 액자처럼 걸린다) */
-const h = vi.hoisted(() => ({ handlers: new Map<string, (e: { payload: unknown }) => void>(), emitTo: vi.fn(async () => {}) }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null) }));
+const h = vi.hoisted(() => ({ handlers: new Map<string, (e: { payload: unknown }) => void>(), emitTo: vi.fn(async () => {}), invoke: vi.fn(async () => null), label: "neko-decor-M" }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: h.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ emitTo: h.emitTo }));
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ listen: (ev: string, cb: (e: { payload: unknown }) => void) => { h.handlers.set(ev, cb); return Promise.resolve(() => {}); } }),
+  getCurrentWindow: () => ({ label: h.label, listen: (ev: string, cb: (e: { payload: unknown }) => void) => { h.handlers.set(ev, cb); return Promise.resolve(() => {}); } }),
 }));
 vi.mock("./engine/decor-draw", async (orig) => ({ ...(await orig<object>()), drawDecor: () => {} })); // jsdom 엔 캔버스 그리기가 없다
 
@@ -32,6 +32,8 @@ beforeEach(() => {
   clock = 1000;
   vi.spyOn(performance, "now").mockImplementation(() => clock);
   h.emitTo.mockClear();
+  h.invoke.mockClear();
+  h.label = "neko-decor-M";
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
@@ -80,6 +82,24 @@ describe("마당 선물 창의 물리(0.1.32)", () => {
     items([pic]);
     drag(pic, 0, -300, 6, 60);
     expect(sent("neko-decor-move")[0]).toMatchObject({ id: "p", surface: "wall" });
+  });
+
+  it("액자 창(앱 창 아래 층)에서 액자를 끄는 동안만 앱 창 위로 올리고 놓으면 내린다(사용자: 액자는 다른 창 뒤로)", () => {
+    h.label = "neko-wall-M";
+    render(<NekoDecorScreen />);
+    const wallPic: DecorItem = { ...pic, surface: "wall", v: 0.5 };
+    items([wallPic]);
+    drag(wallPic, 120, 0, 4, 60, 200);
+    const lifts = h.invoke.mock.calls.filter((c) => (c as unknown[])[0] === "neko_wall_lift").map((c) => ((c as unknown[])[1] as { on: boolean }).on);
+    expect(lifts).toEqual([true, false]);
+    expect(sent("neko-decor-move")[0]).toMatchObject({ id: "p", surface: "wall" });
+  });
+
+  it("선물 창(앱 창 위 층)은 올리고 내리지 않는다", () => {
+    render(<NekoDecorScreen />);
+    items([toy]);
+    drag(toy, 40, 0, 4, 60, 200);
+    expect(h.invoke.mock.calls.some((c) => (c as unknown[])[0] === "neko_wall_lift")).toBe(false);
   });
 
   it("메인 창이 알린 떨어질 점(선물함·다른 모니터에서 공중에 놓음)은 보이기만 한다 — 이미 바닥 자리로 저장돼 다시 저장하지 않는다", () => {

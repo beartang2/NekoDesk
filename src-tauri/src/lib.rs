@@ -1414,6 +1414,13 @@ mod commands {
         crate::neko_screen::set_boxes(window.label(), boxes)
     }
 
+    /// 마당 액자 창: 액자를 끄는 동안 앱 창 위로 올리고(on), 놓으면 다시 앱 창 아래로.
+    #[cfg(target_os = "macos")]
+    #[tauri::command]
+    pub fn neko_wall_lift(app: tauri::AppHandle, window: tauri::Window, on: bool) -> Result<(), AppError> {
+        crate::neko_screen::wall_lift(&app, window.label(), on)
+    }
+
     /// 화면 창: 고양이 자리(창 좌표, 크게 움직였을 때만)와 올라탄 창 번호(캣타워 — 그 창만 30Hz 로 따라 읽는다).
     #[cfg(target_os = "macos")]
     #[tauri::command]
@@ -2166,6 +2173,7 @@ pub fn run() {
             commands::neko_screen_screens,
             #[cfg(target_os = "macos")]
             commands::neko_decor_boxes,
+            commands::neko_wall_lift,
             #[cfg(target_os = "macos")]
             commands::neko_screen_held,
             #[cfg(target_os = "macos")]

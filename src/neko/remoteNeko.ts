@@ -98,7 +98,7 @@ export function createRemoteNeko(send: Send = sendToScreen): NekoController {
 // 모니터마다(고양이가 있는 모니터도) 선물 창이 그 모니터의 선물을 그리고 직접 받는다(끌기·'정리'). 엔진은 고양이
 // 모니터 선물을 다 알지만(놀 거리 고르기) 갖고 노는 동안 잡은 것(decorHeld)만 그린다 — 그건 선물 창에서 뺀다.
 
-interface ScreenInfo { id: string; layout: { w: number; h: number; ground: number }; decor: string }
+interface ScreenInfo { id: string; layout: { w: number; h: number; ground: number }; decor: string; wall?: string }
 interface Screens { screens: ScreenInfo[]; main: string; cat: string | null }
 /** Rust 가 알린 모니터 목록(neko-screens). 모르면 null — 그땐 모니터를 가리지 않는다(예전처럼) */
 let screens: Screens | null = null;
@@ -128,8 +128,11 @@ function pushDecor(heldOnly = false): void {
     if (heldOnly && s.id !== screens.cat) continue;
     const all = decorItems(gifts, "screen", pickFor(s.id));
     const items = s.id === screens.cat ? all.filter((d) => !held.has(d.id)) : all;
-    const frame = { items, W: s.layout.w, H: s.layout.h, floorY: s.layout.ground, scale, dark, screen: s.id };
-    void emitTo(s.decor, "neko-decor-items", frame).catch(() => {});
+    const frame = { W: s.layout.w, H: s.layout.h, floorY: s.layout.ground, scale, dark, screen: s.id };
+    // 벽에 건 것(액자)은 액자 창(앱 창 아래 층 — 사용자: 액자는 다른 창 뒤로), 나머지는 선물 창. 옛 Rust(액자 창 없음)면 다 선물 창
+    const wall = s.wall ? items.filter((d) => d.surface === "wall") : [];
+    void emitTo(s.decor, "neko-decor-items", { ...frame, items: s.wall ? items.filter((d) => d.surface !== "wall") : items }).catch(() => {});
+    if (s.wall) void emitTo(s.wall, "neko-decor-items", { ...frame, items: wall }).catch(() => {});
   }
 }
 

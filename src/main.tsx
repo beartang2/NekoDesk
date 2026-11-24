@@ -34,8 +34,8 @@ const isCapture = label.startsWith("capture-");
 const isViewer = label === "viewer";
 const isGlow = label === "glow";
 const isNekoScreen = label === "neko-screen";
-// 마당 선물 창(고양이가 없는 모니터마다, neko_screen.rs)
-const isNekoDecor = label.startsWith("neko-decor-");
+// 마당 선물 창·액자 창(모니터마다, neko_screen.rs). 액자 창은 벽에 건 것만 그리고 앱 창 아래 층이다
+const isNekoDecor = label.startsWith("neko-decor-") || label.startsWith("neko-wall-");
 // 설정에서 따로 띄우는 창(네코 꾸미기·선물함, panel_open)
 const panel = label === "neko-customize" || label === "neko-gifts" ? (label as NekoPanelKind) : null;
 // 폰: 세로 한 줄 배치·키보드·터치(lib/phone.ts)

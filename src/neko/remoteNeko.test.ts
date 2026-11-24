@@ -109,6 +109,16 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     expect(r.towerOk).toBe(true);
   });
 
+  it("액자 창: 벽에 건 것(액자)은 모니터마다 액자 창(앱 창 아래 층)으로, 나머지는 선물 창으로(사용자: 액자는 다른 창 뒤로)", () => {
+    const gift = (id: string, placed: GiftPlacement, frame = false) => ({ id, at: "", title: id, body: "", shape: validateShape(null), placed, ...(frame ? { frame: true as const } : {}) });
+    useNekoGifts.setState({ gifts: [gift("ball", { surface: "floor", u: 0.1, at: "screen", screen: "A" }), gift("pic", { surface: "wall", u: 0.4, v: 0.13, at: "screen", screen: "A" }, true)] });
+    const scr = { main: "A", cat: "A", screens: [{ id: "A", layout: { w: 800, h: 600, ground: 560 }, decor: "neko-decor-A", wall: "neko-wall-A" }] };
+    tauri.sent.splice(0);
+    tauri.handlers.get("neko-screens")?.({ payload: scr });
+    const got = Object.fromEntries(tauri.sent.filter(([, ev]) => ev === "neko-decor-items").map(([to, , p]) => [to, (p as { items: { id: string }[] }).items.map((d) => d.id)]));
+    expect(got).toEqual({ "neko-decor-A": ["ball"], "neko-wall-A": ["pic"] });
+  });
+
   it("선물함에서 마당에 새로 놓으면(모니터 모름) 고양이가 있는 모니터로 적는다. 이미 마당에 있던 건 그대로", () => {
     const gift = (id: string, placed?: GiftPlacement) => ({ id, at: "", title: id, body: "", shape: validateShape(null), ...(placed ? { placed } : {}) });
     const scr = { main: "A", cat: "B", screens: ["A", "B"].map((id) => ({ id, layout: { w: 800, h: 600, ground: 560 }, decor: `neko-decor-${id}` })) };

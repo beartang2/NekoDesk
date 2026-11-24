@@ -146,6 +146,9 @@ export function NekoDecorScreen() {
     };
 
     const isRight = (e: MouseEvent) => e.button === 2 || (e.button === 0 && e.ctrlKey);
+    // 액자 창(벽에 건 것만, 앱 창 아래 층): 끄는 동안만 앱 창 위로 올린다(neko_wall_lift — 사용자: 끄는 동안은 맨 위여도 된다)
+    const wallWin = getCurrentWindow().label.startsWith("neko-wall-");
+    const lift = (on: boolean) => { if (wallWin) void invoke("neko_wall_lift", { on }).catch(() => {}); };
     const onDown = (e: PointerEvent) => {
       elsewhere = null;
       if (!f || isRight(e) || e.button !== 0 || (e.target as Element | null)?.closest?.("button")) return;
@@ -157,6 +160,7 @@ export function NekoDecorScreen() {
       if (!b || !item) return;
       const x = b.x + b.w / 2, bottom = b.y + b.h;
       drag = { item, dx: e.clientX - x, dy: e.clientY - bottom, x, bottom, spot: null, vx: 0, vy: 0, mt: performance.now() };
+      lift(true);
       setMenu(null);
       try { ref.current?.setPointerCapture(e.pointerId); } catch { /* 없어도 Rust 가 놓을 때까지 받는다 */ }
       draw();
@@ -173,6 +177,7 @@ export function NekoDecorScreen() {
     const onUp = (e: PointerEvent) => {
       if (!drag) return;
       const { item: it, item: { id }, spot: moved } = drag, d = drag;
+      lift(false);
       // 기운 물건은 집으면 똑바로(사용자) — 옮기지 않고 떼도 그 자리를 각도 없이 저장한다
       const spot = moved ?? (it.surface === "floor" && it.rot ? { surface: "floor" as const, u: it.u } : null);
       drag = null;

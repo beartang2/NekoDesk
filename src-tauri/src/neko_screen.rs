@@ -12,6 +12,10 @@
 //! - 마당 선물(§8-1): 모니터마다(고양이가 있는 모니터도) 선물 창 하나가 그 모니터의 선물을 그리고 직접 받는다
 //!   (끌기·'정리'). 선물 창은 그린 선물 칸을 알려 두고(`neko_decor_boxes`), 커서가 그 안일 때만 클릭을 받는다.
 //!   고양이 창이 같은 모니터의 선물 창보다 한 층 위다.
+//! - 액자 창(0.1.32, 사용자: 액자는 다른 창 뒤로): 모니터마다 벽에 건 것(액자)만 그리는 창이 하나 더 있다. 바탕화면 아이콘 바로
+//!   위·보통 앱 창 아래 층이라 앱 창을 그 위로 끌면 가려진다(바탕화면에 붙은 그림처럼). 아이콘보다 아래면 Finder 바탕화면 창이 클릭을
+//!   다 가져가 못 끈다. 클릭은 선물 창과 같은 길(칸을 알리고 그 안일 때만 받는다 — 앱 창이 덮고 있으면 창 서버가 앱 창에 준다).
+//!   끄는 동안만 선물 창 층으로 올린다(`neko_wall_lift`).
 //!
 //! 전역 좌표는 포인트, 주 모니터 왼쪽 위가 0,0(capture.rs 와 같다). 화면 창에 보내는 좌표는 창(=고양이가
 //! 있는 모니터) 왼쪽 위 기준이다.
@@ -80,9 +84,20 @@ fn uuid_str(b: &[u8; 16]) -> String {
 
 /// 마당 선물 창 라벨 앞말. 모니터마다 하나, 뒤는 그 모니터 UUID — 고양이가 건너가도 창은 제 모니터에 그대로다.
 const DECOR: &str = "neko-decor-";
+const WALL: &str = "neko-wall-";
 
 fn decor_label(id: &[u8; 16]) -> String {
     format!("{DECOR}{}", uuid_str(id))
+}
+
+/// 모니터의 액자 창 라벨(벽에 건 선물만 — 앱 창 아래 층)
+fn wall_label(id: &[u8; 16]) -> String {
+    format!("{WALL}{}", uuid_str(id))
+}
+
+/// 마당 그림 창(선물 창·액자 창)인가 — 선물 칸·누름 밖·보이기는 둘 다 같다
+fn is_gift_win(label: &str) -> bool {
+    label.starts_with(DECOR) || label.starts_with(WALL)
 }
 
 /// 메인 창에 알리는 모니터 목록(`neko-screens`). 메인 창이 모니터마다 선물을 골라 엔진과 선물 창에 넘긴다.
@@ -101,10 +116,12 @@ struct ScreenInfo {
     layout: Layout,
     /// 이 모니터를 맡은 선물 창 라벨
     decor: String,
+    /// 이 모니터의 액자 창 라벨(벽에 건 것만, 앱 창 아래)
+    wall: String,
 }
 
 fn screens_info(screens: &[Screen], cat: Option<&Screen>) -> Screens {
-    let list = screens.iter().map(|s| ScreenInfo { id: uuid_str(&s.id), layout: s.layout, decor: decor_label(&s.id) }).collect();
+    let list = screens.iter().map(|s| ScreenInfo { id: uuid_str(&s.id), layout: s.layout, decor: decor_label(&s.id), wall: wall_label(&s.id) }).collect();
     Screens { screens: list, main: screens.first().map(|s| uuid_str(&s.id)).unwrap_or_default(), cat: cat.map(|c| uuid_str(&c.id)) }
 }
 
@@ -183,6 +200,8 @@ struct State {
     drag_out: bool,
     /// 선물을 잡고 끄는 선물 창. 놓을 때까지 받는다.
     decor_grab: Option<String>,
+    /// 액자를 끄느라 선물 창 층으로 올린 액자 창(`wall_lift`). 다시 맞출 때도 그 층에 둔다.
+    wall_lift: Option<String>,
     /// 마지막으로 알린 끌던 선물의 다른 모니터 자리.
     elsewhere: Option<Elsewhere>,
     /// 마지막으로 메인 창에 알린 모니터 목록.
@@ -231,6 +250,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     file_drag_sent: None,
     drag_out: false,
     decor_grab: None,
+    wall_lift: None,
     elsewhere: None,
     screens_sent: None,
     wins: Vec::new(),
@@ -268,6 +288,11 @@ fn decor_target(grab: Option<String>, hover: Option<String>, cat_catching: bool,
     grab.or(hover.filter(|_| !cat_catching && !option && !down))
 }
 
+/// 커서(그 모니터 좌표)가 든 선물 칸의 창. 앞 창(선물 창)부터 본다.
+fn hover_label(boxes: &[(String, Vec<[f64; 4]>)], labels: [String; 2], pt: [f64; 2]) -> Option<String> {
+    labels.into_iter().find(|label| boxes.iter().any(|(l, b)| l == label && b.iter().any(|r| inside(*r, pt))))
+}
+
 /// 선물 창 잡기: 누른 순간 받던 창이 잡고, 놓으면 끝.
 fn decor_grab_step(down: bool, grab: Option<String>, catching: Option<String>) -> Option<String> {
     if down {
@@ -279,7 +304,7 @@ fn decor_grab_step(down: bool, grab: Option<String>, catching: Option<String>) -
 
 /// 선물 창이 그린 선물 칸을 알린다(그릴 때마다).
 pub fn set_boxes(label: &str, boxes: Vec<[f64; 4]>) -> Result<(), AppError> {
-    if !label.starts_with(DECOR) {
+    if !is_gift_win(label) {
         return Ok(());
     }
     let mut st = STATE.lock()?;
@@ -648,7 +673,7 @@ fn sync(app: &AppHandle) -> Result<(), AppError> {
     let (screens, to) = on_main(app, move || unsafe {
         let screens = macos::screens();
         let to = pick(&screens, at);
-        macos::place(ns as *mut objc2::runtime::AnyObject, show, on_top, to.map(|s| s.cocoa), false);
+        macos::place(ns as *mut objc2::runtime::AnyObject, show, on_top, to.map(|s| s.cocoa), macos::Layer::Cat);
         (screens, to)
     })?;
     let info = screens_info(&screens, to.as_ref());
@@ -691,31 +716,51 @@ fn sync(app: &AppHandle) -> Result<(), AppError> {
 fn sync_decor(app: &AppHandle, screens: &[Screen], show: bool, on_top: bool) {
     let mut used = Vec::new();
     for s in screens {
-        let label = decor_label(&s.id);
-        let win = match app.get_webview_window(&label) {
-            Some(w) => w,
-            None if show => match create_decor(app, &label) {
-                Ok(w) => w,
-                Err(e) => {
-                    log::warn!("마당 선물 창을 못 만들었어: {e}");
-                    continue;
-                }
-            },
-            None => continue,
-        };
-        used.push(label);
-        let Ok(ns) = win.ns_window() else { continue };
-        let (ns, cocoa) = (ns as usize, s.cocoa);
-        let _ = on_main(app, move || unsafe { macos::place(ns as *mut objc2::runtime::AnyObject, show, on_top, Some(cocoa), true) });
+        // 액자 창(앱 창 아래 층)과 선물 창(고양이 창 한 층 아래). 끄는 중인 액자 창은 올린 층 그대로 둔다(놓을 때 내린다)
+        for (label, layer) in [(wall_label(&s.id), macos::Layer::Wall), (decor_label(&s.id), macos::Layer::Gift)] {
+            let win = match app.get_webview_window(&label) {
+                Some(w) => w,
+                None if show => match create_decor(app, &label) {
+                    Ok(w) => w,
+                    Err(e) => {
+                        log::warn!("마당 선물 창을 못 만들었어: {e}");
+                        continue;
+                    }
+                },
+                None => continue,
+            };
+            let lifted = layer == macos::Layer::Wall && STATE.lock().is_ok_and(|st| st.wall_lift.as_deref() == Some(label.as_str()));
+            used.push(label);
+            let Ok(ns) = win.ns_window() else { continue };
+            let (ns, cocoa) = (ns as usize, s.cocoa);
+            let layer = if lifted { macos::Layer::Gift } else { layer };
+            let _ = on_main(app, move || unsafe { macos::place(ns as *mut objc2::runtime::AnyObject, show, on_top, Some(cocoa), layer) });
+        }
     }
     for (label, win) in app.webview_windows() {
-        if label.starts_with(DECOR) && !used.contains(&label) {
+        if is_gift_win(&label) && !used.contains(&label) {
             if let Ok(ns) = win.ns_window() {
                 let ns = ns as usize;
-                let _ = on_main(app, move || unsafe { macos::place(ns as *mut objc2::runtime::AnyObject, false, false, None, true) });
+                let _ = on_main(app, move || unsafe { macos::place(ns as *mut objc2::runtime::AnyObject, false, false, None, macos::Layer::Gift) });
             }
         }
     }
+}
+
+/// 액자 창에서 액자를 끄는 동안 선물 창 층으로 올린다(앱 창 위에 보이게), 놓으면 다시 앱 창 아래로(사용자: 끄는 동안은 맨 위여도 된다).
+pub fn wall_lift(app: &AppHandle, label: &str, on: bool) -> Result<(), AppError> {
+    if !label.starts_with(WALL) {
+        return Ok(());
+    }
+    let Some(win) = app.get_webview_window(label) else { return Ok(()) };
+    let (show, on_top) = {
+        let mut st = STATE.lock()?;
+        st.wall_lift = on.then(|| label.to_string());
+        (visible(&st), st.on_top)
+    };
+    let ns = win.ns_window()? as usize;
+    let layer = if on { macos::Layer::Gift } else { macos::Layer::Wall };
+    on_main(app, move || unsafe { macos::place(ns as *mut objc2::runtime::AnyObject, show, on_top, None, layer) })
 }
 
 fn create_decor(app: &AppHandle, label: &str) -> Result<tauri::WebviewWindow, AppError> {
@@ -830,8 +875,8 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
     // 고양이·선물에서 멀면 화면 창엔 커서를 안 보내고(hit·쓰다듬기 없음) 10Hz 로만 읽는다. 누르거나 잡는 중이면 늘 근처
     let busy = p.down || st.grabbing || st.catching || st.decor_grab.is_some() || st.decor_catching.is_some();
     let gifts = under.into_iter().flat_map(|s| {
-        let label = decor_label(&s.id);
-        st.boxes.iter().filter(move |(l, _)| *l == label).flat_map(move |(_, b)| b.iter().map(move |r| [s.rect[0] + r[0], s.rect[1] + r[1], r[2], r[3]]))
+        let labels = [decor_label(&s.id), wall_label(&s.id)];
+        st.boxes.iter().filter(move |(l, _)| labels.contains(l)).flat_map(move |(_, b)| b.iter().map(move |r| [s.rect[0] + r[0], s.rect[1] + r[1], r[2], r[3]]))
     });
     let near = busy || cursor_near(p.mouse, st.cat_at.map(|c| [ox + c[0], oy + c[1]]), gifts);
     // 선물 창에서 선물을 끄는 동안 고양이 창은 커서를 못 본다 — 끌던 선물로 고양이를 비벼도 쓰다듬기가 아니다
@@ -862,7 +907,7 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
     let drag = if st.grabbing && !st.grab_cat {
         Some((LABEL.to_string(), cur.rect))
     } else {
-        st.decor_grab.as_ref().and_then(|l| st.screens.iter().find(|s| decor_label(&s.id) == *l).map(|s| (l.clone(), s.rect)))
+        st.decor_grab.as_ref().and_then(|l| st.screens.iter().find(|s| decor_label(&s.id) == *l || wall_label(&s.id) == *l).map(|s| (l.clone(), s.rect)))
     };
     if let Some((label, home)) = drag {
         let e = under
@@ -892,10 +937,10 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
         st.catching = want;
         let _ = win.set_ignore_cursor_events(!want);
     }
-    // 선물 창: 커서 밑 모니터의 선물 칸 안인가
+    // 선물 창·액자 창: 커서 밑 모니터의 선물 칸 안인가(바닥 선물이 액자 앞이라 선물 창부터)
     let hover = under.and_then(|s| {
-        let (label, pt) = (decor_label(&s.id), [p.mouse[0] - s.rect[0], p.mouse[1] - s.rect[1]]);
-        st.boxes.iter().any(|(l, b)| *l == label && b.iter().any(|r| inside(*r, pt))).then_some(label)
+        let pt = [p.mouse[0] - s.rect[0], p.mouse[1] - s.rect[1]];
+        hover_label(&st.boxes, [decor_label(&s.id), wall_label(&s.id)], pt)
     });
     let target = decor_target(st.decor_grab.clone(), hover, st.catching, p.option, p.down);
     if target != st.decor_catching {
@@ -912,7 +957,7 @@ fn follow(app: &AppHandle, sent: &mut Option<[f64; 2]>, away_sent: &mut Option<S
 /// 누름을 받지 않은 마당 창들(고양이 창·선물 창)에 다른 데를 눌렀다고 알린다.
 fn press_out(app: &AppHandle, took: Option<&str>) {
     for label in app.webview_windows().into_keys() {
-        if (label == LABEL || label.starts_with(DECOR)) && Some(label.as_str()) != took {
+        if (label == LABEL || is_gift_win(&label)) && Some(label.as_str()) != took {
             let _ = app.emit_to(&label, "neko-screen-press-out", ());
         }
     }
@@ -1069,7 +1114,7 @@ pub fn cross(app: &AppHandle, side: Side) -> Result<bool, AppError> {
 /// 새로 만든 창은 투명도 0 으로 시작한다(`macos::setup`): 페이지가 그리기 전 한 프레임이 앱 바탕색으로 모니터를 덮어
 /// 마당을 켤 때·모니터를 꽂을 때 깜빡였다.
 pub fn reveal(app: &AppHandle, label: &str) -> Result<(), AppError> {
-    if label != LABEL && !label.starts_with(DECOR) {
+    if label != LABEL && !is_gift_win(label) {
         return Ok(());
     }
     let Some(win) = app.get_webview_window(label) else { return Ok(()) };
@@ -1117,7 +1162,7 @@ pub(crate) mod macos {
     const FULL_SCREEN_AUXILIARY: usize = 1 << 8;
     /// NSStatusWindowLevel. 메뉴 막대(24)·Dock(20)·전체화면 앱 위.
     const STATUS_WINDOW_LEVEL: isize = 25;
-    /// kCGDesktopIconWindowLevelKey. '항상 위' 를 끄면 바탕화면 아이콘 위(선물 창 +1, 고양이 창 +2), 모든 창 아래.
+    /// kCGDesktopIconWindowLevelKey. 액자 창은 늘 그 +1, '항상 위' 를 끄면 선물 창 +2·고양이 창 +3(모든 앱 창 아래).
     const DESKTOP_ICON_LEVEL_KEY: i32 = 18;
     const OPTION_KEY: usize = 1 << 19;
 
@@ -1237,11 +1282,28 @@ pub(crate) mod macos {
         NSRect::new(objc2_foundation::NSPoint::new(x, y), objc2_foundation::NSSize::new(w, h))
     }
 
-    /// 레벨을 맞추고 `frame`(AppKit 좌표) 모니터 전체를 덮은 뒤 올리거나 숨긴다. `below`: 한 층 아래(선물 창 — 고양이가
-    /// 선물 앞에 오게). main thread 전용.
-    pub unsafe fn place(window: *mut AnyObject, show: bool, on_top: bool, frame: Option<[f64; 4]>, below: bool) {
-        let top = if on_top { STATUS_WINDOW_LEVEL } else { CGWindowLevelForKey(DESKTOP_ICON_LEVEL_KEY) as isize + 2 };
-        let level = top - below as isize;
+    /// 마당 창의 층. 고양이(맨 위) > 선물(한 층 아래 — 고양이가 선물 앞) > 액자(바탕화면 아이콘 바로 위, 보통 앱 창 아래).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum Layer {
+        Cat,
+        Gift,
+        Wall,
+    }
+
+    /// 그 층의 창 레벨. '항상 위'면 고양이는 상태 막대 층, 끄면 바탕화면 아이콘 위(액자 +1, 선물 +2, 고양이 +3 — 모든 앱 창 아래).
+    /// 액자는 늘 아이콘 바로 위다(아이콘보다 아래면 Finder 바탕화면 창이 클릭을 다 가져가 못 끈다).
+    pub fn level(layer: Layer, on_top: bool, icon: isize) -> isize {
+        let top = if on_top { STATUS_WINDOW_LEVEL } else { icon + 3 };
+        match layer {
+            Layer::Cat => top,
+            Layer::Gift => top - 1,
+            Layer::Wall => icon + 1,
+        }
+    }
+
+    /// 레벨을 맞추고 `frame`(AppKit 좌표) 모니터 전체를 덮은 뒤 올리거나 숨긴다(층은 `Layer`). main thread 전용.
+    pub unsafe fn place(window: *mut AnyObject, show: bool, on_top: bool, frame: Option<[f64; 4]>, layer: Layer) {
+        let level = level(layer, on_top, CGWindowLevelForKey(DESKTOP_ICON_LEVEL_KEY) as isize);
         let _: () = msg_send![window, setLevel: level];
         if let Some(frame) = frame {
             let now: NSRect = msg_send![window, frame];
@@ -1366,6 +1428,30 @@ pub(crate) mod macos {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn yard_layers_put_frames_under_app_windows() {
+        use super::macos::{level, Layer};
+        // 바탕화면 아이콘 층(음수 큰 값) 기준
+        let icon = -2147483603;
+        // '항상 위': 고양이 > 선물 > (보통 앱 창 0) > 액자 > 아이콘
+        assert!(level(Layer::Cat, true, icon) > level(Layer::Gift, true, icon));
+        assert!(level(Layer::Gift, true, icon) > 0 && level(Layer::Wall, true, icon) < 0);
+        assert_eq!(level(Layer::Wall, true, icon), icon + 1);
+        // '항상 위' 끔: 모두 앱 창 아래, 그래도 고양이 > 선물 > 액자 > 아이콘
+        let (c, g, w) = (level(Layer::Cat, false, icon), level(Layer::Gift, false, icon), level(Layer::Wall, false, icon));
+        assert!(c > g && g > w && w > icon && c < 0);
+    }
+
+    #[test]
+    fn hover_prefers_the_gift_window_over_the_frame_window() {
+        let boxes = vec![("neko-wall-A".to_string(), vec![[0.0, 0.0, 100.0, 100.0]]), ("neko-decor-A".to_string(), vec![[50.0, 50.0, 20.0, 20.0]])];
+        let labels = || ["neko-decor-A".to_string(), "neko-wall-A".to_string()];
+        assert_eq!(hover_label(&boxes, labels(), [55.0, 55.0]).as_deref(), Some("neko-decor-A")); // 바닥 선물이 액자 앞
+        assert_eq!(hover_label(&boxes, labels(), [10.0, 10.0]).as_deref(), Some("neko-wall-A"));
+        assert_eq!(hover_label(&boxes, labels(), [150.0, 10.0]), None);
+        assert!(is_gift_win("neko-wall-A") && is_gift_win("neko-decor-A") && !is_gift_win("neko-screen"));
+    }
+
     use super::*;
 
     #[test]
