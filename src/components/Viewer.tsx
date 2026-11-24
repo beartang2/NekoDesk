@@ -5,6 +5,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Copy, Download, Minus, Plus } from "lucide-react";
 import { syncWindowTheme } from "../lib/window-theme";
+import { IS_PHONE } from "../lib/platform";
+import { showPhoneViewer } from "./PhoneViewer";
 import "./Viewer.css";
 
 /** 뷰어에 띄울 것. 그림은 dataUrl, 글 파일은 text. 둘 다 없으면 미리보기 없음. */
@@ -19,7 +21,9 @@ export interface ViewerItem {
  * 옮겨 두고 보거나 확대해서 볼 수 있게. 창은 하나라 떠 있으면 내용만 바뀐다(lib.rs viewer_open).
  */
 export function openViewer(item: ViewerItem) {
-  void invoke("viewer_open", { item });
+  // 폰에는 따로 뜨는 창이 없다: 앱 안의 장으로 보인다(PhoneViewer)
+  if (IS_PHONE) showPhoneViewer(item);
+  else void invoke("viewer_open", { item });
 }
 
 /** 다운로드할 때 쓸 이름. 확장자는 그림 형식에서 뽑는다("네코 그림 1" → "네코 그림 1.png"). */

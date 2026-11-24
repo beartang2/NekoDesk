@@ -340,13 +340,23 @@ pub fn gift_remove(conn: &Connection, ids: &[String]) -> AppResult<()> {
 
 // ── 모으기 ───────────────────────────────────────────────────────────────────
 
-/// 큰 메시지에서 첨부·meta 의 dataUrl 본문을 비운다(이름·종류·크기는 남는다)
+/// 큰 메시지에서 첨부·meta 의 그림 본문(dataUrl)을 비운다(이름·종류·크기는 남는다). 큰 것부터, SHRINK_AT 아래가 될 때까지만 —
+/// 작은 그림(SVG·줄인 사진)은 같이 넘어가 다른 기기에서도 보인다(전엔 하나라도 넘으면 전부 비웠다)
 fn shrink(plain: &str) -> String {
-    fn drop_data(v: &mut Value) {
+    fn data_sizes(v: &Value, out: &mut Vec<usize>) {
         match v {
-            Value::String(s) if s.starts_with("data:") => s.clear(),
-            Value::Array(a) => a.iter_mut().for_each(drop_data),
-            Value::Object(o) => o.values_mut().for_each(drop_data),
+            Value::String(s) if s.starts_with("data:") => out.push(s.len()),
+            Value::Array(a) => a.iter().for_each(|x| data_sizes(x, out)),
+            Value::Object(o) => o.values().for_each(|x| data_sizes(x, out)),
+            _ => {}
+        }
+    }
+    /// cut 보다 크거나 같은 그림 본문을 비운다
+    fn drop_data(v: &mut Value, cut: usize) {
+        match v {
+            Value::String(s) if s.starts_with("data:") && s.len() >= cut => s.clear(),
+            Value::Array(a) => a.iter_mut().for_each(|x| drop_data(x, cut)),
+            Value::Object(o) => o.values_mut().for_each(|x| drop_data(x, cut)),
             _ => {}
         }
     }
@@ -360,16 +370,31 @@ fn shrink(plain: &str) -> String {
         }
     }
     const CLIP: usize = 2000;
+    const INNER: [&str; 2] = ["attachments", "meta"];
     let Ok(mut v) = serde_json::from_str::<Value>(plain) else { return plain.to_owned() };
-    // 1) 그림 본문(dataUrl), 2) 그래도 크면 첨부·meta 의 긴 글, 3) 그래도 크면 말 자체를 줄인다 — 서버 한 건(1MB)을 넘으면
+    let inner = |v: &Value, f: &str| v.get(f).and_then(Value::as_str).and_then(|s| serde_json::from_str::<Value>(s).ok());
+    // 1) 그림 본문을 큰 것부터, 2) 그래도 크면 첨부·meta 의 긴 글, 3) 그래도 크면 말 자체를 줄인다 — 서버 한 건(1MB)을 넘으면
     // 조용히 거절돼(too_big) 그 말이 다른 기기에 영영 안 갔다
-    for pass in [drop_data as fn(&mut Value), clip_long] {
-        for f in ["attachments", "meta"] {
-            if let Some(Value::String(s)) = v.get(f) {
-                if let Ok(mut inner) = serde_json::from_str::<Value>(s) {
-                    pass(&mut inner);
-                    v[f] = Value::String(inner.to_string());
-                }
+    let mut sizes = Vec::new();
+    for f in INNER {
+        if let Some(i) = inner(&v, f) {
+            data_sizes(&i, &mut sizes);
+        }
+    }
+    sizes.sort_unstable_by(|a, b| b.cmp(a));
+    let (mut over, mut cut) = (plain.len().saturating_sub(SHRINK_AT), usize::MAX);
+    for n in sizes {
+        if over == 0 {
+            break;
+        }
+        cut = n;
+        over = over.saturating_sub(n);
+    }
+    for pass in 0..2 {
+        for f in INNER {
+            if let Some(mut i) = inner(&v, f) {
+                if pass == 0 { drop_data(&mut i, cut) } else { clip_long(&mut i) }
+                v[f] = Value::String(i.to_string());
             }
         }
         if v.to_string().len() <= SHRINK_AT {

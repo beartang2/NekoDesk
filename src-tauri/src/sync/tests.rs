@@ -509,6 +509,24 @@ fn big_messages_drop_image_bodies() {
     assert_eq!(r.parent.as_deref(), Some("s"));
 }
 
+#[test]
+fn big_messages_keep_the_small_pictures() {
+    // 큰 그림(생성 그림 PNG)과 작은 그림(SVG·줄인 사진)이 같이 있으면 큰 것만 비운다 — 작은 것은 다른 기기에서도 보인다
+    let c = db();
+    let big = format!("data:image/png;base64,{}", "A".repeat(900_000));
+    let svg = format!("data:image/svg+xml;base64,{}", "B".repeat(4_000));
+    let photo = format!("data:image/jpeg;base64,{}", "C".repeat(120_000));
+    let meta = serde_json::json!({ "images": [big, svg] }).to_string();
+    let att = serde_json::json!([{ "name": "p.jpg", "dataUrl": photo }]).to_string();
+    conversations::save(&c, "s", "assistant", "그림", Some(&att), Some(&meta)).unwrap();
+    let plain: Value = serde_json::from_slice(&unseal(&KEY, &push_all(&c, "A")[0]).unwrap()).unwrap();
+    let m: Value = serde_json::from_str(plain["meta"].as_str().unwrap()).unwrap();
+    let a: Value = serde_json::from_str(plain["attachments"].as_str().unwrap()).unwrap();
+    assert_eq!(m["images"][0], "");
+    assert_eq!(m["images"][1], svg);
+    assert_eq!(a[0]["dataUrl"], photo);
+}
+
 // ── 실제 서버(wrangler dev) ──────────────────────────────────────────────────
 
 #[derive(Deserialize)]

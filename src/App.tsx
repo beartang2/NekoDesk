@@ -48,6 +48,8 @@ import { useMessageStore } from "./stores/messageStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { UpdatePrompt } from "./components/Update";
 import { openViewer, imageName, nowStamp } from "./components/Viewer";
+import { PhoneViewer } from "./components/PhoneViewer";
+import { splitSvg, svgDataUrl } from "./lib/svgBlocks";
 import { maskHome } from "./lib/home";
 import { useCatRpg } from "./hooks/useCatRpg";
 import { todosApi, scheduleApi, settingsApi, conversationApi, migrateLegacySecrets, securityApi, mapApi, SYNC_CHANGED, type SyncChanged, syncApi } from "./api/tauri";
@@ -476,9 +478,26 @@ const MdBlock = React.memo(function MdBlock({ text }: { text: string }) {
   return <ReactMarkdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>{text}</ReactMarkdown>;
 });
 
+/** 답에 글로 적힌 SVG 를 그림으로(lib/svgBlocks). 누르면 크게 본다 */
+const SvgPicture = React.memo(function SvgPicture({ svg }: { svg: string }) {
+  const url = useMemo(() => svgDataUrl(svg), [svg]);
+  const nekoName = useSettingsStore(nekoNameOf);
+  return (
+    <div className="message__pic">
+      <img src={url} alt="그림" className="message__image message__image--svg" onClick={() => openViewer({ name: `${nekoName} 그림 ${nowStamp()}.svg`, dataUrl: url })} />
+    </div>
+  );
+});
+
 function MessageMarkdown({ text, streaming }: { text: string; streaming: boolean }) {
-  if (!streaming) return <MdBlock text={text} />;
-  return <>{splitMarkdownBlocks(text).map((b, i) => <MdBlock key={i} text={b} />)}</>;
+  const pieces = useMemo(() => splitSvg(text), [text]);
+  return (
+    <>
+      {pieces.map((p, i) => "svg" in p ? <SvgPicture key={i} svg={p.svg} />
+        : streaming ? splitMarkdownBlocks(p.md).map((b, j) => <MdBlock key={`${i}.${j}`} text={b} />)
+        : <MdBlock key={i} text={p.md} />)}
+    </>
+  );
 }
 
 /**
@@ -556,7 +575,10 @@ const MessageItem = React.memo(function MessageItem({
           )}
           {m.images && m.images.length > 0 && (
             <div className="message__images">
-              {m.images.map((url, i) => (
+              {m.images.map((url, i) => !url ? (
+                // 동기화가 큰 그림 본문을 빼고 넘겼다(docs/neko-sync.md §4.2): 자리만 알린다
+                <div key={i} className="message__pic message__pic--away">그림은 만든 기기에서 볼 수 있습니다.</div>
+              ) : (
                 <div key={i} className="message__pic">
                   <img
                     src={url}
@@ -2330,6 +2352,7 @@ export default function App() {
       )}
       {IS_PHONE && <PairLinkPrompt />}
       {IS_PHONE && <PhonePanel />}
+      {IS_PHONE && <PhoneViewer />}
 
       {IS_PHONE && <div className="drawer-scrim" onClick={() => drawer.set(false)} aria-hidden="true" />}
       <ErrorBoundary label="사이드바">
