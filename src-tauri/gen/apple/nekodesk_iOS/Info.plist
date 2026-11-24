@@ -59,6 +59,8 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>맥 화면에 뜬 기기 연결 QR 을 찍으려고 카메라를 써요.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>그림판에 그린 그림을 사진에 저장해요.</string>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>네코에게 노래를 틀어 달라고 하면 음악 보관함에서 곡을 찾아 틀어요.</string>
 </dict>

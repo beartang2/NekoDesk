@@ -25,7 +25,8 @@ export function resizeImageForLlm(
         canvas.width = w;
         canvas.height = h;
         canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
-        const mime = out?.type ?? (file.type === "image/png" ? "image/png" : "image/jpeg");
+        // SVG 도 PNG 로: JPEG 는 비치는 바탕을 검게 칠한다
+        const mime = out?.type ?? (file.type === "image/png" || file.type === "image/svg+xml" ? "image/png" : "image/jpeg");
         const quality = mime === "image/jpeg" ? out?.quality ?? 0.82 : undefined;
         resolve(canvas.toDataURL(mime, quality));
       };

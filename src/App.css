@@ -1369,6 +1369,20 @@ html:not(.phone) .sidebar > .panel-card--draw:not(:has(.acc-wrap--open)) {
   border-radius: var(--r-md);
   object-fit: contain;
 }
+/* 답에 적힌 SVG 를 그린 것: 크기를 안 적은 그림도 보이게 폭을 주고(높이는 비율대로), 비치는 바탕이 어두운 테마에 묻히지 않게 흰 바탕 */
+.message__image--svg {
+  width: min(100%, 360px);
+  height: auto;
+  background: #fff;
+}
+/* 큰 그림 본문이 다른 기기에 있다 */
+.message__pic--away {
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  border: 1px dashed var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
 
 /* 그림 하나 + 그 아래 '선물함에 넣기' */
 .message__pic {

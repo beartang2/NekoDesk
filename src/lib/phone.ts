@@ -236,6 +236,7 @@ function watchEdgeDrags(root: HTMLElement): void {
     drag = null;
     const p = panels?.();
     if (!p || e.touches.length !== 1 || kbdUp || root.classList.contains("standby") || root.hasAttribute("data-holding")) return;
+    if (document.querySelector(".phone-viewer")) return; // 그림·파일을 크게 보는 중(PhoneViewer): 밀기는 그림을 옮기는 것이다
     const t = e.touches[0];
     const target = e.target as Element | null;
     const onScrim = target?.classList?.contains("drawer-scrim");

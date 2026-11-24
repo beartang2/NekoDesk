@@ -1019,6 +1019,62 @@ mod commands {
         Ok(path.to_string_lossy().into_owned())
     }
 
+    /// 폰: 그림판 그림(PNG data URL)을 iOS 공유 창(UIActivityViewController)으로 내보낸다 — 이미지 저장(사진)·파일에 저장·
+    /// 다른 앱으로 보내기를 거기서 고른다. 폰에는 바탕화면이 없어 맥의 save_canvas_image 가 없다(전엔 ✕ 만 떴다).
+    /// 공유 창이 닫힐 때까지 기다려 내보냈으면 true, 그냥 닫았으면 false. 사진에 처음 저장할 때 iOS 가 권한을 묻는다
+    /// (Info.ios.plist NSPhotoLibraryAddUsageDescription) — 거절해도 다른 길은 된다
+    #[cfg(target_os = "ios")]
+    #[tauri::command(async)]
+    pub fn share_image(window: tauri::WebviewWindow, data_url: String) -> Result<bool, AppError> {
+        use base64::Engine;
+        use objc2::msg_send;
+        use objc2::runtime::{AnyClass, AnyObject, Bool};
+        let b64 = data_url.split(',').nth(1).ok_or("invalid data URL")?;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| e.to_string())?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+        // 파일로 건네야 이름(…png)이 붙고 '파일에 저장'이 뜬다. 공유 창이 닫히면 지운다
+        let path = std::env::temp_dir().join(format!("nekodesk_{now}.png"));
+        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        let c_path = std::ffi::CString::new(path.to_string_lossy().as_bytes()).map_err(|e| AppError::msg(e.to_string()))?;
+        let (tx, rx) = std::sync::mpsc::channel::<bool>();
+        window.with_webview(move |webview| unsafe {
+            let controller = webview.view_controller() as *mut AnyObject;
+            let classes = (AnyClass::get(c"NSURL"), AnyClass::get(c"NSString"), AnyClass::get(c"NSArray"), AnyClass::get(c"UIActivityViewController"));
+            let (Some(url_cls), Some(str_cls), Some(arr_cls), Some(sheet_cls)) = classes else { let _ = tx.send(false); return };
+            let text: *mut AnyObject = msg_send![str_cls, stringWithUTF8String: c_path.as_ptr()];
+            let url: *mut AnyObject = msg_send![url_cls, fileURLWithPath: text];
+            if controller.is_null() || url.is_null() {
+                let _ = tx.send(false);
+                return;
+            }
+            let items: *mut AnyObject = msg_send![arr_cls, arrayWithObject: url];
+            let sheet: *mut AnyObject = msg_send![sheet_cls, alloc];
+            let sheet: *mut AnyObject = msg_send![sheet, initWithActivityItems: items, applicationActivities: std::ptr::null_mut::<AnyObject>()];
+            // 닫힐 때: completed = 무엇인가로 내보냈다(취소면 false)
+            let done = block2::RcBlock::new(move |_kind: *mut AnyObject, completed: Bool, _items: *mut AnyObject, _err: *mut AnyObject| {
+                let _ = tx.send(completed.as_bool());
+            });
+            let _: () = msg_send![sheet, setCompletionWithItemsHandler: &*done];
+            // 아이패드는 공유 창이 말풍선으로 떠서 붙을 자리가 있어야 한다(없으면 죽는다): 화면 아래 가운데
+            let pop: *mut AnyObject = msg_send![sheet, popoverPresentationController];
+            if !pop.is_null() {
+                let view: *mut AnyObject = msg_send![controller, view];
+                let b: objc2_foundation::NSRect = msg_send![view, bounds];
+                let at = objc2_foundation::NSRect::new(
+                    objc2_foundation::NSPoint::new(b.origin.x + b.size.width / 2.0, b.origin.y + b.size.height - 1.0),
+                    objc2_foundation::NSSize::new(1.0, 1.0),
+                );
+                let _: () = msg_send![pop, setSourceView: view];
+                let _: () = msg_send![pop, setSourceRect: at];
+            }
+            let _: () = msg_send![controller, presentViewController: sheet, animated: true, completion: std::ptr::null_mut::<AnyObject>()];
+            let _: () = msg_send![sheet, release];
+        })?;
+        let shared = rx.recv().unwrap_or(false);
+        let _ = std::fs::remove_file(&path);
+        Ok(shared)
+    }
+
     // ── 뷰어 ──────────────────────────────────────────────────────────────────
 
     /// 그림·파일을 뷰어 창에 띄운다. 창은 하나 — 떠 있으면 내용만 바꾸고 앞으로 가져온다.
@@ -2165,6 +2221,8 @@ pub fn run() {
             commands::phone_theme,
             #[cfg(target_os = "ios")]
             commands::phone_edge_guard,
+            #[cfg(target_os = "ios")]
+            commands::share_image,
             #[cfg(target_os = "macos")]
             commands::neko_screen_cross,
             #[cfg(target_os = "macos")]

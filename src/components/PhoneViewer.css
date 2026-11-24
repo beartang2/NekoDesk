@@ -1,0 +1,68 @@
+/* 폰: 그림·파일 크게 보기(PhoneViewer). 설정·선물함 장(.phone-panel)보다 위 */
+.phone-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+.phone-viewer__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 4px 0 16px;
+}
+/* 긴 파일 이름은 한 줄에서 끊는다 */
+.phone-viewer__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+.phone-viewer__close {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+}
+.phone-viewer__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.phone-viewer__body--image { display: grid; }
+/* 화면에 맞춰 가운데. 두 번 누르면 크게 — 넘치는 만큼 밀어서 본다 */
+.phone-viewer__image {
+  margin: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #fff; /* 바탕이 비치는 그림(SVG·PNG)이 어두운 테마에 묻히지 않게 */
+}
+.phone-viewer__image--big { max-width: none; max-height: none; width: 250%; }
+.phone-viewer__text {
+  margin: 0;
+  padding: 8px 16px 24px;
+  font: 12.5px/1.55 var(--font-mono, ui-monospace, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.phone-viewer__none {
+  margin: 0;
+  padding: 32px 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
