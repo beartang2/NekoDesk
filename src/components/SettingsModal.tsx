@@ -1290,7 +1290,8 @@ export function MindNotesSection() {
         <div className="rule-list">
           {page.shown.map((n) => {
             // 기억 목록처럼 눌러서 펼친다(쪽을 넘기면 접힌다)
-            const id = `${n.at}${n.text}`, isOpen = page.open.has(id), done = Date.parse(n.at) <= folded;
+            // 고른 것(산책 주제·그림)은 성격으로 굳히지 않는다(agent/heart-fold)
+            const id = `${n.at}${n.text}`, isOpen = page.open.has(id), done = n.kind !== "chose" && Date.parse(n.at) <= folded;
             return (
               <div className={`rule-row${isOpen ? " memory-row--open" : ""}${done ? " mind-row--folded" : ""}`} key={id}>
                 <span className="memory-row__kind">{MIND_KIND[n.kind]}</span>

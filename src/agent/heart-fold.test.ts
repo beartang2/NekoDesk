@@ -61,7 +61,8 @@ describe("applyFold 검사", () => {
 describe("foldHeart", () => {
   const notes = [
     { at: "2026-11-21T09:00:00Z", kind: "wonder", text: "굳힌 사건" },
-    { at: "2026-11-23T09:00:00Z", kind: "chose", what: "walk_topic", text: "새 사건", why: "비가 와서" },
+    { at: "2026-11-23T08:00:00Z", kind: "chose", what: "walk_topic", text: "고른 주제", why: "비가 와서" },
+    { at: "2026-11-23T09:00:00Z", kind: "wonder", text: "새 사건" },
   ];
   it("굳힌 뒤의 노트만 사건으로 주고, 사용자 사실은 안 보인다. 하루 한 번", async () => {
     h.set.set("neko_mind", JSON.stringify({ v: 1, notes, topics: [] }));
@@ -71,6 +72,7 @@ describe("foldHeart", () => {
     expect(r).toMatchObject({ add: ["비 오면 창가에"], keep: 1 });
     expect(h.sent).toContain("새 사건");
     expect(h.sent).not.toContain("굳힌 사건");
+    expect(h.sent).not.toContain("고른 주제"); // 고른 것(산책 주제·그림)은 성격의 재료가 아니다(사용자)
     expect(h.sent).not.toContain("김하린");
     expect(h.sent).toContain("a [좋아함] 창가 햇볕");
     const saved = JSON.parse(h.set.get("neko_heart")!);

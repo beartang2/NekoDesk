@@ -64,6 +64,8 @@ export function parseMind(raw: string | null): NekoMind {
     const kind = r.kind === "wonder" || r.kind === "want" || r.kind === "chose" || r.kind === "dream" ? r.kind : null;
     const text = line(r.text), at = typeof r.at === "string" && !Number.isNaN(Date.parse(r.at)) ? r.at : "";
     if (!kind || !text || !at) return [];
+    // 선물 종류 고름("고름: 놀이" 같은 것)은 속마음이 아니다(사용자) — 예전에 적힌 것도 읽을 때 버린다
+    if (kind === "chose" && r.what === "walk_gift") return [];
     return [{ at, kind, text, ...(line(r.what) ? { what: line(r.what) } : {}), ...(line(r.why) ? { why: line(r.why) } : {}) }];
   });
   const topics = (Array.isArray(o.topics) ? o.topics : []).flatMap((t): MindTopic[] => {
@@ -369,7 +371,8 @@ export interface Choice { key: string; label: string; hint?: string }
 
 /**
  * 보기(choices) 중 하나를 네코가 고른다. extra = 이번 선택에만 쓰는 재료 덩이(최근 선물 기록·알아본 것 등).
- * 고른 것이 보기에 없거나 생각하기가 안 되면 null(부르는 쪽은 지금 동작으로). 고른 것과 까닭은 노트에 남긴다(what)
+ * 고른 것이 보기에 없거나 생각하기가 안 되면 null(부르는 쪽은 지금 동작으로). 고른 것은 노트에 남기지 않는다 — 보기가 선물 종류
+ * 같은 갈래 이름이라 "고름: 놀이"처럼 속마음답지 않은 줄이 쌓였다(사용자). 같이 떠올린 궁금·하고 싶음만 남긴다
  */
 export async function chooseAmong(what: string, ask: string, choices: Choice[], extra: string[], memories: Memory[], signal?: AbortSignal): Promise<string | null> {
   if (!choices.length) return null;
@@ -380,12 +383,8 @@ export async function chooseAmong(what: string, ask: string, choices: Choice[], 
   const p = t.pick.toLowerCase();
   const hit = choices.find((c) => c.key === p) ?? choices.find((c) => p.includes(c.key) || t.pick.includes(c.label));
   if (!hit) return null;
-  const at = new Date().toISOString();
-  await updateMind((m) => {
-    const notes: MindNote[] = [...m.notes, { at, kind: "chose", what, text: hit.label, ...(t.why && !leaksFact(t.why, memories) ? { why: t.why } : {}) }];
-    if (t.note && !leaksFact(t.note.text, memories)) notes.push({ at, kind: t.note.kind, text: t.note.text });
-    return { ...m, notes };
-  });
+  const note = t.note && !leaksFact(t.note.text, memories) ? t.note : null;
+  if (note) await updateMind((m) => ({ ...m, notes: [...m.notes, { at: new Date().toISOString(), kind: note.kind, text: note.text }] }));
   return hit.key;
 }
 

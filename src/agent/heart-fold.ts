@@ -124,7 +124,9 @@ export async function foldHeart(signal?: AbortSignal): Promise<FoldRecord | null
   if (await foldBlock(today)) return null;
   const mind = await loadMind(); // 성격(heart)도 같이 읽는다
   const heart = await loadHeart();
-  const events = unfolded(mind.notes, heart);
+  // 고른 것(산책 주제·그림)은 사건 기록이지 속마음이 아니라 성격의 재료로 쓰지 않는다(사용자: 기억할 내용이 성격으로 들어온다)
+  const felt = { ...mind, notes: mind.notes.filter((n) => n.kind !== "chose") };
+  const events = unfolded(felt.notes, heart);
   // 하루 한 번만 해 보게 먼저 날을 적는다(실패해도 — 같은 실패로 매번 비용을 쓰지 않게)
   await updateHeart((h) => ({ ...h, day: today }));
   if (!events.length) return null;
@@ -136,7 +138,7 @@ export async function foldHeart(signal?: AbortSignal): Promise<FoldRecord | null
   const ask = "최근 사건들을 보고 너는 어떤 고양이인지 성격을 고쳐 써. 새로 굳은 것은 add, 다시 맞는 것은 keep, 바뀐 것은 revise, 더는 아닌 것은 drop.";
   const material = [
     // 사용자 사실은 안 보인다(취향만) — 성격은 산책 주제의 재료로 다시 쓰인다
-    ...mindMaterial(mind, memories, { facts: false }).filter((s) => !s.startsWith("## 나는 이런 고양이")),
+    ...mindMaterial(felt, memories, { facts: false }).filter((s) => !s.startsWith("## 나는 이런 고양이")),
     `## 지금 성격(번호·종류·글·사건 수)\n${heartLines(heart, { secrets: "all", ids: true }) || "(아직 없음)"}`,
     `## 굳힐 사건(노트)\n${events.map((n) => `- ${n.at.slice(0, 10)} ${n.kind}${n.what ? `(${n.what})` : ""}: ${n.text}${n.why ? ` — ${n.why}` : ""}`).join("\n")}`,
     played ? `## 최근 이틀 한 혼자 놀기\n${played}` : "",
