@@ -40,7 +40,8 @@ describe("그림판", () => {
     touch("pointerUp", 1, 30, 30);
     // 움직임 둘 + 손을 뗄 때 손떨림 보정이 남긴 끝(마지막 점까지)
     expect(ctx.stroke).toHaveBeenCalledTimes(3);
-    expect(ctx.quadraticCurveTo.mock.calls.at(-1)!.slice(2)).toEqual([30, 30]);
+    const curves = ctx.quadraticCurveTo.mock.calls;
+    expect(curves[curves.length - 1].slice(2)).toEqual([30, 30]);
     expect(ctx.getImageData).toHaveBeenCalledTimes(1); // 되돌리기 한 칸(첫 손가락 획만)
     touch("pointerMove", 1, 40, 40); // 뗀 뒤 움직임은 안 그린다
     expect(ctx.stroke).toHaveBeenCalledTimes(3);
