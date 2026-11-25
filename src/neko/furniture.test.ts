@@ -64,6 +64,29 @@ describe("가구 저장", () => {
     expect(s().items.some((f) => f.id === walk.id)).toBe(false);
   });
 
+  it("조명 켜짐은 그 가구 항목에 적고 at 을 바꾼다(맥·폰 같이). 같은 값이면 안 쓰고, 다른 기기 값(lamp)을 읽는다", async () => {
+    await s().load();
+    await s().place("base:lamp", "dock");
+    const saved = () => (JSON.parse(db.kv.get("neko_furniture")!).items as { id: string; at: number; lamp?: boolean; place: unknown }[]).find((f) => f.id === "base:lamp")!;
+    const t0 = saved().at;
+    await s().setLamp("base:lamp", true);
+    expect(saved()).toMatchObject({ lamp: true, place: { at: "dock", slot: 0 } });
+    expect(saved().at).toBeGreaterThan(t0);
+    expect(s().items[0].lamp).toBe(true);
+    const t1 = saved().at, raw = db.kv.get("neko_furniture");
+    await s().setLamp("base:lamp", true); // 같은 값: 안 쓴다(at 그대로)
+    expect(db.kv.get("neko_furniture")).toBe(raw);
+    await s().setLamp("base:lamp", false);
+    expect("lamp" in saved()).toBe(false);
+    expect(saved().at).toBeGreaterThan(t1); // 끈 것도 나중 바꿈 — 다른 기기의 켜짐을 이긴다
+    expect(s().items[0].lamp).toBeUndefined();
+    // 다른 기기가 켠 값을 받았다
+    db.kv.set("neko_furniture", JSON.stringify({ v: 2, gone: {}, items: [{ id: "base:lamp", kind: "lamp", place: { at: "dock", slot: 0 }, lamp: true, at: saved().at + 5 }] }));
+    await s().reload();
+    expect(s().items[0].lamp).toBe(true);
+    expect(parseFurniture(JSON.stringify({ v: 2, items: [{ id: "base:lamp", kind: "lamp", place: null, lamp: "yes" }] }))[0].lamp).toBeUndefined();
+  });
+
   it("바꾼 가구엔 바꾼 때, 버린 가구는 버린 때를 적는다 — 다른 기기 값과 가구 하나씩 합치는 재료(sync/furniture.rs)", async () => {
     await s().load();
     await s().add({ kind: "box", title: "상자", found: "2026-11-20" });

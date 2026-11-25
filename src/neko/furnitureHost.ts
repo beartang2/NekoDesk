@@ -6,7 +6,7 @@ import { useNekoStore } from "./nekoStore";
 
 /**
  * 가구의 호스트 쪽(docs/neko-furniture.md §8·§10·§12): 엔진에 놓인 가구를 넘기고(setFurniture — 칸 번호, 엔진이 resize 때 다시 잰다),
- * 엔진이 알려 주는 조명 켜짐(lamp)을 이 기기에 기억하고(동기화 안 함), 활동 중 엔진이 직접 그리는 가구(furnitureHeld)를
+ * 엔진이 알려 주는 조명 켜짐(lamp)을 그 가구 항목에 적고(furniture.ts setLamp — 맥·폰 같이), 활동 중 엔진이 직접 그리는 가구(furnitureHeld)를
  * 정지 그림 층(FurnitureLayer)이 빼고 그리게 한다. 엔진에 API 가 아직 없으면(옛 엔진) 건너뛴다.
  */
 
@@ -45,19 +45,6 @@ export function onAccent(fn: () => void) {
 /** 지금 포인트 색(#rrggbb). 바뀌면 다시 그린다 */
 export const useAccent = () => useSyncExternalStore(onAccent, () => accent);
 
-// ── 조명 켜짐: 이 기기에만(localStorage). 엔진이 바꾸고 lamp 로 알린다 ──
-const LAMP_KEY = "nekodesk_furniture_lamp";
-let lamps: Record<string, boolean> = (() => { try { return JSON.parse(localStorage.getItem(LAMP_KEY) || "{}") as Record<string, boolean>; } catch { return {}; } })();
-const lampSubs = new Set<() => void>();
-export const lampOn = (id: string) => lamps[id] === true;
-export function setLampOn(id: string, on: boolean) {
-  if (lampOn(id) === on) return;
-  lamps = { ...lamps, [id]: on };
-  try { localStorage.setItem(LAMP_KEY, JSON.stringify(lamps)); } catch { /* 저장 못 해도 이번엔 켜진다 */ }
-  lampSubs.forEach((f) => f());
-}
-export const useLamps = () => useSyncExternalStore((f) => { lampSubs.add(f); return () => { lampSubs.delete(f); }; }, () => lamps);
-
 // ── 활동 중 엔진이 직접 그리는 가구 ──
 let held: ReadonlySet<string> = new Set();
 const heldSubs = new Set<() => void>();
@@ -71,13 +58,14 @@ export function startFurnitureHost(ctrl: NekoController) {
     if (at !== "sidebar" && at !== "dock") { fc.setFurniture?.([]); return; }
     const a = accentHex();
     // 자유 가구는 모양·쓰임새를 같이(엔진이 그리고 그 무대에서 쓰임새를 다시 본다)
-    fc.setFurniture?.(placedAt(useNekoFurniture.getState().items, at).map((f) => ({ id: f.id, kind: f.kind, at, slot: f.place!.slot, on: lampOn(f.id), accent: a,
+    fc.setFurniture?.(placedAt(useNekoFurniture.getState().items, at).map((f) => ({ id: f.id, kind: f.kind, at, slot: f.place!.slot, on: !!f.lamp, accent: a,
       ...(f.kind === "free" ? { shape: f.shape, uses: f.uses ?? [] } : {}) })));
   };
   onAccent(send);
   useNekoFurniture.subscribe((s, prev) => { if (s.items !== prev.items) send(); });
   useNekoStore.subscribe((s, prev) => { if (s.stage.placement !== prev.stage.placement) send(); });
-  lampSubs.add(send);
+  // 조명 켜짐은 가구 항목에 있다(0.1.33). 이 기기에만 두던 옛 값(0.1.32 까지)은 버린다 — 어두우면 네코가 다시 켠다
+  try { localStorage.removeItem("nekodesk_furniture_lamp"); } catch { /* 없어도 된다 */ }
   // 다른 창(맥 선물함)·다른 기기가 바꾸면 스토어가 다시 읽는다(furniture.ts load)
   void useNekoFurniture.getState().load().then(send);
   // 가구 윗면(탁자) 위 선물: 그 가구가 그 장소에 없으면(치움·버림·다른 기기에서 치운 값·그 면이 없는 가구) 바로 아래 바닥(u)으로 적는다.
@@ -90,6 +78,6 @@ export function startFurnitureHost(ctrl: NekoController) {
   useNekoFurniture.subscribe((s, prev) => { if (s.items !== prev.items || s.loaded !== prev.loaded) dropOrphans(); });
   useNekoGifts.subscribe((s, prev) => { if (s.gifts !== prev.gifts || s.loaded !== prev.loaded) dropOrphans(); });
   if (!fc.setFurniture) return; // 옛 엔진: 사건도 없다
-  fc.on("lamp", ({ id, on }) => setLampOn(id, on));
+  fc.on("lamp", ({ id, on }) => void useNekoFurniture.getState().setLamp(id, on));
   fc.on("furnitureHeld", (ids) => { held = new Set(ids); heldSubs.forEach((f) => f()); });
 }

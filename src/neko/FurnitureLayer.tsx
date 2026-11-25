@@ -4,7 +4,7 @@ import { furnitureSlots, hitDecorAt } from "./engine/decor-draw";
 import { stageS } from "./engine/stage-scale";
 import { holdTops, placedAt, useNekoFurniture } from "./furniture";
 import { decorItems, useNekoGifts } from "./gifts";
-import { useAccent, useFurnitureHeld, useLamps } from "./furnitureHost";
+import { useAccent, useFurnitureHeld } from "./furnitureHost";
 import { useSkyLight } from "./Wallpaper";
 import { useShown } from "../lib/useShown";
 
@@ -27,7 +27,7 @@ export function FurnitureLayer({ place, still = false, onMenu }: {
   const ref = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const items = useNekoFurniture((s) => s.items);
-  const held = useFurnitureHeld(), lamps = useLamps(), sky = useSkyLight(), accent = useAccent();
+  const held = useFurnitureHeld(), sky = useSkyLight(), accent = useAccent();
   useShown(); // 다시 보이면 다시 그린다(아래 그리기는 그릴 때마다 돈다) — iOS 가 뒤에 있는 동안 캔버스를 비울 수 있다
   useEffect(() => { void useNekoFurniture.getState().load(); }, []);
   useEffect(() => {
@@ -59,7 +59,7 @@ export function FurnitureLayer({ place, still = false, onMenu }: {
     const dark = !document.documentElement.classList.contains("light");
     // 켜진 조명의 빛 웅덩이: 낮엔 거의 안 보이고 밤일수록 진하게(밤 0.32·노을 0.2·낮 0.06)
     for (const p of placed) {
-      if (p.f.kind !== "lamp" || !lamps[p.f.id] || held.has(p.f.id)) continue;
+      if (p.f.kind !== "lamp" || !p.f.lamp || held.has(p.f.id)) continue;
       const a = Math.min(0.32, 0.06 + (1 - sky.light) * 0.26 + sky.glow * 0.14), r = 160 * S, cy = floorY - 140 * S;
       const gr = g.createRadialGradient(p.x, cy, 0, p.x, cy, r);
       gr.addColorStop(0, `rgba(255,217,143,${a})`); gr.addColorStop(1, "rgba(255,217,143,0)");
@@ -68,7 +68,7 @@ export function FurnitureLayer({ place, still = false, onMenu }: {
     for (const p of placed) {
       if (held.has(p.f.id)) continue;
       drawFurniture(g, p.f.kind, p.x, floorY, S, {
-        slotW: p.slotW, on: !!lamps[p.f.id], accent, edge: 4 * dpr, shape: p.f.shape,
+        slotW: p.slotW, on: !!p.f.lamp, accent, edge: 4 * dpr, shape: p.f.shape,
         layer: "all", shadow: dark ? "rgba(0, 0, 0, 0.32)" : "rgba(20, 14, 24, 0.18)",
       });
     }
