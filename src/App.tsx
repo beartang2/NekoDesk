@@ -2265,7 +2265,7 @@ export default function App() {
         keywords: "panel 패널 고양이",
         run: () => setRightPanelVisible((v) => !v),
       },
-      { id: "delete", icon: "🗑️", label: "현재 대화 삭제", keywords: "delete 삭제 지우기", run: () => handleDelete(activeId) },
+      { id: "delete", icon: "🗑️", label: "현재 대화 삭제", keywords: "delete 삭제 지우기", run: () => setAskDelete(activeId) },
     ];
     const go: Command[] = sessions
       .filter((s) => s.id !== activeId)
@@ -2308,26 +2308,25 @@ export default function App() {
         commands={paletteCommands}
       />
       {!IS_PHONE && <UpdatePrompt />}
-      {IS_PHONE && (
-        <AlertDialog.Root open={!!askDelete} onOpenChange={(open) => { if (!open) setAskDelete(null); }}>
-          <AlertDialog.Portal>
-            <AlertDialog.Overlay className="update-overlay">
-              <AlertDialog.Content className="update-dialog">
-                <AlertDialog.Title className="update-dialog__title">이 대화를 지울까요?</AlertDialog.Title>
-                <AlertDialog.Description className="update-dialog__sub">
-                  "{sessions.find((s) => s.id === askDelete)?.title ?? ""}" 대화가 다른 기기에서도 지워집니다.
-                </AlertDialog.Description>
-                <div className="update-dialog__actions">
-                  <AlertDialog.Cancel className="update-dialog__btn">취소</AlertDialog.Cancel>
-                  <AlertDialog.Action className="update-dialog__btn update-dialog__btn--danger" onClick={() => { if (askDelete) handleDelete(askDelete); }}>
-                    지우기
-                  </AlertDialog.Action>
-                </div>
-              </AlertDialog.Content>
-            </AlertDialog.Overlay>
-          </AlertDialog.Portal>
-        </AlertDialog.Root>
-      )}
+      {/* 지우기 전에 묻는다(맥·폰 같이, 0.1.33): 지운 대화는 서버에서도 못 되돌린다. 처음 초점은 취소(Radix 기본) — Enter 가 바로 지우지 않는다 */}
+      <AlertDialog.Root open={!!askDelete} onOpenChange={(open) => { if (!open) setAskDelete(null); }}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="update-overlay">
+            <AlertDialog.Content className="update-dialog">
+              <AlertDialog.Title className="update-dialog__title">이 대화를 지울까요?</AlertDialog.Title>
+              <AlertDialog.Description className="update-dialog__sub">
+                "{sessions.find((s) => s.id === askDelete)?.title ?? ""}" 대화가 다른 기기에서도 지워집니다.
+              </AlertDialog.Description>
+              <div className="update-dialog__actions">
+                <AlertDialog.Cancel className="update-dialog__btn">취소</AlertDialog.Cancel>
+                <AlertDialog.Action className="update-dialog__btn update-dialog__btn--danger" onClick={() => { if (askDelete) handleDelete(askDelete); }}>
+                  지우기
+                </AlertDialog.Action>
+              </div>
+            </AlertDialog.Content>
+          </AlertDialog.Overlay>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
       {IS_PHONE && <PairLinkPrompt />}
       {IS_PHONE && <PhonePanel />}
 
@@ -2335,8 +2334,8 @@ export default function App() {
       <ErrorBoundary label="사이드바">
       <Sidebar
         onNew={handleNew}
-        // 폰: 버튼이 늘 보여 잘못 누르기 쉽다 — 지우기 전에 묻는다(맥은 올려 둔 뒤 0.3초 있어야 나타난다)
-        onDelete={IS_PHONE ? setAskDelete : handleDelete}
+        // 지우기 전에 묻는다(맥·폰 같이 — 사용자가 맥에서 실수로 바로 지웠다). 명령 팔레트 "현재 대화 삭제"도 같은 창
+        onDelete={setAskDelete}
         isRunning={pool.isRunning}
         gameSpeech={gameSpeech}
         rpg={{
