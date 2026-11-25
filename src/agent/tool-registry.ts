@@ -396,8 +396,12 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
 
   "code.exec": {
     name: "code.exec",
-    description:
-      "Python, Shell, AppleScript 를 로컬에서 실행하고 결과를 반환한다. " +
+    // 폰: 프로세스를 못 띄워 Python 만, 앱 안의 격리된 곳(lib/pyBox — 네트워크·기기 파일 없음)에서 돈다. 그림 도구는 맥과 같다
+    description: IS_PHONE
+      ? "Python 을 실행하고 결과를 반환한다(표준 라이브러리만, 네트워크·기기 파일 없음). " +
+        "파일·이미지는 상대 경로로 저장해라. 이미지는 저장만 하면 채팅에 표시된다. " +
+        "그림을 새로 그릴 때는 .svg 파일로 저장해라 — 그대로 렌더된다."
+      : "Python, Shell, AppleScript 를 로컬에서 실행하고 결과를 반환한다. " +
       'language 가 "applescript" 일 때 code 는 순수 AppleScript 문법만 쓴다 ' +
       '(osascript -e 래퍼 금지. 예: tell application "Music" to get name of current track). ' +
       "파일·이미지는 상대 경로로 저장해라. work_dir 을 안 주면 네코 출력 폴더(~/.nekodesk/output)에서 실행되니 거기 모인다. " +
@@ -409,15 +413,16 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
         code: { type: "string", description: "실행할 코드" },
         language: {
           type: "string",
-          enum: ["python", "shell", "applescript"],
+          enum: IS_PHONE ? ["python"] : ["python", "shell", "applescript"],
           description: "코드 언어",
         },
-        work_dir: { type: "string", description: "작업 디렉토리. 없으면 홈" },
+        ...(IS_PHONE ? {} : { work_dir: { type: "string", description: "작업 디렉토리. 없으면 홈" } }),
       },
       required: ["code", "language"],
     },
     readOnly: false,
     execute: async (p) => {
+      if (IS_PHONE) return phoneExec(p);
       const result = await invoke<CodeExecResult>("code_exec", {
         code: p["code"] as string,
         language: (p["language"] as string | undefined) ?? "python",
@@ -1114,12 +1119,31 @@ export async function findAttachedImage(name: string): Promise<Blob | null> {
   return live.pop() ?? null;
 }
 
+/**
+ * 폰의 code.exec: Python 만, 앱에 묶은 Pyodide 로(lib/pyBox). 승인은 맥과 같은 길(agent-loop 가 붙이는 __approved) —
+ * 맥은 백엔드가 승인 없는 호출을 거부하는데, 폰은 백엔드를 안 거치니 여기서 거부한다.
+ */
+async function phoneExec(p: Record<string, unknown>): Promise<CodeExecResult> {
+  const language = (p["language"] as string | undefined) ?? "python";
+  const code = String(p["code"] ?? "");
+  if (p["__approved"] !== true) throw new Error("code.exec 는 승인을 거쳐야 해.");
+  if (language !== "python") return { stdout: "", stderr: "이 기기에서는 Python 만 실행할 수 있어.", exit_code: 1, truncated: false };
+  const { runPython } = await import("../lib/pyBox");
+  const result = await runPython(code);
+  appEvents.emit("coderun", result);
+  execHistoryApi.save(language, code, result.stdout, result.stderr, result.exit_code).catch(() => {});
+  return result;
+}
+
 export function getTool(name: ToolName): ToolEntry {
   return REGISTRY[name];
 }
 
-/** 폰(iOS)에 없는 툴: 파일·코드 실행·보안 점검처럼 맥에서만 되는 것과, 폰 1차엔 뺀 그림(docs/neko-sync.md §6.1). */
-const DESKTOP_ONLY = /^(fs\.|image\.|(code\.exec|skill\.read|file\.upload|security\.check|process\.list|airdrop\.send)$)/;
+/**
+ * 폰(iOS)에 없는 툴: 파일·보안 점검처럼 맥에서만 되는 것과, 폰 1차엔 뺀 그림(docs/neko-sync.md §6.1).
+ * code.exec 는 폰에도 있다 — Python 만, 격리된 곳에서(phoneExec). 그리는 법을 읽는 skill.read 도 같이 있다.
+ */
+const DESKTOP_ONLY = /^(fs\.|image\.|(file\.upload|security\.check|process\.list|airdrop\.send)$)/;
 
 /** 폰에만 있는 툴: 음악 앱 다루기(MediaPlayer)·화면 밝기와 소리 크기. 맥은 code.exec 의 AppleScript 로 한다 */
 const PHONE_ONLY: ReadonlySet<string> = new Set(["music.control", "device.level"]);

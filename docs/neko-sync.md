@@ -824,3 +824,19 @@ cron 이 10분마다 깬다. 아래가 다 맞을 때만 나간다.
 | 다른 기기에서 넘어온 큰 그림(그림 생성 PNG 등, 기록 700KB 넘음) | "그림은 만든 기기에서 볼 수 있습니다." | 첨부면 "그림 본문이 이 기기에 없습니다." |
 
 - 큰 그림도 넘기려면 줄인 미리보기(JPEG 200KB 안팎)를 같이 저장해 그것만 넘기는 길이 있다(안 했다 — 이 기기 DB 가 그림마다 그만큼 는다).
+
+### 12.7 폰의 파이썬 실행 — 유르미 그림 (0.1.33)
+
+사용자: 폰에서 그려 달라고 하면 모델이 SVG 를 답에 그대로 써서 그림체가 원래 유르미 것이 아니었다. 폰에도 맥과 같은 `code.exec`(python)와 그리는 법 읽기(`skill.read`)를 둔다 — 그리는 법 문서·도구 설명을 폰용으로 따로 늘리지 않는다.
+
+- **무엇으로**: iOS 는 프로세스를 못 띄워 Pyodide(WASM CPython 3.14, npm `pyodide` 314.0.8 고정)를 앱에 묶는다. 그림 도구는 맥과 같은 파일(`src-tauri/src/exec/neko_draw.py`)을 그대로 넣는다. 폰 빌드에만 다섯 파일(`pyodide.mjs`·`pyodide.asm.mjs`·`pyodide.asm.wasm`·`python_stdlib.zip`·`pyodide-lock.json`, 약 13.5MB)이 들어간다(`vite.config.ts`). CDN 에서 받지 않고 패키지도 없다(표준 라이브러리만).
+- **폰의 `code.exec`**: Python 만(스키마에 셸·AppleScript·작업 폴더가 없고, 와도 거절). 승인은 맥과 같은 길(`permissions.ts` 의 `code.exec:python`, 위험 패턴·밖으로 보내기 검사) — 맥은 백엔드가 승인 없는 호출을 거부하고, 폰은 백엔드를 안 거치니 도구가 거부한다. 30초를 넘으면 끊는다. 출력은 맥과 같이 4000자까지.
+- **격리**(`src/lib/pyBox.ts`): 모델이 쓴 코드가 앱(Tauri invoke·window)과 네트워크에 닿지 않게 한다.
+  - 숨은 iframe(srcdoc) 안의 Web Worker 에서 돈다. 워커엔 window·DOM·invoke 가 없고 밖과는 postMessage 뿐이다. 받는 쪽은 글·숫자만 꺼내 쓴다.
+  - iframe 의 CSP 가 워커(blob: 로 띄운다)에 걸린다: `default-src 'none'`, `connect-src 'none'`(네트워크 없음), 밖의 스크립트 없음, `eval` 없음(WASM 만). Pyodide 파일은 앱이 읽어 메시지로 건넨다 — 워커는 아무것도 내려받지 않는다.
+  - 파이썬에서 JS 로 가는 모듈(`js`·`pyodide_js`)을 지우고, 워커의 `fetch`·`WebSocket`·`XMLHttpRequest`·`indexedDB` 등을 지운다. `urllib`·`socket` 은 WASM 이라 원래 안 된다.
+  - 워커는 앱과 같은 출처다(sandbox 속성을 붙이면 워커가 안 뜬다). 그래서 출처 격리 대신 CSP·전역 지우기로 막는다.
+- **그림이 뜨는 길**: `save()` 가 만든 `.svg` 를 이번 실행이 만든 그림 중 가장 새것으로 골라 `image_data_url` 로 돌려준다(맥의 `collect_output_image` 와 같다) — 답의 그림으로 뜨고, 눌러 크게 보기·선물함도 그대로다. `.svg`·`.py` 는 워커가 사는 동안 남고, 워커를 내려놓았다(2분 안 씀·시간 초과) 다시 띄울 때 되돌려 준다 — 앞서 그린 코드를 `open()` 으로 읽어 고쳐 다시 돌릴 수 있다. 앱을 끄면 사라진다(그림은 대화에 남는다).
+- **확인한 것**: Node 에서 같은 Pyodide 로 `neko_draw` 그리기·오류·막힌 모듈(`pyBox.test.ts`), 크롬 폰 화면에서 도구 전체 경로(그림·이름 겹침·오류·시간 초과·승인·막힌 길), iOS 시뮬레이터 Safari 에서 CSP 가 워커의 네트워크·밖의 스크립트를 막는 것.
+- **확인 못 한 것**: 실제 앱 주소(`tauri://localhost`)의 WKWebView 에서 blob 워커와 WASM 이 뜨는지. 시뮬레이터용 앱은 이 변경과 상관없이 켜자마자 꺼져 볼 수 없었다 — 실기기에서 본다. 못 띄우면 도구가 오류("파이썬을 준비하지 못했습니다")를 돌려주고 앱은 그대로다(모델은 예전처럼 SVG 를 답에 쓴다).
+- **앱 크기**: 다섯 파일 13.5MB(압축하면 약 6.3MB)만큼 폰 앱이 커진다. 맥 앱은 그대로다.

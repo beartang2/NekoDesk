@@ -13,13 +13,13 @@ describe("buildToolSchemas", () => {
     expect(names()).toContain("image.generate");
   });
 
-  it("폰에는 파일·코드 실행·그림·보안 점검 툴이 안 보이고, 맥에선 다 보인다", () => {
+  it("폰에는 파일·그림·보안 점검 툴이 안 보이고, 맥에선 다 보인다. 코드 실행(Python 만, 격리)과 그리는 법 읽기는 폰에도 있다", () => {
     const all = getAllTools().map((t) => t.name);
     const phone = all.filter((n) => onThisDevice(n, true));
-    for (const gone of ["fs.read", "fs.write", "code.exec", "skill.read", "file.upload", "image.trace", "security.check", "process.list", "airdrop.send"]) {
+    for (const gone of ["fs.read", "fs.write", "file.upload", "image.trace", "security.check", "process.list", "airdrop.send"]) {
       expect(phone).not.toContain(gone);
     }
-    for (const kept of ["todo.add", "todo.edit", "todo.delete", "todo.reopen", "schedule.list", "web.search", "web.scrape", "weather.get", "memory.save", "memory.search", "user.ask", "plan.set", "game.start", "agent.delegate"]) {
+    for (const kept of ["code.exec", "skill.read", "todo.add", "todo.edit", "todo.delete", "todo.reopen", "schedule.list", "web.search", "web.scrape", "weather.get", "memory.save", "memory.search", "user.ask", "plan.set", "game.start", "agent.delegate"]) {
       expect(phone).toContain(kept);
     }
     expect(all.filter((n) => onThisDevice(n, false))).toEqual(all);
