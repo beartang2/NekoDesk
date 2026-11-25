@@ -23,14 +23,14 @@ export const CAT_H = 100;
  * 자리별 물건 높이 상한(px, 사용자 확정): 방(sidebar)은 방 높이의 80%, 거실(dock)은 띠 높이, 마당(screen)은 고양이 키의 3배.
  * g = { floorY, S }(floorY 는 무대 바닥 = 방·띠 높이쯤). 장소를 모르면 상한 없음
  *
- * 방은 방 높이로 고양이 크기가 정해져(S = floorY/240) 방 높이의 80% = 고양이 키의 1.92배다. 거실도 같은 고양이 대비로 묶는다 —
+ * 방은 방 높이로 고양이 크기가 정해진다. 배율 1(S = floorY/240)일 때 방 높이의 80% = 고양이 키의 1.92배이고, 거실도 같은 고양이 대비로 묶는다 —
  * 띠 높이 전부(고양이 키 2.4배)까지 키우면 맥 방에서 보던 것보다 크고, 화면을 채운 폰 가로 거실에선 더 커 보였다(사용자).
  * 맥 거실·폰 세로 거실·폰 가로 모두 큰 선물은 고양이 키의 1.92배에서 멈춘다(띠가 그보다 낮으면 띠 높이)
  */
 export const ROOM_CAP_CATS = (0.8 * 240) / CAT_H;
 export function capPx(at, g) {
   if (at === "screen") return 3 * CAT_H * g.S;
-  // 방: 방 높이의 80%, 그리고 고양이 키 1.92배(맥 방은 S = 바닥/240 이라 같은 값, 폰은 고양이와 같이 70% 로 — stage-scale)
+  // 방: 고양이 키 1.92배(방 배율 0.82 라 S ≤ 0.82·바닥/240 — 맥·폰 모두 방 높이의 66% 쯤, stage-scale ROOM_K). 방 높이의 80% 는 그 위 안전선
   if (at === "sidebar") return Math.min(0.8 * g.floorY, ROOM_CAP_CATS * CAT_H * g.S);
   if (at === "dock") return Math.min(g.floorY, ROOM_CAP_CATS * CAT_H * g.S);
   return Infinity;

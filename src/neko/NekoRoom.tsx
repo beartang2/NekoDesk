@@ -21,10 +21,10 @@ import "./NekoRoom.css";
  * 다크에선 조금 밝게(검은 고양이). 선 없이 면만, 네코 그림체처럼.
  */
 
-/** 앱 무대의 자리 계산(neko-engine 의 resize: 투명 무대라 바닥은 아래에서 6px, 배율은 높이·폭 중 작은 쪽 × 기기 배율 — 폰 70%, stage-scale) */
+/** 앱 무대의 자리 계산(neko-engine 의 resize: 투명 무대라 바닥은 아래에서 6px, 배율은 높이·폭 중 작은 쪽 × 방 배율 0.82 — 맥·폰 같다, stage-scale ROOM_K) */
 export function stageMetrics(W: number, H: number) {
   const floorY = H - 6;
-  return { floorY, S: stageS(W, floorY) };
+  return { floorY, S: stageS(W, floorY, "sidebar") };
 }
 
 /** 벽과 바닥이 만나는 줄: 발 위(WALL_GAP 18). 이보다 높이 놓은 액자는 벽에 걸리고, 다른 물건은 떨어진다 */

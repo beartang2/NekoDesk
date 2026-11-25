@@ -58,7 +58,7 @@ export function ensureNeko(): NekoController {
     void listen("memory-warning", () => ctrl?.repaint()).catch(() => {});
     // 가구: 놓인 것을 엔진에 넘기고, 조명 켜짐·활동 중 잡은 가구를 받는다(furnitureHost)
     startFurnitureHost(ctrl);
-    // 무대 배율은 stage-scale 한 곳: 폰은 고양이·선물을 70% 로, 맥 거실은 기본 높이부터 멈춘다. 무대 크기·장소가 바뀔 때마다 넘긴다
+    // 무대 배율은 stage-scale 한 곳: 방은 82%(맥·폰 같이), 폰 거실은 70%, 맥 거실은 기본 높이부터 멈춘다. 무대 크기·장소가 바뀔 때마다 넘긴다
     {
       const cv = nekoCanvas();
       const fit = () => { if (cv.clientWidth && cv.clientHeight) ctrl?.setScale(stageS(cv.clientWidth, cv.clientHeight - 6, useNekoStore.getState().stage.placement)); };

@@ -130,7 +130,7 @@ describe("선물함", () => {
     useNekoGifts.getState().resize("big", 4, true);
     const g = useNekoGifts.getState().gifts[0];
     expect(g.scale).toBe(3); // 3 까지
-    expect(scaleCapped(g, "sidebar")).toBe(true);  // 큰 × 3 은 방 높이의 80% 를 넘는다
+    expect(scaleCapped(g, "sidebar")).toBe(true);  // 큰 × 3 은 방 상한(고양이 키 1.92배)을 넘는다
     expect(scaleCapped(g, "screen")).toBe(true);  // 큰 × 3(한 변 418)은 마당 고양이 키 3배(300)도 넘는다
     expect(scaleCapped({ ...g, scale: 1 }, "screen")).toBe(false);
   });

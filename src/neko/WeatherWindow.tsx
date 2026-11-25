@@ -95,7 +95,7 @@ export function WeatherWindow({ place }: { place: "sidebar" | "dock" }) {
       const { ctrl: c, catHere: here } = hitRef.current;
       if (here && c && (c.hit(x, y) || c.hitDecor(x, y) !== null)) return;
       if (!here && place === "sidebar") { // 빈 방: 정지 그림(RoomGifts)의 선물 위
-        const W = box.width, floorY = box.height - 6, scale = stageS(W, floorY);
+        const W = box.width, floorY = box.height - 6, scale = stageS(W, floorY, "sidebar");
         const tops = holdTops(useNekoFurniture.getState().items, "sidebar", W, floorY, scale); // 가구 위 선물은 그 면 자리
         if (hitDecorAt(decorItems(useNekoGifts.getState().gifts, "sidebar"), { W, floorY, scale, tops }, x, y) !== null) return;
       }
