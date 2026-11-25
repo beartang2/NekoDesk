@@ -105,8 +105,8 @@ describe("decor-draw", () => {
   });
 
   it("창 비키기: 가까운 쪽이 벽 밖(무대 옆 끝·천장)이면 다음으로 가까운 쪽, 다 안 되면 창턱 아래", () => {
-    const g = { W: 280, floorY: 320, S: 320 / 240 }, m = decorM(g.S);
-    const [win] = roomWindows("sidebar", 280, 326), b = windowBox(win);
+    const g = { W: 240, floorY: 320, S: 320 / 240 }, m = decorM(g.S);
+    const [win] = roomWindows("sidebar", 240, 326), b = windowBox(win); // 방 창은 82%(stage-scale ROOM_K) — 폭 240 에서 왼쪽 끝 가까이
     const at = (x: number, bottom: number, h: number) => ({ surface: "wall" as const, u: (x - m) / (g.W - 2 * m), v: (g.floorY - bottom) / (g.floorY - h - 10 * g.S), at: "sidebar" });
     // 방 창은 왼쪽 끝 가까이: 왼쪽으로 밀면 무대 밖 → 위·아래·오른쪽 중 가까운 쪽(여기선 아래, 창 아래쪽에 걸친 것)
     const low = b.y1 + 2, [x1, y1] = decorAt(at(b.x0 + 8, low, 30), 30, g, 30);

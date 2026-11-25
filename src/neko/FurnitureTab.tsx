@@ -12,7 +12,7 @@ import { PLACE_NAME } from "./gifts";
 import { IS_PHONE } from "../lib/platform";
 import type { PlaceAsk } from "./PlacePicker";
 import { GiftThumb } from "./NekoGiftBox";
-import { useAccent, useLamps } from "./furnitureHost";
+import { useAccent } from "./furnitureHost";
 
 /** 가구 그림(칸 크기에 맞춰). 기본 가구는 furniture-art, 물어온 가구는 모델이 그린 모양 */
 export function FurnitureThumb({ item, size = 64 }: { item: FurnitureItem; size?: number }) {
@@ -75,7 +75,7 @@ function previewStage(at: Room) {
  */
 function FurnitureSlots({ f, at, done }: { f: FurnitureItem; at: Room; done: () => void }) {
   const items = useNekoFurniture((s) => s.items);
-  const accent = useAccent(), lamps = useLamps();
+  const accent = useAccent();
   const boxRef = useRef<HTMLDivElement>(null), cvRef = useRef<HTMLCanvasElement>(null);
   const [bw, setBw] = useState(0);
   useLayoutEffect(() => {
@@ -97,7 +97,7 @@ function FurnitureSlots({ f, at, done }: { f: FurnitureItem; at: Room; done: () 
     g.clearRect(0, 0, W, H);
     slots.forEach((s, i) => {
       const o = owner(i);
-      if (o) drawFurniture(g, o.kind, s.x, floorY, S, { slotW: s.w, accent, on: !!lamps[o.id], edge: 3 * dpr, layer: "all", shape: o.shape }); // 자유 가구는 제 모양
+      if (o) drawFurniture(g, o.kind, s.x, floorY, S, { slotW: s.w, accent, on: !!o.lamp, edge: 3 * dpr, layer: "all", shape: o.shape }); // 자유 가구는 제 모양
     });
   });
   const pick = (i: number) => { void useNekoFurniture.getState().place(f.id, at, i); done(); };

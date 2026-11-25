@@ -26,7 +26,7 @@ import { stageS } from "./engine/stage-scale";
 const uOf = (x: number) => { const m = decorM(stageS(280, 194, "sidebar")); return (x - m) / (280 - 2 * m); };
 
 beforeAll(() => {
-  // 방 280×200: 바닥 194, S 0.81 → 가운데(u 0.5) 선물은 x 140, 바닥 194, 높이 약 78
+  // 방 280×200: 바닥 194, S 0.66(방 배율 0.82) → 가운데(u 0.5) 선물은 x 140, 바닥 194, 높이 약 64
   Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 280 });
   Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 200 });
   globalThis.ResizeObserver = class { cb: () => void; constructor(cb: () => void) { this.cb = cb; } observe() { this.cb(); } disconnect() {} } as unknown as typeof ResizeObserver;
@@ -106,7 +106,7 @@ describe("빈 방의 선물(RoomGifts)", () => {
     fireEvent.pointerMove(cv, { clientX: 160, clientY: 60, pointerId: 6, pointerType: "mouse" });
     fireEvent.pointerUp(cv, { clientX: 160, clientY: 60, pointerId: 6, pointerType: "mouse" });
     expect(h.place).not.toHaveBeenCalled(); // 떨어지는 중
-    act(() => { vi.advanceTimersByTime(3000); });
+    act(() => { vi.advanceTimersByTime(8000); });
     expect(h.place).toHaveBeenCalledTimes(1);
     expect(h.place.mock.calls[0][1]).toMatchObject({ surface: "floor" });
   });
@@ -115,22 +115,28 @@ describe("빈 방의 선물(RoomGifts)", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "performance"] });
     const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas:not(.neko-room__gifts--wall)")!;
     fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 7, pointerType: "mouse" });
-    fireEvent.pointerMove(cv, { clientX: 170, clientY: 150, pointerId: 7, pointerType: "mouse" });
-    fireEvent.pointerMove(cv, { clientX: 200, clientY: 140, pointerId: 7, pointerType: "mouse" });
-    fireEvent.pointerUp(cv, { clientX: 200, clientY: 140, pointerId: 7, pointerType: "mouse" });
+    // 가볍게 위로 던진다(40ms 마다 오른쪽 4, 위 10·30) — 세게 던지면 좁은 방 벽에 튕겨 돌아온다
+    vi.advanceTimersByTime(40);
+    fireEvent.pointerMove(cv, { clientX: 144, clientY: 150, pointerId: 7, pointerType: "mouse" });
+    vi.advanceTimersByTime(40);
+    fireEvent.pointerMove(cv, { clientX: 148, clientY: 120, pointerId: 7, pointerType: "mouse" });
+    fireEvent.pointerUp(cv, { clientX: 148, clientY: 120, pointerId: 7, pointerType: "mouse" });
     expect(h.place).not.toHaveBeenCalled(); // 날아가는 중
     act(() => { vi.advanceTimersByTime(8000); });
     expect(h.place).toHaveBeenCalledTimes(1);
     expect(h.place.mock.calls[0][1]).toMatchObject({ surface: "floor" });
-    expect(h.place.mock.calls[0][1].u).toBeGreaterThan(0.75); // 놓은 자리(200 → 0.7 쯤)보다 오른쪽으로 굴러갔다
-    expect(Math.abs(h.place.mock.calls[0][1].rot)).toBeGreaterThan(0.5); // 굴러간 만큼 돈 각도도 적는다
+    expect(h.place.mock.calls[0][1].u).toBeGreaterThan(uOf(148) + 0.1); // 놓은 자리(148)보다 오른쪽으로 굴러갔다
+    expect(Math.abs(h.place.mock.calls[0][1].rot)).toBeGreaterThan(0.3); // 굴러간 만큼 돈 각도도 적는다(−π~π 로 접은 값)
   });
 
   const fling = (cv: Element) => {
     fireEvent.pointerDown(cv, { ...ON, button: 0, pointerId: 7, pointerType: "mouse" });
-    fireEvent.pointerMove(cv, { clientX: 170, clientY: 150, pointerId: 7, pointerType: "mouse" });
-    fireEvent.pointerMove(cv, { clientX: 200, clientY: 140, pointerId: 7, pointerType: "mouse" });
-    fireEvent.pointerUp(cv, { clientX: 200, clientY: 140, pointerId: 7, pointerType: "mouse" });
+    // 가볍게 위로 던진다(40ms 마다 오른쪽 4, 위 10·30) — 세게 던지면 좁은 방 벽에 튕겨 돌아온다
+    vi.advanceTimersByTime(40);
+    fireEvent.pointerMove(cv, { clientX: 144, clientY: 150, pointerId: 7, pointerType: "mouse" });
+    vi.advanceTimersByTime(40);
+    fireEvent.pointerMove(cv, { clientX: 148, clientY: 120, pointerId: 7, pointerType: "mouse" });
+    fireEvent.pointerUp(cv, { clientX: 148, clientY: 120, pointerId: 7, pointerType: "mouse" });
   };
   it("구르는 중에 잡으면 굴림을 멈추고 그 자리를 저장한다. 끌기는 지금 그린 자리에서 이어 가고 굴림이 끼어들지 않는다(사용자: 버벅임·원래대로 돌아옴)", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame", "performance"] });
@@ -171,7 +177,7 @@ describe("빈 방의 선물(RoomGifts)", () => {
     const g0 = [...h.gifts], f0 = useNekoFurniture.getState().items;
     try {
       useNekoFurniture.setState({ items: [{ id: "base:table", kind: "table", place: { at: "sidebar", slot: 0 } }] });
-      const S = stageS(280, 194), top = holdTops(useNekoFurniture.getState().items, "sidebar", 280, 194, S)[0], cx = (top.x0 + top.x1) / 2;
+      const S = stageS(280, 194, "sidebar"), top = holdTops(useNekoFurniture.getState().items, "sidebar", 280, 194, S)[0], cx = (top.x0 + top.x1) / 2;
       h.gifts.splice(0, h.gifts.length, { ...g0[0], id: "t", placed: { at: "sidebar", surface: "furniture", u: uOf(cx), fid: "base:table", i: 0, fu: 0.5 } as typeof g0[0]["placed"] });
       const cv = render(<RoomGifts isDark={false} />).container.querySelector("canvas:not(.neko-room__gifts--wall)")!;
       fireEvent.pointerDown(cv, { clientX: cx, clientY: 190, button: 0, pointerId: 21, pointerType: "mouse" }); // 아래 바닥

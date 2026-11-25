@@ -5,6 +5,7 @@ import { useNekoStore } from "./nekoStore";
 import { useNekoGifts, type GiftPlacement } from "./gifts";
 import { validateShape } from "./engine/gift-shape";
 import { createRemoteNeko, dispatchEvt, getRemoteNeko, link, type NekoCmd } from "./remoteNeko";
+import { petDo, petGauge, petView, resetPetGauge } from "../lib/petGauge";
 
 const tauri = vi.hoisted(() => ({
   handlers: new Map<string, (e: { payload: unknown }) => void>(),
@@ -48,6 +49,19 @@ describe("remoteNeko(대리 컨트롤러)", () => {
     off();
     dispatchEvt({ ev: "activity", payload: null });
     expect(got).toEqual(["box"]);
+  });
+
+  it("낚싯대를 문 사건(wandBite) 하나에 놀이 +5 가 한 번 — 흔드는 동안의 play(wand)는 게이지를 안 올린다", () => {
+    resetPetGauge({ supported: true, pet: { play: 40, at: Date.now(), feeds: 0, day: "" }, queue: [] });
+    const neko = createRemoteNeko(() => {});
+    const off = neko.on("wandBite", () => void petDo("reward", 5)); // 감독(useNekoDirector)이 App 의 reward(5) 를 이렇게 건다
+    dispatchEvt({ ev: "play", payload: { kind: "wand" } });
+    expect(petGauge().queue).toEqual([]);
+    dispatchEvt({ ev: "wandBite" });
+    expect(petGauge().queue.map(({ kind, n }) => ({ kind, n }))).toEqual([{ kind: "reward", n: 5 }]);
+    expect(Math.round(petView(Date.now())!.play)).toBe(45);
+    off();
+    resetPetGauge();
   });
 
   it("곁들임: mix 는 보내면서 바꿔 두고, 화면 창의 side 이벤트로 바로잡는다", () => {

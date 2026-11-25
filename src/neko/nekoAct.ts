@@ -67,6 +67,16 @@ function stageFurniture(): { id: string; kind: string; uses: string[] }[] {
     : []));
 }
 
+/**
+ * 조명 놀이는 켜기·끄기 구분 없이 앞발로 한 번 톡이다 — 결과에 지금 상태와 바뀔 상태를 적는다(사용자: 조명을 끄라 했는데 켜졌는지
+ * 몰라 지어냈다). 켜짐은 가구 항목의 lamp 칸(맥·폰 같이, furniture.ts)
+ */
+function lampNote(key: string): string {
+  if (key !== "lamp") return "";
+  const l = useNekoFurniture.getState().items.find((f) => f.kind === "lamp" && f.place?.at === here());
+  return l ? (l.lamp ? " — 켜진 조명을 끄러 간다(한 번 톡)" : " — 꺼진 조명을 켜러 간다(한 번 톡)") : "";
+}
+
 /** 상자 가구 없이 상자 놀이: 엔진이 임시 상자를 가져와 들어간다(사용자 결정 — 막지 않고 결과에 사실을 적는다) */
 const tempBox = (key: string) => key === "box" && !stageFurniture().some((f) => f.kind === "box");
 
@@ -157,7 +167,7 @@ function playAct(key: string): string {
   const temp = tempBox(key);
   chooseNow(opt.key);
   noteMoment(`직접 고름: ${ACT_LABEL[key] ?? key}${temp ? "(임시 상자)" : ""}`);
-  return `고름: ${name(key)}${temp ? " — 이 자리에 가구 상자가 없어 임시 상자를 가져와 들어간다" : ""}. 하던 말을 마치면 그 자리에서 한다`;
+  return `고름: ${name(key)}${temp ? " — 이 자리에 가구 상자가 없어 임시 상자를 가져와 들어간다" : lampNote(key)}. 하던 말을 마치면 그 자리에서 한다`;
 }
 
 function goTo(key: string): string {
@@ -212,7 +222,7 @@ function furnitureDo(id: string, act: string): string {
   if (f.kind === "free") ctrlNow!.aim({ fid: f.id });
   chooseNow(key as NekoActivity);
   noteMoment(`직접 고름: ${furnName(f)}에서 ${ACT_LABEL[key] ?? key}`);
-  return `고름: ${furnName(f)}에서 ${name(key)}. 하던 말을 마치면 한다`;
+  return `고름: ${furnName(f)}에서 ${name(key)}${lampNote(key)}. 하던 말을 마치면 한다`;
 }
 
 /** neko.act: 결과 글(모델이 본다). 옛 부르기(활동 키 글)도 받는다 */

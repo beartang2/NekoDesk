@@ -113,6 +113,8 @@ export interface NekoEvents {
   decorPlayed: { id: string; at: number };
   /** 사용자가 무대에서 같이 논다(호스트가 감독 놀아주기로 넘긴다): 바닥 물건을 던졌다(chase, 쫓을 물건 id)·낚싯대를 잡고 흔든다(wand, 2.5초마다) */
   play: { kind: "chase" | "wand"; id?: string };
+  /** 낚싯대 장난감을 문 순간 한 번(물고 있는 동안은 다시 안 온다). 호스트가 놀이 게이지를 올린다 */
+  wandBite: void;
   /** 놓아 둔 물건을 끌어 옮김 */
   decorMove: { id: string } & NekoDecorSpot;
   /** 놓아 둔 물건을 우클릭하거나 터치로 꾹 누름: (x, y) = 그 물건 오른쪽 위(무대 px). 호스트가 거기에 '정리' 버튼을 띄운다 */

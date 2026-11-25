@@ -19,7 +19,7 @@ export const windowBox = (r) => ({ x0: r.x - WINDOW_PAD + 1, y0: r.y - WINDOW_PA
 export function roomWindows(place, W, H) {
   if (!(W > 0 && H > 0) || (place !== "sidebar" && place !== "dock")) return [];
   const floorY = H - 6; // 엔진 resize 와 같다(투명 무대, 바닥은 아래에서 6px)
-  const S = stageS(W, floorY, place), K = stageK(); // 폰은 고양이와 같이 창도 70%(가운데·위 자리는 그대로)
+  const S = stageS(W, floorY, place), K = stageK(place); // 창도 고양이와 같은 배율(방 82%, 폰 거실 70%). 가운데·위 자리는 그대로
   const seam = floorY - 18 * S; // 벽과 바닥이 만나는 줄
   if (place === "sidebar") {
     const h = Math.round(Math.min(seam * 0.46, 120) * K), w = Math.round(h * 0.62), y = Math.round(seam * 0.14);

@@ -128,6 +128,25 @@ mod tests {
     }
 
     #[test]
+    fn lamp_on_follows_the_later_change() {
+        // 조명 켜짐은 항목 안의 칸(lamp, 0.1.33): 켜고 끌 때 at 을 바꾸니 나중 것이 통째로 이긴다
+        let dock0: Value = serde_json::from_str(DOCK0).unwrap();
+        let lamp = |v: &str| serde_json::from_str::<Value>(v).unwrap()["items"][0]["lamp"].clone();
+        let off = val(json!([{ "id": "base:lamp", "kind": "lamp", "place": dock0, "at": 10 }]), json!({}));
+        let on = val(json!([{ "id": "base:lamp", "kind": "lamp", "place": dock0, "lamp": true, "at": 20 }]), json!({}));
+        // 폰(꺼짐 10)이 맥이 켠 값(20)을 받는다: 켜진다, 다시 올릴 것 없다
+        let (got, upload) = merge_values(Some(&off), &on, 20);
+        assert_eq!(lamp(&got.unwrap()), json!(true));
+        assert!(!upload);
+        // 맥(켜짐 20)이 폰의 옛 꺼짐(10)을 받는다: 켜진 채, 폰이 모르니 다시 올린다
+        assert_eq!(merge_values(Some(&on), &off, 10), (None, true));
+        // 나중에 끈 값(30)은 켜짐을 이긴다
+        let off2 = val(json!([{ "id": "base:lamp", "kind": "lamp", "place": dock0, "at": 30 }]), json!({}));
+        let (got, _) = merge_values(Some(&on), &off2, 30);
+        assert_eq!(lamp(&got.unwrap()), Value::Null);
+    }
+
+    #[test]
     fn dropped_furniture_stays_dropped_unless_changed_later() {
         let phone = val(json!([{ "id": "walk:a", "kind": "box", "place": null, "at": 5 }]), json!({}));
         let mac = val(json!([]), json!({ "walk:a": 9 }));

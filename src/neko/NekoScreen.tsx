@@ -59,7 +59,7 @@ const CAT_AT_STEP = 60;
 const CLOSED = { left: false, right: false } as const;
 /** 다른 모니터로 걸어 나가라고 다시 이르는 간격(하던 활동이 끝나 한가해졌을 때 이어 가게) */
 const WALK_OUT_EVERY_MS = 1000;
-const FORWARD: (keyof NekoEvents)[] = ["pet", "nyang", "annoyed", "grab", "drop", "activity", "label", "error", "decorMove", "decorPlayed", "decorHeld", "play", "exit", "put"];
+const FORWARD: (keyof NekoEvents)[] = ["pet", "nyang", "annoyed", "grab", "drop", "activity", "label", "error", "decorMove", "decorPlayed", "decorHeld", "play", "wandBite", "exit", "put"];
 /** 엔진이 파일 물려주기(§7)에 더하는 것(집사). 엔진이 아직 없으면 건너뛴다 */
 interface FileDragApi {
   fileDrag(at: [number, number] | null): void;
@@ -442,6 +442,11 @@ export function NekoScreen() {
       me.listen("neko-screen-ping", () => { towerSent = null; void emitTo("main", "neko-screen-ready").catch(() => {}); }),
       me.listen("neko-screen-press-out", () => { setMenu(null); closeArch(); }), // 다른 데를 눌렀다
       me.listen<{ screen: string; x: number; y: number } | null>("neko-screen-elsewhere", ({ payload }) => { elsewhere = payload; }),
+      // 주변 살피기(neko.look, 메인 창): 고양이 자리·화면 크기·올라앉은 창 번호만 돌려준다(창 이름·내용은 안 다룬다)
+      me.listen("neko-look-ask", () => {
+        const r = ctrl.region, win = ctrl.perch ? Number(ctrl.perch.split(":")[0]) : null;
+        void emitTo("main", "neko-look", { cat: [r.x + r.w / 2, r.y + r.h * 0.7], w: innerWidth, h: innerHeight, perch: Number.isFinite(win) ? win : null }).catch(() => {});
+      }),
     ];
     void invoke<Layout | null>("neko_screen_layout").then((l) => { if (l) ctrl.setGround(l.ground); }).catch(() => {});
     void invoke<Perches | null>("neko_screen_perches").then((p) => { if (p) ctrl.setPerches(p); }).catch(() => {});

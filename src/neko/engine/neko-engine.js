@@ -3774,7 +3774,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     step(A, dt) {
       A.cool -= dt;
       const t = wandToy(), c = cat;
-      if (t && A.tryBite && c.mode === "air" && wand.held && Math.hypot(t.x - c.head.x, t.y - c.head.y) < 50 * S) { A.tryBite = false; wand.bite = rand(1, 1.6); }
+      if (t && A.tryBite && c.mode === "air" && wand.held && Math.hypot(t.x - c.head.x, t.y - c.head.y) < 50 * S) { A.tryBite = false; wand.bite = rand(1, 1.6); emit("wandBite"); } // 무는 순간 한 번(호스트가 놀이 게이지 +5)
       if (c.mode === "act" && !(wand && wand.bite > 0)) setMode("idle");
     },
     look(A) { const t = wandToy(); return t ? [t.x, t.y] : null; },
@@ -5450,7 +5450,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     emit("furnitureMenu", { id: f.id, x: f.box.x + f.box.w, y: f.box.y });
     return true;
   }
-  /** 조명을 톡: 켜고 끄고 알린다(호스트가 이 기기에 기억해 setFurniture 의 on 으로 돌려준다) */
+  /** 조명을 톡: 켜고 끄고 알린다(호스트가 그 가구 항목에 적어 setFurniture 의 on 으로 돌려준다 — 다른 기기도 같이) */
   function toggleLamp(f) {
     f.on = !f.on; f.tapT = 1;
     emit("lamp", { id: f.id, on: f.on });

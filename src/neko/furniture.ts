@@ -41,7 +41,9 @@ export interface FurnitureItem {
   legacy?: { kind: FurnitureKind; shape: GiftShape };
   found?: string;
   place: FurniturePlace | null;
-  /** 마지막으로 놓거나 치운(물어온) 때(ms). 기기끼리 합칠 때 나중 것이 이긴다. 안 건드린 기본 가구·옛 값엔 없다 */
+  /** 조명이 켜져 있다(네코가 켜고 끈다). 꺼져 있으면 칸이 없다. 맥·폰이 같이 본다 — 켜고 끌 때 at 을 바꿔 나중 것이 이긴다(0.1.33) */
+  lamp?: true;
+  /** 마지막으로 놓거나 치운(물어온)·조명을 켜고 끈 때(ms). 기기끼리 합칠 때 나중 것이 이긴다. 안 건드린 기본 가구·옛 값엔 없다 */
   at?: number;
 }
 
@@ -80,7 +82,7 @@ function readFurniture(raw: string | null): { items: FurnitureItem[]; gone: Gone
     const at: FurniturePlace["at"] | null = pl?.at === "sidebar" ? "sidebar" : pl?.at === "dock" ? "dock" : null;
     const slot = Number(pl?.slot);
     const place: FurniturePlace | null = at && Number.isInteger(slot) && slot >= 0 && slot < FURNITURE_SLOTS[at] ? { at, slot } : null;
-    const stamp = Number.isSafeInteger(r.at) ? { at: r.at as number } : {};
+    const stamp = { ...(r.lamp === true ? { lamp: true as const } : {}), ...(Number.isSafeInteger(r.at) ? { at: r.at as number } : {}) };
     if (!isBase(r.id) && r.id in gone && gone[r.id] >= ((r.at as number) || 0)) return [];
     if (isBase(r.id)) return r.id === `base:${r.kind}` ? [{ id: r.id, kind: r.kind as FurnitureKind, place, ...stamp }] : [];
     // 모델이 쓴 이름·설명: 감정·생각 태그를 뗀다(lib/replyTags, 선물과 같은 길목) — 다음에 쓸 때 깨끗한 값이 저장된다
@@ -137,6 +139,8 @@ interface FurnitureStore {
   place: (id: string, at: string, slot?: number) => Promise<boolean>;
   /** 치운다(가구 탭에 남는다) */
   unplace: (id: string) => Promise<void>;
+  /** 조명을 켜고 끈다(엔진이 알린 것). 화면엔 바로, 저장은 그 가구의 at 을 지금으로 — 다른 기기도 같아진다 */
+  setLamp: (id: string, on: boolean) => Promise<void>;
   /** 물어온 가구를 버린다(기본 가구는 못 버린다) */
   remove: (id: string) => Promise<void>;
   /** 산책에서 물어왔다 */
@@ -146,7 +150,7 @@ interface FurnitureStore {
 const samePlace = (a: FurniturePlace | null, b: FurniturePlace | null) => a?.at === b?.at && a?.slot === b?.slot;
 
 /**
- * 저장된 값을 읽어 이번 바꿈만 얹고 쓴다(다른 기기가 막 쓴 것을 덮지 않게). 자리가 바뀐 가구·새 가구엔 지금(이 기기가 본 것보다
+ * 저장된 값을 읽어 이번 바꿈만 얹고 쓴다(다른 기기가 막 쓴 것을 덮지 않게). 자리·조명 켜짐이 바뀐 가구·새 가구엔 지금(이 기기가 본 것보다
  * 늦게)을, 빠진 물어온 가구는 버린 때를 적는다. 다른 창(맥 선물함·메인)도 다시 읽게 알린다
  */
 async function update(fn: (items: FurnitureItem[]) => FurnitureItem[] | null): Promise<FurnitureItem[] | null> {
@@ -158,7 +162,7 @@ async function update(fn: (items: FurnitureItem[]) => FurnitureItem[] | null): P
   for (const f of cur.items) if (!isBase(f.id) && !left.has(f.id)) gone[f.id] = Math.max(now, (f.at ?? 0) + 1);
   const stamped = next.map((f) => {
     const b = before.get(f.id);
-    if (!b || !samePlace(b.place, f.place)) return { ...f, at: Math.max(now, (b?.at ?? 0) + 1) };
+    if (!b || !samePlace(b.place, f.place) || !b.lamp !== !f.lamp) return { ...f, at: Math.max(now, (b?.at ?? 0) + 1) };
     // 옛 값(at 없음)에서 온 가구는 아주 오래된 것으로 — 어느 기기의 새 바꿈에도 진다
     return !f.at && (f.place || !isBase(f.id)) ? { ...f, at: 1 } : f;
   });
@@ -205,6 +209,15 @@ export const useNekoFurniture = create<FurnitureStore>((set, get) => ({
   },
   async unplace(id) {
     const next = await update((items) => items.map((x) => (x.id === id ? { ...x, place: null } : x)));
+    if (next) set({ items: next });
+  },
+  async setLamp(id, on) {
+    const flip = (items: FurnitureItem[]) => (items.some((x) => x.id === id && !!x.lamp !== on)
+      ? items.map((x) => { if (x.id !== id) return x; const { lamp: _, ...rest } = x; return on ? { ...rest, lamp: true as const } : rest; })
+      : null);
+    const shown = flip(get().items);
+    if (shown) set({ items: shown }); // 저장을 기다리지 않는다 — 그사이 엔진에 옛 켜짐을 돌려주지 않게
+    const next = await update(flip);
     if (next) set({ items: next });
   },
   async remove(id) {
