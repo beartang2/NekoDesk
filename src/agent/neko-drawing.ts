@@ -12,10 +12,10 @@ import { isClaudeActive } from "../stores/settingsStore";
  * 둔다. 선물함에서 '걸기'를 누르면 지금 장소 벽에 걸린다(gifts.ts 의 frame).
  *
  * 그리기는 산책 선물과 같은 길(gift-draw.ts)을 쓴다. 고르기 한 번 + 그리기·고치기 두 번 = 모델 세 번.
- * Claude 프로필일 때만, 예산이 남았을 때만, 하루 두 장까지.
+ * Claude 프로필일 때만, 예산이 남았을 때만, 맥·폰 합쳐 하루 1~2장(dayCap).
  */
 
-/** 하루에 그리는 장 수 */
+/** 이 기기가 하루에 그려 보는 횟수(실패해도 센다 — 모델 비용을 막는 선). 장 수 상한은 dayCap */
 const PER_DAY = 2;
 const DAY_KEY = "neko_drawing_day";
 
@@ -59,6 +59,21 @@ export function framed(drawing: GiftShape): GiftShape {
 
 const today = () => new Date().toDateString();
 
+/**
+ * 그날 상한(1 또는 2장). 날짜로 정해 맥·폰이 따로 세도 같은 값이다(사용자: 맥·폰 합쳐서 하루 1~2장 — 기기마다 2장씩 세니
+ * 한 선물함에 하루 4장까지 쌓였다). 새 동기화 키 없이.
+ */
+export function dayCap(day: string): number {
+  let h = 0;
+  for (const c of day) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return 1 + (h % 2);
+}
+
+/** 그날 그린 액자 수. 선물함은 동기화되니 다른 기기가 그린 것도 센다(사용자가 치운 건 안 센다) */
+export function framedOn(gifts: { at: string; frame?: true }[], day: string): number {
+  return gifts.filter((g) => g.frame && new Date(g.at).toDateString() === day).length;
+}
+
 async function drawnToday(): Promise<number> {
   const raw = (await settingsApi.get(DAY_KEY).catch(() => null)) ?? "";
   const [day, n] = raw.split("|");
@@ -74,7 +89,8 @@ let busy = false;
 export async function maybeDraw(): Promise<string | null> {
   if (busy || !isClaudeActive() || budgetBlockReason()) return null;
   const count = await drawnToday();
-  if (count >= PER_DAY) return null;
+  // ponytail: 두 기기가 선물함이 동기화되기 전에 함께 그리면 상한을 한 장 넘을 수 있다 — 드물어서 막지 않는다
+  if (count >= PER_DAY || framedOn(useNekoGifts.getState().gifts, today()) >= dayCap(today())) return null;
   busy = true;
   try {
     await settingsApi.set(DAY_KEY, `${today()}|${count + 1}`).catch(() => {});
