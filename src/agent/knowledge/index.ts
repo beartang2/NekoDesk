@@ -10,6 +10,7 @@ import messagesKnowledge     from "./applescript/messages.md?raw";
 import drawingKnowledge      from "./drawing.md?raw";
 import drawingProKnowledge   from "./drawing-pro.md?raw";
 import { isClaudeActive } from "../../stores/settingsStore";
+import { IS_PHONE } from "../../lib/platform";
 import { useNekoStore } from "../../neko/nekoStore";
 import { coatSwatch, summarizeAppearance } from "../../neko/summarize";
 
@@ -26,7 +27,9 @@ interface KnowledgeEntry {
 }
 
 function bodyOf(e: KnowledgeEntry): string {
-  return fillNekoLook((isClaudeActive() && e.strongContent) || e.content);
+  const text = fillNekoLook((isClaudeActive() && e.strongContent) || e.content);
+  // 폰엔 fs.read 가 없다: 그린 코드(.py)는 같은 파이썬 안에서 연다(lib/pyBox 가 지난 그림·코드를 남겨 둔다)
+  return IS_PHONE ? text.split("fs.read 로 읽어").join("open() 으로 읽어") : text;
 }
 
 /**
@@ -155,7 +158,8 @@ export function buildKnowledgeSection(userInput: string): string {
  * 고 답할 수 있고, 사용자도 무엇을 "/이름" 으로 부를 수 있는지 안다.
  */
 export function buildSkillIndex(): string {
-  return [...userSkills, ...KNOWLEDGE_MAP]
+  // 폰엔 AppleScript 가 없다(code.exec 는 Python 만): 목록에서 뺀다
+  return [...userSkills, ...KNOWLEDGE_MAP.filter((e) => !(IS_PHONE && e.name.startsWith("AppleScript/")))]
     .map(({ name, description }) => (description ? `- ${name}: ${description}` : `- ${name}`))
     .join("\n");
 }
