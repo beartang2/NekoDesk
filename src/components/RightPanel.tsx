@@ -740,6 +740,9 @@ export function PomodoroCard() {
 
 // ── Drawing Pad Card ──────────────────────────────────────────────────────────
 
+/** 되돌리기로 돌아갈 수 있는 획 수 */
+const UNDO_MAX = 20;
+
 const DRAW_COLORS = [
   "#1c1c1e", // off-black
   "#ff6b6b", // coral
@@ -868,9 +871,7 @@ export function DrawingPadCard({
     if (!ctx || !canvas || pointerRef.current !== null) return;
     pointerRef.current = e.pointerId;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 이미 끝난 포인터 */ }
-    // undo 스택에 현재 상태 저장
-    undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
-    redoStackRef.current = [];
+    pushUndo(ctx, canvas);
     isDrawingRef.current = true;
     const pt = getPos(e);
     lastPtRef.current = pt;
@@ -904,12 +905,19 @@ export function DrawingPadCard({
     lastPtRef.current = null;
   }
 
+  /** 되돌릴 수 있게 지금 그림을 쌓는다. UNDO_MAX 를 넘으면 오래된 것부터 버린다 — 캔버스 한 장이 통째(ImageData)라 폰에서 오래 그리면 메모리가 계속 쌓였다 */
+  function pushUndo(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) {
+    const stack = undoStackRef.current;
+    stack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    if (stack.length > UNDO_MAX) stack.splice(0, stack.length - UNDO_MAX);
+    redoStackRef.current = [];
+  }
+
   function clearCanvas() {
     const canvas = canvasRef.current;
     const ctx = getCtx();
     if (!canvas || !ctx) return;
-    undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
-    redoStackRef.current = [];
+    pushUndo(ctx, canvas);
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
@@ -1187,6 +1195,7 @@ export function DrawingPadCard({
                 >
                   ⌫
                 </button>
+                <button className="draw-tool-btn" onClick={undoCanvas} title="실행취소">↩</button>
                 <button className="draw-tool-btn" onClick={clearCanvas} title="전체 지우기">✕</button>
                 <button
                   className="draw-tool-btn draw-tool-btn--save"

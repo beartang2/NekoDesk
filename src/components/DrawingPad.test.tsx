@@ -47,4 +47,41 @@ describe("그림판", () => {
     fireEvent.pointerUp(cv, { clientX: 15, clientY: 5, pointerId: 9, pointerType: "mouse" });
     expect(ctx.stroke).toHaveBeenCalledTimes(3);
   });
+  /** 획 하나: 그리기 전 그림이 되돌리기에 쌓인다 */
+  const strokeOnce = (cv: Element, id: number) => {
+    fireEvent.pointerDown(cv, { clientX: 5, clientY: 5, pointerId: id, pointerType: "touch", button: 0 });
+    fireEvent.pointerMove(cv, { clientX: 15, clientY: 9, pointerId: id, pointerType: "touch" });
+    fireEvent.pointerUp(cv, { clientX: 15, clientY: 9, pointerId: id, pointerType: "touch" });
+  };
+  /** getImageData 가 부를 때마다 번호 붙은 그림을 준다 — 무엇으로 되돌렸는지 가린다 */
+  const numbered = () => { let n = 0; ctx.getImageData.mockImplementation(() => ({ n: ++n })); };
+
+  it("일반 모드의 되돌리기(↩): 누를 때마다 한 획 앞 그림으로, 더 없으면 그대로", () => {
+    numbered();
+    const { container } = render(<DrawingPadCard />);
+    const cv = container.querySelector("canvas.draw-canvas")!;
+    const undo = container.querySelector<HTMLButtonElement>('.draw-tools [title="실행취소"]')!;
+    expect(undo.textContent).toBe("↩");
+    strokeOnce(cv, 1); // 그리기 전 그림 = 1
+    strokeOnce(cv, 2); // 그리기 전 그림 = 2
+    fireEvent.click(undo);
+    expect(ctx.putImageData).toHaveBeenLastCalledWith({ n: 2 }, 0, 0);
+    fireEvent.click(undo);
+    expect(ctx.putImageData).toHaveBeenLastCalledWith({ n: 1 }, 0, 0);
+    fireEvent.click(undo);
+    expect(ctx.putImageData).toHaveBeenCalledTimes(2);
+    ctx.getImageData.mockImplementation(() => ({}));
+  });
+
+  it("되돌리기는 20획까지: 더 그리면 오래된 것부터 버린다(그림 한 장씩 쌓여 폰 메모리를 먹었다)", () => {
+    numbered();
+    const { container } = render(<DrawingPadCard />);
+    const cv = container.querySelector("canvas.draw-canvas")!;
+    const undo = container.querySelector<HTMLButtonElement>('.draw-tools [title="실행취소"]')!;
+    for (let i = 1; i <= 25; i++) strokeOnce(cv, i); // 그리기 전 그림 1..25
+    for (let i = 0; i < 30; i++) fireEvent.click(undo);
+    expect(ctx.putImageData).toHaveBeenCalledTimes(20);
+    expect(ctx.putImageData).toHaveBeenLastCalledWith({ n: 6 }, 0, 0); // 가장 오래 남은 것 = 6번째 획 앞
+    ctx.getImageData.mockImplementation(() => ({}));
+  });
 });
