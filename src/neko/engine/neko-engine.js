@@ -3774,7 +3774,7 @@ export function createNeko(canvas, options = {}) { // ES 모듈이라 이미 str
     step(A, dt) {
       A.cool -= dt;
       const t = wandToy(), c = cat;
-      if (t && A.tryBite && c.mode === "air" && wand.held && Math.hypot(t.x - c.head.x, t.y - c.head.y) < 50 * S) { A.tryBite = false; wand.bite = rand(1, 1.6); }
+      if (t && A.tryBite && c.mode === "air" && wand.held && Math.hypot(t.x - c.head.x, t.y - c.head.y) < 50 * S) { A.tryBite = false; wand.bite = rand(1, 1.6); emit("wandBite"); } // 무는 순간 한 번(호스트가 놀이 게이지 +5)
       if (c.mode === "act" && !(wand && wand.bite > 0)) setMode("idle");
     },
     look(A) { const t = wandToy(); return t ? [t.x, t.y] : null; },

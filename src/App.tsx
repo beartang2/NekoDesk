@@ -2152,7 +2152,7 @@ export default function App() {
   }, []);
   const { isDark, pref: themePref, cycle: cycleTheme } = useTheme();
   // 네코 감독(설계 docs/neko-p2-director.md): 세션 상태·앱 상황 → 계획 → 스케줄러 → 엔진. 자리는 NekoSlot 두 곳 중 설정에 맞는 곳
-  useNekoDirector({ activeId, isDark, needs: { hunger: displayHunger, play: rpgState.play }, onPet: handlePet });
+  useNekoDirector({ activeId, isDark, needs: { hunger: displayHunger, play: rpgState.play }, onPet: handlePet, onWandBite: () => reward(5) }); // 낚싯대를 한 번 물 때 놀이 +5(사용자, 0.1.33)
   useZoom();
   const activeSession = sessions.find((s) => s.id === activeId);
 

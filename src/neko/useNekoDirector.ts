@@ -42,15 +42,19 @@ const NEEDS_TICK_MS = 60_000;
 /** 키 입력·클릭·스크롤을 '앱을 쓰는 중'으로 세는 간격 */
 const ACTIVE_THROTTLE_MS = 3000;
 
-export function useNekoDirector({ activeId, isDark, needs, onPet }: {
+export function useNekoDirector({ activeId, isDark, needs, onPet, onWandBite }: {
   activeId: string;
   isDark: boolean;
   needs: { hunger: number; play: number };
   onPet: () => void;
+  /** 네코가 낚싯대 장난감을 물었다(한 번 물 때 한 번) */
+  onWandBite: () => void;
 }) {
   const ctrl = useNekoController();
   const onPetRef = useRef(onPet);
   onPetRef.current = onPet;
+  const onWandBiteRef = useRef(onWandBite);
+  onWandBiteRef.current = onWandBite;
   const activeRef = useRef(activeId);
   const needsRef = useRef(needs);
   needsRef.current = needs;
@@ -177,6 +181,8 @@ export function useNekoDirector({ activeId, isDark, needs, onPet }: {
       // 탭으로 쓰다듬기·'냥' → 놀이 게이지(App 의 handlePet)
       ctrl.on("pet", () => onPetRef.current()),
       ctrl.on("nyang", () => onPetRef.current()),
+      // 낚싯대 장난감을 물었다 → 놀이 게이지(App 의 reward). 마당 엔진이어도 화면 창이 넘겨 준다(NekoScreen FORWARD)
+      ctrl.on("wandBite", () => onWandBiteRef.current()),
       // 새 대화·파일 첨부: 꼬리 물음표
       appEvents.on("nekoHint", (h) => sch.react([{ type: "tail", sign: "question", sec: h.kind === "attach" ? 1.8 : 2.5 }])),
     ];
