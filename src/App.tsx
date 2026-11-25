@@ -1535,6 +1535,7 @@ export default function App() {
   }, []);
 
   const promptTokens = pool.contextTokens(activeId);
+  const pendingConfirm = pool.pendingConfirm(activeId), pendingClarify = pool.pendingClarify(activeId);
   const displayHunger =
     promptTokens === 0 || modelContextLength == null
       ? 100
@@ -2426,13 +2427,10 @@ export default function App() {
         </div>
 
         <div className="chat-dock" ref={dockRef}>
-          {pool.pendingConfirm && pool.pendingConfirm.sessionId === activeId && (
-            <ConfirmBanner confirm={pool.pendingConfirm} onResolve={pool.confirmResolve} />
-          )}
+          {/* 지금 세션이 기다리는 확인·되묻기만(세션마다 따로 든다 — 다른 세션 것은 그 세션으로 가면 보인다) */}
+          {pendingConfirm && <ConfirmBanner confirm={pendingConfirm} onResolve={(d) => pool.confirmResolve(activeId, d)} />}
 
-          {pool.pendingClarify && pool.pendingClarify.sessionId === activeId && (
-            <ClarifyBanner clarify={pool.pendingClarify} onAnswer={pool.clarifyResolve} />
-          )}
+          {pendingClarify && <ClarifyBanner clarify={pendingClarify} onAnswer={(a) => pool.clarifyResolve(activeId, a)} />}
 
           <Composer
             onSend={handleSend}

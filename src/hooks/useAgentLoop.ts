@@ -479,8 +479,16 @@ export function useAgentPool() {
   // 예전에는 boolean 플래그였다. 플래그는 소비 루프만 멈출 뿐 진행 중인
   // fetch 를 끊지 못해, stop 을 눌러도 llama.cpp 는 끝까지 GPU 를 물고 있었다.
   const abortRefs = useRef<Record<string, AbortController | undefined>>({});
-  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
-  const [pendingClarify, setPendingClarify] = useState<PendingClarify | null>(null);
+  // 확인·되묻기는 세션마다 따로 든다(0.1.33): 앱에 칸이 하나뿐이라 다른 세션의 답이 끝나며 지워 루프가 대답을 영영 기다렸고,
+  // 두 세션이 같이 물으면 앞의 것이 덮여 그 resolve 가 버려졌다. 지울 때도 그 세션 것만
+  const [pendingConfirms, setPendingConfirms] = useState<Record<string, PendingConfirm>>({});
+  const [pendingClarifies, setPendingClarifies] = useState<Record<string, PendingClarify>>({});
+  const without = <T,>(rec: Record<string, T>, sessionId: string): Record<string, T> => {
+    if (!(sessionId in rec)) return rec;
+    const next = { ...rec };
+    delete next[sessionId];
+    return next;
+  };
   // 일하는 사이 들어온 말. 루프가 도구 사이에 읽어 가므로 ref 가 원본이고 state 는 화면용이다.
   const queueRef = useRef<Record<string, QueuedMessage[]>>({});
   const [queues, setQueues] = useState<Record<string, QueuedMessage[]>>({});
@@ -741,7 +749,7 @@ export function useAgentPool() {
             signal(sessionId, { type: "wait", kind: "confirm", danger: event.isDangerous });
             // 딴 데 가 있으면 확인 창이 떠도 모른다. 대답할 때까지 루프가 멈춰 있다.
             void notifyIfAway(`${josa(nekoNameOf(useSettingsStore.getState()), "이/가")} 확인을 기다려`, toNotificationBody(event.code, 120));
-            setPendingConfirm({
+            setPendingConfirms((prev) => ({ ...prev, [sessionId]: {
               sessionId,
               language: event.language,
               code: event.code,
@@ -749,18 +757,18 @@ export function useAgentPool() {
               dangerReason: event.dangerReason,
               ruleKey: event.ruleKey,
               resolve: event.resolve,
-            });
+            } }));
             break;
 
           case "clarify_needed":
             signal(sessionId, { type: "wait", kind: "clarify", danger: false });
             void notifyIfAway(`${josa(nekoNameOf(useSettingsStore.getState()), "이/가")} 물어볼 게 있어`, toNotificationBody(event.question, 120));
-            setPendingClarify({
+            setPendingClarifies((prev) => ({ ...prev, [sessionId]: {
               sessionId,
               question: event.question,
               options: event.options,
               resolve: event.resolve,
-            });
+            } }));
             break;
 
           case "done": {
@@ -779,8 +787,8 @@ export function useAgentPool() {
               .filter((url): url is string => !!url);
             signal(sessionId, { type: "done", petState: emotion });
             setRunning(sessionId, false);
-            setPendingConfirm(null);
-            setPendingClarify(null);
+            setPendingConfirms((prev) => without(prev, sessionId));
+            setPendingClarifies((prev) => without(prev, sessionId));
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
                 m.id === assistantId
@@ -825,8 +833,8 @@ export function useAgentPool() {
               .finally(() => useSessionStore.getState().replied(sessionId));
             signal(sessionId, { type: "loop_error" });
             setRunning(sessionId, false);
-            setPendingConfirm(null);
-            setPendingClarify(null);
+            setPendingConfirms((prev) => without(prev, sessionId));
+            setPendingClarifies((prev) => without(prev, sessionId));
             setErrors((prev) => ({ ...prev, [sessionId]: event.message }));
             patchSessionMessages(sessionId, (prev) =>
               prev.map((m) =>
@@ -888,17 +896,15 @@ export function useAgentPool() {
       setRunning(sessionId, false);
       signal(sessionId, { type: "abort" });
       // 되묻는 중에 멈춰도 promise 를 풀어 준다. 안 그러면 루프가 대답을 영영 기다린다.
-      setPendingClarify((prev) => {
-        if (prev?.sessionId !== sessionId) return prev;
-        prev.resolve("");
-        return null;
+      setPendingClarifies((prev) => {
+        prev[sessionId]?.resolve("");
+        return without(prev, sessionId);
       });
       // 확인 대기 중에 stop 을 누르면 promise 를 풀어줘야 한다. 안 그러면 제너레이터가
       // 영원히 await 에 매달려 abort 신호를 확인할 기회조차 못 갖는다.
-      setPendingConfirm((prev) => {
-        if (prev?.sessionId !== sessionId) return prev;
-        prev.resolve("deny");
-        return null;
+      setPendingConfirms((prev) => {
+        prev[sessionId]?.resolve("deny");
+        return without(prev, sessionId);
       });
       useMessageStore.getState().patch(sessionId, (msgs) =>
         msgs.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
@@ -928,17 +934,23 @@ export function useAgentPool() {
     queued: (sessionId: string): QueuedMessage[] => queues[sessionId] ?? [],
     cancelQueued: (sessionId: string, id: string) =>
       setQueue(sessionId, (queueRef.current[sessionId] ?? []).filter((q) => q.id !== id)),
-    pendingConfirm,
-    confirmResolve: (decision: PermissionDecision) => {
-      if (pendingConfirm) signal(pendingConfirm.sessionId, { type: "wait_end", approved: decision !== "deny" });
-      pendingConfirm?.resolve(decision);
-      setPendingConfirm(null);
+    /** 그 세션이 기다리는 확인(없으면 null) */
+    pendingConfirm: (sessionId: string): PendingConfirm | null => pendingConfirms[sessionId] ?? null,
+    confirmResolve: (sessionId: string, decision: PermissionDecision) => {
+      const c = pendingConfirms[sessionId];
+      if (!c) return;
+      signal(sessionId, { type: "wait_end", approved: decision !== "deny" });
+      c.resolve(decision);
+      setPendingConfirms((prev) => without(prev, sessionId));
     },
-    pendingClarify,
-    clarifyResolve: (answer: string) => {
-      if (pendingClarify) signal(pendingClarify.sessionId, { type: "wait_end", approved: true });
-      pendingClarify?.resolve(answer);
-      setPendingClarify(null);
+    /** 그 세션이 되묻는 것(없으면 null) */
+    pendingClarify: (sessionId: string): PendingClarify | null => pendingClarifies[sessionId] ?? null,
+    clarifyResolve: (sessionId: string, answer: string) => {
+      const q = pendingClarifies[sessionId];
+      if (!q) return;
+      signal(sessionId, { type: "wait_end", approved: true });
+      q.resolve(answer);
+      setPendingClarifies((prev) => without(prev, sessionId));
     },
   };
 }
