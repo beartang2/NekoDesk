@@ -442,6 +442,11 @@ export function NekoScreen() {
       me.listen("neko-screen-ping", () => { towerSent = null; void emitTo("main", "neko-screen-ready").catch(() => {}); }),
       me.listen("neko-screen-press-out", () => { setMenu(null); closeArch(); }), // 다른 데를 눌렀다
       me.listen<{ screen: string; x: number; y: number } | null>("neko-screen-elsewhere", ({ payload }) => { elsewhere = payload; }),
+      // 주변 살피기(neko.look, 메인 창): 고양이 자리·화면 크기·올라앉은 창 번호만 돌려준다(창 이름·내용은 안 다룬다)
+      me.listen("neko-look-ask", () => {
+        const r = ctrl.region, win = ctrl.perch ? Number(ctrl.perch.split(":")[0]) : null;
+        void emitTo("main", "neko-look", { cat: [r.x + r.w / 2, r.y + r.h * 0.7], w: innerWidth, h: innerHeight, perch: Number.isFinite(win) ? win : null }).catch(() => {});
+      }),
     ];
     void invoke<Layout | null>("neko_screen_layout").then((l) => { if (l) ctrl.setGround(l.ground); }).catch(() => {});
     void invoke<Perches | null>("neko_screen_perches").then((p) => { if (p) ctrl.setPerches(p); }).catch(() => {});

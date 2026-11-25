@@ -386,6 +386,17 @@ const REGISTRY: Record<ToolName, ToolEntry> = {
     summarize: (r) => r as string,
   },
 
+  // 주변 살피기(0.1.33, 사용자: 조명 상태를 neko.self 에 넣지 말고 지금 있는 곳을 살피는 도구를 따로). 안에서만(INTERNAL_TOOLS)
+  "neko.look": {
+    name: "neko.look",
+    description: `네가 지금 있는 곳을 살핀다: 방·거실은 놓인 가구(조명 켜짐·꺼짐)·놓인 선물 수·창밖, 마당은 화면에 보이는 창의 수와 대략 위치·크기. ${ID_NOTE}`,
+    params: NO_PARAMS,
+    readOnly: true,
+    // 도구 표 → nekoLook → remoteNeko → … 고리가 생기지 않게 쓸 때 불러온다
+    execute: async () => (await import("../neko/nekoLook")).lookAroundText(),
+    summarize: (r) => r as string,
+  },
+
   "skill.read": {
     name: "skill.read",
     description:

@@ -10,6 +10,7 @@ import { actOptions, actOptionsText, CHOSEN_MS, nekoAct, setActController } from
 import { ERRAND_T } from "./nekoErrand";
 import { useNekoStore } from "./nekoStore";
 import { useNekoGifts } from "./gifts";
+import { useNekoFurniture } from "./furniture";
 import { useNekoApp } from "./director/stores";
 import { useNekoNeeds } from "./director/needsStore";
 import type { NekoController } from "./engine/neko-engine";
@@ -169,5 +170,12 @@ describe("neko.act 시키는 일", () => {
     expect(e.calls.find(([m]) => m === "aim")?.[1]).toEqual([{ fid: "walk:a1" }]);
     expect(nekoAct({ furniture: "base:sofa", act: "wheel" })).toMatch(/^소파에선 소파에서 쉬기\(sofa\)/);
     expect(nekoAct({ furniture: "없음" })).toMatch(/^그 가구가 이 자리\(거실\)에 없어/);
+  });
+  it("조명: 지금 켜짐·꺼짐과 바뀔 상태를 결과에 적는다(동작은 한 번 톡 그대로)", () => {
+    setActController(fakeEngine({ furniture: [{ id: "base:lamp", kind: "lamp" }] }).c);
+    useNekoFurniture.setState({ items: [{ id: "base:lamp", kind: "lamp", place: { at: "dock", slot: 0 }, lamp: true }] as never });
+    expect(nekoAct({ act: "lamp" })).toContain("켜진 조명을 끄러 간다");
+    useNekoFurniture.setState({ items: [{ id: "base:lamp", kind: "lamp", place: { at: "dock", slot: 0 } }] as never });
+    expect(nekoAct({ furniture: "base:lamp" })).toContain("꺼진 조명을 켜러 간다");
   });
 });
