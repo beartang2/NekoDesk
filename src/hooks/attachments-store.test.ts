@@ -186,10 +186,13 @@ describe("buildHistory", () => {
       ["past_a-1_2", "web.scrape", "중단됨"],
     ]);
     expect(a.ran?.calls[0].call.params).toEqual({ query: "Java4Shell" });
-    // 첫 줄만 실으니 검색 정리·출처로 쓴 말의 근거가 안 보여 "거짓말이었다" 고 했다(0.1.28) — 저장되는 2000자까지
-    const long = buildHistory([{ ...msgs[1], steps: [{ ...steps[0], summary: `정리 ${"가".repeat(3000)}\n\n출처:\n- 제목 (https://a.example)` }] }])[0].ran!;
-    expect(long.calls[0].step.summary.startsWith(`정리 ${"가".repeat(1990)}`)).toBe(true);
-    expect(long.calls[0].step.summary).toContain("자 생략");
+    // 첫 줄만 실으니 검색 정리·출처로 쓴 말의 근거가 안 보여 "거짓말이었다" 고 했다(0.1.28) — 저장되는 2000자까지.
+    // 웹 검색 정리는 통째로(0.1.35 — 2000자에서 잘린 뒤쪽 항목을 "검색 결과에 없던 내용" 이라며 철회했다)
+    const longSummary = `정리 ${"가".repeat(3000)}\n\n출처:\n- 제목 (https://a.example)`;
+    const long = buildHistory([{ ...msgs[1], steps: [{ ...steps[0], summary: longSummary }, { ...steps[2], status: "done", summary: longSummary }] }])[0].ran!;
+    expect(long.calls[0].step.summary).toBe(longSummary);
+    expect(long.calls[1].step.summary.startsWith(`정리 ${"가".repeat(1990)}`)).toBe(true);
+    expect(long.calls[1].step.summary).toContain("자 생략");
     expect(buildHistory(msgs)[1].ran).toEqual(a.ran);
   });
   it("모델이 바뀐 답 앞의 질문에 새 모델 이름을 단다 — 이름 없는 예전 답은 비교하지 않는다", () => {

@@ -160,6 +160,15 @@ export interface QueuedMessage {
 /** 저장할 때 도구 파라미터·결과 한 칸의 최대 길이. 웹 페이지를 긁은 결과는 몇백 KB 다. */
 const MAX_STORED_FIELD = 2000;
 
+/**
+ * 저장·다음 요청에 결과(summary)를 자르지 않는 도구. 웹 검색 정리(Haiku 가 쓴 답 + 출처)를 2000자로 자르니 다음
+ * 요청에선 뒤쪽 항목이 안 보여, 유르미가 제가 답한 제품들을 "검색 결과에 없던 내용" 이라며 철회했다(0.1.35).
+ * 길이는 검색 요청이 이미 묶는다(max_tokens 8000 × 이어 받기 3번 — llm-transport claudeWebSearch). 넘치면
+ * AgentContext 가 첫·끝 줄로 줄이거나 뺀다.
+ */
+const STORE_WHOLE = new Set(["web.search"]);
+const storeMax = (tool: string) => (STORE_WHOLE.has(tool) ? Infinity : MAX_STORED_FIELD);
+
 function clipForStore(value: unknown, max = MAX_STORED_FIELD): unknown {
   if (value === null || value === undefined) return value;
   const text = typeof value === "string" ? value : JSON.stringify(value);
@@ -203,7 +212,7 @@ export function serializeMeta(meta: MessageMeta): string | undefined {
     ...(s.status === "running" ? { status: "error" as const, errorMessage: "중단됨" } : {}),
     params: Object.fromEntries(Object.entries(s.params ?? {}).map(([k, v]) => [k, clipForStore(v)])),
     result: clipForStore(s.result),
-    summary: clipForStore(s.summary) as string,
+    summary: clipForStore(s.summary, storeMax(s.tool)) as string,
   }));
   const stored: MessageMeta = {
     ...(steps.length ? { steps } : {}),
@@ -414,7 +423,7 @@ export function buildHistory(messages: ChatMessage[]): LlmMessage[] {
 /**
  * 지난 답의 스텝 → 도구 호출과 결과. 글 메모("(도구 사용: …)")는 모델 눈에 제가 쓴 말과 같아서, "실제로
  * 실행된 작업만 완료됐다고 해" 를 지키려던 모델이 그 말을 못 믿고 "실행 기록이 없다" 며 같은 검색을 다시
- * 했다(0.1.26). 결과는 저장되는 만큼(MAX_STORED_FIELD) 싣는다 — 첫 줄만 실으니 검색 정리·출처로 쓴 말의 근거가
+ * 했다(0.1.26). 결과는 저장되는 만큼(MAX_STORED_FIELD, 웹 검색은 통째 — STORE_WHOLE) 싣는다 — 첫 줄만 실으니 검색 정리·출처로 쓴 말의 근거가
  * 안 보여 "그때 말은 거짓말이었다" 고 했다(0.1.28). 예산이 모자라면 AgentContext 가 줄인다. 자동 힌트("web.search
  * 로 찾아 재시도")는 지난 일이라 뺀다. 저장 길이로 자르니 다시 열어도 같은 글이고, id 는 메시지 id 에서 — 요청마다
  * 같아야 프롬프트 캐시가 그대로다.
@@ -423,7 +432,7 @@ function pastCalls(id: string, steps: AgentStep[]): NonNullable<LlmMessage["ran"
   const base = id.replace(/[^a-zA-Z0-9_-]/g, "");
   return steps.map((s, i) => ({
     call: { id: `past_${base}_${i}`, name: s.tool, params: s.params ?? {} },
-    step: { ...s, summary: String(clipForStore(stripLlmHints(s.summary || s.errorMessage || "")) ?? "") },
+    step: { ...s, summary: String(clipForStore(stripLlmHints(s.summary || s.errorMessage || ""), storeMax(s.tool)) ?? "") },
   }));
 }
 
