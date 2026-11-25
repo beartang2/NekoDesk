@@ -1064,6 +1064,7 @@
 
 .draw-tools {
   display: flex;
+  flex-wrap: wrap; /* 좁으면 다음 줄로(넘치거나 옆으로 밀리지 않게) */
   gap: 3px;
 }
 
