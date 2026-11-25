@@ -51,8 +51,8 @@
 | 네코 이름·성격·사용자 프로필 | localStorage `nekodesk_neko_name`·`nekodesk_system_prompt`·`nekodesk_user_profile` (`src/stores/settingsStore.ts`) | — | |
 | 오래된 대화 지우기 설정 | localStorage `nekodesk_session_retention` | — | 끔·30일·90일 |
 | Claude 예산·장부 | localStorage `nekodesk_claude_budget`·`nekodesk_claude_usage` (`src/stores/claudeBudget.ts`) | — | 기기 안에서만 센다 |
-| API 키 | macOS 키체인, 서비스 `com.nekodesk.desktop` (`src-tauri/src/secrets.rs`) | `anthropic_api_key` 등 | 화면(webview)에는 값을 안 준다 |
-| DB 열쇠 | 키체인 `db_key`(32바이트 hex) | — | `secrets.rs` 의 키체인 구현은 `#[cfg(target_os = "macos")]` 뿐이고 다른 OS 는 오류를 돌려준다 |
+| API 키 | 키체인, 서비스 `com.nekodesk.desktop`, 항목 하나 `secrets`(이름→값 JSON, `src-tauri/src/secrets.rs`) | `anthropic_api_key` 등 | 화면(webview)에는 값을 안 준다. 0.1.34 부터 비밀 전부가 한 항목이라 업데이트 뒤 키체인 창이 한 번만 뜬다. 예전 항목(비밀마다 하나)은 처음 켤 때 옮기고 지운다 |
+| DB 열쇠 | 같은 항목 안 `db_key`(32바이트 hex) | — | 맥·iOS(`security-framework`). 다른 OS 는 오류를 돌려준다 |
 
 걸리는 점
 
